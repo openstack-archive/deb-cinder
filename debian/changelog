@@ -1,0 +1,88 @@
+cinder (2012.2~f3-1) experimental; urgency=low
+
+  * First debian release
+
+ -- Mehdi Abaakouk <sileht@sileht.net>  Thu, 13 Sep 2012 15:52:06 +0200
+
+cinder (2012.2~rc1~20120907.230-0ubuntu4) quantal; urgency=low
+
+  [Chuck Short]
+  * New upstream version.
+  * debian/cinder.conf: Fix path for cinder-rootwrap. (LP: #1045438) 
+  * debian/control: Add python-glanceclient as a dep. 
+  * debian/cinder-common.postinst: Fix chmod thinko.
+  * debian/*.upstart: Specify the configuration files.
+
+  [Soren Hansen]
+  * Update debian/watch to account for symbolically named tarballs and
+    use newer URL.
+  * Fix Launchpad URLs in debian/watch.
+
+ -- Chuck Short <zulcss@ubuntu.com>  Fri, 07 Sep 2012 11:27:55 -0500
+
+cinder (2012.2~f3-0ubuntu3) quantal; urgency=low
+
+  * debian/cinder.conf: Re-add sql_connection and set it to sqllite.
+
+ -- Chuck Short <zulcss@ubuntu.com>  Wed, 22 Aug 2012 20:14:41 -0500
+
+cinder (2012.2~f3-0ubuntu2) quantal; urgency=low
+
+  * debian/cinder.conf: Get rid of deprecated warnings.
+    (LP: #1036240) 
+
+ -- Chuck Short <zulcss@ubuntu.com>  Sun, 19 Aug 2012 13:36:22 -0500
+
+cinder (2012.2~f3-0ubuntu1) quantal; urgency=low
+
+  * New upstream version.
+  * debian/patches/0001-Use-setuptools-git.patch: Dropped
+  * debian/control: Add python-glanceclient
+
+ -- Chuck Short <zulcss@ubuntu.com>  Fri, 17 Aug 2012 10:18:57 -0500
+
+cinder (2012.2~f3~20120809.102-0ubuntu2) quantal; urgency=low
+
+  * debian/cinder.conf, cinder-common.install: Use rootwrap.conf. (LP: #1036240) 
+  * debian/control: Drop python-babel.
+
+ -- Chuck Short <zulcss@ubuntu.com>  Mon, 13 Aug 2012 14:14:31 -0500
+
+cinder (2012.2~f3~20120809.102-0ubuntu1) quantal; urgency=low
+
+  [ Adam Gandelman ]
+  * debian/control: Add python-setuptools dependency.
+  * debian/cinder-common.postinst: Fix syntax errors, fix permissions.
+  * debian/cinder-common.dirs: Correct, etc/nova -> etc/cinder.
+  * debian/{cinder_sudoers, rules, cinder-common.install}: Install proper
+    cinder_sudoers.
+  * debian/cinder-*.upstart: Close quotes, replace 'nova' references with
+    'cinder'.
+  * debian/cinder.conf: Specify correct sql_connection.
+  * debian/cinder-scheduler.postinst: Added.  Migrate local databases only.
+
+  [ Chuck Short ]
+  * debian/*.upstart: Fix upstart jobs to run with right interfaces.
+    (LP: #1030197)
+  * debian/control: Drop python-babel, python-nosexcover
+  * debian/control: Add python-mox, pep8
+  * debian/rules: Re-add get-orig-source
+  * debian/rules: Enable testsuite.
+  * debian/cinder.conf: Update config file.
+  * debian/cinder-{api,volumes,scheduler}.manpages: Add manpages.
+  * New upstream version.
+  * debian/rules: Don't run pep8 tests
+  * debian/patches/0001-Use-setuptools-git.patch: Cleanup manifest
+  * debian/control: Add python-setuptools-git
+  * debian/control: Add section for python-cinder
+  * fix lintian warnings and errors.
+  * debian/cinder-common.install: Remove clear_rabbit_queues since it
+    will conflict with nova installed.
+
+ -- Chuck Short <zulcss@ubuntu.com>  Fri, 10 Aug 2012 12:05:11 -0500
+
+cinder (2012.2~f1~20120503.2-0ubuntu1) quantal; urgency=low
+
+  * Initial release.
+
+ -- Chuck Short <zulcss@ubuntu.com>  Tue, 22 May 2012 09:57:46 -0400

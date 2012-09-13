@@ -1,0 +1,103 @@
+Source: cinder
+Section: net
+Priority: extra
+Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
+Uploaders: Mehdi Abaakouk <sileht@sileht.net>
+Build-Depends: debhelper (>= 8.0.0),
+ python-all (>= 2.6),
+ python-all-dev (>= 2.6.6-3~)
+Build-Depends-Indep:
+ python-sqlalchemy,
+ python-setuptools,
+ python-cheetah,
+ python-amqplib,
+ python-anyjson,
+ python-eventlet,
+ python-kombu,
+ python-lockfile,
+ python-lxml,
+ python-daemon,
+ python-routes,
+ python-webob,
+ python-greenlet,
+ python-glanceclient,
+ python-pastedeploy,
+ python-paste,
+ python-migrate,
+ python-netaddr,
+ python-glance,
+ python-suds,
+ python-paramiko,
+ python-iso8601,
+ python-coverage,
+ python-mox,
+ python-nose,
+ python-sphinx,
+ python-mysqldb,
+ python-setuptools-git,
+ pep8,
+Standards-Version: 3.9.3
+Homepage: http://launchpad.net/cinder
+
+Package: python-cinder
+Section: python
+Architecture: all
+Depends: ${python:Depends}, python-sqlalchemy,
+ python-cheetah,
+ python-amqplib,
+ python-anyjson,
+ python-eventlet,
+ python-kombu,
+ python-lockfile,
+ python-lxml,
+ python-daemon,
+ python-routes,
+ python-webob,
+ python-greenlet,
+ python-pastedeploy,
+ python-paste,
+ python-migrate,
+ python-netaddr,
+ python-glance,
+ python-suds,
+ python-paramiko,
+ python-iso8601,
+ python-glanceclient,
+ ${misc:Depends}
+Description: Cinder python libraries
+ Cinder is a storage service for the Openstack project.
+ .
+ This package contains the proython parts of cinder.
+
+Package: cinder-common
+Architecture: all
+Depends: python-cinder (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, adduser
+Provides: ${python:Provides}
+Description: Cinder starage service - common files
+ Cinder is a storage service for the Openstack project
+ .
+ This package contains things that are needed for all parts of cinder
+
+Package: cinder-api
+Architecture: all
+Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Description: Cinder storage service - api server
+ Cinder is a storage service for the Openstack project
+ .
+ This package contains the api server
+
+Package: cinder-volume
+Architecture: all
+Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Description: Cinder storage service - api server
+ Cinder is a storage service for the Openstack project
+ .
+ This package contains the volume server
+
+Package: cinder-scheduler
+Architecture: all
+Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Description: Cinder storage service - api server
+ Cinder is a storage service for the Openstack project
+ .
+ This package contains the scheduler server

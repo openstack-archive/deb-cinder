@@ -1,0 +1,38 @@
+#!/bin/sh -e
+
+if [ "$1" = "configure" ]; then
+    if ! getenv group cinder > /dev/null 2>&1; then
+        addgroup --system cinder >/dev/null
+    fi
+
+    if ! getenv passwd cinder > /dev/null 2>&1; then
+        adduser --system --home /var/lib/cinder --ingroup cinder --no-create-home \
+            --shell /bin/false cinder
+    fi
+
+    chown -R cinder:adm /var/log/cinder
+    chmod 0750 /var/log/cinder
+    chown -R cinder:cinder /var/lib/cinder /etc/cinder
+    chmod 0750 /etc/cinder
+    chmod 0440 /etc/sudoers.d/cinder_sudoers
+
+    if ! grep -q sql_connection /etc/cinder/cinder.conf
+    then
+        su -s /bin/sh -c 'cinder-manage db sync' cinder
+    fi
+
+    if [ -e /var/lib/cinder/cinder.sqlite ]; then
+        chown cinder:cinder /var/lib/cinder/cinder.sqlite
+        chown 0600 /var/lib/cinder/cinder.sqlite
+    fi
+
+    . /usr/share/debconf/confmodule
+
+    db_get nova-common/start_services
+    if [ " $RET" = "false" ]; then
+        sed -e "s,^NOVA_ENABLE=.\+,NOVA_ENABLE=false," -i /etc/default/nova
+    fi
+
+fi
+
+#DEBHELPER#
