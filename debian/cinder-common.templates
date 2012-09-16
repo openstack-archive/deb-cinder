@@ -1,0 +1,25 @@
+Template: cinder-common/start_services
+Type: boolean
+Default: true
+_Description: Start cinder services at boot?
+ Please choose whether you want to start Cinder services when the
+ machine is booted up.
+
+Template: cinder-common/configure_db
+Type: boolean
+Default: false
+_Description: Set up a database for Cinder?
+ No database has been set up for Cinder to use. If you want
+ to set one up now, please make sure you have all needed
+ information:
+ .
+  * the host name of the database server (which must allow TCP
+    connections from this machine);
+  * a username and password to access the database;
+  * the type of database management software you want to use.
+ .
+ If you don't choose this option, no database will be set up and Cinder
+ will use regular SQLite support.
+ .
+ You can change this setting later on by running "dpkg-reconfigure
+ -plow cinder-common".

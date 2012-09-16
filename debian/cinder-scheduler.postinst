@@ -1,14 +1,4 @@
 #!/bin/sh -e
 
-if [ "$1" = "configure" ]; then
-  # only migrate the database if configured to use a local sqlite db (default)
-  if grep -q 'sql_connection=sqlite' /etc/cinder/cinder.conf ; then
-    su -s /bin/sh -c 'cinder-manage db sync' cinder
-  fi
-  if [ -e /var/lib/cinder/cinder.sql ] ; then
-    chown cinder:cinder /var/lib/cinder/cinder.sqlite
-    chmod 0640 /var/lib/cinder/cinder.sqlite
-  fi
-fi
 
 #DEBHELPER#

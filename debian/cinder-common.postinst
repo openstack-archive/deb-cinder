@@ -1,13 +1,21 @@
 #!/bin/sh -e
 
-if [ "$1" = "configure" ]; then
+if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
     if ! getenv group cinder > /dev/null 2>&1; then
-        addgroup --system cinder >/dev/null
+        addgroup --quiet --system cinder >/dev/null
     fi
 
     if ! getenv passwd cinder > /dev/null 2>&1; then
-        adduser --system --home /var/lib/cinder --ingroup cinder --no-create-home \
+        adduser --quiet --system --home /var/lib/cinder --ingroup cinder --no-create-home \
             --shell /bin/false cinder
+    fi
+
+    # Create config files if they don't exist
+    if ! [ -d /etc/cinder ] ; then
+        mkdir /etc/cinder
+    fi
+    if ! [ -e /etc/cinder/cinder.conf ] ; then
+        cp /usr/share/doc/cinder-common/cinder.conf.dist /etc/cinder/cinder.conf
     fi
 
     chown -R cinder:adm /var/log/cinder
@@ -16,23 +24,56 @@ if [ "$1" = "configure" ]; then
     chmod 0750 /etc/cinder
     chmod 0440 /etc/sudoers.d/cinder_sudoers
 
+    . /usr/share/debconf/confmodule
+
+    db_get cinder-common/configure_db
+
+    if [ "$RET" = "true" ]; then
+        . /usr/share/dbconfig-common/dpkg/postinst
+
+        db_get cinder-common/database-type
+        if [ "$RET" = "sqlite3" ]
+        then
+            dbc_name="cinder.sqlite"
+            db_set cinder-common/db/dbname $dbc_name
+        fi
+
+        dbc_dbfile_owner="cinder:cinder"
+        dbc_go cinder-common $@
+
+        if [ "$dbc_install" = "true" ]
+        then
+
+            case "$dbc_dbtype" in
+                mysql)
+                    [ -n "$dbc_dbport" ] && dbport=:$dbc_dbport
+                    SQL_CONNECTION="mysql://$dbc_dbuser:$dbc_dbpass@${dbc_dbserver:-localhost}$dbport/$dbc_dbname"
+                    ;;
+                pgsql)
+                    [ -n "$dbc_dbport" ] && dbport=:$dbc_dbport
+                    SQL_CONNECTION="pgsql://$dbc_dbuser:$dbc_dbpass@${dbc_dbserver:-localhost}$dbport/$dbc_dbname"
+                    ;;
+                *)
+                    SQL_CONNECTION="sqlite:///$dbc_basepath/$dbc_dbname"
+                    ;;
+            esac
+
+            sed -e "s,^[- \t]*sql_connection=.\+,sql_connection=$SQL_CONNECTION," -i /etc/cinder/cinder.conf
+
+        fi
+    fi
+
     if ! grep -q sql_connection /etc/cinder/cinder.conf
     then
         su -s /bin/sh -c 'cinder-manage db sync' cinder
     fi
 
-    if [ -e /var/lib/cinder/cinder.sqlite ]; then
-        chown cinder:cinder /var/lib/cinder/cinder.sqlite
-        chown 0600 /var/lib/cinder/cinder.sqlite
-    fi
-
-    . /usr/share/debconf/confmodule
-
-    db_get nova-common/start_services
+    db_get cinder-common/start_services
     if [ " $RET" = "false" ]; then
-        sed -e "s,^NOVA_ENABLE=.\+,NOVA_ENABLE=false," -i /etc/default/nova
+        sed -e "s,^CINDER_ENABLE=.\+,CINDER_ENABLE=false," -i /etc/default/cinder
     fi
-
 fi
+
+chmod 0640 /etc/cinder/cinder.conf
 
 #DEBHELPER#

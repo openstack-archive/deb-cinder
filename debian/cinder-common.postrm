@@ -1,0 +1,29 @@
+#!/bin/sh
+
+set -e
+
+if [ -f /usr/share/debconf/confmodule ]; then
+    . /usr/share/debconf/confmodule
+fi
+
+db_get cinder-common/configure_db
+if [ "$RET" = "true" ]; then
+
+    if [ -f /usr/share/dbconfig-common/dpkg/postrm ]; then
+        . /usr/share/dbconfig-common/dpkg/postrm
+        dbc_go cinder-common $@
+    else
+        rm -f /etc/dbconfig-common/cinder-common.conf
+        if which ucf >/dev/null 2>&1; then
+            ucf --purge /etc/dbconfig-common/cinder-common.conf
+            ucfr --purge cinder-common /etc/dbconfig-common/cinder-common.conf
+        fi
+    fi
+fi
+
+if [ "$1" = "purge" ] ; then
+    rm -f /etc/cinder/cinder.conf
+    rm -f /etc/default/cinder-common
+fi
+
+#DEBHELPER#

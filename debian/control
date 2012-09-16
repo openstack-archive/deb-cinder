@@ -72,7 +72,7 @@ Description: Cinder python libraries
 
 Package: cinder-common
 Architecture: all
-Depends: python-cinder (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, adduser
+Depends: python-cinder (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, adduser, debconf, dbconfig-common
 Provides: ${python:Provides}
 Description: Cinder starage service - common files
  Cinder is a storage service for the Openstack project
