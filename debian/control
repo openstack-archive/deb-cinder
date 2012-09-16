@@ -5,7 +5,6 @@ Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Mehdi Abaakouk <sileht@sileht.net>
 Build-Depends: debhelper (>= 8.0.0),
  python-all (>= 2.6),
- python-all-dev (>= 2.6.6-3~)
 Build-Depends-Indep:
  python-sqlalchemy,
  python-setuptools,
@@ -38,6 +37,8 @@ Build-Depends-Indep:
  pep8,
 Standards-Version: 3.9.3
 Homepage: http://launchpad.net/cinder
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/cinder.git;a=summary
+Vcs-Git: git://anonscm.debian.org/openstack/cinder.git
 
 Package: python-cinder
 Section: python
@@ -81,23 +82,23 @@ Description: Cinder starage service - common files
 Package: cinder-api
 Architecture: all
 Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Cinder storage service - api server
+Description: Cinder storage service - API server
  Cinder is a storage service for the Openstack project
  .
- This package contains the api server
+ This package contains the API server
 
 Package: cinder-volume
 Architecture: all
 Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Cinder storage service - api server
+Description: Cinder storage service - Volume server
  Cinder is a storage service for the Openstack project
  .
- This package contains the volume server
+ This package contains the Volume server
 
 Package: cinder-scheduler
 Architecture: all
 Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Cinder storage service - api server
+Description: Cinder storage service - Scheduler server
  Cinder is a storage service for the Openstack project
  .
- This package contains the scheduler server
+ This package contains the Scheduler server
