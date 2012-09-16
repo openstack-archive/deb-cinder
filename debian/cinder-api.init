@@ -17,7 +17,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Cinder Api"
 NAME=cinder-api
 DAEMON=/usr/bin/cinder-api
-DAEMON_ARGS="--configfile=/etc/cinder/cinder.conf"
+DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CINDER_USER=cinder
