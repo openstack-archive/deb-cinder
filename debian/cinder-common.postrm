@@ -24,6 +24,7 @@ fi
 if [ "$1" = "purge" ] ; then
     rm -f /etc/cinder/cinder.conf
     rm -f /etc/default/cinder-common
+    rm -rf /var/lib/cinder
 fi
 
 #DEBHELPER#
