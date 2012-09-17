@@ -4,6 +4,7 @@ Priority: extra
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Mehdi Abaakouk <sileht@sileht.net>
 Build-Depends: debhelper (>= 8.0.0),
+ po-debconf,
  python-all (>= 2.6),
 Build-Depends-Indep:
  python-sqlalchemy,
