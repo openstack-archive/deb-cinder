@@ -1,0 +1,13 @@
+Description: Install some missing files
+Author: Mehdi Abaakouk <sileht@sileht.net>
+
+--- cinder-2012.2~f3.orig/MANIFEST.in
++++ cinder-2012.2~f3/MANIFEST.in
+@@ -1,5 +1,7 @@
+ include AUTHORS
+ include ChangeLog
++include cinder/db/sqlalchemy/migrate_repo/migrate.cfg
++include cinder/db/sqlalchemy/migrate_repo/versions/*.sql
+ exclude .gitignore
+ exclude .gitreview
+ 
