@@ -1,4 +1,4 @@
-# Danish translation for cinder
+# Bosnian translation for cinder
 # Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
 # This file is distributed under the same license as the cinder package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
@@ -8,9 +8,9 @@ msgstr ""
 "Project-Id-Version:  cinder\n"
 "Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: 2011-01-15 21:46+0000\n"
-"Last-Translator: Soren Hansen <soren@linux2go.dk>\n"
-"Language-Team: Danish <da@li.org>\n"
+"PO-Revision-Date: 2012-01-19 20:22+0000\n"
+"Last-Translator: yazar  <zrncescientiae@gmail.com>\n"
+"Language-Team: Bosnian <bs@li.org>\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
@@ -33,7 +33,7 @@ msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "Filnavn for privatnøgle"
+msgstr ""
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
@@ -68,7 +68,7 @@ msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr ""
+msgstr "Neočekivana greška prilikom pokretanja komande."
 
 #: cinder/exception.py:59
 #, python-format
@@ -3345,7 +3345,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3432,7 +3432,7 @@ msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
+msgid "Tried to remove non-existent console %(console_id)s."
 msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
@@ -5114,9 +5114,8 @@ msgid "detaching LXC block device"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:692
-#, fuzzy, python-format
 msgid "Instance soft rebooted successfully."
-msgstr "bind %s: slettet"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:696
 msgid "Failed to soft reboot instance."
@@ -6938,8 +6937,9 @@ msgid "Quota exceeded for %(pid)s, tried to create %(size)sG volume"
 msgstr ""
 
 #: cinder/volume/api.py:137
+#, fuzzy
 msgid "Volume status must be available or error"
-msgstr ""
+msgstr "Status volumena mora biti omogućen"
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -6959,8 +6959,9 @@ msgid "must be available"
 msgstr ""
 
 #: cinder/volume/api.py:325
+#, fuzzy
 msgid "Volume Snapshot status must be available or error"
-msgstr ""
+msgstr "Status volumena mora biti omogućen"
 
 #: cinder/volume/driver.py:96
 #, python-format
@@ -7088,7 +7089,7 @@ msgstr ""
 #: cinder/volume/manager.py:176
 #, python-format
 msgid "volume %s: deleted successfully"
-msgstr "bind %s: slettet"
+msgstr ""
 
 #: cinder/volume/manager.py:183
 #, python-format
@@ -8075,9 +8076,6 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Error destroying VDI"
-#~ msgstr ""
-
-#~ msgid "Volume status must be available"
 #~ msgstr ""
 
 #~ msgid "\tVolume %s is NOT VSA volume"

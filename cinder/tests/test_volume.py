@@ -22,8 +22,6 @@ Tests for Volume Code.
 
 import os
 import datetime
-import cStringIO
-import logging
 
 import mox
 import shutil
@@ -34,17 +32,17 @@ from cinder import exception
 from cinder import db
 from cinder import flags
 from cinder.tests.image import fake as fake_image
-from cinder.openstack.common import log as os_logging
 from cinder.openstack.common import importutils
+from cinder.openstack.common.notifier import api as notifier_api
 from cinder.openstack.common.notifier import test_notifier
 from cinder.openstack.common import rpc
 import cinder.policy
 from cinder import quota
 from cinder import test
-import cinder.volume.api
+from cinder.volume import iscsi
 
+QUOTAS = quota.QUOTAS
 FLAGS = flags.FLAGS
-LOG = os_logging.getLogger(__name__)
 
 
 class VolumeTestCase(test.TestCase):
@@ -54,11 +52,11 @@ class VolumeTestCase(test.TestCase):
         super(VolumeTestCase, self).setUp()
         vol_tmpdir = tempfile.mkdtemp()
         self.flags(connection_type='fake',
-                   volumes_dir=vol_tmpdir)
+                   volumes_dir=vol_tmpdir,
+                   notification_driver=[test_notifier.__name__])
         self.volume = importutils.import_object(FLAGS.volume_manager)
         self.context = context.get_admin_context()
-        self.stubs.Set(cinder.flags.FLAGS, 'notification_driver',
-            'cinder.openstack.common.notifier.test_notifier')
+        self.stubs.Set(iscsi.TgtAdm, '_get_target', self.fake_get_target)
         fake_image.stub_out_image_service(self.stubs)
         test_notifier.NOTIFICATIONS = []
 
@@ -67,12 +65,15 @@ class VolumeTestCase(test.TestCase):
             shutil.rmtree(FLAGS.volumes_dir)
         except OSError:
             pass
+        notifier_api._reset_drivers()
         super(VolumeTestCase, self).tearDown()
 
+    def fake_get_target(obj, iqn):
+        return 1
+
     @staticmethod
-    def _create_volume(size='0', snapshot_id=None, image_id=None,
+    def _create_volume(size=0, snapshot_id=None, image_id=None,
                        metadata=None):
-        #def _create_volume(size=0, snapshot_id=None):
         """Create a volume object."""
         vol = {}
         vol['size'] = size
@@ -89,6 +90,20 @@ class VolumeTestCase(test.TestCase):
 
     def test_create_delete_volume(self):
         """Test volume can be created and deleted."""
+        # Need to stub out reserve, commit, and rollback
+        def fake_reserve(context, expire=None, **deltas):
+            return ["RESERVATION"]
+
+        def fake_commit(context, reservations):
+            pass
+
+        def fake_rollback(context, reservations):
+            pass
+
+        self.stubs.Set(QUOTAS, "reserve", fake_reserve)
+        self.stubs.Set(QUOTAS, "commit", fake_commit)
+        self.stubs.Set(QUOTAS, "rollback", fake_rollback)
+
         volume = self._create_volume()
         volume_id = volume['id']
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
@@ -107,7 +122,7 @@ class VolumeTestCase(test.TestCase):
     def test_create_delete_volume_with_metadata(self):
         """Test volume can be created with metadata and deleted."""
         test_meta = {'fake_key': 'fake_value'}
-        volume = self._create_volume('0', None, metadata=test_meta)
+        volume = self._create_volume(0, None, metadata=test_meta)
         volume_id = volume['id']
         self.volume.create_volume(self.context, volume_id)
         result_meta = {
@@ -166,28 +181,11 @@ class VolumeTestCase(test.TestCase):
         #              volume_create
         return True
         try:
-            volume = self._create_volume('1001')
+            volume = self._create_volume(1001)
             self.volume.create_volume(self.context, volume)
             self.fail("Should have thrown TypeError")
         except TypeError:
             pass
-
-    def test_too_many_volumes(self):
-        """Ensure that NoMoreTargets is raised when we run out of volumes."""
-        vols = []
-        total_slots = FLAGS.iscsi_num_targets
-        for _index in xrange(total_slots):
-            volume = self._create_volume()
-            self.volume.create_volume(self.context, volume['id'])
-            vols.append(volume['id'])
-        volume = self._create_volume()
-        self.assertRaises(db.NoMoreTargets,
-                          self.volume.create_volume,
-                          self.context,
-                          volume['id'])
-        db.volume_destroy(context.get_admin_context(), volume['id'])
-        for volume_id in vols:
-            self.volume.delete_volume(self.context, volume_id)
 
     def test_run_attach_detach_volume(self):
         """Make sure volume can be attached and detached from instance."""
@@ -196,14 +194,7 @@ class VolumeTestCase(test.TestCase):
         volume = self._create_volume()
         volume_id = volume['id']
         self.volume.create_volume(self.context, volume_id)
-        if FLAGS.fake_tests:
-            db.volume_attached(self.context, volume_id, instance_uuid,
-                                mountpoint)
-        else:
-            self.compute.attach_volume(self.context,
-                                       instance_uuid,
-                                       volume_id,
-                                       mountpoint)
+        db.volume_attached(self.context, volume_id, instance_uuid, mountpoint)
         vol = db.volume_get(context.get_admin_context(), volume_id)
         self.assertEqual(vol['status'], "in-use")
         self.assertEqual(vol['attach_status'], "attached")
@@ -214,13 +205,7 @@ class VolumeTestCase(test.TestCase):
                           self.volume.delete_volume,
                           self.context,
                           volume_id)
-        if FLAGS.fake_tests:
-            db.volume_detached(self.context, volume_id)
-        else:
-            pass
-            self.compute.detach_volume(self.context,
-                                       instance_uuid,
-                                       volume_id)
+        db.volume_detached(self.context, volume_id)
         vol = db.volume_get(self.context, volume_id)
         self.assertEqual(vol['status'], "available")
 
@@ -243,12 +228,10 @@ class VolumeTestCase(test.TestCase):
                                                           volume_id)
             self.assert_(iscsi_target not in targets)
             targets.append(iscsi_target)
-            LOG.debug(_("Target %s allocated"), iscsi_target)
+
         total_slots = FLAGS.iscsi_num_targets
         for _index in xrange(total_slots):
-            volume = self._create_volume()
-            d = self.volume.create_volume(self.context, volume['id'])
-            _check(d)
+            self._create_volume()
         for volume_id in volume_ids:
             self.volume.delete_volume(self.context, volume_id)
 
@@ -286,8 +269,53 @@ class VolumeTestCase(test.TestCase):
                           snapshot_id)
         self.volume.delete_volume(self.context, volume['id'])
 
+    def test_cant_delete_volume_in_use(self):
+        """Test volume can't be deleted in invalid stats."""
+        # create a volume and assign to host
+        volume = self._create_volume()
+        self.volume.create_volume(self.context, volume['id'])
+        volume['status'] = 'in-use'
+        volume['host'] = 'fakehost'
+
+        volume_api = cinder.volume.api.API()
+
+        # 'in-use' status raises InvalidVolume
+        self.assertRaises(exception.InvalidVolume,
+                          volume_api.delete,
+                          self.context,
+                          volume)
+
+        # clean up
+        self.volume.delete_volume(self.context, volume['id'])
+
+    def test_force_delete_volume(self):
+        """Test volume can be forced to delete."""
+        # create a volume and assign to host
+        volume = self._create_volume()
+        self.volume.create_volume(self.context, volume['id'])
+        volume['status'] = 'error_deleting'
+        volume['host'] = 'fakehost'
+
+        volume_api = cinder.volume.api.API()
+
+        # 'error_deleting' volumes can't be deleted
+        self.assertRaises(exception.InvalidVolume,
+                          volume_api.delete,
+                          self.context,
+                          volume)
+
+        # delete with force
+        volume_api.delete(self.context, volume, force=True)
+
+        # status is deleting
+        volume = db.volume_get(context.get_admin_context(), volume['id'])
+        self.assertEquals(volume['status'], 'deleting')
+
+        # clean up
+        self.volume.delete_volume(self.context, volume['id'])
+
     def test_cant_delete_volume_with_snapshots(self):
-        """Test snapshot can be created and deleted."""
+        """Test volume can't be deleted with dependent snapshots."""
         volume = self._create_volume()
         self.volume.create_volume(self.context, volume['id'])
         snapshot_id = self._create_snapshot(volume['id'])
@@ -558,11 +586,62 @@ class VolumeTestCase(test.TestCase):
             db.volume_destroy(self.context, volume_id)
             os.unlink(dst_path)
 
-    def _do_test_create_volume_with_size(self, size):
-        def fake_allowed_volumes(context, requested_volumes, size):
-            return requested_volumes
+    def test_create_volume_from_exact_sized_image(self):
+        """Verify that an image which is exactly the same size as the
+        volume, will work correctly."""
+        class _FakeImageService:
+            def __init__(self, db_driver=None, image_service=None):
+                pass
 
-        self.stubs.Set(quota, 'allowed_volumes', fake_allowed_volumes)
+            def show(self, context, image_id):
+                return {'size': 2 * 1024 * 1024 * 1024}
+
+        image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
+
+        try:
+            volume_id = None
+            volume_api = cinder.volume.api.API(
+                                            image_service=_FakeImageService())
+            volume = volume_api.create(self.context, 2, 'name', 'description',
+                                       image_id=1)
+            volume_id = volume['id']
+            self.assertEqual(volume['status'], 'creating')
+
+        finally:
+            # cleanup
+            db.volume_destroy(self.context, volume_id)
+
+    def test_create_volume_from_oversized_image(self):
+        """Verify that an image which is too big will fail correctly."""
+        class _FakeImageService:
+            def __init__(self, db_driver=None, image_service=None):
+                pass
+
+            def show(self, context, image_id):
+                return {'size': 2 * 1024 * 1024 * 1024 + 1}
+
+        image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
+
+        volume_api = cinder.volume.api.API(image_service=_FakeImageService())
+
+        self.assertRaises(exception.InvalidInput,
+                          volume_api.create,
+                          self.context, 2,
+                          'name', 'description', image_id=1)
+
+    def _do_test_create_volume_with_size(self, size):
+        def fake_reserve(context, expire=None, **deltas):
+            return ["RESERVATION"]
+
+        def fake_commit(context, reservations):
+            pass
+
+        def fake_rollback(context, reservations):
+            pass
+
+        self.stubs.Set(QUOTAS, "reserve", fake_reserve)
+        self.stubs.Set(QUOTAS, "commit", fake_commit)
+        self.stubs.Set(QUOTAS, "rollback", fake_rollback)
 
         volume_api = cinder.volume.api.API()
 
@@ -581,10 +660,18 @@ class VolumeTestCase(test.TestCase):
         self._do_test_create_volume_with_size('2')
 
     def test_create_volume_with_bad_size(self):
-        def fake_allowed_volumes(context, requested_volumes, size):
-            return requested_volumes
+        def fake_reserve(context, expire=None, **deltas):
+            return ["RESERVATION"]
 
-        self.stubs.Set(quota, 'allowed_volumes', fake_allowed_volumes)
+        def fake_commit(context, reservations):
+            pass
+
+        def fake_rollback(context, reservations):
+            pass
+
+        self.stubs.Set(QUOTAS, "reserve", fake_reserve)
+        self.stubs.Set(QUOTAS, "commit", fake_commit)
+        self.stubs.Set(QUOTAS, "rollback", fake_rollback)
 
         volume_api = cinder.volume.api.API()
 
@@ -619,6 +706,17 @@ class VolumeTestCase(test.TestCase):
         self.assertTrue('created_at' in payload)
         self.volume.delete_volume(self.context, volume_id)
 
+    def test_begin_roll_detaching_volume(self):
+        """Test begin_detaching and roll_detaching functions."""
+        volume = self._create_volume()
+        volume_api = cinder.volume.api.API()
+        volume_api.begin_detaching(self.context, volume)
+        volume = db.volume_get(self.context, volume['id'])
+        self.assertEqual(volume['status'], "detaching")
+        volume_api.roll_detaching(self.context, volume)
+        volume = db.volume_get(self.context, volume['id'])
+        self.assertEqual(volume['status'], "in-use")
+
 
 class DriverTestCase(test.TestCase):
     """Base Test class for Drivers."""
@@ -628,20 +726,16 @@ class DriverTestCase(test.TestCase):
         super(DriverTestCase, self).setUp()
         vol_tmpdir = tempfile.mkdtemp()
         self.flags(volume_driver=self.driver_name,
-                   volumes_dir=vol_tmpdir,
-                   logging_default_format_string="%(message)s")
+                   volumes_dir=vol_tmpdir)
         self.volume = importutils.import_object(FLAGS.volume_manager)
         self.context = context.get_admin_context()
         self.output = ""
+        self.stubs.Set(iscsi.TgtAdm, '_get_target', self.fake_get_target)
 
         def _fake_execute(_command, *_args, **_kwargs):
             """Fake _execute."""
             return self.output, None
         self.volume.driver.set_execute(_fake_execute)
-
-        log = logging.getLogger()
-        self.stream = cStringIO.StringIO()
-        log.addHandler(logging.StreamHandler(self.stream))
 
     def tearDown(self):
         try:
@@ -650,9 +744,11 @@ class DriverTestCase(test.TestCase):
             pass
         super(DriverTestCase, self).tearDown()
 
+    def fake_get_target(obj, iqn):
+        return 1
+
     def _attach_volume(self):
-        """Attach volumes to an instance. This function also sets
-           a fake log message."""
+        """Attach volumes to an instance. """
         return []
 
     def _detach_volume(self, volume_id_list):
@@ -689,8 +785,7 @@ class ISCSITestCase(DriverTestCase):
     driver_name = "cinder.volume.driver.ISCSIDriver"
 
     def _attach_volume(self):
-        """Attach volumes to an instance. This function also sets
-           a fake log message."""
+        """Attach volumes to an instance. """
         volume_id_list = []
         for index in xrange(3):
             vol = {}
@@ -709,51 +804,8 @@ class ISCSITestCase(DriverTestCase):
         return volume_id_list
 
     def test_check_for_export_with_no_volume(self):
-        """No log message when no volume is attached to an instance."""
-        self.stream.truncate(0)
         instance_uuid = '12345678-1234-5678-1234-567812345678'
         self.volume.check_for_export(self.context, instance_uuid)
-        self.assertEqual(self.stream.getvalue(), '')
-
-    def test_check_for_export_with_all_volume_exported(self):
-        """No log message when all the processes are running."""
-        volume_id_list = self._attach_volume()
-
-        self.mox.StubOutWithMock(self.volume.driver.tgtadm, 'show_target')
-        for i in volume_id_list:
-            tid = db.volume_get_iscsi_target_num(self.context, i)
-            self.volume.driver.tgtadm.show_target(tid)
-
-        self.stream.truncate(0)
-        self.mox.ReplayAll()
-        instance_uuid = '12345678-1234-5678-1234-567812345678'
-        self.volume.check_for_export(self.context, instance_uuid)
-        self.assertEqual(self.stream.getvalue(), '')
-        self.mox.UnsetStubs()
-
-        self._detach_volume(volume_id_list)
-
-    def test_check_for_export_with_some_volume_missing(self):
-        """Output a warning message when some volumes are not recognied
-           by ietd."""
-        volume_id_list = self._attach_volume()
-        instance_uuid = '12345678-1234-5678-1234-567812345678'
-
-        tid = db.volume_get_iscsi_target_num(self.context, volume_id_list[0])
-        self.mox.StubOutWithMock(self.volume.driver.tgtadm, 'show_target')
-        self.volume.driver.tgtadm.show_target(tid).AndRaise(
-            exception.ProcessExecutionError())
-
-        self.mox.ReplayAll()
-        self.assertRaises(exception.ProcessExecutionError,
-                          self.volume.check_for_export,
-                          self.context,
-                          instance_uuid)
-        msg = _("Cannot confirm exported volume id:%s.") % volume_id_list[0]
-        self.assertTrue(0 <= self.stream.getvalue().find(msg))
-        self.mox.UnsetStubs()
-
-        self._detach_volume(volume_id_list)
 
 
 class VolumePolicyTestCase(test.TestCase):

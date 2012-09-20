@@ -109,20 +109,6 @@ def service_get_all_by_host(context, host):
     return IMPL.service_get_all_by_host(context, host)
 
 
-def service_get_all_compute_by_host(context, host):
-    """Get all compute services for a given host."""
-    return IMPL.service_get_all_compute_by_host(context, host)
-
-
-def service_get_all_compute_sorted(context):
-    """Get all compute services sorted by instance count.
-
-    :returns: a list of (Service, instance_count) tuples.
-
-    """
-    return IMPL.service_get_all_compute_sorted(context)
-
-
 def service_get_all_volume_sorted(context):
     """Get all volume services sorted by volume count.
 
@@ -214,9 +200,11 @@ def volume_create(context, values):
     return IMPL.volume_create(context, values)
 
 
-def volume_data_get_for_project(context, project_id):
+def volume_data_get_for_project(context, project_id, session=None):
     """Get (volume_count, gigabytes) for project."""
-    return IMPL.volume_data_get_for_project(context, project_id)
+    return IMPL.volume_data_get_for_project(context,
+                                            project_id,
+                                            session)
 
 
 def volume_destroy(context, volume_id):

@@ -103,14 +103,6 @@ class VolumeApiTest(test.TestCase):
                           req,
                           body)
 
-    def test_volume_create_no_body(self):
-        body = {}
-        req = fakes.HTTPRequest.blank('/v1/volumes')
-        self.assertRaises(webob.exc.HTTPUnprocessableEntity,
-                          self.controller.create,
-                          req,
-                          body)
-
     def test_volume_create_with_image_id(self):
         self.stubs.Set(volume_api.API, "create", fakes.stub_volume_create)
         self.ext_mgr.extensions = {'os-image-create': 'fake'}
@@ -232,6 +224,67 @@ class VolumeApiTest(test.TestCase):
                                  'size': 1}]}
         self.assertEqual(res_dict, expected)
 
+    def test_volume_list_by_name(self):
+        def stub_volume_get_all_by_project(context, project_id):
+            return [
+                fakes.stub_volume(1, display_name='vol1'),
+                fakes.stub_volume(2, display_name='vol2'),
+                fakes.stub_volume(3, display_name='vol3'),
+            ]
+        self.stubs.Set(db, 'volume_get_all_by_project',
+                       stub_volume_get_all_by_project)
+
+        # no display_name filter
+        req = fakes.HTTPRequest.blank('/v1/volumes')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 3)
+        # filter on display_name
+        req = fakes.HTTPRequest.blank('/v1/volumes?display_name=vol2')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 1)
+        self.assertEqual(resp['volumes'][0]['display_name'], 'vol2')
+        # filter no match
+        req = fakes.HTTPRequest.blank('/v1/volumes?display_name=vol4')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 0)
+
+    def test_volume_list_by_status(self):
+        def stub_volume_get_all_by_project(context, project_id):
+            return [
+                fakes.stub_volume(1, display_name='vol1', status='available'),
+                fakes.stub_volume(2, display_name='vol2', status='available'),
+                fakes.stub_volume(3, display_name='vol3', status='in-use'),
+            ]
+        self.stubs.Set(db, 'volume_get_all_by_project',
+                       stub_volume_get_all_by_project)
+        # no status filter
+        req = fakes.HTTPRequest.blank('/v1/volumes')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 3)
+        # single match
+        req = fakes.HTTPRequest.blank('/v1/volumes?status=in-use')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 1)
+        self.assertEqual(resp['volumes'][0]['status'], 'in-use')
+        # multiple match
+        req = fakes.HTTPRequest.blank('/v1/volumes?status=available')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 2)
+        for volume in resp['volumes']:
+            self.assertEqual(volume['status'], 'available')
+        # multiple filters
+        req = fakes.HTTPRequest.blank('/v1/volumes?status=available&'
+                                      'display_name=vol1')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 1)
+        self.assertEqual(resp['volumes'][0]['display_name'], 'vol1')
+        self.assertEqual(resp['volumes'][0]['status'], 'available')
+        # no match
+        req = fakes.HTTPRequest.blank('/v1/volumes?status=in-use&'
+                                      'display_name=vol1')
+        resp = self.controller.index(req)
+        self.assertEqual(len(resp['volumes']), 0)
+
     def test_volume_show(self):
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
         res_dict = self.controller.show(req, '1')
@@ -348,10 +401,10 @@ class VolumeSerializerTest(test.TestCase):
             elif child.tag == 'metadata':
                 not_seen = set(vol['metadata'].keys())
                 for gr_child in child:
-                    self.assertTrue(gr_child.tag in not_seen)
-                    self.assertEqual(str(vol['metadata'][gr_child.tag]),
+                    self.assertTrue(gr_child.get("key") in not_seen)
+                    self.assertEqual(str(vol['metadata'][gr_child.get("key")]),
                                      gr_child.text)
-                    not_seen.remove(gr_child.tag)
+                    not_seen.remove(gr_child.get('key'))
                 self.assertEqual(0, len(not_seen))
 
     def test_volume_show_create_serializer(self):
@@ -434,3 +487,164 @@ class VolumeSerializerTest(test.TestCase):
         self.assertEqual(len(raw_volumes), len(tree))
         for idx, child in enumerate(tree):
             self._verify_volume(raw_volumes[idx], child)
+
+
+class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
+
+    def setUp(self):
+        super(TestVolumeCreateRequestXMLDeserializer, self).setUp()
+        self.deserializer = volumes.CreateDeserializer()
+
+    def test_minimal_volume(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        size="1"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                    "size": "1",
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+    def test_display_name(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        size="1"
+        display_name="Volume-xml"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+    def test_display_description(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+    def test_volume_type(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"
+        volume_type="289da7f8-6440-407c-9fb4-7db01ec49164"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "display_name": "Volume-xml",
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+                "volume_type": "289da7f8-6440-407c-9fb4-7db01ec49164",
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+    def test_availability_zone(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"
+        volume_type="289da7f8-6440-407c-9fb4-7db01ec49164"
+        availability_zone="us-east1"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+                "volume_type": "289da7f8-6440-407c-9fb4-7db01ec49164",
+                "availability_zone": "us-east1",
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+    def test_metadata(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        display_name="Volume-xml"
+        size="1">
+        <metadata><meta key="Type">work</meta></metadata></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "display_name": "Volume-xml",
+                "size": "1",
+                "metadata": {
+                    "Type": "work",
+                },
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+    def test_full_volume(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/compute/api/v1.1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"
+        volume_type="289da7f8-6440-407c-9fb4-7db01ec49164"
+        availability_zone="us-east1">
+        <metadata><meta key="Type">work</meta></metadata></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+                "volume_type": "289da7f8-6440-407c-9fb4-7db01ec49164",
+                "availability_zone": "us-east1",
+                "metadata": {
+                    "Type": "work",
+                },
+            },
+        }
+        self.assertEquals(request['body'], expected)
+
+
+class VolumesUnprocessableEntityTestCase(test.TestCase):
+
+    """
+    Tests of places we throw 422 Unprocessable Entity from
+    """
+
+    def setUp(self):
+        super(VolumesUnprocessableEntityTestCase, self).setUp()
+        self.ext_mgr = extensions.ExtensionManager()
+        self.ext_mgr.extensions = {}
+        self.controller = volumes.VolumeController(self.ext_mgr)
+
+    def _unprocessable_volume_create(self, body):
+        req = fakes.HTTPRequest.blank('/v2/fake/volumes')
+        req.method = 'POST'
+
+        self.assertRaises(webob.exc.HTTPUnprocessableEntity,
+                          self.controller.create, req, body)
+
+    def test_create_no_body(self):
+        self._unprocessable_volume_create(body=None)
+
+    def test_create_missing_volume(self):
+        body = {'foo': {'a': 'b'}}
+        self._unprocessable_volume_create(body=body)
+
+    def test_create_malformed_entity(self):
+        body = {'volume': 'string'}
+        self._unprocessable_volume_create(body=body)

@@ -1,4 +1,4 @@
-# Chinese (Traditional) translation for cinder
+# Ukrainian translation for cinder
 # Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
 # This file is distributed under the same license as the cinder package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
@@ -8,10 +8,11 @@ msgstr ""
 "Project-Id-Version:  cinder\n"
 "Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: 2012-03-07 02:00+0000\n"
-"Last-Translator: Charles Hsu <charles0126+openstack@gmail.com>\n"
-"Language-Team: Chinese (Traditional) <zh_TW@li.org>\n"
-"Plural-Forms: nplurals=1; plural=0\n"
+"PO-Revision-Date: 2011-08-23 11:21+0000\n"
+"Last-Translator: Thierry Carrez <thierry.carrez+lp@gmail.com>\n"
+"Language-Team: Ukrainian <uk@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -33,7 +34,7 @@ msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "Private key 私鑰檔案名稱"
+msgstr "Ім'я файлу секретного ключа"
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
@@ -41,15 +42,15 @@ msgstr ""
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr "我們的keys留存於何處"
+msgstr "Шлях до збережених ключів"
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
-msgstr "我們的根憑證留存於何處"
+msgstr ""
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr "是否需要一個project 使用一個CA"
+msgstr ""
 
 #: cinder/crypto.py:67
 #, python-format
@@ -68,7 +69,7 @@ msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr "非預期的執行錯誤"
+msgstr "Неочікувана помилка при виконанні команди."
 
 #: cinder/exception.py:59
 #, python-format
@@ -79,11 +80,6 @@ msgid ""
 "Stdout: %(stdout)r\n"
 "Stderr: %(stderr)r"
 msgstr ""
-"%(description)s\n"
-"命令: %(cmd)s\n"
-"退出代碼: %(exit_code)s\n"
-"標準輸出: %(stdout)r\n"
-"標準錯誤輸出: %(stderr)r"
 
 #: cinder/exception.py:94
 msgid "DB exception wrapped."
@@ -91,11 +87,11 @@ msgstr ""
 
 #: cinder/exception.py:155
 msgid "An unknown exception occurred."
-msgstr "發生一個未知例外"
+msgstr ""
 
 #: cinder/exception.py:178
 msgid "Failed to decrypt text"
-msgstr "內文解碼失敗"
+msgstr ""
 
 #: cinder/exception.py:182
 msgid "Failed to paginate through images from image service"
@@ -103,15 +99,15 @@ msgstr ""
 
 #: cinder/exception.py:186
 msgid "Virtual Interface creation failed"
-msgstr "建立虛擬介面失敗"
+msgstr ""
 
 #: cinder/exception.py:190
 msgid "5 attempts to create virtual interfacewith unique mac address failed"
-msgstr "連續嘗試 5 次建立唯一網路位置(MAC)的虛擬介面失敗"
+msgstr ""
 
 #: cinder/exception.py:195
 msgid "Connection to glance failed"
-msgstr "連接到glance失敗"
+msgstr ""
 
 #: cinder/exception.py:199
 msgid "Connection to melange failed"
@@ -119,11 +115,11 @@ msgstr ""
 
 #: cinder/exception.py:203
 msgid "Not authorized."
-msgstr "未被授權"
+msgstr ""
 
 #: cinder/exception.py:208
 msgid "User does not have admin privileges"
-msgstr "使用者並沒有管理者權力"
+msgstr ""
 
 #: cinder/exception.py:212
 #, python-format
@@ -131,17 +127,17 @@ msgid "Policy doesn't allow %(action)s to be performed."
 msgstr ""
 
 #: cinder/exception.py:216
-#, python-format
+#, fuzzy, python-format
 msgid "Not authorized for image %(image_id)s."
-msgstr ""
+msgstr "без порядку для повідомлень: %s"
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
-msgstr "不可接受的參數值"
+msgstr ""
 
 #: cinder/exception.py:225
 msgid "Invalid snapshot"
-msgstr "無效的快照(snapshot)"
+msgstr ""
 
 #: cinder/exception.py:229
 #, python-format
@@ -150,7 +146,7 @@ msgstr ""
 
 #: cinder/exception.py:233 cinder/api/openstack/compute/contrib/keypairs.py:113
 msgid "Keypair data is invalid"
-msgstr "無效的Keypair"
+msgstr ""
 
 #: cinder/exception.py:237
 msgid "Failed to load data into json format"
@@ -1355,7 +1351,7 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:170
 msgid "Too many failed authentications."
-msgstr ""
+msgstr "Занадто багато невдалих аутентифікацій."
 
 #: cinder/api/ec2/__init__.py:180
 #, python-format
@@ -1543,9 +1539,9 @@ msgid "Authorize security group ingress %s"
 msgstr ""
 
 #: cinder/api/ec2/cloud.py:725
-#, python-format
+#, fuzzy, python-format
 msgid "%s - This rule already exists in group"
-msgstr ""
+msgstr "Це правило вже існує в групі %s"
 
 #: cinder/api/ec2/cloud.py:769
 #, python-format
@@ -1576,7 +1572,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:245
 #, python-format
 msgid "Delete security group %s"
-msgstr ""
+msgstr "Вилучити групу безпеки %s"
 
 #: cinder/api/ec2/cloud.py:823 cinder/compute/manager.py:1630
 #, python-format
@@ -1592,7 +1588,7 @@ msgstr ""
 #: cinder/api/openstack/volume/volumes.py:222
 #, python-format
 msgid "Create volume of %s GB"
-msgstr ""
+msgstr "Створити розділ на %s ГБ"
 
 #: cinder/api/ec2/cloud.py:921
 msgid "Delete Failed"
@@ -1610,11 +1606,12 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:952 cinder/api/openstack/compute/contrib/volumes.py:366
 #, python-format
 msgid "Detach volume %s"
-msgstr ""
+msgstr "Від'єднати том %s"
 
 #: cinder/api/ec2/cloud.py:959
+#, fuzzy, python-format
 msgid "Detach Volume Failed."
-msgstr ""
+msgstr "Від'єднати том %s"
 
 #: cinder/api/ec2/cloud.py:984 cinder/api/ec2/cloud.py:1041
 #: cinder/api/ec2/cloud.py:1518 cinder/api/ec2/cloud.py:1533
@@ -1687,7 +1684,7 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1538
 msgid "only group \"all\" is supported"
-msgstr ""
+msgstr "лише група \"всі\" підтримується"
 
 #: cinder/api/ec2/cloud.py:1540
 msgid "operation_type must be add or remove"
@@ -2261,12 +2258,12 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:94
 #, python-format
 msgid "compute.api::suspend %s"
-msgstr "compute.api::暫停 %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:111
 #, python-format
 msgid "compute.api::resume %s"
-msgstr "compute.api::繼續 %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:127
 #, python-format
@@ -2578,7 +2575,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:376
 #, python-format
 msgid "This rule already exists in group %s"
-msgstr ""
+msgstr "Це правило вже існує в групі %s"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:414
 msgid "Parent or group id is not integer"
@@ -3350,7 +3347,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3437,7 +3434,7 @@ msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
+msgid "Tried to remove non-existent console %(console_id)s."
 msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
@@ -4093,17 +4090,17 @@ msgstr ""
 #: cinder/rpc/amqp.py:231
 #, python-format
 msgid "received %s"
-msgstr ""
+msgstr "отримано %s"
 
 #: cinder/rpc/amqp.py:236
 #, python-format
 msgid "no method for message: %s"
-msgstr ""
+msgstr "без порядку для повідомлень: %s"
 
 #: cinder/rpc/amqp.py:237
 #, python-format
 msgid "No method for message: %s"
-msgstr ""
+msgstr "Без порядку для повідомлень: %s"
 
 #: cinder/rpc/amqp.py:321
 #, python-format
@@ -4113,7 +4110,7 @@ msgstr ""
 #: cinder/rpc/amqp.py:324
 #, python-format
 msgid "MSG_ID is %s"
-msgstr ""
+msgstr "MSG_ID %s"
 
 #: cinder/rpc/amqp.py:346
 #, python-format
@@ -5164,9 +5161,8 @@ msgid "data: %(data)r, fpath: %(fpath)r"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:978
-#, fuzzy
 msgid "Guest does not have a console available"
-msgstr "使用者並沒有管理者權力"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:1020
 #, python-format
@@ -5969,9 +5965,9 @@ msgid "Pool-eject failed: %(e)s"
 msgstr ""
 
 #: cinder/virt/xenapi/pool.py:174
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to set up pool: %(e)s."
-msgstr "無法卸載 Volume %s"
+msgstr ""
 
 #: cinder/virt/xenapi/pool.py:185
 #, python-format
@@ -6498,9 +6494,9 @@ msgid "Starting snapshot for VM"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:686
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to Snapshot instance: %(exc)s"
-msgstr "無法掛載Volume 到虛擬機器 %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:702
 msgid "Failed to transfer vhd to new host"
@@ -6851,37 +6847,37 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:178
 #, python-format
 msgid "Unable to create VDI on SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "無法替 instance實例 %(instance_name)s , 建立 VDI 在SR %(sr_ref)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:189
 #, python-format
 msgid "Unable to use SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "無法替 instance實例 %(instance_name)s ,  使用SR %(sr_ref)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:197
 #, python-format
 msgid "Unable to attach volume to instance %s"
-msgstr "無法掛載Volume 到虛擬機器 %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:200
 #, python-format
 msgid "Mountpoint %(mountpoint)s attached to instance %(instance_name)s"
-msgstr "掛載點 %(mountpoint)s 掛載到虛擬機器 %(instance_name)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:210
 #, python-format
 msgid "Detach_volume: %(instance_name)s, %(mountpoint)s"
-msgstr "卸載_Volume: %(instance_name)s, %(mountpoint)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:219
 #, python-format
 msgid "Unable to locate volume %s"
-msgstr "找不到Volume %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:227
 #, python-format
 msgid "Unable to detach volume %s"
-msgstr "無法卸載 Volume %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:232
 #, python-format
@@ -6896,7 +6892,7 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:241
 #, python-format
 msgid "Mountpoint %(mountpoint)s detached from instance %(instance_name)s"
-msgstr "掛載點 %(mountpoint)s 從虛擬機器 %(instance_name)s 卸載"
+msgstr ""
 
 #: cinder/vnc/xvp_proxy.py:98 cinder/vnc/xvp_proxy.py:103
 #, python-format
@@ -6943,9 +6939,8 @@ msgid "Quota exceeded for %(pid)s, tried to create %(size)sG volume"
 msgstr ""
 
 #: cinder/volume/api.py:137
-#, fuzzy
 msgid "Volume status must be available or error"
-msgstr "Volume 狀態需要可被使用"
+msgstr ""
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -6965,9 +6960,8 @@ msgid "must be available"
 msgstr ""
 
 #: cinder/volume/api.py:325
-#, fuzzy
 msgid "Volume Snapshot status must be available or error"
-msgstr "Volume 狀態需要可被使用"
+msgstr ""
 
 #: cinder/volume/driver.py:96
 #, python-format
@@ -7156,8 +7150,9 @@ msgid "%s is not set"
 msgstr ""
 
 #: cinder/volume/netapp.py:128
+#, fuzzy
 msgid "Connected to DFM server"
-msgstr ""
+msgstr "Оновлено з'єднання до черги"
 
 #: cinder/volume/netapp.py:159
 #, python-format
@@ -7173,18 +7168,18 @@ msgid "No LUN was created by the provision job"
 msgstr ""
 
 #: cinder/volume/netapp.py:261 cinder/volume/netapp.py:433
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to find LUN ID for volume %s"
-msgstr "找不到Volume %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:280
 msgid "Failed to remove and delete dataset member"
 msgstr ""
 
 #: cinder/volume/netapp.py:603 cinder/volume/netapp.py:657
-#, fuzzy, python-format
+#, python-format
 msgid "No LUN ID for volume %s"
-msgstr "找不到Volume %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:607 cinder/volume/netapp.py:661
 #, python-format
@@ -7415,9 +7410,9 @@ msgid "Bad response from server"
 msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:79
-#, python-format
+#, fuzzy, python-format
 msgid "Got response: %s"
-msgstr ""
+msgstr "відповідь %s"
 
 #: cinder/volume/nexenta/volume.py:96
 #, python-format
@@ -7647,9 +7642,6 @@ msgstr ""
 #~ msgid "Unable to connect to AMQP server after %(tries)d tries. Shutting down."
 #~ msgstr ""
 
-#~ msgid "Reconnected to queue"
-#~ msgstr ""
-
 #~ msgid "Failed to fetch message from queue: %s"
 #~ msgstr ""
 
@@ -7665,14 +7657,11 @@ msgstr ""
 #~ msgid "Creating \"%(exchange)s\" fanout exchange"
 #~ msgstr ""
 
-#~ msgid "response %s"
-#~ msgstr ""
-
 #~ msgid "topic is %s"
-#~ msgstr ""
+#~ msgstr "заголовок %s"
 
 #~ msgid "message %s"
-#~ msgstr ""
+#~ msgstr "повідомлення %s"
 
 #~ msgid ""
 #~ "Cannot confirm tmpfile at %(ipath)s is"
@@ -7772,10 +7761,10 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Declaring queue %s"
-#~ msgstr ""
+#~ msgstr "Оголошення черги %s"
 
 #~ msgid "Declaring exchange %s"
-#~ msgstr ""
+#~ msgstr "Оголошення точки обміну %s"
 
 #~ msgid "Binding %(queue)s to %(exchange)s with key %(routing_key)s"
 #~ msgstr ""
@@ -8082,6 +8071,9 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Error destroying VDI"
+#~ msgstr ""
+
+#~ msgid "Volume status must be available"
 #~ msgstr ""
 
 #~ msgid "\tVolume %s is NOT VSA volume"

@@ -22,18 +22,17 @@ Handles all requests relating to volumes.
 
 import functools
 
-from eventlet import greenthread
-
+from cinder.db import base
 from cinder import exception
 from cinder import flags
 from cinder.openstack.common import cfg
 from cinder.image import glance
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import rpc
-import cinder.policy
 from cinder.openstack.common import timeutils
+import cinder.policy
 from cinder import quota
-from cinder.db import base
+
 
 volume_host_opt = cfg.BoolOpt('snapshot_same_host',
         default=True,
@@ -45,6 +44,7 @@ flags.DECLARE('storage_availability_zone', 'cinder.volume.manager')
 
 LOG = logging.getLogger(__name__)
 GB = 1048576 * 1024
+QUOTAS = quota.QUOTAS
 
 
 def wrap_check_policy(func):
@@ -107,16 +107,35 @@ class API(base.Base):
             msg = (_("Volume size '%s' must be an integer and greater than 0")
                    % size)
             raise exception.InvalidInput(reason=msg)
-        if quota.allowed_volumes(context, 1, size) < 1:
+        try:
+            reservations = QUOTAS.reserve(context, volumes=1, gigabytes=size)
+        except exception.OverQuota as e:
+            overs = e.kwargs['overs']
+            usages = e.kwargs['usages']
+            quotas = e.kwargs['quotas']
+
+            def _consumed(name):
+                return (usages[name]['reserved'] + usages[name]['in_use'])
+
             pid = context.project_id
-            LOG.warn(_("Quota exceeded for %(pid)s, tried to create"
-                    " %(size)sG volume") % locals())
-            raise exception.QuotaError(code="VolumeSizeTooLarge")
+            if 'gigabytes' in overs:
+                consumed = _consumed('gigabytes')
+                quota = quotas['gigabytes']
+                LOG.warn(_("Quota exceeded for %(pid)s, tried to create "
+                           "%(size)sG volume (%(consumed)dG of %(quota)dG "
+                           "already consumed)") % locals())
+                raise exception.VolumeSizeExceedsAvailableQuota()
+            elif 'volumes' in overs:
+                consumed = _consumed('volumes')
+                LOG.warn(_("Quota exceeded for %(pid)s, tried to create "
+                           "volume (%(consumed)d volumes already consumed)")
+                           % locals())
+                raise exception.VolumeLimitExceeded(allowed=quotas['volumes'])
 
         if image_id:
             # check image existence
             image_meta = self.image_service.show(context, image_id)
-            image_size_in_gb = int(image_meta['size']) / GB
+            image_size_in_gb = (int(image_meta['size']) + GB - 1) / GB
             #check image size is not larger than volume size.
             if image_size_in_gb > size:
                 msg = _('Size of specified image is larger than volume size.')
@@ -143,17 +162,17 @@ class API(base.Base):
             'volume_type_id': volume_type_id,
             'metadata': metadata,
             }
+
         volume = self.db.volume_create(context, options)
-        rpc.cast(context,
-                 FLAGS.scheduler_topic,
-                 {"method": "create_volume",
-                  "args": {"topic": FLAGS.volume_topic,
-                           "volume_id": volume['id'],
-                           "snapshot_id": volume['snapshot_id'],
-                           "image_id": image_id}})
+
+        QUOTAS.commit(context, reservations)
+
+        self._cast_create_volume(context, volume['id'], snapshot_id,
+                                 image_id)
         return volume
 
-    def _cast_create_volume(self, context, volume_id, snapshot_id):
+    def _cast_create_volume(self, context, volume_id, snapshot_id,
+                            image_id):
 
         # NOTE(Rongze Zhu): It is a simple solution for bug 1008866
         # If snapshot_id is set, make the call create volume directly to
@@ -171,32 +190,36 @@ class API(base.Base):
                      topic,
                      {"method": "create_volume",
                       "args": {"volume_id": volume_id,
-                               "snapshot_id": snapshot_id}})
+                               "snapshot_id": snapshot_id,
+                               "image_id": image_id}})
         else:
             rpc.cast(context,
                      FLAGS.scheduler_topic,
                      {"method": "create_volume",
                       "args": {"topic": FLAGS.volume_topic,
                                "volume_id": volume_id,
-                               "snapshot_id": snapshot_id}})
-
-    # TODO(yamahata): eliminate dumb polling
-    def wait_creation(self, context, volume):
-        volume_id = volume['id']
-        while True:
-            volume = self.get(context, volume_id)
-            if volume['status'] != 'creating':
-                return
-            greenthread.sleep(1)
+                               "snapshot_id": snapshot_id,
+                               "image_id": image_id}})
 
     @wrap_check_policy
-    def delete(self, context, volume):
+    def delete(self, context, volume, force=False):
         volume_id = volume['id']
         if not volume['host']:
             # NOTE(vish): scheduling failed, so delete it
+            # Note(zhiteng): update volume quota reservation
+            try:
+                reservations = QUOTAS.reserve(context, volumes=-1,
+                                              gigabytes=-volume['size'])
+            except Exception:
+                reservations = None
+                LOG.exception(_("Failed to update quota for deleting volume"))
+
             self.db.volume_destroy(context, volume_id)
+
+            if reservations:
+                QUOTAS.commit(context, reservations)
             return
-        if volume['status'] not in ["available", "error"]:
+        if not force and volume['status'] not in ["available", "error"]:
             msg = _("Volume status must be available or error")
             raise exception.InvalidVolume(reason=msg)
 
@@ -255,18 +278,19 @@ class API(base.Base):
             filter_mapping = {'metadata': _check_metadata_match}
 
             result = []
+            not_found = object()
             for volume in volumes:
                 # go over all filters in the list
                 for opt, values in search_opts.iteritems():
                     try:
                         filter_func = filter_mapping[opt]
                     except KeyError:
-                        # no such filter - ignore it, go to next filter
-                        continue
-                    else:
-                        if filter_func(volume, values):
-                            result.append(volume)
-                            break
+                        def filter_func(volume, value):
+                            return volume.get(opt, not_found) == value
+                    if not filter_func(volume, values):
+                        break  # volume doesn't match this filter
+                else:  # did not break out loop
+                    result.append(volume)  # volume matches all filters
             volumes = result
         return volumes
 
@@ -283,10 +307,24 @@ class API(base.Base):
         if (context.is_admin and 'all_tenants' in search_opts):
             # Need to remove all_tenants to pass the filtering below.
             del search_opts['all_tenants']
-            return self.db.snapshot_get_all(context)
+            snapshots = self.db.snapshot_get_all(context)
         else:
-            return self.db.snapshot_get_all_by_project(context,
-                                                       context.project_id)
+            snapshots = self.db.snapshot_get_all_by_project(
+                context, context.project_id)
+
+        if search_opts:
+            LOG.debug(_("Searching by: %s") % str(search_opts))
+
+            results = []
+            not_found = object()
+            for snapshot in snapshots:
+                for opt, value in search_opts.iteritems():
+                    if snapshot.get(opt, not_found) != value:
+                        break
+                else:
+                    results.append(snapshot)
+            snapshots = results
+        return snapshots
 
     @wrap_check_policy
     def check_attach(self, context, volume):
@@ -321,6 +359,15 @@ class API(base.Base):
     def unreserve_volume(self, context, volume):
         if volume['status'] == "attaching":
             self.update(context, volume, {"status": "available"})
+
+    @wrap_check_policy
+    def begin_detaching(self, context, volume):
+        self.update(context, volume, {"status": "detaching"})
+
+    @wrap_check_policy
+    def roll_detaching(self, context, volume):
+        if volume['status'] == "detaching":
+            self.update(context, volume, {"status": "in-use"})
 
     @wrap_check_policy
     def attach(self, context, volume, instance_uuid, mountpoint):
@@ -416,7 +463,7 @@ class API(base.Base):
 
     @wrap_check_policy
     def delete_volume_metadata(self, context, volume, key):
-        """Delete the given metadata item from an volume."""
+        """Delete the given metadata item from a volume."""
         self.db.volume_metadata_delete(context, volume['id'], key)
 
     @wrap_check_policy

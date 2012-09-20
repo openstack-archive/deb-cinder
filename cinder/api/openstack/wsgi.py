@@ -16,20 +16,21 @@
 #    under the License.
 
 import inspect
-from xml.dom import minidom
-from xml.parsers import expat
-
-from lxml import etree
+import math
+import time
 import webob
 
 from cinder import exception
+from cinder import wsgi
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import jsonutils
-from cinder import wsgi
+
+from lxml import etree
+from xml.dom import minidom
+from xml.parsers import expat
 
 
 XMLNS_V1 = 'http://docs.openstack.org/volume/api/v1'
-
 XMLNS_ATOM = 'http://www.w3.org/2005/Atom'
 
 LOG = logging.getLogger(__name__)
@@ -211,6 +212,18 @@ class XMLDeserializer(TextDeserializer):
 
     def default(self, datastring):
         return {'body': self._from_xml(datastring)}
+
+
+class MetadataXMLDeserializer(XMLDeserializer):
+
+    def extract_metadata(self, metadata_node):
+        """Marshal the metadata attribute of a parsed request"""
+        metadata = {}
+        if metadata_node is not None:
+            for meta_node in self.find_children_named(metadata_node, "meta"):
+                key = meta_node.getAttribute("key")
+                metadata[key] = self.extract_text(meta_node)
+        return metadata
 
 
 class DictSerializer(ActionDispatcher):
@@ -968,6 +981,9 @@ class ControllerMetaclass(type):
         # Find all actions
         actions = {}
         extensions = []
+        # start with wsgi actions from base classes
+        for base in bases:
+            actions.update(getattr(base, 'wsgi_actions', {}))
         for key, value in cls_dict.items():
             if not callable(value):
                 continue
@@ -999,6 +1015,23 @@ class Controller(object):
             self._view_builder = self._view_builder_class()
         else:
             self._view_builder = None
+
+    @staticmethod
+    def is_valid_body(body, entity_name):
+        if not (body and entity_name in body):
+            return False
+
+        def is_dict(d):
+            try:
+                d.get(None)
+                return True
+            except AttributeError:
+                return False
+
+        if not is_dict(body[entity_name]):
+            return False
+
+        return True
 
 
 class Fault(webob.exc.HTTPException):
@@ -1060,3 +1093,50 @@ def _set_request_id_header(req, headers):
     context = req.environ.get('cinder.context')
     if context:
         headers['x-compute-request-id'] = context.request_id
+
+
+class OverLimitFault(webob.exc.HTTPException):
+    """
+    Rate-limited request response.
+    """
+
+    def __init__(self, message, details, retry_time):
+        """
+        Initialize new `OverLimitFault` with relevant information.
+        """
+        hdrs = OverLimitFault._retry_after(retry_time)
+        self.wrapped_exc = webob.exc.HTTPRequestEntityTooLarge(headers=hdrs)
+        self.content = {
+            "overLimitFault": {
+                "code": self.wrapped_exc.status_int,
+                "message": message,
+                "details": details,
+            },
+        }
+
+    @staticmethod
+    def _retry_after(retry_time):
+        delay = int(math.ceil(retry_time - time.time()))
+        retry_after = delay if delay > 0 else 0
+        headers = {'Retry-After': '%d' % retry_after}
+        return headers
+
+    @webob.dec.wsgify(RequestClass=Request)
+    def __call__(self, request):
+        """
+        Return the wrapped exception with a serialized body conforming to our
+        error format.
+        """
+        content_type = request.best_match_content_type()
+        metadata = {"attributes": {"overLimitFault": "code"}}
+
+        xml_serializer = XMLDictSerializer(metadata, XMLNS_V1)
+        serializer = {
+            'application/xml': xml_serializer,
+            'application/json': JSONDictSerializer(),
+        }[content_type]
+
+        content = serializer.serialize(self.content)
+        self.wrapped_exc.body = content
+
+        return self.wrapped_exc

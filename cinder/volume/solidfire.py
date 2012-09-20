@@ -55,7 +55,7 @@ sf_opts = [
                default='',
                help='Password for SF Cluster Admin'),
 
-    cfg.StrOpt('sf_allow_tenant_qos',
+    cfg.BoolOpt('sf_allow_tenant_qos',
                default=True,
                help='Allow tenants to specify QOS on create'), ]
 
@@ -228,7 +228,7 @@ class SolidFire(SanISCSIDriver):
         iqn = None
         for v in volume_list:
             if v['volumeID'] == volume_id:
-                iqn = 'iqn.2010-01.com.solidfire:' + v['iqn']
+                iqn = v['iqn']
                 break
 
         model_update = {}
@@ -276,7 +276,7 @@ class SolidFire(SanISCSIDriver):
             if len(presets) > 0:
                 if len(presets) > 1:
                     LOG.warning(_('More than one valid preset was '
-                                  'detected, using %s' % presets[0]))
+                                  'detected, using %s') % presets[0])
                 qos = self.sf_qos_dict[presets[0]]
             else:
                 #if there was no preset, look for explicit settings
@@ -409,7 +409,7 @@ class SolidFire(SanISCSIDriver):
         iqn = None
         for v in volume_list:
             if v['volumeID'] == volume_id:
-                iqn = 'iqn.2010-01.com.solidfire:' + v['iqn']
+                iqn = v['iqn']
                 break
 
         model_update = {}

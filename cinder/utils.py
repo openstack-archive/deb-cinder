@@ -46,7 +46,6 @@ from xml.sax import saxutils
 from eventlet import event
 from eventlet import greenthread
 from eventlet.green import subprocess
-import netaddr
 
 from cinder.common import deprecated
 from cinder import exception
@@ -84,54 +83,6 @@ def find_config(config_path):
             return os.path.abspath(path)
 
     raise exception.ConfigNotFound(path=os.path.abspath(config_path))
-
-
-def vpn_ping(address, port, timeout=0.05, session_id=None):
-    """Sends a vpn negotiation packet and returns the server session.
-
-    Returns False on a failure. Basic packet structure is below.
-
-    Client packet (14 bytes)::
-
-         0 1      8 9  13
-        +-+--------+-----+
-        |x| cli_id |?????|
-        +-+--------+-----+
-        x = packet identifier 0x38
-        cli_id = 64 bit identifier
-        ? = unknown, probably flags/padding
-
-    Server packet (26 bytes)::
-
-         0 1      8 9  13 14    21 2225
-        +-+--------+-----+--------+----+
-        |x| srv_id |?????| cli_id |????|
-        +-+--------+-----+--------+----+
-        x = packet identifier 0x40
-        cli_id = 64 bit identifier
-        ? = unknown, probably flags/padding
-        bit 9 was 1 and the rest were 0 in testing
-
-    """
-    if session_id is None:
-        session_id = random.randint(0, 0xffffffffffffffff)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    data = struct.pack('!BQxxxxx', 0x38, session_id)
-    sock.sendto(data, (address, port))
-    sock.settimeout(timeout)
-    try:
-        received = sock.recv(2048)
-    except socket.timeout:
-        return False
-    finally:
-        sock.close()
-    fmt = '!BQxxxxxQxxxx'
-    if len(received) != struct.calcsize(fmt):
-        print struct.calcsize(fmt)
-        return False
-    (identifier, server_sess, client_sess) = struct.unpack(fmt, received)
-    if identifier == 0x40 and client_sess == session_id:
-        return server_sess
 
 
 def fetchfile(url, target):
@@ -713,36 +664,6 @@ def check_isinstance(obj, cls):
     return cls()  # Ugly PyLint hack
 
 
-def parse_server_string(server_str):
-    """
-    Parses the given server_string and returns a list of host and port.
-    If it's not a combination of host part and port, the port element
-    is a null string. If the input is invalid expression, return a null
-    list.
-    """
-    try:
-        # First of all, exclude pure IPv6 address (w/o port).
-        if netaddr.valid_ipv6(server_str):
-            return (server_str, '')
-
-        # Next, check if this is IPv6 address with a port number combination.
-        if server_str.find("]:") != -1:
-            (address, port) = server_str.replace('[', '', 1).split(']:')
-            return (address, port)
-
-        # Third, check if this is a combination of an address and a port
-        if server_str.find(':') == -1:
-            return (server_str, '')
-
-        # This must be a combination of an address and a port
-        (address, port) = server_str.split(':')
-        return (address, port)
-
-    except Exception:
-        LOG.debug(_('Invalid server_string: %s'), server_str)
-        return ('', '')
-
-
 def gen_uuid():
     return uuid.uuid4()
 
@@ -783,30 +704,6 @@ def is_valid_ipv4(address):
                 return False
         except ValueError:
             return False
-    return True
-
-
-def is_valid_cidr(address):
-    """Check if the provided ipv4 or ipv6 address is a valid
-    CIDR address or not"""
-    try:
-        # Validate the correct CIDR Address
-        netaddr.IPNetwork(address)
-    except netaddr.core.AddrFormatError:
-        return False
-    except UnboundLocalError:
-        # NOTE(MotoKen): work around bug in netaddr 0.7.5 (see detail in
-        # https://github.com/drkjam/netaddr/issues/2)
-        return False
-
-    # Prior validation partially verify /xx part
-    # Verify it here
-    ip_segment = address.split('/')
-
-    if (len(ip_segment) <= 1 or
-        ip_segment[1] == ''):
-        return False
-
     return True
 
 
@@ -1132,71 +1029,3 @@ class UndoManager(object):
                 LOG.exception(msg, **kwargs)
 
             self._rollback()
-
-
-def wrap_exception(notifier=None, publisher_id=None, event_type=None,
-                   level=None):
-    """This decorator wraps a method to catch any exceptions that may
-    get thrown. It logs the exception as well as optionally sending
-    it to the notification system.
-    """
-    # TODO(sandy): Find a way to import cinder.notifier.api so we don't have
-    # to pass it in as a parameter. Otherwise we get a cyclic import of
-    # cinder.notifier.api -> cinder.utils -> cinder.exception :(
-    # TODO(johannes): Also, it would be nice to use
-    # utils.save_and_reraise_exception() without an import loop
-    def inner(f):
-        def wrapped(*args, **kw):
-            try:
-                return f(*args, **kw)
-            except Exception, e:
-                # Save exception since it can be clobbered during processing
-                # below before we can re-raise
-                exc_info = sys.exc_info()
-
-                if notifier:
-                    payload = dict(args=args, exception=e)
-                    payload.update(kw)
-
-                    # Use a temp vars so we don't shadow
-                    # our outer definitions.
-                    temp_level = level
-                    if not temp_level:
-                        temp_level = notifier.ERROR
-
-                    temp_type = event_type
-                    if not temp_type:
-                        # If f has multiple decorators, they must use
-                        # functools.wraps to ensure the name is
-                        # propagated.
-                        temp_type = f.__name__
-
-                    context = get_context_from_function_and_args(f,
-                                                                 args,
-                                                                 kw)
-
-                    notifier.notify(context, publisher_id, temp_type,
-                                    temp_level, payload)
-
-                # re-raise original exception since it may have been clobbered
-                raise exc_info[0], exc_info[1], exc_info[2]
-
-        return functools.wraps(f)(wrapped)
-    return inner
-
-
-def get_context_from_function_and_args(function, args, kwargs):
-    """Find an arg of type RequestContext and return it.
-
-       This is useful in a couple of decorators where we don't
-       know much about the function we're wrapping.
-    """
-
-    # import here to avoid circularity:
-    from cinder import context
-
-    for arg in itertools.chain(kwargs.values(), args):
-        if isinstance(arg, context.RequestContext):
-            return arg
-
-    return None

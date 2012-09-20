@@ -69,7 +69,7 @@ qpid_opts = [
                default=0,
                help='Equivalent to setting max and min to the same value'),
     cfg.IntOpt('qpid_heartbeat',
-               default=5,
+               default=60,
                help='Seconds between connection keepalive heartbeats'),
     cfg.StrOpt('qpid_protocol',
                default='tcp',
@@ -181,9 +181,8 @@ class TopicConsumer(ConsumerBase):
         """
 
         super(TopicConsumer, self).__init__(session, callback,
-                                            "%s/%s" % (conf.control_exchange,
-                                                       topic),
-                                            {}, name or topic, {})
+                "%s/%s" % (rpc_amqp.get_control_exchange(conf), topic),
+                {}, name or topic, {})
 
 
 class FanoutConsumer(ConsumerBase):
@@ -256,9 +255,8 @@ class TopicPublisher(Publisher):
     def __init__(self, conf, session, topic):
         """init a 'topic' publisher.
         """
-        super(TopicPublisher, self).__init__(
-            session,
-            "%s/%s" % (conf.control_exchange, topic))
+        super(TopicPublisher, self).__init__(session,
+                "%s/%s" % (rpc_amqp.get_control_exchange(conf), topic))
 
 
 class FanoutPublisher(Publisher):
@@ -276,10 +274,9 @@ class NotifyPublisher(Publisher):
     def __init__(self, conf, session, topic):
         """init a 'topic' publisher.
         """
-        super(NotifyPublisher, self).__init__(
-            session,
-            "%s/%s" % (conf.control_exchange, topic),
-            {"durable": True})
+        super(NotifyPublisher, self).__init__(session,
+                "%s/%s" % (rpc_amqp.get_control_exchange(conf), topic),
+                {"durable": True})
 
 
 class Connection(object):

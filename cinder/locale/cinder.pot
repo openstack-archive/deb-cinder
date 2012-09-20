@@ -1,17 +1,17 @@
-# Japanese translation for cinder
-# Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
-# This file is distributed under the same license as the cinder package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
+# Translations template for cinder.
+# Copyright (C) 2012 ORGANIZATION
+# This file is distributed under the same license as the cinder project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2012.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version:  cinder\n"
-"Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
+"Project-Id-Version: cinder 2012.2\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: 2011-08-23 11:22+0000\n"
-"Last-Translator: Thierry Carrez <thierry.carrez+lp@gmail.com>\n"
-"Language-Team: \n"
-"Plural-Forms: nplurals=1; plural=0\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -29,11 +29,11 @@ msgstr ""
 
 #: cinder/crypto.py:48
 msgid "Filename of root CA"
-msgstr "ルートCAのファイル名"
+msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "プライベートキーのファイル名"
+msgstr ""
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
@@ -41,34 +41,34 @@ msgstr ""
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr "キーを格納するパス"
+msgstr ""
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
-msgstr "ルートCAを格納するパス"
+msgstr ""
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr "プロジェクトごとにCAを使用するか否かのフラグ"
+msgstr ""
 
 #: cinder/crypto.py:67
 #, python-format
 msgid "Subject for certificate for users, %s for project, user, timestamp"
-msgstr "ユーザの証明書のサブジェクト、%s はプロジェクト、ユーザ、タイムスタンプ"
+msgstr ""
 
 #: cinder/crypto.py:72
 #, python-format
 msgid "Subject for certificate for projects, %s for project, timestamp"
-msgstr "プロジェクトの証明書のサブジェクト、%s はプロジェクト、およびタイムスタンプ"
+msgstr ""
 
 #: cinder/crypto.py:292
 #, python-format
 msgid "Flags path: %s"
-msgstr "Flags のパス: %s"
+msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr "コマンド実行において予期しないエラーが発生しました。"
+msgstr ""
 
 #: cinder/exception.py:59
 #, python-format
@@ -79,11 +79,6 @@ msgid ""
 "Stdout: %(stdout)r\n"
 "Stderr: %(stderr)r"
 msgstr ""
-"%(description)s\n"
-"コマンド: %(cmd)s\n"
-"終了コード: %(exit_code)s\n"
-"標準出力: %(stdout)r\n"
-"標準エラー出力: %(stderr)r"
 
 #: cinder/exception.py:94
 msgid "DB exception wrapped."
@@ -131,9 +126,9 @@ msgid "Policy doesn't allow %(action)s to be performed."
 msgstr ""
 
 #: cinder/exception.py:216
-#, fuzzy, python-format
+#, python-format
 msgid "Not authorized for image %(image_id)s."
-msgstr "メッセージ %s に対するメソッドが存在しません。"
+msgstr ""
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
@@ -262,9 +257,8 @@ msgid "Failed to reboot instance"
 msgstr ""
 
 #: cinder/exception.py:334
-#, fuzzy
 msgid "Failed to terminate instance"
-msgstr "インスタンス終了処理を開始します。"
+msgstr ""
 
 #: cinder/exception.py:338
 msgid "Service is unavailable at this time."
@@ -899,7 +893,7 @@ msgstr ""
 #: cinder/exception.py:877
 #, python-format
 msgid "User %(uid)s is already a member of the group %(group_dn)s"
-msgstr "ユーザ %(uid)s はすでにグループ %(group_dn)s のメンバです。"
+msgstr ""
 
 #: cinder/exception.py:882
 #, python-format
@@ -1069,9 +1063,9 @@ msgid "Invalid id: %(val)s (expecting \"i-...\")."
 msgstr ""
 
 #: cinder/exception.py:1025
-#, fuzzy, python-format
+#, python-format
 msgid "Could not fetch image %(image)s"
-msgstr "イメージをループバック %s にアタッチできません。"
+msgstr ""
 
 #: cinder/log.py:315
 #, python-format
@@ -1112,7 +1106,7 @@ msgstr ""
 #: cinder/service.py:177
 #, python-format
 msgid "Starting %(topic)s node (version %(vcs_string)s)"
-msgstr "%(topic)s ノードを開始しています (バージョン %(vcs_string)s)"
+msgstr ""
 
 #: cinder/service.py:195
 #, python-format
@@ -1121,23 +1115,23 @@ msgstr ""
 
 #: cinder/service.py:282
 msgid "Service killed that has no database entry"
-msgstr "データベースにエントリの存在しないサービスを終了します。"
+msgstr ""
 
 #: cinder/service.py:319
 msgid "The service database object disappeared, Recreating it."
-msgstr "サービスデータベースオブジェクトが消滅しました。再作成します。"
+msgstr ""
 
 #: cinder/service.py:334
 msgid "Recovered model server connection!"
-msgstr "モデルサーバへの接続を復旧しました。"
+msgstr ""
 
 #: cinder/service.py:340
 msgid "model server went away"
-msgstr "モデルサーバが消滅しました。"
+msgstr ""
 
 #: cinder/service.py:433
 msgid "Full set of FLAGS:"
-msgstr "FLAGSの一覧:"
+msgstr ""
 
 #: cinder/service.py:440
 #, python-format
@@ -1147,12 +1141,12 @@ msgstr ""
 #: cinder/utils.py:79
 #, python-format
 msgid "Inner Exception: %s"
-msgstr "内側で発生した例外： %s"
+msgstr ""
 
 #: cinder/utils.py:165
 #, python-format
 msgid "Fetching %s"
-msgstr "ファイルをフェッチ： %s"
+msgstr ""
 
 #: cinder/utils.py:210
 #, python-format
@@ -1162,12 +1156,12 @@ msgstr ""
 #: cinder/utils.py:220
 #, python-format
 msgid "Running cmd (subprocess): %s"
-msgstr "コマンド実行(subprocess): %s"
+msgstr ""
 
 #: cinder/utils.py:236 cinder/utils.py:315
 #, python-format
 msgid "Result was %s"
-msgstr "コマンド実行結果： %s"
+msgstr ""
 
 #: cinder/utils.py:249
 #, python-format
@@ -1177,7 +1171,7 @@ msgstr ""
 #: cinder/utils.py:291
 #, python-format
 msgid "Running cmd (SSH): %s"
-msgstr "コマンド（SSH)を実行: %s"
+msgstr ""
 
 #: cinder/utils.py:293
 msgid "Environment not supported over SSH"
@@ -1190,27 +1184,27 @@ msgstr ""
 #: cinder/utils.py:352
 #, python-format
 msgid "debug in callback: %s"
-msgstr "コールバック中のデバッグ: %s"
+msgstr ""
 
 #: cinder/utils.py:534
 #, python-format
 msgid "Link Local address is not found.:%s"
-msgstr "リンクローカルアドレスが見つかりません: %s"
+msgstr ""
 
 #: cinder/utils.py:537
 #, python-format
 msgid "Couldn't get Link Local IP of %(interface)s :%(ex)s"
-msgstr "%(interface)s のローカルIPアドレスのリンクが取得できません:%(ex)s"
+msgstr ""
 
 #: cinder/utils.py:648
 #, python-format
 msgid "Invalid backend: %s"
-msgstr "不正なバックエンドです: %s"
+msgstr ""
 
 #: cinder/utils.py:659
 #, python-format
 msgid "backend %s"
-msgstr "バックエンドは %s です。"
+msgstr ""
 
 #: cinder/utils.py:709
 msgid "in looping call"
@@ -1324,11 +1318,11 @@ msgstr ""
 
 #: cinder/wsgi.py:211
 msgid "You must implement __call__"
-msgstr "__call__ を実装しなければなりません"
+msgstr ""
 
 #: cinder/api/direct.py:218
 msgid "not available"
-msgstr "利用できません"
+msgstr ""
 
 #: cinder/api/direct.py:299
 #, python-format
@@ -1356,14 +1350,14 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:170
 msgid "Too many failed authentications."
-msgstr "認証失敗の回数が多すぎます。"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:180
 #, python-format
 msgid ""
 "Access key %(access_key)s has had %(failures)d failed authentications and"
 " will be locked out for %(lock_mins)d minutes."
-msgstr "アクセスキー %(access_key)s は %(failures)d 回認証に失敗しましたので、%(lock_mins)d 分間ロックします。"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:267
 msgid "Signature not provided"
@@ -1380,37 +1374,37 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:388
 #, python-format
 msgid "Authentication Failure: %s"
-msgstr "%s の認証に失敗しました。"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:404
 #, python-format
 msgid "Authenticated Request For %(uname)s:%(pname)s)"
-msgstr "%(uname)s 用の認証リクエスト:%(pname)s)"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:435
 #, python-format
 msgid "action: %s"
-msgstr "アクション(action): %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:437
 #, python-format
 msgid "arg: %(key)s\t\tval: %(value)s"
-msgstr "引数: %(key)s\t\t値: %(value)s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:512
 #, python-format
 msgid "Unauthorized request for controller=%(controller)s and action=%(action)s"
-msgstr "コントローラ=%(controller)s とアクション=%(action)s 用の許可されていないリクエスト"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:584
 #, python-format
 msgid "InstanceNotFound raised: %s"
-msgstr "InstanceNotFound が発行されました: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:590
 #, python-format
 msgid "VolumeNotFound raised: %s"
-msgstr "VolumeNotFound が発行されました: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:596
 #, python-format
@@ -1420,7 +1414,7 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:602
 #, python-format
 msgid "NotFound raised: %s"
-msgstr "NotFound 発生: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:605
 #, python-format
@@ -1453,9 +1447,9 @@ msgid "InvalidRequest raised: %s"
 msgstr ""
 
 #: cinder/api/ec2/__init__.py:633
-#, fuzzy, python-format
+#, python-format
 msgid "QuotaError raised: %s"
-msgstr "予期しないエラー発生: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:637
 #, python-format
@@ -1465,7 +1459,7 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:646
 #, python-format
 msgid "Unexpected error raised: %s"
-msgstr "予期しないエラー発生: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:647
 #, python-format
@@ -1474,12 +1468,12 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:649 cinder/api/metadata/handler.py:248
 msgid "An unknown error has occurred. Please try your request again."
-msgstr "未知のエラーが発生しました。再度リクエストを実行してください。"
+msgstr ""
 
 #: cinder/api/ec2/apirequest.py:64
 #, python-format
 msgid "Unsupported API request: controller = %(controller)s, action = %(action)s"
-msgstr "未サポートの API リクエスト: コントローラ = %(controller)s, アクション = %(action)s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:336
 #, python-format
@@ -1501,7 +1495,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:382
 #, python-format
 msgid "Create key pair %s"
-msgstr "Create key pair: キーペア %s を作成します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:391
 #, python-format
@@ -1511,7 +1505,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:409
 #, python-format
 msgid "Delete key pair %s"
-msgstr "Delete key pair: キーペア %s を削除します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:551
 msgid "Invalid CIDR"
@@ -1526,27 +1520,27 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:517
 #, python-format
 msgid "Revoke security group ingress %s"
-msgstr "Revoke security group ingress: セキュリティグループ許可 %s の取消"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:666 cinder/api/ec2/cloud.py:719
-#, fuzzy, python-format
+#, python-format
 msgid "%s Not enough parameters to build a valid rule"
-msgstr "有効なルールを作成する為の十分なパラメータがありません"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:684 cinder/api/ec2/cloud.py:744
 msgid "No rule for the specified parameters."
-msgstr "指定されたパラメータに該当するルールがありません。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:708
 #: cinder/api/openstack/compute/contrib/security_groups.py:354
 #, python-format
 msgid "Authorize security group ingress %s"
-msgstr "Authorize security group ingress: セキュリティグループ許可 %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:725
-#, fuzzy, python-format
+#, python-format
 msgid "%s - This rule already exists in group"
-msgstr "指定されたルールは既にグループ %s に存在しています。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:769
 #, python-format
@@ -1566,23 +1560,23 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:292
 #, python-format
 msgid "Create Security Group %s"
-msgstr "Create Security Group: セキュリティグループ %s を作成します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:783
 #, python-format
 msgid "group %s already exists"
-msgstr "グループ %s は既に存在しています。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:815
 #: cinder/api/openstack/compute/contrib/security_groups.py:245
 #, python-format
 msgid "Delete security group %s"
-msgstr "Delete security group: セキュリティグループ %s を削除します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:823 cinder/compute/manager.py:1630
 #, python-format
 msgid "Get console output for instance %s"
-msgstr "Get console output: インスタンス %s のコンソール出力を取得します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:894
 #, python-format
@@ -1593,7 +1587,7 @@ msgstr ""
 #: cinder/api/openstack/volume/volumes.py:222
 #, python-format
 msgid "Create volume of %s GB"
-msgstr "Create volume: %s GBのボリュームを作成します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:921
 msgid "Delete Failed"
@@ -1602,7 +1596,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:931
 #, python-format
 msgid "Attach volume %(volume_id)s to instance %(instance_id)s at %(device)s"
-msgstr "ボリューム %(volume_id)s をインスタンス %(instance_id)s のデバイス %(device)s に接続"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:939
 msgid "Attach Failed."
@@ -1611,18 +1605,17 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:952 cinder/api/openstack/compute/contrib/volumes.py:366
 #, python-format
 msgid "Detach volume %s"
-msgstr "Detach volume: ボリューム %s をデタッチします"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:959
-#, fuzzy, python-format
 msgid "Detach Volume Failed."
-msgstr "Detach volume: ボリューム %s をデタッチします"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:984 cinder/api/ec2/cloud.py:1041
 #: cinder/api/ec2/cloud.py:1518 cinder/api/ec2/cloud.py:1533
 #, python-format
 msgid "attribute not supported: %s"
-msgstr "アトリビュート %s はサポートされていません。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1107
 #, python-format
@@ -1631,22 +1624,22 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1255
 msgid "Allocate address"
-msgstr "Allocate address: アドレスを割り当てます。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1267
 #, python-format
 msgid "Release address %s"
-msgstr "Release address: アドレス %s を開放します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1272
 #, python-format
 msgid "Associate address %(public_ip)s to instance %(instance_id)s"
-msgstr "インスタンス %(instance_id)s にアドレス %(public_ip)s を割り当て"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1282
 #, python-format
 msgid "Disassociate address %s"
-msgstr "Disassociate address: アドレス %s の関連付けを解除します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1308
 msgid "Image must be available"
@@ -1654,12 +1647,12 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1329
 msgid "Going to start terminating instances"
-msgstr "インスタンス終了処理を開始します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1343
 #, python-format
 msgid "Reboot instance %r"
-msgstr "Reboot instance: インスタンス %r を再起動します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1354
 msgid "Going to stop instances"
@@ -1672,7 +1665,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1455
 #, python-format
 msgid "De-registering image %s"
-msgstr "De-registering image: イメージ %s を登録解除します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1471
 msgid "imageLocation is required"
@@ -1681,24 +1674,24 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1490
 #, python-format
 msgid "Registered image %(image_location)s with id %(image_id)s"
-msgstr "イメージ %(image_location)s が ID %(image_id)s で登録されました"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1536
 msgid "user or group not specified"
-msgstr "ユーザまたはグループが指定されていません。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1538
 msgid "only group \"all\" is supported"
-msgstr "グループ  \"all\" のみサポートされています。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1540
 msgid "operation_type must be add or remove"
-msgstr "operation_type は add または remove の何れかである必要があります。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1542
 #, python-format
 msgid "Updating image %s publicity"
-msgstr "イメージ %s の公開設定を更新します。"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1555
 #, python-format
@@ -1713,12 +1706,12 @@ msgstr ""
 #: cinder/api/metadata/handler.py:246 cinder/api/metadata/handler.py:253
 #, python-format
 msgid "Failed to get metadata for ip: %s"
-msgstr "ip %s に対するメタデータの取得に失敗しました。"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:43
 #, python-format
 msgid "Caught error: %s"
-msgstr "エラー %s をキャッチしました。"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:45 cinder/api/openstack/wsgi.py:886
 #, python-format
@@ -2253,22 +2246,22 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:60
 #, python-format
 msgid "Compute.api::pause %s"
-msgstr "例外: Compute.api::pause %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:77
 #, python-format
 msgid "Compute.api::unpause %s"
-msgstr "例外: Compute.api::unpause %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:94
 #, python-format
 msgid "compute.api::suspend %s"
-msgstr "例外: compute.api::suspend %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:111
 #, python-format
 msgid "compute.api::resume %s"
-msgstr "例外: compute.api::resume %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:127
 #, python-format
@@ -2278,7 +2271,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:141
 #, python-format
 msgid "Compute.api::reset_network %s"
-msgstr "例外: Compute.api::reset_network %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:154
 #: cinder/api/openstack/compute/contrib/admin_actions.py:170
@@ -2296,12 +2289,12 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:173
 #, python-format
 msgid "Compute.api::lock %s"
-msgstr "例外: Compute.api::lock %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:189
 #, python-format
 msgid "Compute.api::unlock %s"
-msgstr "例外: Compute.api::unlock %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:219
 #, python-format
@@ -2453,9 +2446,9 @@ msgid "Invalid status: '%s'"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:148
-#, fuzzy, python-format
+#, python-format
 msgid "Invalid mode: '%s'"
-msgstr "不正なバックエンドです: %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:152
 #, python-format
@@ -2541,9 +2534,8 @@ msgid "Security group id should be integer"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:243
-#, fuzzy, python-format
 msgid "Security group is still in use"
-msgstr "Revoke security group ingress: セキュリティグループ許可 %s の取消"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:295
 #, python-format
@@ -2576,12 +2568,12 @@ msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:369
 msgid "Not enough parameters to build a valid rule."
-msgstr "有効なルールを作成する為の十分なパラメータがありません"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:376
 #, python-format
 msgid "This rule already exists in group %s"
-msgstr "指定されたルールは既にグループ %s に存在しています。"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:414
 msgid "Parent or group id is not integer"
@@ -2647,41 +2639,41 @@ msgstr ""
 
 #: cinder/auth/fakeldap.py:33
 msgid "Attempted to instantiate singleton"
-msgstr "シングルトンをインスタンス化しようとしました。"
+msgstr ""
 
 #: cinder/auth/ldapdriver.py:650
 #, python-format
 msgid ""
 "Attempted to remove the last member of a group. Deleting the group at %s "
 "instead."
-msgstr "グループの最後のメンバーを削除しようとしました。代わりにグループ %s を削除してください。"
+msgstr ""
 
 #: cinder/auth/manager.py:298
 #, python-format
 msgid "Looking up user: %r"
-msgstr "ユーザ %r を検索します。"
+msgstr ""
 
 #: cinder/auth/manager.py:302
 #, python-format
 msgid "Failed authorization for access key %s"
-msgstr "Failed authorization: アクセスキー %s の認証に失敗しました。"
+msgstr ""
 
 #: cinder/auth/manager.py:308
 #, python-format
 msgid "Using project name = user name (%s)"
-msgstr "ユーザ名 (%s) をプロジェクト名として使用します。"
+msgstr ""
 
 #: cinder/auth/manager.py:315
 #, python-format
 msgid "failed authorization: no project named %(pjid)s (user=%(uname)s)"
-msgstr "許可されません: %(pjid)s という名称のプロジェクトはありません (ユーザ=%(uname)s)"
+msgstr ""
 
 #: cinder/auth/manager.py:324
 #, python-format
 msgid ""
 "Failed authorization: user %(uname)s not admin and not member of project "
 "%(pjname)s"
-msgstr "許可されません: ユーザ %(uname)s は管理者でもプロジェクト %(pjname)s のメンバでもありません。"
+msgstr ""
 
 #: cinder/auth/manager.py:331 cinder/auth/manager.py:343
 #, python-format
@@ -2701,7 +2693,7 @@ msgstr ""
 #: cinder/auth/manager.py:335 cinder/auth/manager.py:357
 #, python-format
 msgid "Invalid signature for user %s"
-msgstr "Invalid signature: ユーザ %s の署名が不正です。"
+msgstr ""
 
 #: cinder/auth/manager.py:353
 #, python-format
@@ -2710,87 +2702,86 @@ msgstr ""
 
 #: cinder/auth/manager.py:449
 msgid "Must specify project"
-msgstr "プロジェクトを指定してください。"
+msgstr ""
 
 #: cinder/auth/manager.py:490
 #, python-format
 msgid "Adding role %(role)s to user %(uid)s in project %(pid)s"
-msgstr "プロジェクト %(pid)s のユーザ %(uid)s にロール %(role)s を付与します。"
+msgstr ""
 
 #: cinder/auth/manager.py:493
 #, python-format
 msgid "Adding sitewide role %(role)s to user %(uid)s"
-msgstr "サイト共通のロール %(role)s をユーザ %(uid)s に付与します。"
+msgstr ""
 
 #: cinder/auth/manager.py:519
 #, python-format
 msgid "Removing role %(role)s from user %(uid)s on project %(pid)s"
-msgstr "プロジェクト %(pid)s のユーザ  %(uid)s  からロール %(role)s を削除します。"
+msgstr ""
 
 #: cinder/auth/manager.py:522
 #, python-format
 msgid "Removing sitewide role %(role)s from user %(uid)s"
-msgstr "ユーザ %(uid)s からサイト共通のロール %(role)s を削除します。"
+msgstr ""
 
 #: cinder/auth/manager.py:595
 #, python-format
 msgid "Created project %(name)s with manager %(manager_user)s"
-msgstr "プロジェクト %(name)s を管理者 %(manager_user)s で作成しました。"
+msgstr ""
 
 #: cinder/auth/manager.py:613
 #, python-format
 msgid "modifying project %s"
-msgstr "modifying project: プロジェクト %s を更新します。"
+msgstr ""
 
 #: cinder/auth/manager.py:625
 #, python-format
 msgid "Adding user %(uid)s to project %(pid)s"
-msgstr "ユーザ %(uid)s をプロジェクト %(pid)s に追加します。"
+msgstr ""
 
 #: cinder/auth/manager.py:646
 #, python-format
 msgid "Remove user %(uid)s from project %(pid)s"
-msgstr "ユーザ %(uid)s をプロジェクト %(pid)s から削除します。"
+msgstr ""
 
 #: cinder/auth/manager.py:676
 #, python-format
 msgid "Deleting project %s"
-msgstr "Deleting project: プロジェクト %s を削除します。"
+msgstr ""
 
 #: cinder/auth/manager.py:734
 #, python-format
 msgid "Created user %(rvname)s (admin: %(rvadmin)r)"
-msgstr "ユーザ %(rvname)s を作成しました。(管理者: %(rvadmin)r)"
+msgstr ""
 
 #: cinder/auth/manager.py:743
 #, python-format
 msgid "Deleting user %s"
-msgstr "Deleting user: ユーザ %s を削除します。"
+msgstr ""
 
 #: cinder/auth/manager.py:753
 #, python-format
 msgid "Access Key change for user %s"
-msgstr "Access Key change: ユーザ %s のアクセスキーを更新します。"
+msgstr ""
 
 #: cinder/auth/manager.py:755
 #, python-format
 msgid "Secret Key change for user %s"
-msgstr "Secret Key change: ユーザ %s のシークレットキーを更新します。"
+msgstr ""
 
 #: cinder/auth/manager.py:757
 #, python-format
 msgid "Admin status set to %(admin)r for user %(uid)s"
-msgstr "ユーザ %(uid)s に対して管理者状態が %(admin)r に設定されました。"
+msgstr ""
 
 #: cinder/auth/manager.py:802
 #, python-format
 msgid "No vpn data for project %s"
-msgstr "プロジェクト %s に関するvpnデータがありません。"
+msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:46
-#, fuzzy, python-format
 msgid "Instance type for vpn instances"
-msgstr "Get console output: インスタンス %s のコンソール出力を取得します。"
+msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:49
 msgid "Template for cloudpipe instance boot script"
@@ -2798,16 +2789,16 @@ msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:52
 msgid "Network to push into openvpn config"
-msgstr "openvpnの設定に入れるネットワークの値"
+msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:55
 msgid "Netmask to push into openvpn config"
-msgstr "openvpnの設定に入れるネットマスクの値"
+msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:107
 #, python-format
 msgid "Launching VPN for %s"
-msgstr "%s 用のVPNを起動します。"
+msgstr ""
 
 #: cinder/compute/api.py:141
 msgid "No compute host specified"
@@ -2831,14 +2822,13 @@ msgid "Quota exceeded for %(pid)s, metadata property key or value too long"
 msgstr ""
 
 #: cinder/compute/api.py:257
-#, fuzzy, python-format
 msgid "Cannot run any more instances of this type."
-msgstr "インスタンスのクオータを超えました。このタイプにおいてはあと %s インスタンスしか実行できません。"
+msgstr ""
 
 #: cinder/compute/api.py:259
-#, fuzzy, python-format
+#, python-format
 msgid "Can only run %s more instances of this type."
-msgstr "インスタンスのクオータを超えました。このタイプにおいてはあと %s インスタンスしか実行できません。"
+msgstr ""
 
 #: cinder/compute/api.py:261
 #, python-format
@@ -2847,7 +2837,7 @@ msgstr ""
 
 #: cinder/compute/api.py:310
 msgid "Creating a raw instance"
-msgstr "raw instanceを生成します。"
+msgstr ""
 
 #: cinder/compute/api.py:312
 #, python-format
@@ -2857,7 +2847,7 @@ msgstr ""
 #: cinder/compute/api.py:383
 #, python-format
 msgid "Going to run %s instances..."
-msgstr "%s 個のインスタンスの起動を始めます…"
+msgstr ""
 
 #: cinder/compute/api.py:447
 #, python-format
@@ -2875,28 +2865,24 @@ msgid "Sending create to scheduler for %(pid)s/%(uid)s's"
 msgstr ""
 
 #: cinder/compute/api.py:871
-#, fuzzy, python-format
 msgid "Going to try to soft delete instance"
-msgstr "%s を停止しようとしています"
+msgstr ""
 
 #: cinder/compute/api.py:891
 msgid "No host for instance, deleting immediately"
 msgstr ""
 
 #: cinder/compute/api.py:939
-#, fuzzy, python-format
 msgid "Going to try to terminate instance"
-msgstr "%s を停止しようとしています"
+msgstr ""
 
 #: cinder/compute/api.py:977
-#, fuzzy, python-format
 msgid "Going to try to stop instance"
-msgstr "%s を停止しようとしています"
+msgstr ""
 
 #: cinder/compute/api.py:996
-#, fuzzy, python-format
 msgid "Going to try to start instance"
-msgstr "%s を停止しようとしています"
+msgstr ""
 
 #: cinder/compute/api.py:1000
 #, python-format
@@ -2947,7 +2933,7 @@ msgstr ""
 #: cinder/compute/manager.py:138
 #, python-format
 msgid "check_instance_lock: decorating: |%s|"
-msgstr "check_instance_lock: decorating: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:140
 #, python-format
@@ -2959,22 +2945,22 @@ msgstr ""
 #: cinder/compute/manager.py:144
 #, python-format
 msgid "check_instance_lock: locked: |%s|"
-msgstr "check_instance_lock: locked: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:146
 #, python-format
 msgid "check_instance_lock: admin: |%s|"
-msgstr "check_instance_lock: admin: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:151
 #, python-format
 msgid "check_instance_lock: executing: |%s|"
-msgstr "check_instance_lock: executing: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:155
 #, python-format
 msgid "check_instance_lock: not executing |%s|"
-msgstr "check_instance_lock: not executing |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:201
 #, python-format
@@ -3016,9 +3002,9 @@ msgid "Instance %s already deleted from database. Attempting forceful vm deletio
 msgstr ""
 
 #: cinder/compute/manager.py:406
-#, fuzzy, python-format
+#, python-format
 msgid "Exception encountered while terminating the instance %s"
-msgstr "インスタンス %s を終了した後です。"
+msgstr ""
 
 #: cinder/compute/manager.py:444
 #, python-format
@@ -3027,7 +3013,7 @@ msgstr ""
 
 #: cinder/compute/manager.py:480
 msgid "Instance has already been created"
-msgstr "インスタンスは既に生成されています。"
+msgstr ""
 
 #: cinder/compute/manager.py:523
 #, python-format
@@ -3113,7 +3099,7 @@ msgstr ""
 #: cinder/compute/manager.py:876
 #, python-format
 msgid "Rebooting instance %s"
-msgstr "Rebooting instance: インスタンス %s を再起動します。"
+msgstr ""
 
 #: cinder/compute/manager.py:891
 #, python-format
@@ -3125,7 +3111,7 @@ msgstr ""
 #: cinder/compute/manager.py:933
 #, python-format
 msgid "instance %s: snapshotting"
-msgstr "snapshotting: インスタンス %s のスナップショットを取得中"
+msgstr ""
 
 #: cinder/compute/manager.py:939
 #, python-format
@@ -3194,12 +3180,12 @@ msgstr ""
 #: cinder/compute/manager.py:1116
 #, python-format
 msgid "instance %s: rescuing"
-msgstr "Rescuing: インスタンス %s をレスキューします。"
+msgstr ""
 
 #: cinder/compute/manager.py:1141
 #, python-format
 msgid "instance %s: unrescuing"
-msgstr "Unrescuing: インスタンス %s をアンレスキューします。"
+msgstr ""
 
 #: cinder/compute/manager.py:1270
 msgid "destination same as source!"
@@ -3213,47 +3199,47 @@ msgstr ""
 #: cinder/compute/manager.py:1471
 #, python-format
 msgid "instance %s: pausing"
-msgstr "pausing: インスタンス %s を一時停止します。"
+msgstr ""
 
 #: cinder/compute/manager.py:1489
 #, python-format
 msgid "instance %s: unpausing"
-msgstr "unpausing: インスタンス %s の一時停止を解除します。"
+msgstr ""
 
 #: cinder/compute/manager.py:1525
 #, python-format
 msgid "instance %s: retrieving diagnostics"
-msgstr "retrieving diagnostics: インスタンス %s の診断情報を取得します。"
+msgstr ""
 
 #: cinder/compute/manager.py:1534
 #, python-format
 msgid "instance %s: suspending"
-msgstr "suspending: インスタンス %s をサスペンドします。"
+msgstr ""
 
 #: cinder/compute/manager.py:1556
 #, python-format
 msgid "instance %s: resuming"
-msgstr "resuming: インスタンス %s をレジュームします。"
+msgstr ""
 
 #: cinder/compute/manager.py:1579
 #, python-format
 msgid "instance %s: locking"
-msgstr "locking: インスタンス %s をロックします。"
+msgstr ""
 
 #: cinder/compute/manager.py:1588
 #, python-format
 msgid "instance %s: unlocking"
-msgstr "unlocking: インスタンス %s のロックを解除します。"
+msgstr ""
 
 #: cinder/compute/manager.py:1596
 #, python-format
 msgid "instance %s: getting locked state"
-msgstr "getting locked state: インスタンス %s のロックを取得しました。"
+msgstr ""
 
 #: cinder/compute/manager.py:1606
 #, python-format
 msgid "instance %s: reset network"
-msgstr "インスタンス %s: ネットワークをリセットします"
+msgstr ""
 
 #: cinder/compute/manager.py:1614
 #, python-format
@@ -3305,7 +3291,7 @@ msgstr ""
 #: cinder/compute/manager.py:1756
 #, python-format
 msgid "Detaching volume from unknown instance %s"
-msgstr "ボリュームを未知のインスタンス %s からデタッチします。"
+msgstr ""
 
 #: cinder/compute/manager.py:1822
 #, python-format
@@ -3359,7 +3345,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3442,12 +3428,12 @@ msgstr ""
 
 #: cinder/console/manager.py:77 cinder/console/vmrc_manager.py:70
 msgid "Adding console"
-msgstr "コンソールを追加しています"
+msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
-msgstr "存在しないコンソール %(console_id)s を削除しようとしました"
+msgid "Tried to remove non-existent console %(console_id)s."
+msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
 #, python-format
@@ -3461,33 +3447,33 @@ msgstr ""
 
 #: cinder/console/xvp.py:98
 msgid "Rebuilding xvp conf"
-msgstr "xvp 設定を再構築しています"
+msgstr ""
 
 #: cinder/console/xvp.py:116
 #, python-format
 msgid "Re-wrote %s"
-msgstr "%s を再度書き込みました"
+msgstr ""
 
 #: cinder/console/xvp.py:121
 msgid "Stopping xvp"
-msgstr "xvp を停止しています"
+msgstr ""
 
 #: cinder/console/xvp.py:134
 msgid "Starting xvp"
-msgstr "xvp を開始しています"
+msgstr ""
 
 #: cinder/console/xvp.py:141
 #, python-format
 msgid "Error starting xvp: %s"
-msgstr "xvp の開始中にエラー: %s"
+msgstr ""
 
 #: cinder/console/xvp.py:144
 msgid "Restarting xvp"
-msgstr "xvp を再起動しています"
+msgstr ""
 
 #: cinder/console/xvp.py:146
 msgid "xvp not running..."
-msgstr "xvp が実行されていません…"
+msgstr ""
 
 #: cinder/consoleauth/manager.py:63
 #, python-format
@@ -3506,7 +3492,7 @@ msgstr ""
 
 #: cinder/db/sqlalchemy/api.py:57
 msgid "Use of empty request context is deprecated"
-msgstr "Request context を空とすることは非推奨です。"
+msgstr ""
 
 #: cinder/db/sqlalchemy/api.py:198
 #, python-format
@@ -3535,7 +3521,7 @@ msgstr ""
 
 #: cinder/db/sqlalchemy/migration.py:66
 msgid "python-migrate is not installed. Exiting."
-msgstr "python-migrate がインストールされていません。終了します。"
+msgstr ""
 
 #: cinder/db/sqlalchemy/migration.py:78
 msgid "version should be an integer"
@@ -3671,17 +3657,17 @@ msgstr ""
 #: cinder/image/s3.py:379
 #, python-format
 msgid "Failed to decrypt private key: %s"
-msgstr "プライベートキーの復号に失敗しました: %s"
+msgstr ""
 
 #: cinder/image/s3.py:387
 #, python-format
 msgid "Failed to decrypt initialization vector: %s"
-msgstr "初期化ベクタの復号に失敗しました: %s"
+msgstr ""
 
 #: cinder/image/s3.py:398
 #, python-format
 msgid "Failed to decrypt image file %(image_file)s: %(err)s"
-msgstr "イメージファイル %(image_file)s の復号に失敗しました: %(err)s"
+msgstr ""
 
 #: cinder/image/s3.py:410
 msgid "Unsafe filenames in image"
@@ -3730,42 +3716,42 @@ msgstr ""
 #: cinder/network/linux_net.py:694
 #, python-format
 msgid "Hupping dnsmasq threw %s"
-msgstr "dnsmasqに対してhupを送信しましたが %s が発生しました。"
+msgstr ""
 
 #: cinder/network/linux_net.py:696
 #, python-format
 msgid "Pid %d is stale, relaunching dnsmasq"
-msgstr "Pid %d は無効です。dnsmasqを再実行します。"
+msgstr ""
 
 #: cinder/network/linux_net.py:756
 #, python-format
 msgid "killing radvd threw %s"
-msgstr "radvd  停止が %s 例外を発行しました"
+msgstr ""
 
 #: cinder/network/linux_net.py:758
 #, python-format
 msgid "Pid %d is stale, relaunching radvd"
-msgstr "Pid %d がストールしているので radvd を再実行しています…"
+msgstr ""
 
 #: cinder/network/linux_net.py:967
 #, python-format
 msgid "Starting VLAN inteface %s"
-msgstr "VLANインタフェース %s を開始します。"
+msgstr ""
 
 #: cinder/network/linux_net.py:999
 #, python-format
 msgid "Starting Bridge interface for %s"
-msgstr "%s 用のブリッジインタフェースを開始します。"
+msgstr ""
 
 #: cinder/network/linux_net.py:1142
-#, fuzzy, python-format
+#, python-format
 msgid "Starting bridge %s "
-msgstr "%s 用のブリッジインタフェースを開始します。"
+msgstr ""
 
 #: cinder/network/linux_net.py:1149
-#, fuzzy, python-format
+#, python-format
 msgid "Done starting bridge %s"
-msgstr "xvp の開始中にエラー: %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:1167
 #, python-format
@@ -3837,7 +3823,7 @@ msgstr ""
 
 #: cinder/network/manager.py:782
 msgid "setting network host"
-msgstr "ネットワークホストの設定をします。"
+msgstr ""
 
 #: cinder/network/manager.py:896
 #, python-format
@@ -3895,7 +3881,7 @@ msgstr ""
 #: cinder/network/manager.py:1268
 #, python-format
 msgid "IP %s released that was not leased"
-msgstr "リースしていないIP %s が開放されました。"
+msgstr ""
 
 #: cinder/network/manager.py:1331
 msgid "cidr already in use"
@@ -3926,7 +3912,7 @@ msgstr ""
 msgid ""
 "The sum between the number of networks and the vlan start cannot be "
 "greater than 4094"
-msgstr "ネットワークの数とVLANの開始番号の和は 4094 より大きくできません。"
+msgstr ""
 
 #: cinder/network/manager.py:1839
 #, python-format
@@ -4092,27 +4078,27 @@ msgstr ""
 #: cinder/rpc/amqp.py:146
 #, python-format
 msgid "Returning exception %s to caller"
-msgstr "呼び出し元に 例外 %s を返却します。"
+msgstr ""
 
 #: cinder/rpc/amqp.py:188
 #, python-format
 msgid "unpacked context: %s"
-msgstr "context  %s をアンパックしました。"
+msgstr ""
 
 #: cinder/rpc/amqp.py:231
 #, python-format
 msgid "received %s"
-msgstr "受信： %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:236
 #, python-format
 msgid "no method for message: %s"
-msgstr "メッセージ %s に対するメソッドが存在しません。"
+msgstr ""
 
 #: cinder/rpc/amqp.py:237
 #, python-format
 msgid "No method for message: %s"
-msgstr "メッセージ %s に対するメソッドが存在しません。"
+msgstr ""
 
 #: cinder/rpc/amqp.py:321
 #, python-format
@@ -4122,7 +4108,7 @@ msgstr ""
 #: cinder/rpc/amqp.py:324
 #, python-format
 msgid "MSG_ID is %s"
-msgstr "MSG_IDは %s です。"
+msgstr ""
 
 #: cinder/rpc/amqp.py:346
 #, python-format
@@ -4246,7 +4232,7 @@ msgstr ""
 
 #: cinder/scheduler/driver.py:181
 msgid "Must implement a fallback schedule"
-msgstr "予備の(fallback)スケジューラを実装する必要があります。"
+msgstr ""
 
 #: cinder/scheduler/driver.py:185
 msgid "Driver must implement schedule_prep_resize"
@@ -4411,12 +4397,12 @@ msgstr ""
 #: cinder/tests/test_compute.py:365 cinder/tests/test_compute.py:1419
 #, python-format
 msgid "Running instances: %s"
-msgstr "インスタンス %s は実行中です。"
+msgstr ""
 
 #: cinder/tests/test_compute.py:371
 #, python-format
 msgid "After terminating instances: %s"
-msgstr "インスタンス %s を終了した後です。"
+msgstr ""
 
 #: cinder/tests/test_compute.py:589
 msgid "Internal error"
@@ -4448,7 +4434,7 @@ msgstr ""
 
 #: cinder/tests/test_cinder_manage.py:172
 msgid "start address"
-msgstr "開始アドレス"
+msgstr ""
 
 #: cinder/tests/test_cinder_manage.py:173
 msgid "DNS1"
@@ -4473,7 +4459,7 @@ msgstr ""
 #: cinder/tests/test_volume.py:216
 #, python-format
 msgid "Target %s allocated"
-msgstr "ターゲット %s をアロケートしました。"
+msgstr ""
 
 #: cinder/tests/test_volume.py:468
 #, python-format
@@ -4612,12 +4598,12 @@ msgstr ""
 #: cinder/tests/rpc/common.py:133
 #, python-format
 msgid "Nested received %(queue)s, %(value)s"
-msgstr "Nested received %(queue)s, %(value)s"
+msgstr ""
 
 #: cinder/tests/rpc/common.py:142
 #, python-format
 msgid "Nested return %s"
-msgstr "ネストした戻り値: %s"
+msgstr ""
 
 #: cinder/tests/rpc/common.py:160
 msgid "RPC backend does not support timeouts"
@@ -4626,11 +4612,11 @@ msgstr ""
 #: cinder/tests/rpc/common.py:227 cinder/tests/rpc/common.py:233
 #, python-format
 msgid "Received %s"
-msgstr "%s を受信。"
+msgstr ""
 
 #: cinder/virt/connection.py:85
 msgid "Failed to open connection to the hypervisor"
-msgstr "ハイパーバイザへの接続に失敗しました。"
+msgstr ""
 
 #: cinder/virt/fake.py:270 cinder/virt/xenapi_conn.py:396
 #: cinder/virt/baremetal/proxy.py:716 cinder/virt/libvirt/connection.py:2045
@@ -4647,7 +4633,7 @@ msgstr ""
 #: cinder/virt/firewall.py:130
 #, python-format
 msgid "Attempted to unfilter instance %s which is not filtered"
-msgstr "フィルタされていないインスタンス %s のフィルタ解除を試行しました"
+msgstr ""
 
 #: cinder/virt/firewall.py:137
 #, python-format
@@ -4719,8 +4705,6 @@ msgid ""
 "(optionally), and xenapi_connection_password to use "
 "connection_type=xenapi"
 msgstr ""
-"connection_type=xenapi を使用するには、以下の指定が必要です： xenapi_connection_url, "
-"xenapi_connection_username (オプション), xenapi_connection_password"
 
 #: cinder/virt/xenapi_conn.py:329 cinder/virt/libvirt/connection.py:472
 msgid "Could not determine iscsi initiator name"
@@ -4741,7 +4725,7 @@ msgstr ""
 #: cinder/virt/xenapi_conn.py:599 cinder/virt/xenapi_conn.py:612
 #, python-format
 msgid "Got exception: %s"
-msgstr "例外 %s が発生しました。"
+msgstr ""
 
 #: cinder/virt/baremetal/dom.py:93
 msgid "No domains exist."
@@ -4859,12 +4843,12 @@ msgstr ""
 #: cinder/virt/baremetal/proxy.py:162
 #, python-format
 msgid "instance %(instance_name)s: deleting instance files %(target)s"
-msgstr "インスタンス %(instance_name)s: インスタンスファイル群 %(target)s を削除しています"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:189
 #, python-format
 msgid "instance %s: rebooted"
-msgstr "インスタンス%s: 再起動しました。"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:192
 msgid "_wait_for_reboot failed"
@@ -4873,7 +4857,7 @@ msgstr ""
 #: cinder/virt/baremetal/proxy.py:222
 #, python-format
 msgid "instance %s: rescued"
-msgstr "インスタンス %s: rescued"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:225
 msgid "_wait_for_rescue failed"
@@ -4895,7 +4879,7 @@ msgstr ""
 #: cinder/virt/baremetal/proxy.py:265
 #, python-format
 msgid "instance %s: booted"
-msgstr "インスタンス %s: 起動しました。"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:268
 #, python-format
@@ -4919,7 +4903,7 @@ msgstr ""
 #: cinder/virt/baremetal/proxy.py:354
 #, python-format
 msgid "instance %s: Creating image"
-msgstr "インスタンス %s のイメージを生成します。"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:473
 #, python-format
@@ -4931,17 +4915,17 @@ msgstr ""
 msgid ""
 "instance %(inst_name)s: ignoring error injecting data into image "
 "%(img_id)s (%(e)s)"
-msgstr "インスタンス %(inst_name)s: イメージ %(img_id)s へのデータ埋め込みのエラーを無視しています (%(e)s)"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:529
 #, python-format
 msgid "instance %s: starting toXML method"
-msgstr "インスタンス %s: toXML メソッドを開始。"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:531
 #, python-format
 msgid "instance %s: finished toXML method"
-msgstr "インスタンス %s: toXML メソッドを完了。"
+msgstr ""
 
 #: cinder/virt/baremetal/proxy.py:574 cinder/virt/libvirt/connection.py:1815
 msgid ""
@@ -5023,7 +5007,7 @@ msgstr ""
 #: cinder/virt/disk/guestfs.py:78 cinder/virt/disk/mount.py:100
 #, python-format
 msgid "Failed to mount filesystem: %s"
-msgstr "ファイルシステム %s のマウントに失敗しました。"
+msgstr ""
 
 #: cinder/virt/disk/api.py:291
 #, python-format
@@ -5052,7 +5036,7 @@ msgstr ""
 #: cinder/virt/disk/loop.py:30
 #, python-format
 msgid "Could not attach image to loopback: %s"
-msgstr "イメージをループバック %s にアタッチできません。"
+msgstr ""
 
 #: cinder/virt/disk/mount.py:76
 msgid "no partitions found"
@@ -5069,7 +5053,7 @@ msgstr ""
 
 #: cinder/virt/disk/nbd.py:63
 msgid "No free nbd devices"
-msgstr "空きの nbd デバイスがありません"
+msgstr ""
 
 #: cinder/virt/disk/nbd.py:81
 #, python-format
@@ -5079,16 +5063,16 @@ msgstr ""
 #: cinder/virt/disk/nbd.py:93
 #, python-format
 msgid "nbd device %s did not show up"
-msgstr "nbd デバイス %s が出現しません"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:265
 #, python-format
 msgid "Connecting to libvirt: %s"
-msgstr "libvirt %s へ接続します。"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:286
 msgid "Connection to libvirt broke"
-msgstr "libvirtへの接続が切れています。"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:388
 #, python-format
@@ -5130,9 +5114,8 @@ msgid "detaching LXC block device"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:692
-#, fuzzy, python-format
 msgid "Instance soft rebooted successfully."
-msgstr "インスタンス%s: 再起動しました。"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:696
 msgid "Failed to soft reboot instance."
@@ -5173,7 +5156,7 @@ msgstr ""
 #: cinder/virt/libvirt/connection.py:926
 #, python-format
 msgid "data: %(data)r, fpath: %(fpath)r"
-msgstr "データ: %(data)r, ファイルパス: %(fpath)r"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:978
 msgid "Guest does not have a console available"
@@ -5455,7 +5438,7 @@ msgstr ""
 
 #: cinder/virt/libvirt/utils.py:264
 msgid "Unable to find an open port"
-msgstr "開いたポートが見つかりません"
+msgstr ""
 
 #: cinder/virt/libvirt/vif.py:90
 #, python-format
@@ -5497,7 +5480,7 @@ msgstr ""
 #: cinder/virt/vmwareapi/fake.py:44 cinder/virt/xenapi/fake.py:77
 #, python-format
 msgid "%(text)s: _db_content => %(content)s"
-msgstr "%(text)s: _db_content => %(content)s"
+msgstr ""
 
 #: cinder/virt/vmwareapi/fake.py:131
 #, python-format
@@ -5894,29 +5877,29 @@ msgstr ""
 #: cinder/virt/xenapi/fake.py:553 cinder/virt/xenapi/fake.py:652
 #: cinder/virt/xenapi/fake.py:670 cinder/virt/xenapi/fake.py:732
 msgid "Raising NotImplemented"
-msgstr "NotImplemented 例外を発生させます。"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:555
 #, python-format
 msgid "xenapi.fake does not have an implementation for %s"
-msgstr "xenapi.fake には %s が実装されていません。"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:589
 #, python-format
 msgid "Calling %(localname)s %(impl)s"
-msgstr "%(localname)s %(impl)s を呼び出します。"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:594
 #, python-format
 msgid "Calling getter %s"
-msgstr "getter %s をコールします。"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:654
 #, python-format
 msgid ""
 "xenapi.fake does not have an implementation for %s or it has been called "
 "with the wrong number of arguments"
-msgstr "xenapi.fake に %s に関する実装がないか、引数の数が誤っています。"
+msgstr ""
 
 #: cinder/virt/xenapi/host.py:67
 #, python-format
@@ -5947,12 +5930,12 @@ msgstr ""
 #: cinder/virt/xenapi/network_utils.py:55
 #, python-format
 msgid "Found non-unique network for bridge %s"
-msgstr "ブリッジ %s に対してブリッジが複数存在します。"
+msgstr ""
 
 #: cinder/virt/xenapi/network_utils.py:58
 #, python-format
 msgid "Found no network for bridge %s"
-msgstr "ブリッジ %s に対するネットワークが存在しません。"
+msgstr ""
 
 #: cinder/virt/xenapi/pool.py:111
 #, python-format
@@ -5980,9 +5963,9 @@ msgid "Pool-eject failed: %(e)s"
 msgstr ""
 
 #: cinder/virt/xenapi/pool.py:174
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to set up pool: %(e)s."
-msgstr "ボリューム %s を切断(detach)できません"
+msgstr ""
 
 #: cinder/virt/xenapi/pool.py:185
 #, python-format
@@ -6008,12 +5991,12 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:245
 #, python-format
 msgid "VBD not found in instance %s"
-msgstr "インスタンス %s のVBDが見つかりません。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:262
-#, fuzzy, python-format
+#, python-format
 msgid "VBD %s already detached"
-msgstr "グループ %s は既に存在しています。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:265
 #, python-format
@@ -6023,7 +6006,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:270
 #, python-format
 msgid "Unable to unplug VBD %s"
-msgstr "VBD %s の unplug に失敗しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:275
 #, python-format
@@ -6033,17 +6016,17 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:286
 #, python-format
 msgid "Unable to destroy VBD %s"
-msgstr "VBD %s の削除に失敗しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:305
-#, fuzzy, python-format
+#, python-format
 msgid "Creating %(vbd_type)s-type VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
-msgstr "VM %(vm_ref)s, VDI %(vdi_ref)s 用仮想ブロックデバイス(VBD) %(vbd_ref)s を作成しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:308
 #, python-format
 msgid "Created VBD %(vbd_ref)s for VM %(vm_ref)s, VDI %(vdi_ref)s."
-msgstr "VM %(vm_ref)s, VDI %(vdi_ref)s 用仮想ブロックデバイス(VBD) %(vbd_ref)s を作成しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:319
 #, python-format
@@ -6056,8 +6039,6 @@ msgid ""
 "Created VDI %(vdi_ref)s (%(name_label)s, %(virtual_size)s, %(read_only)s)"
 " on %(sr_ref)s."
 msgstr ""
-"%(sr_ref)s 上に VDI %(vdi_ref)s (%(name_label)s, %(virtual_size)s, "
-"%(read_only)s) を作成しました。"
 
 #: cinder/virt/xenapi/vm_utils.py:345
 #, python-format
@@ -6075,19 +6056,19 @@ msgid "No primary VDI found for %(vm_ref)s"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:379
-#, fuzzy, python-format
+#, python-format
 msgid "Snapshotting with label '%(label)s'"
-msgstr "ラベル '%(label)s' 付き VM %(vm_ref)s のスナップショットを作成しています…"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:392
-#, fuzzy, python-format
+#, python-format
 msgid "Created snapshot %(template_vm_ref)s"
-msgstr "VM %(vm_ref)s からスナップショット %(template_vm_ref)s を作成しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:431
 #, python-format
 msgid "Asking xapi to upload %(vdi_uuids)s as ID %(image_id)s"
-msgstr "ID %(image_id)s として %(vdi_uuids)s のアップロードの為に xapi を問い合わせしています"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:583
 #, python-format
@@ -6148,9 +6129,9 @@ msgid "Fetching image %(image)s, type %(image_type_str)"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:844
-#, fuzzy, python-format
+#, python-format
 msgid "Size for image %(image)s: %(virtual_size)d"
-msgstr "イメージ %(image)s のサイズ:%(virtual_size)d"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:853
 #, python-format
@@ -6162,12 +6143,12 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:870
 #, python-format
 msgid "Copying VDI %s to /boot/guest on dom0"
-msgstr "ドメイン0 上の /boot/guest に VDI %s をコピー中"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:884
 #, python-format
 msgid "Kernel/Ramdisk VDI %s destroyed"
-msgstr "カーネル/RAMディスク VDI %s が削除されました"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:895
 msgid "Failed to fetch glance image"
@@ -6181,7 +6162,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:955
 #, python-format
 msgid "Looking up vdi %s for PV kernel"
-msgstr "PV kernelのvdi %s を取得します。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:973
 #, python-format
@@ -6191,17 +6172,17 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1016
 #, python-format
 msgid "VDI %s is still available"
-msgstr "VDI %s は依然として存在しています。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1059
 #, python-format
 msgid "(VM_UTILS) xenserver vm state -> |%s|"
-msgstr "(VM_UTILS) xenserver の vm state -> |%s|"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1061
 #, python-format
 msgid "(VM_UTILS) xenapi power_state -> |%s|"
-msgstr "(VM_UTILS) xenapi の power_state -> |%s|"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1088
 #, python-format
@@ -6211,7 +6192,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1108
 #, python-format
 msgid "Re-scanning SR %s"
-msgstr "SR %s を再スキャンします。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1136
 #, python-format
@@ -6288,14 +6269,14 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1343
 #, python-format
 msgid "VHD %(vdi_uuid)s has parent %(parent_ref)s"
-msgstr "VHD %(vdi_uuid)s の親は %(parent_ref)s です"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1417
 #, python-format
 msgid ""
 "Parent %(parent_uuid)s doesn't match original parent "
 "%(original_parent_uuid)s, waiting for coalesce..."
-msgstr "親 %(parent_uuid)s が元々の親 %(original_parent_uuid)s と一致しません。作成を待機しています…"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1427
 #, python-format
@@ -6310,12 +6291,12 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1473
 #, python-format
 msgid "Plugging VBD %s ... "
-msgstr "VBD %s を接続しています… "
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1476
 #, python-format
 msgid "Plugging VBD %s done."
-msgstr "仮想ブロックデバイス(VBD) %s の接続が完了しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1478
 #, python-format
@@ -6330,28 +6311,26 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1490
 #, python-format
 msgid "Destroying VBD for VDI %s ... "
-msgstr "VDI %s 用の仮想ブロックデバイス(VBD)を削除しています… "
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1498
 #, python-format
 msgid "Destroying VBD for VDI %s done."
-msgstr "VDI %s 用の仮想ブロックデバイス(VBD)の削除が完了しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1511
 #, python-format
 msgid "Running pygrub against %s"
-msgstr "%s に対して pygrub を実行しています"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1518
 #, python-format
 msgid "Found Xen kernel %s"
-msgstr "Xen Kernel %s が見つかりました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1520
 msgid "No Xen kernel found.  Booting HVM."
 msgstr ""
-"No Xen kernel found.  Booting HVM.\r\n"
-"Xen 用カーネルが見つかりません。完全仮想化モード(HVM)で起動しています。"
 
 #: cinder/virt/xenapi/vm_utils.py:1533
 msgid "Partitions:"
@@ -6372,7 +6351,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1578
 #, python-format
 msgid "Writing partition table %s done."
-msgstr "パーティションテーブル %s の書き込みが完了しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1632
 #, python-format
@@ -6424,9 +6403,8 @@ msgid "Attempted to power on non-existent instance bad instance id %s"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:233
-#, fuzzy
 msgid "Starting instance"
-msgstr "raw instanceを生成します。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:303
 msgid "Removing kernel/ramdisk files from dom0"
@@ -6452,7 +6430,7 @@ msgstr ""
 #: cinder/virt/xenapi/vmops.py:520
 #, python-format
 msgid "Injecting file path: '%s'"
-msgstr "ファイルパス '%s' を埋め込んでいます"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:527
 msgid "Setting admin password"
@@ -6467,9 +6445,8 @@ msgid "Setting VCPU weight"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:544
-#, fuzzy
 msgid "Starting VM"
-msgstr "xvp を再起動しています"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:551
 #, python-format
@@ -6507,19 +6484,17 @@ msgid "No opaque_ref could be determined for '%s'."
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:670
-#, fuzzy, python-format
 msgid "Finished snapshot and upload for VM"
-msgstr "VM %s のスナップショットとアップロードが完了しました。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:677
-#, fuzzy, python-format
 msgid "Starting snapshot for VM"
-msgstr "VM %s に対するスナップショットを開始します。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:686
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to Snapshot instance: %(exc)s"
-msgstr "インスタンス %s にボリュームを接続(attach)できません。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:702
 msgid "Failed to transfer vhd to new host"
@@ -6591,16 +6566,15 @@ msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1111
 msgid "kernel/ramdisk files removed"
-msgstr "カーネル/RAMディスクファイルが削除されました"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1121
 msgid "VM destroyed"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1147
-#, fuzzy
 msgid "Destroying VM"
-msgstr "xvp を再起動しています"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1169
 msgid "VM is not present, skipping destroy..."
@@ -6656,23 +6630,22 @@ msgid "Could not get bandwidth info."
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1469
-#, fuzzy
 msgid "Injecting network info to xenstore"
-msgstr "ネットワークホストの設定をします。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1483
 msgid "Creating vifs"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1492
-#, fuzzy, python-format
+#, python-format
 msgid "Creating VIF for network %(network_ref)s"
-msgstr "VM %(vm_ref)s, network %(network_ref)s 用仮想インターフェース(VIF)を作成しています。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1495
-#, fuzzy, python-format
+#, python-format
 msgid "Created VIF %(vif_ref)s, network %(network_ref)s"
-msgstr "VM %(vm_ref)s, network %(network_ref)s 用仮想インターフェース(VIF)を作成しています。"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1520
 msgid "Injecting hostname to xenstore"
@@ -6705,7 +6678,7 @@ msgstr ""
 #: cinder/virt/xenapi/vmops.py:1661
 #, python-format
 msgid "OpenSSL error: %s"
-msgstr "OpenSSL エラー: %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:52
 msgid "creating sr within volume_utils"
@@ -6728,7 +6701,7 @@ msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:76 cinder/virt/xenapi/volume_utils.py:174
 msgid "Unable to create Storage Repository"
-msgstr "Storage Repository を作成できません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:80
 msgid "introducing sr within volume_utils"
@@ -6738,7 +6711,7 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:156
 #, python-format
 msgid "Introduced %(label)s as %(sr_ref)s."
-msgstr "%(sr_ref)s として %(label)s を導入しました"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:106
 msgid "Creating pbd for SR"
@@ -6768,37 +6741,37 @@ msgstr ""
 #: cinder/virt/xenapi/volume_utils.py:157
 #, python-format
 msgid "Introducing %s..."
-msgstr "%s を introduce します…"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:186
 #, python-format
 msgid "Unable to find SR from VBD %s"
-msgstr "VBD %s から SRを取得できません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:204
 #, python-format
 msgid "Ignoring exception %(exc)s when getting PBDs for %(sr_ref)s"
-msgstr "%(sr_ref)s 用の物理ブロックデバイス(PBD)取得時に例外 %(exc)s を無視しています"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:210
 #, python-format
 msgid "Ignoring exception %(exc)s when unplugging PBD %(pbd)s"
-msgstr "物理ブロックデバイス(PBD) %(pbd)s の取り外し時に例外 %(exc)s を無視しています"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:234
 #, python-format
 msgid "Unable to introduce VDI on SR %s"
-msgstr "SR %s のVDIのintroduceができません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:242
 #, python-format
 msgid "Unable to get record of VDI %s on"
-msgstr "VDI %s のレコードを取得できません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:264
 #, python-format
 msgid "Unable to introduce VDI for SR %s"
-msgstr "SR %s のVDIをintroduceできません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:274
 #, python-format
@@ -6818,7 +6791,7 @@ msgstr ""
 #: cinder/virt/xenapi/volume_utils.py:341
 #, python-format
 msgid "Mountpoint cannot be translated: %s"
-msgstr "マウントポイントを変換できません。 %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:64
 msgid "Could not find VDI ref"
@@ -6872,37 +6845,37 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:178
 #, python-format
 msgid "Unable to create VDI on SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "インスタンス %(instance_name)s 用のSR %(sr_ref)s における VDI を作成できません"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:189
 #, python-format
 msgid "Unable to use SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "インスタンス %(instance_name)s 用のSR %(sr_ref)s が使用できません"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:197
 #, python-format
 msgid "Unable to attach volume to instance %s"
-msgstr "インスタンス %s にボリュームを接続(attach)できません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:200
 #, python-format
 msgid "Mountpoint %(mountpoint)s attached to instance %(instance_name)s"
-msgstr "インスタンス %(instance_name)s にマウントポイント %(mountpoint)s を接続(attach)しました"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:210
 #, python-format
 msgid "Detach_volume: %(instance_name)s, %(mountpoint)s"
-msgstr "ボリューム切断: %(instance_name)s, %(mountpoint)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:219
 #, python-format
 msgid "Unable to locate volume %s"
-msgstr "ボリューム %s の存在が確認できません。"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:227
 #, python-format
 msgid "Unable to detach volume %s"
-msgstr "ボリューム %s を切断(detach)できません"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:232
 #, python-format
@@ -6917,7 +6890,7 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:241
 #, python-format
 msgid "Mountpoint %(mountpoint)s detached from instance %(instance_name)s"
-msgstr "インスタンス %(instance_name)s からマウントポイント %(mountpoint)s を切断(detach)しました"
+msgstr ""
 
 #: cinder/vnc/xvp_proxy.py:98 cinder/vnc/xvp_proxy.py:103
 #, python-format
@@ -6964,9 +6937,8 @@ msgid "Quota exceeded for %(pid)s, tried to create %(size)sG volume"
 msgstr ""
 
 #: cinder/volume/api.py:137
-#, fuzzy
 msgid "Volume status must be available or error"
-msgstr "ボリュームのステータス(status)は available でなければなりません。"
+msgstr ""
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -6986,19 +6958,18 @@ msgid "must be available"
 msgstr ""
 
 #: cinder/volume/api.py:325
-#, fuzzy
 msgid "Volume Snapshot status must be available or error"
-msgstr "ボリュームのステータス(status)は available でなければなりません。"
+msgstr ""
 
 #: cinder/volume/driver.py:96
 #, python-format
 msgid "Recovering from a failed execute.  Try number %s"
-msgstr "実行失敗からリカバリーします。%s 回目のトライ。"
+msgstr ""
 
 #: cinder/volume/driver.py:106
 #, python-format
 msgid "volume group %s doesn't exist"
-msgstr "ボリュームグループ%sが存在しません。"
+msgstr ""
 
 #: cinder/volume/driver.py:270
 #, python-format
@@ -7024,7 +6995,7 @@ msgstr ""
 #: cinder/volume/driver.py:384
 #, python-format
 msgid "Could not find iSCSI export  for volume %s"
-msgstr "ボリューム %s 用の iSCSI エクスポートが見つかりません"
+msgstr ""
 
 #: cinder/volume/driver.py:388
 #, python-format
@@ -7039,21 +7010,21 @@ msgstr ""
 #: cinder/volume/driver.py:493
 #, python-format
 msgid "FAKE ISCSI: %s"
-msgstr "偽のISCSI: %s"
+msgstr ""
 
 #: cinder/volume/driver.py:505
 #, python-format
 msgid "rbd has no pool %s"
-msgstr "rbd にプール %s がありません。"
+msgstr ""
 
 #: cinder/volume/driver.py:579
 #, python-format
 msgid "Sheepdog is not working: %s"
-msgstr "Sheepdog が動作していません: %s"
+msgstr ""
 
 #: cinder/volume/driver.py:581
 msgid "Sheepdog is not working"
-msgstr "Sheepdog が機能していません"
+msgstr ""
 
 #: cinder/volume/driver.py:680 cinder/volume/driver.py:685
 #, python-format
@@ -7063,50 +7034,50 @@ msgstr ""
 #: cinder/volume/manager.py:96
 #, python-format
 msgid "Re-exporting %s volumes"
-msgstr "%s 個のボリュームを再エクスポートします。"
+msgstr ""
 
 #: cinder/volume/manager.py:101
 #, python-format
 msgid "volume %s: skipping export"
-msgstr "ボリューム %s のエキスポートをスキップします。"
+msgstr ""
 
 #: cinder/volume/manager.py:107
 #, python-format
 msgid "volume %s: creating"
-msgstr "ボリューム%sを作成します。"
+msgstr ""
 
 #: cinder/volume/manager.py:119
 #, python-format
 msgid "volume %(vol_name)s: creating lv of size %(vol_size)sG"
-msgstr "ボリューム %(vol_name)s: サイズ %(vol_size)sG のlvを作成します。"
+msgstr ""
 
 #: cinder/volume/manager.py:131
 #, python-format
 msgid "volume %s: creating export"
-msgstr "ボリューム %s をエクスポートします。"
+msgstr ""
 
 #: cinder/volume/manager.py:144
 #, python-format
 msgid "volume %s: created successfully"
-msgstr "ボリューム %s の作成に成功しました。"
+msgstr ""
 
 #: cinder/volume/manager.py:153
 msgid "Volume is still attached"
-msgstr "ボリュームはアタッチされたままです。"
+msgstr ""
 
 #: cinder/volume/manager.py:155
 msgid "Volume is not local to this node"
-msgstr "ボリュームはこのノードのローカルではありません。"
+msgstr ""
 
 #: cinder/volume/manager.py:159
 #, python-format
 msgid "volume %s: removing export"
-msgstr "ボリューム %s のエクスポートを解除します。"
+msgstr ""
 
 #: cinder/volume/manager.py:161
 #, python-format
 msgid "volume %s: deleting"
-msgstr "ボリューム %s を削除します。"
+msgstr ""
 
 #: cinder/volume/manager.py:164
 #, python-format
@@ -7116,7 +7087,7 @@ msgstr ""
 #: cinder/volume/manager.py:176
 #, python-format
 msgid "volume %s: deleted successfully"
-msgstr "ボリューム %s の削除に成功しました。"
+msgstr ""
 
 #: cinder/volume/manager.py:183
 #, python-format
@@ -7139,9 +7110,9 @@ msgid "snapshot %s: deleting"
 msgstr ""
 
 #: cinder/volume/manager.py:214
-#, fuzzy, python-format
+#, python-format
 msgid "snapshot %s: snapshot is busy"
-msgstr "snapshotting: インスタンス %s のスナップショットを取得中"
+msgstr ""
 
 #: cinder/volume/manager.py:226
 #, python-format
@@ -7177,14 +7148,13 @@ msgid "%s is not set"
 msgstr ""
 
 #: cinder/volume/netapp.py:128
-#, fuzzy
 msgid "Connected to DFM server"
-msgstr "キューに再接続しました。"
+msgstr ""
 
 #: cinder/volume/netapp.py:159
-#, fuzzy, python-format
+#, python-format
 msgid "Job failed: %s"
-msgstr "NotFound 発生: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:240
 msgid "Failed to provision dataset member"
@@ -7195,38 +7165,38 @@ msgid "No LUN was created by the provision job"
 msgstr ""
 
 #: cinder/volume/netapp.py:261 cinder/volume/netapp.py:433
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to find LUN ID for volume %s"
-msgstr "ボリューム %s 用の iSCSI エクスポートが見つかりません"
+msgstr ""
 
 #: cinder/volume/netapp.py:280
 msgid "Failed to remove and delete dataset member"
 msgstr ""
 
 #: cinder/volume/netapp.py:603 cinder/volume/netapp.py:657
-#, fuzzy, python-format
+#, python-format
 msgid "No LUN ID for volume %s"
-msgstr "ボリューム %s 用の iSCSI エクスポートが見つかりません"
+msgstr ""
 
 #: cinder/volume/netapp.py:607 cinder/volume/netapp.py:661
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get LUN details for LUN ID %s"
-msgstr "ip %s に対するメタデータの取得に失敗しました。"
+msgstr ""
 
 #: cinder/volume/netapp.py:614
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get host details for host ID %s"
-msgstr "ip %s に対するメタデータの取得に失敗しました。"
+msgstr ""
 
 #: cinder/volume/netapp.py:620
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get target portal for filer: %s"
-msgstr "ip %s に対するメタデータの取得に失敗しました。"
+msgstr ""
 
 #: cinder/volume/netapp.py:625
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get target IQN for filer: %s"
-msgstr "ip %s に対するメタデータの取得に失敗しました。"
+msgstr ""
 
 #: cinder/volume/san.py:113 cinder/volume/san.py:151
 msgid "Specify san_password or san_private_key"
@@ -7437,14 +7407,14 @@ msgid "Bad response from server"
 msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:79
-#, fuzzy, python-format
+#, python-format
 msgid "Got response: %s"
-msgstr "応答 %s"
+msgstr ""
 
 #: cinder/volume/nexenta/volume.py:96
-#, fuzzy, python-format
+#, python-format
 msgid "Volume %s does not exist in Nexenta SA"
-msgstr "ボリュームグループ%sが存在しません。"
+msgstr ""
 
 #: cinder/volume/nexenta/volume.py:180
 msgid ""
@@ -7490,707 +7460,4 @@ msgid ""
 "Got error trying to delete target %(target)s, assuming it is already "
 "gone: %(exc)s"
 msgstr ""
-
-#~ msgid "Unable to locate account %(account_name) on Solidfire device"
-#~ msgstr ""
-
-#~ msgid "Zone %(zone_id)s could not be found."
-#~ msgstr ""
-
-#~ msgid "Cinder access parameters were not specified."
-#~ msgstr ""
-
-#~ msgid "Virtual Storage Array %(id)d could not be found."
-#~ msgstr ""
-
-#~ msgid "Virtual Storage Array %(name)s could not be found."
-#~ msgstr ""
-
-#~ msgid "Detected more than one volume with name %(vol_name)"
-#~ msgstr ""
-
-#~ msgid "Detected existing vlan with id %(vlan)"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Attempting to grab semaphore \"%(lock)s\" "
-#~ "for method \"%(method)s\"...lock"
-#~ msgstr ""
-
-#~ msgid "Got semaphore \"%(lock)s\" for method \"%(method)s\"...lock"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Attempting to grab file lock "
-#~ "\"%(lock)s\" for method \"%(method)s\"...lock"
-#~ msgstr ""
-
-#~ msgid "Got file lock \"%(lock)s\" for method \"%(method)s\"...lock"
-#~ msgstr ""
-
-#~ msgid "Parent group id and group id cannot be same"
-#~ msgstr ""
-
-#~ msgid "No body provided"
-#~ msgstr ""
-
-#~ msgid "Create VSA %(display_name)s of type %(vc_type)s"
-#~ msgstr ""
-
-#~ msgid "Delete VSA with id: %s"
-#~ msgstr ""
-
-#~ msgid "Associate address %(ip)s to VSA %(id)s"
-#~ msgstr ""
-
-#~ msgid "Disassociate address from VSA %(id)s"
-#~ msgstr ""
-
-#~ msgid "%(obj)s with ID %(id)s not found"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "%(obj)s with ID %(id)s belongs to "
-#~ "VSA %(own_vsa_id)s and not to VSA "
-#~ "%(vsa_id)s."
-#~ msgstr ""
-
-#~ msgid "Index. vsa_id=%(vsa_id)s"
-#~ msgstr ""
-
-#~ msgid "Detail. vsa_id=%(vsa_id)s"
-#~ msgstr ""
-
-#~ msgid "Create. vsa_id=%(vsa_id)s, body=%(body)s"
-#~ msgstr ""
-
-#~ msgid "Create volume of %(size)s GB from VSA ID %(vsa_id)s"
-#~ msgstr ""
-
-#~ msgid "Update %(obj)s with id: %(id)s, changes: %(changes)s"
-#~ msgstr ""
-
-#~ msgid "Delete. vsa_id=%(vsa_id)s, id=%(id)s"
-#~ msgstr ""
-
-#~ msgid "Show. vsa_id=%(vsa_id)s, id=%(id)s"
-#~ msgstr ""
-
-#~ msgid "Index instances for VSA %s"
-#~ msgstr ""
-
-#~ msgid "Quota exceeded for %(pid)s, tried to run %(min_count)s instances"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Instance quota exceeded. You cannot run"
-#~ " any more instances of this type."
-#~ msgstr ""
-
-#~ msgid "Going to try to soft delete %s"
-#~ msgstr ""
-
-#~ msgid "No host for instance %s, deleting immediately"
-#~ msgstr ""
-
-#~ msgid "Going to try to stop %s"
-#~ msgstr ""
-
-#~ msgid "Going to try to start %s"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Going to force the deletion of the"
-#~ " vm %(instance_uuid)s, even if it is"
-#~ " deleted"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Instance %(instance_uuid)s did not exist "
-#~ "in the DB, but I will shut "
-#~ "it down anyway using a special "
-#~ "context"
-#~ msgstr ""
-
-#~ msgid "exception terminating the instance %(instance_uuid)s"
-#~ msgstr ""
-
-#~ msgid "trying to destroy already destroyed instance: %s"
-#~ msgstr "既に消去済みのインスタンス%sを消去しようとしました。"
-
-#~ msgid ""
-#~ "Instance %(name)s found in database but"
-#~ " not known by hypervisor. Setting "
-#~ "power state to NOSTATE"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Detected instance  with name label "
-#~ "'%(name_label)s' which is marked as "
-#~ "DELETED but still present on host."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Destroying instance with name label "
-#~ "'%(name_label)s' which is marked as "
-#~ "DELETED but still present on host."
-#~ msgstr ""
-
-#~ msgid "SQL connection failed (%(connstring)s). %(attempts)d attempts left."
-#~ msgstr ""
-
-#~ msgid "Can't downgrade without losing data"
-#~ msgstr ""
-
-#~ msgid "Instance %(instance_id)s not found"
-#~ msgstr ""
-
-#~ msgid "Network %s has active ports, cannot delete"
-#~ msgstr ""
-
-#~ msgid "No fixed IPs to deallocate for vif %sid"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "AMQP server on %(fl_host)s:%(fl_port)d is "
-#~ "unreachable: %(e)s. Trying again in "
-#~ "%(fl_intv)d seconds."
-#~ msgstr ""
-
-#~ msgid "Unable to connect to AMQP server after %(tries)d tries. Shutting down."
-#~ msgstr ""
-
-#~ msgid "Failed to fetch message from queue: %s"
-#~ msgstr ""
-
-#~ msgid "Initing the Adapter Consumer for %s"
-#~ msgstr "%sのアダプターコンシューマー(Adapter Consumer)を初期化しています。"
-
-#~ msgid "Created \"%(exchange)s\" fanout exchange with \"%(key)s\" routing key"
-#~ msgstr ""
-
-#~ msgid "Exception while processing consumer"
-#~ msgstr ""
-
-#~ msgid "Creating \"%(exchange)s\" fanout exchange"
-#~ msgstr ""
-
-#~ msgid "topic is %s"
-#~ msgstr "topic は %s です。"
-
-#~ msgid "message %s"
-#~ msgstr "メッセージ %s"
-
-#~ msgid ""
-#~ "Cannot confirm tmpfile at %(ipath)s is"
-#~ " on same shared storage between "
-#~ "%(src)s and %(dest)s."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Unable to migrate %(instance_id)s to "
-#~ "%(dest)s: Lack of memory(host:%(avail)s <= "
-#~ "instance:%(mem_inst)s)"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Unable to migrate %(instance_id)s to "
-#~ "%(dest)s: Lack of disk(host:%(available)s <="
-#~ " instance:%(necessary)s)"
-#~ msgstr ""
-
-#~ msgid "Driver Method %(driver_method)s missing: %(e)s.Reverting to schedule()"
-#~ msgstr ""
-
-#~ msgid "Setting instance %(instance_uuid)s to ERROR state."
-#~ msgstr ""
-
-#~ msgid "_filter_hosts: %(request_spec)s"
-#~ msgstr ""
-
-#~ msgid "Filter hosts for drive type %s"
-#~ msgstr ""
-
-#~ msgid "Host %s has no free capacity. Skip"
-#~ msgstr ""
-
-#~ msgid "Filter hosts: %s"
-#~ msgstr ""
-
-#~ msgid "Must implement host selection mechanism"
-#~ msgstr ""
-
-#~ msgid "Maximum number of hosts selected (%d)"
-#~ msgstr ""
-
-#~ msgid "Selected excessive host %(host)s"
-#~ msgstr ""
-
-#~ msgid "Provision volume %(name)s of size %(size)s GB on host %(host)s"
-#~ msgstr ""
-
-#~ msgid "volume_params %(volume_params)s"
-#~ msgstr ""
-
-#~ msgid "%(i)d: Volume %(name)s"
-#~ msgstr ""
-
-#~ msgid "Attempting to spawn %(num_volumes)d volume(s)"
-#~ msgstr ""
-
-#~ msgid "Error creating volumes"
-#~ msgstr ""
-
-#~ msgid "Non-VSA volume %d"
-#~ msgstr ""
-
-#~ msgid "Spawning volume %(volume_id)s with drive type %(drive_type)s"
-#~ msgstr ""
-
-#~ msgid "Error creating volume"
-#~ msgstr ""
-
-#~ msgid "No capability selected for volume of size %(size)s"
-#~ msgstr ""
-
-#~ msgid "Host %s:"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "\tDrive %(qosgrp)-25s: total %(total)2s, "
-#~ "used %(used)2s, free %(free)2s. Available "
-#~ "capacity %(avail)-5s"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "\t LeastUsedHost: Best host: %(best_host)s."
-#~ " (used capacity %(min_used)s)"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "\t MostAvailCap: Best host: %(best_host)s. "
-#~ "(available %(max_avail)s %(type_str)s)"
-#~ msgstr ""
-
-#~ msgid "(%(nm)s) publish (key: %(routing_key)s) %(message)s"
-#~ msgstr "(%(nm)s) 公開 (キー: %(routing_key)s) %(message)s"
-
-#~ msgid "Publishing to route %s"
-#~ msgstr "ルート %s へパブリッシュ"
-
-#~ msgid "Declaring queue %s"
-#~ msgstr "queue %s の宣言"
-
-#~ msgid "Declaring exchange %s"
-#~ msgstr "exchange %s の宣言"
-
-#~ msgid "Binding %(queue)s to %(exchange)s with key %(routing_key)s"
-#~ msgstr "キー %(routing_key)s 付きで %(exchange)s に %(queue)s をバインドしています"
-
-#~ msgid "Getting from %(queue)s: %(message)s"
-#~ msgstr "%(queue)s から取得しています: %(message)s"
-
-#~ msgid "Test: Emulate wrong VSA name. Raise"
-#~ msgstr ""
-
-#~ msgid "Test: Emulate DB error. Raise"
-#~ msgstr ""
-
-#~ msgid "Test: user_data = %s"
-#~ msgstr ""
-
-#~ msgid "_create: param=%s"
-#~ msgstr ""
-
-#~ msgid "Host %s"
-#~ msgstr ""
-
-#~ msgid "Test: provision vol %(name)s on host %(host)s"
-#~ msgstr ""
-
-#~ msgid "\t vol=%(vol)s"
-#~ msgstr ""
-
-#~ msgid "Test: VSA update request: vsa_id=%(vsa_id)s values=%(values)s"
-#~ msgstr ""
-
-#~ msgid "Test: Volume create: %s"
-#~ msgstr ""
-
-#~ msgid "Test: Volume get request: id=%(volume_id)s"
-#~ msgstr ""
-
-#~ msgid "Test: Volume update request: id=%(volume_id)s values=%(values)s"
-#~ msgstr ""
-
-#~ msgid "Test: Volume get: id=%(volume_id)s"
-#~ msgstr ""
-
-#~ msgid "Task [%(name)s] %(task)s status: success    %(result)s"
-#~ msgstr "タスク [%(name)s] %(task)s 状態: 成功    %(result)s"
-
-#~ msgid "Task [%(name)s] %(task)s status: %(status)s    %(error_info)s"
-#~ msgstr "タスク [%(name)s] %(task)s 状態: %(status)s    %(error_info)s"
-
-#~ msgid "Unable to get updated status: %s"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "deactivate_node is called for                "
-#~ "node_id = %(id)s node_ip = %(ip)s"
-#~ msgstr ""
-
-#~ msgid "virsh said: %r"
-#~ msgstr "virsh の出力: %r"
-
-#~ msgid "cool, it's a device"
-#~ msgstr "デバイスです。"
-
-#~ msgid "Unable to read LXC console"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "to xml...\n"
-#~ ":%s "
-#~ msgstr ""
-
-#~ msgid "During wait running, %s disappeared."
-#~ msgstr ""
-
-#~ msgid "Instance %s running successfully."
-#~ msgstr ""
-
-#~ msgid "The nwfilter(%(instance_secgroup_filter_name)s) is not found."
-#~ msgstr ""
-
-#~ msgid "%(container_format)s-%(id)s (%(base_file)s): image verification failed"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "%(container_format)s-%(id)s (%(base_file)s): image "
-#~ "verification skipped, no hash stored"
-#~ msgstr ""
-
-#~ msgid "%(container_format)s-%(id)s (%(base_file)s): checking"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "%(container_format)s-%(id)s (%(base_file)s): in use:"
-#~ " on this node %(local)d local, "
-#~ "%(remote)d on other nodes"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "%(container_format)s-%(id)s (%(base_file)s): warning "
-#~ "-- an absent base file is in "
-#~ "use! instances: %(instance_list)s"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "%(container_format)s-%(id)s (%(base_file)s): in: on"
-#~ " other nodes (%(remote)d on other "
-#~ "nodes)"
-#~ msgstr ""
-
-#~ msgid "%(container_format)s-%(id)s (%(base_file)s): image is not in use"
-#~ msgstr ""
-
-#~ msgid "%(container_format)s-%(id)s (%(base_file)s): image is in use"
-#~ msgstr ""
-
-#~ msgid "Created VM %s..."
-#~ msgstr "VM %s を作成します。"
-
-#~ msgid "Created VM %(instance_name)s as %(vm_ref)s."
-#~ msgstr "%(vm_ref)s として VM %(instance_name)s を作成しています"
-
-#~ msgid "Creating a CDROM-specific VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Created a CDROM-specific VBD %(vbd_ref)s"
-#~ "  for VM %(vm_ref)s, VDI %(vdi_ref)s."
-#~ msgstr ""
-
-#~ msgid "No primary VDI found for%(vm_ref)s"
-#~ msgstr ""
-
-#~ msgid "Fetching image %(image)s"
-#~ msgstr ""
-
-#~ msgid "Image Type: %s"
-#~ msgstr ""
-
-#~ msgid "ISO: Found sr possibly containing the ISO image"
-#~ msgstr ""
-
-#~ msgid "instance %s: Failed to fetch glance image"
-#~ msgstr ""
-
-#~ msgid "Creating VBD for VDI %s ... "
-#~ msgstr "VDI %s 用に VBD を作成しています… "
-
-#~ msgid "Creating VBD for VDI %s done."
-#~ msgstr "VDI %s 用 VBD の作成が完了しました。"
-
-#~ msgid "VBD.unplug successful first time."
-#~ msgstr "VBD.unplug は１回目で成功しました。"
-
-#~ msgid "VBD.unplug rejected: retrying..."
-#~ msgstr "VBD.unplug が拒否されました: 再試行しています…"
-
-#~ msgid "Not sleeping anymore!"
-#~ msgstr ""
-
-#~ msgid "VBD.unplug successful eventually."
-#~ msgstr "VBD.unplug は最終的に成功しました。"
-
-#~ msgid "Ignoring XenAPI.Failure in VBD.unplug: %s"
-#~ msgstr "VBD.unplug 中の XenAPI.Failure を無視しています: %s"
-
-#~ msgid "Ignoring XenAPI.Failure %s"
-#~ msgstr "XenAPI.Failure %s を無視しています"
-
-#~ msgid "Starting instance %s"
-#~ msgstr ""
-
-#~ msgid "instance %s: Failed to spawn"
-#~ msgstr "インスタンス %s: 起動に失敗しました"
-
-#~ msgid "Instance %s failed to spawn - performing clean-up"
-#~ msgstr ""
-
-#~ msgid "instance %s: Failed to spawn - Unable to create VM"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Auto configuring disk for instance "
-#~ "%(instance_uuid)s, attempting to resize "
-#~ "partition..."
-#~ msgstr ""
-
-#~ msgid "Invalid value for injected_files: '%s'"
-#~ msgstr ""
-
-#~ msgid "Starting VM %s..."
-#~ msgstr "VM %s を開始します…"
-
-#~ msgid "Spawning VM %(instance_uuid)s created %(vm_ref)s."
-#~ msgstr ""
-
-#~ msgid "Instance %s: waiting for running"
-#~ msgstr ""
-
-#~ msgid "Instance %s: running"
-#~ msgstr ""
-
-#~ msgid "Resources to remove:%s"
-#~ msgstr ""
-
-#~ msgid "Removing VDI %(vdi_ref)s(uuid:%(vdi_to_remove)s)"
-#~ msgstr ""
-
-#~ msgid "Skipping VDI destroy for %s"
-#~ msgstr ""
-
-#~ msgid "Unable to Snapshot instance %(instance_uuid)s: %(exc)s"
-#~ msgstr ""
-
-#~ msgid "Updating instance '%(instance_uuid)s' progress to %(progress)d"
-#~ msgstr ""
-
-#~ msgid "Resize instance %s complete"
-#~ msgstr ""
-
-#~ msgid "domid changed from %(olddomid)s to %(newdomid)s"
-#~ msgstr ""
-
-#~ msgid "VM %(instance_uuid)s already halted,skipping shutdown..."
-#~ msgstr ""
-
-#~ msgid "Shutting down VM for Instance %(instance_uuid)s"
-#~ msgstr ""
-
-#~ msgid "Destroying VDIs for Instance %(instance_uuid)s"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Instance %(instance_uuid)s using RAW or "
-#~ "VHD, skipping kernel and ramdisk "
-#~ "deletion"
-#~ msgstr ""
-
-#~ msgid "Instance %(instance_uuid)s VM destroyed"
-#~ msgstr ""
-
-#~ msgid "Destroying VM for Instance %(instance_uuid)s"
-#~ msgstr ""
-
-#~ msgid "Automatically hard rebooting %d"
-#~ msgstr ""
-
-#~ msgid "Instance for migration %d not found, skipping"
-#~ msgstr ""
-
-#~ msgid "injecting network info to xs for vm: |%s|"
-#~ msgstr ""
-
-#~ msgid "creating vif(s) for vm: |%s|"
-#~ msgstr ""
-
-#~ msgid "Created VIF %(vif_ref)s for VM %(vm_ref)s, network %(network_ref)s."
-#~ msgstr "VM %(vm_ref)s, network %(network_ref)s 用 VIF %(vif_ref)s を作成しました。"
-
-#~ msgid "injecting hostname to xs for vm: |%s|"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "The agent call to %(method)s returned"
-#~ " an invalid response: %(ret)r. VM "
-#~ "id=%(instance_uuid)s; path=%(path)s; args=%(addl_args)r"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "TIMEOUT: The call to %(method)s timed"
-#~ " out. VM id=%(instance_uuid)s; args=%(args)r"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "NOT IMPLEMENTED: The call to %(method)s"
-#~ " is not supported by the agent. "
-#~ "VM id=%(instance_uuid)s; args=%(args)r"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "The call to %(method)s returned an "
-#~ "error: %(e)s. VM id=%(instance_uuid)s; "
-#~ "args=%(args)r"
-#~ msgstr ""
-
-#~ msgid "Creating VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
-#~ msgstr "VM %(vm_ref)s, VDI %(vdi_ref)s 用 VBD を作成しています… "
-
-#~ msgid "Error destroying VDI"
-#~ msgstr ""
-
-#~ msgid "\tVolume %s is NOT VSA volume"
-#~ msgstr ""
-
-#~ msgid "\tFE VSA Volume %s creation - do nothing"
-#~ msgstr ""
-
-#~ msgid "VSA BE create_volume for %s failed"
-#~ msgstr ""
-
-#~ msgid "VSA BE create_volume for %s succeeded"
-#~ msgstr ""
-
-#~ msgid "\tFE VSA Volume %s deletion - do nothing"
-#~ msgstr ""
-
-#~ msgid "VSA BE delete_volume for %s failed"
-#~ msgstr ""
-
-#~ msgid "VSA BE delete_volume for %s suceeded"
-#~ msgstr ""
-
-#~ msgid "\tFE VSA Volume %s local path call - call discover"
-#~ msgstr ""
-
-#~ msgid "\tFE VSA Volume %s ensure export - do nothing"
-#~ msgstr ""
-
-#~ msgid "\tFE VSA Volume %s create export - do nothing"
-#~ msgstr ""
-
-#~ msgid "\tFE VSA Volume %s remove export - do nothing"
-#~ msgstr ""
-
-#~ msgid "VSA BE remove_export for %s failed"
-#~ msgstr ""
-
-#~ msgid "Failed to retrieve QoS info"
-#~ msgstr ""
-
-#~ msgid "invalid drive data"
-#~ msgstr ""
-
-#~ msgid "drive_name not defined"
-#~ msgstr ""
-
-#~ msgid "invalid drive type name %s"
-#~ msgstr ""
-
-#~ msgid "*** Experimental VSA code ***"
-#~ msgstr ""
-
-#~ msgid "Requested number of VCs (%d) is too high. Setting to default"
-#~ msgstr ""
-
-#~ msgid "Creating VSA: %s"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "VSA ID %(vsa_id)d %(vsa_name)s: Create "
-#~ "volume %(vol_name)s, %(vol_size)d GB, type "
-#~ "%(vol_type_id)s"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)d: Update VSA status to %(status)s"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)d: Update VSA call"
-#~ msgstr ""
-
-#~ msgid "Adding %(add_cnt)s VCs to VSA %(vsa_name)s."
-#~ msgstr ""
-
-#~ msgid "Deleting %(del_cnt)s VCs from VSA %(vsa_name)s."
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)s: Deleting %(direction)s volume %(vol_name)s"
-#~ msgstr ""
-
-#~ msgid "Unable to delete volume %s"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)s: Forced delete. %(direction)s volume %(vol_name)s"
-#~ msgstr ""
-
-#~ msgid "Going to try to terminate VSA ID %s"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)s: Delete instance %(name)s"
-#~ msgstr ""
-
-#~ msgid "Create call received for VSA %s"
-#~ msgstr ""
-
-#~ msgid "Failed to find VSA %(vsa_id)d"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)s: Drive %(vol_id)s created. Status %(status)s"
-#~ msgstr ""
-
-#~ msgid "Drive %(vol_name)s (%(vol_disp_name)s) still in creating phase - wait"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "VSA ID %(vsa_id)d: Not all volumes "
-#~ "are created (%(cvol_real)d of %(cvol_exp)d)"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "VSA ID %(vsa_id)d: Drive %(vol_name)s "
-#~ "(%(vol_disp_name)s) is in %(status)s state"
-#~ msgstr ""
-
-#~ msgid "Failed to update attach status for volume %(vol_name)s. %(ex)s"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)d: Delete all BE volumes"
-#~ msgstr ""
-
-#~ msgid "VSA ID %(vsa_id)d: Start %(vc_count)d instances"
-#~ msgstr ""
 

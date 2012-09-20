@@ -1,4 +1,4 @@
-# Czech translation for cinder
+# Danish translation for cinder
 # Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
 # This file is distributed under the same license as the cinder package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
@@ -8,11 +8,10 @@ msgstr ""
 "Project-Id-Version:  cinder\n"
 "Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: 2012-04-04 20:28+0000\n"
-"Last-Translator: Zbyněk Schwarz <Unknown>\n"
-"Language-Team: Czech <cs@li.org>\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
-"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)\n"
+"PO-Revision-Date: 2011-01-15 21:46+0000\n"
+"Last-Translator: Soren Hansen <soren@linux2go.dk>\n"
+"Language-Team: Danish <da@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -30,48 +29,46 @@ msgstr ""
 
 #: cinder/crypto.py:48
 msgid "Filename of root CA"
-msgstr "Jméno souboru kořenové CA"
+msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "Jméno souboru se soukromým klíčem"
+msgstr "Filnavn for privatnøgle"
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
-msgstr "Název souboru seznamu zrušení kořenového certifikátu"
+msgstr ""
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr "Kde uchováváme naše klíče"
+msgstr ""
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
-msgstr "Kde uchováváme naši kořenovou CA"
+msgstr ""
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr "Použijeme CA pro každý projekt?"
+msgstr ""
 
 #: cinder/crypto.py:67
 #, python-format
 msgid "Subject for certificate for users, %s for project, user, timestamp"
 msgstr ""
-"Předmět certifikátu pro uživatele, %s pro projekt, uživatel, časové "
-"razítko"
 
 #: cinder/crypto.py:72
 #, python-format
 msgid "Subject for certificate for projects, %s for project, timestamp"
-msgstr "Předmět certifikátu pro projekty, %s pro projekt, časové razítko"
+msgstr ""
 
 #: cinder/crypto.py:292
 #, python-format
 msgid "Flags path: %s"
-msgstr "Cesta příznaků: %s"
+msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr "Při spuštění příkazu došlo k nečekané chybě."
+msgstr ""
 
 #: cinder/exception.py:59
 #, python-format
@@ -82,132 +79,127 @@ msgid ""
 "Stdout: %(stdout)r\n"
 "Stderr: %(stderr)r"
 msgstr ""
-"%(description)s\n"
-"Příkaz: %(cmd)s\n"
-"Kód ukončení: %(exit_code)s\n"
-"Stdout: %(stdout)r\n"
-"Stderr: %(stderr)r"
 
 #: cinder/exception.py:94
 msgid "DB exception wrapped."
-msgstr "Vyjímka DB zabalena."
+msgstr ""
 
 #: cinder/exception.py:155
 msgid "An unknown exception occurred."
-msgstr "Vyskytla se neočekávaná výjimka."
+msgstr ""
 
 #: cinder/exception.py:178
 msgid "Failed to decrypt text"
-msgstr "Nelze dešifrovat text"
+msgstr ""
 
 #: cinder/exception.py:182
 msgid "Failed to paginate through images from image service"
-msgstr "Nelze stránkovat skrze obrázky ze služby obrázků"
+msgstr ""
 
 #: cinder/exception.py:186
 msgid "Virtual Interface creation failed"
-msgstr "Vytvoření virtuálního rozhraní selhalo"
+msgstr ""
 
 #: cinder/exception.py:190
 msgid "5 attempts to create virtual interfacewith unique mac address failed"
-msgstr "Selhalo 5 pokusů o vytvoření virtuálního rozhraní s jedinečnou mac adresou"
+msgstr ""
 
 #: cinder/exception.py:195
 msgid "Connection to glance failed"
-msgstr "Připojení k glance selhalo"
+msgstr ""
 
 #: cinder/exception.py:199
 msgid "Connection to melange failed"
-msgstr "Připojení k melange selhalo"
+msgstr ""
 
 #: cinder/exception.py:203
 msgid "Not authorized."
-msgstr "Neschváleno."
+msgstr ""
 
 #: cinder/exception.py:208
 msgid "User does not have admin privileges"
-msgstr "Uživatel nemá správcovská oprávnění"
+msgstr ""
 
 #: cinder/exception.py:212
 #, python-format
 msgid "Policy doesn't allow %(action)s to be performed."
-msgstr "Pravidla nedovolují, aby bylo %(action)s provedeno."
+msgstr ""
 
 #: cinder/exception.py:216
-#, fuzzy, python-format
+#, python-format
 msgid "Not authorized for image %(image_id)s."
-msgstr "Kernel nenalezen v obrazu %(image_id)s."
+msgstr ""
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
-msgstr "Nepřijatelné parametry."
+msgstr ""
 
 #: cinder/exception.py:225
 msgid "Invalid snapshot"
-msgstr "Neplatný snímek"
+msgstr ""
 
 #: cinder/exception.py:229
 #, python-format
 msgid "Volume %(volume_id)s is not attached to anything"
-msgstr "Svazek %(volume_id)s není k ničemu připojen"
+msgstr ""
 
 #: cinder/exception.py:233 cinder/api/openstack/compute/contrib/keypairs.py:113
 msgid "Keypair data is invalid"
-msgstr "Data páru klíčů jsou neplatná"
+msgstr ""
 
 #: cinder/exception.py:237
 msgid "Failed to load data into json format"
-msgstr "Nelze načíst data do formátu json"
+msgstr ""
 
 #: cinder/exception.py:241
 msgid "The request is invalid."
-msgstr "Požadavek je neplatný."
+msgstr ""
 
 #: cinder/exception.py:245
 #, python-format
 msgid "Invalid signature %(signature)s for user %(user)s."
-msgstr "Neplatný podpis %(signature)s pro uživatele %(user)s."
+msgstr ""
 
 #: cinder/exception.py:249
 msgid "Invalid input received"
-msgstr "Obdržen neplatný vstup"
+msgstr ""
 
 #: cinder/exception.py:253
 #, python-format
 msgid "Invalid instance type %(instance_type)s."
-msgstr "Neplatná instance typu %(instance_type)s."
+msgstr ""
 
 #: cinder/exception.py:257
 msgid "Invalid volume type"
-msgstr "Neplatný typ svazku"
+msgstr ""
 
 #: cinder/exception.py:261
 msgid "Invalid volume"
-msgstr "Neplatný svazek"
+msgstr ""
 
 #: cinder/exception.py:265
 #, python-format
 msgid "Invalid port range %(from_port)s:%(to_port)s. %(msg)s"
-msgstr "Neplatný rozsah portů %(from_port)s:%(to_port)s. %(msg)s"
+msgstr ""
 
 #: cinder/exception.py:269
 #, python-format
 msgid "Invalid IP protocol %(protocol)s."
-msgstr "Neplatný protokol IP %(protocol)s."
+msgstr ""
 
 #: cinder/exception.py:273
 #, python-format
 msgid "Invalid content type %(content_type)s."
-msgstr "Neplatný typ obsahu %(content_type)s."
+msgstr ""
 
 #: cinder/exception.py:277
 #, python-format
 msgid "Invalid cidr %(cidr)s."
-msgstr "Neplatný cidr %(cidr)s."
+msgstr ""
 
 #: cinder/exception.py:281
 msgid "Invalid reuse of an RPC connection."
-msgstr "Neplatné znovu použití připojení RPC."
+msgstr ""
 
 #: cinder/exception.py:285
 msgid "Invalid Parameter: Unicode is not supported by the current database."
@@ -216,7 +208,7 @@ msgstr ""
 #: cinder/exception.py:292
 #, python-format
 msgid "%(err)s"
-msgstr "%(err)s"
+msgstr ""
 
 #: cinder/exception.py:296
 #, python-format
@@ -224,13 +216,11 @@ msgid ""
 "Cannot perform action '%(action)s' on aggregate %(aggregate_id)s. Reason:"
 " %(reason)s."
 msgstr ""
-"Nelze provést činnost '%(action)s' na agregátu %(aggregate_id)s. Důvod: "
-"%(reason)s."
 
 #: cinder/exception.py:301
-#, fuzzy, python-format
+#, python-format
 msgid "Group not valid. Reason: %(reason)s"
-msgstr "Nebyl nalezen žádný platný hostitel. %(reason)s"
+msgstr ""
 
 #: cinder/exception.py:305
 #, python-format
@@ -238,101 +228,96 @@ msgid ""
 "Instance %(instance_uuid)s in %(attr)s %(state)s. Cannot %(method)s while"
 " the instance is in this state."
 msgstr ""
-"Instance %(instance_uuid)s v %(attr)s %(state)s.  Nelze %(method)s "
-"zatímco je instance v tomto stavu."
 
 #: cinder/exception.py:310
 #, python-format
 msgid "Instance %(instance_id)s is not running."
-msgstr "Instance %(instance_id)s není spuštěna."
+msgstr ""
 
 #: cinder/exception.py:314
 #, python-format
 msgid "Instance %(instance_id)s is not suspended."
-msgstr "Instance %(instance_id)s není pozastavena."
+msgstr ""
 
 #: cinder/exception.py:318
 #, python-format
 msgid "Instance %(instance_id)s is not in rescue mode"
-msgstr "Instance %(instance_id)s není v nouzovém režimu."
+msgstr ""
 
 #: cinder/exception.py:322
 msgid "Failed to suspend instance"
-msgstr "Nelze pozastavit instanci"
+msgstr ""
 
 #: cinder/exception.py:326
 msgid "Failed to resume server"
-msgstr "Server nemůže pokračovat"
+msgstr ""
 
 #: cinder/exception.py:330
 msgid "Failed to reboot instance"
-msgstr "Nelze restartovat instanci"
+msgstr ""
 
 #: cinder/exception.py:334
-#, fuzzy
 msgid "Failed to terminate instance"
-msgstr "Nelze restartovat instanci"
+msgstr ""
 
 #: cinder/exception.py:338
 msgid "Service is unavailable at this time."
-msgstr "Služba je v tuto chvíli nedostupná."
+msgstr ""
 
 #: cinder/exception.py:342
 msgid "Volume service is unavailable at this time."
-msgstr "Služba svazku je v tuto chvíli nedostupná."
+msgstr ""
 
 #: cinder/exception.py:346
 msgid "Compute service is unavailable at this time."
-msgstr "Služba výpočtu je v tuto chvíli nedostupná."
+msgstr ""
 
 #: cinder/exception.py:350
 #, python-format
 msgid "Unable to migrate instance (%(instance_id)s) to current host (%(host)s)."
 msgstr ""
-"Nelze přesunout instanci (%(instance_id)s) na současného hostitele "
-"(%(host)s)."
 
 #: cinder/exception.py:355
 msgid "Destination compute host is unavailable at this time."
-msgstr "Cílový výpočetní hostitel je v současnosti nedostupný."
+msgstr ""
 
 #: cinder/exception.py:359
 msgid "Original compute host is unavailable at this time."
-msgstr "Původní výpočetní hostitel je v současnosti nedostupný."
+msgstr ""
 
 #: cinder/exception.py:363
 msgid "The supplied hypervisor type of is invalid."
-msgstr "Zadaný typ hypervizoru je neplatný."
+msgstr ""
 
 #: cinder/exception.py:367
 msgid "The instance requires a newer hypervisor version than has been provided."
-msgstr "Instance vyžaduje novější verzi hypervizoru, než byla poskytnuta."
+msgstr ""
 
 #: cinder/exception.py:372
 #, python-format
 msgid ""
 "The supplied disk path (%(path)s) already exists, it is expected not to "
 "exist."
-msgstr "Zadaná cesta disku (%(path)s) již existuje, očekává se, že nebude."
+msgstr ""
 
 #: cinder/exception.py:377
 #, python-format
 msgid "The supplied device path (%(path)s) is invalid."
-msgstr "Zadaná cesta zařízení (%(path)s) je neplatná."
+msgstr ""
 
 #: cinder/exception.py:381
-#, fuzzy, python-format
+#, python-format
 msgid "The supplied device (%(device)s) is busy."
-msgstr "Zadaná cesta zařízení (%(path)s) je neplatná."
+msgstr ""
 
 #: cinder/exception.py:385
 msgid "Unacceptable CPU info"
-msgstr "Nepřijatelné informace o procesoru"
+msgstr ""
 
 #: cinder/exception.py:389
 #, python-format
 msgid "%(address)s is not a valid IP v4/6 address."
-msgstr "%(address)s není platná IP adresa v4/6."
+msgstr ""
 
 #: cinder/exception.py:393
 #, python-format
@@ -340,8 +325,6 @@ msgid ""
 "VLAN tag is not appropriate for the port group %(bridge)s. Expected VLAN "
 "tag is %(tag)s, but the one associated with the port group is %(pgroup)s."
 msgstr ""
-"Značka VLAN není vhodná pro skupinu portů %(bridge)s. Očekávaná značka "
-"VLAN je %(tag)s, ale značka připojená ke skupině portů je %(pgroup)s."
 
 #: cinder/exception.py:399
 #, python-format
@@ -350,72 +333,69 @@ msgid ""
 "the desired physical adapter. Expected vSwitch is %(expected)s, but the "
 "one associated is %(actual)s."
 msgstr ""
-"vSwitch který obsahuje skupinu portů %(bridge)s není spojen s požadovaným"
-" fyzickým adaptérem. Očekávaný vSwitch je %(expected)s, ale spojený je "
-"%(actual)s."
 
 #: cinder/exception.py:406
 #, python-format
 msgid "Disk format %(disk_format)s is not acceptable"
-msgstr "Formát disku %(disk_format)s není přijatelný"
+msgstr ""
 
 #: cinder/exception.py:410
 #, python-format
 msgid "Image %(image_id)s is unacceptable: %(reason)s"
-msgstr "Obraz %(image_id)s je nepřijatelný: %(reason)s"
+msgstr ""
 
 #: cinder/exception.py:414
 #, python-format
 msgid "Instance %(instance_id)s is unacceptable: %(reason)s"
-msgstr "Instance %(instance_id)s je nepřijatelná: %(reason)s"
+msgstr ""
 
 #: cinder/exception.py:418
 #, python-format
 msgid "Ec2 id %(ec2_id)s is unacceptable."
-msgstr "Id Ec2 %(ec2_id)s je nepřijatelné."
+msgstr ""
 
 #: cinder/exception.py:422
 msgid "Resource could not be found."
-msgstr "Zdroj nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:427
 #, python-format
 msgid "Required flag %(flag)s not set."
-msgstr "Požadovaný příznak %(flag)s není nastaven."
+msgstr ""
 
 #: cinder/exception.py:431
 #, python-format
 msgid "Volume %(volume_id)s could not be found."
-msgstr "Svazek %(volume_id)s nemohl být nastaven."
+msgstr ""
 
 #: cinder/exception.py:435
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to locate account %(account_name)s on Solidfire device"
-msgstr "Nelze nalézt účet %(account_name) on zařízení Solidfire"
+msgstr ""
 
 #: cinder/exception.py:440
 #, python-format
 msgid "Volume not found for instance %(instance_id)s."
-msgstr "Svazek není nalezen v instanci %(instance_id)s."
+msgstr ""
 
 #: cinder/exception.py:444
 #, python-format
 msgid "Volume %(volume_id)s has no metadata with key %(metadata_key)s."
-msgstr "Svazek %(volume_id)s nemá žádná metadata s klíčem %(metadata_key)s."
+msgstr ""
 
 #: cinder/exception.py:449
 msgid "Zero volume types found."
-msgstr "Nalezeno nula typů svazku."
+msgstr ""
 
 #: cinder/exception.py:453
 #, python-format
 msgid "Volume type %(volume_type_id)s could not be found."
-msgstr "Typ svazku %(volume_type_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:457
 #, python-format
 msgid "Volume type with name %(volume_type_name)s could not be found."
-msgstr "Typ svazku s názvem %(volume_type_name)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:462
 #, python-format
@@ -423,18 +403,16 @@ msgid ""
 "Volume Type %(volume_type_id)s has no extra specs with key "
 "%(extra_specs_key)s."
 msgstr ""
-"Typ svazku %(volume_type_id)s nemá žádné dodatečné parametry s klíčem "
-"%(extra_specs_key)s."
 
 #: cinder/exception.py:467
 #, python-format
 msgid "Snapshot %(snapshot_id)s could not be found."
-msgstr "Snímek %(snapshot_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:471
 #, python-format
 msgid "deleting volume %(volume_name)s that has snapshot"
-msgstr "mazání svazku %(volume_name)s který má snímek"
+msgstr ""
 
 #: cinder/exception.py:475
 #, python-format
@@ -444,98 +422,96 @@ msgstr ""
 #: cinder/exception.py:480
 #, python-format
 msgid "No target id found for volume %(volume_id)s."
-msgstr "Nenalezeno žádné cílové id ve svazku %(volume_id)s."
+msgstr ""
 
 #: cinder/exception.py:484
 #, python-format
 msgid "No disk at %(location)s"
-msgstr "Źádný disk ve %(location)s"
+msgstr ""
 
 #: cinder/exception.py:488
 #, python-format
 msgid "Could not find a handler for %(driver_type)s volume."
-msgstr "Nelze najít obslužnou rutinu pro svazek %(driver_type)s."
+msgstr ""
 
 #: cinder/exception.py:492
 #, python-format
 msgid "Invalid image href %(image_href)s."
-msgstr "Neplatný href %(image_href)s obrazu."
+msgstr ""
 
 #: cinder/exception.py:496
 msgid ""
 "Some images have been stored via hrefs. This version of the api does not "
 "support displaying image hrefs."
 msgstr ""
-"Některé obrazy byly uloženy pomocí href. Tato verze api nepodporuje "
-"zobrazování href obrazů."
 
 #: cinder/exception.py:501
 #, python-format
 msgid "Image %(image_id)s could not be found."
-msgstr "Obraz %(image_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:505
 #, python-format
 msgid "Kernel not found for image %(image_id)s."
-msgstr "Kernel nenalezen v obrazu %(image_id)s."
+msgstr ""
 
 #: cinder/exception.py:509
 #, python-format
 msgid "User %(user_id)s could not be found."
-msgstr "Uživatel %(user_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:513
 #, python-format
 msgid "Project %(project_id)s could not be found."
-msgstr "Projekt %(project_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:517
 #, python-format
 msgid "User %(user_id)s is not a member of project %(project_id)s."
-msgstr "Uživatel %(user_id)s není členem projektu %(project_id)s."
+msgstr ""
 
 #: cinder/exception.py:521
 #, python-format
 msgid "Role %(role_id)s could not be found."
-msgstr "Role %(role_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:525
 msgid "Cannot find SR to read/write VDI."
-msgstr "Nelze najít SR pro čtení/zápis VDI."
+msgstr ""
 
 #: cinder/exception.py:529
 #, python-format
 msgid "%(req)s is required to create a network."
-msgstr "%(req)s je vyžadováno pro vytvoření sítě."
+msgstr ""
 
 #: cinder/exception.py:533
 #, python-format
 msgid "Network %(network_id)s could not be found."
-msgstr "Síť %(network_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:537
 #, python-format
 msgid "Network could not be found for bridge %(bridge)s"
-msgstr "Síť nemohla být pro most %(bridge)s nalezena."
+msgstr ""
 
 #: cinder/exception.py:541
 #, python-format
 msgid "Network could not be found for uuid %(uuid)s"
-msgstr "Síť nemohla být pro uuid %(uuid)s nalezena."
+msgstr ""
 
 #: cinder/exception.py:545
 #, python-format
 msgid "Network could not be found with cidr %(cidr)s."
-msgstr "Síť nemohla být pro cidr %(cidr)s nalezena."
+msgstr ""
 
 #: cinder/exception.py:549
 #, python-format
 msgid "Network could not be found for instance %(instance_id)s."
-msgstr "Síť nemohla být pro instance %(instance_id)s nalezena."
+msgstr ""
 
 #: cinder/exception.py:553
 msgid "No networks defined."
-msgstr "Źádné sítě nejsou určeny."
+msgstr ""
 
 #: cinder/exception.py:557
 #, python-format
@@ -543,13 +519,11 @@ msgid ""
 "Either Network uuid %(network_uuid)s is not present or is not assigned to"
 " the project %(project_id)s."
 msgstr ""
-"Buď síť uuid %(network_uuid)s není přítomna nebo je přidělena projektu "
-"%(project_id)s."
 
 #: cinder/exception.py:562
 #, python-format
 msgid "Host is not set to the network (%(network_id)s)."
-msgstr "Hostitel není v síti (%(network_id)s) nastaven."
+msgstr ""
 
 #: cinder/exception.py:566
 #, python-format
@@ -558,176 +532,174 @@ msgstr ""
 
 #: cinder/exception.py:570
 msgid "Could not find the datastore reference(s) which the VM uses."
-msgstr "Nelze najít odkazy datového úložiště, který VM používá."
+msgstr ""
 
 #: cinder/exception.py:574
 #, python-format
 msgid "No fixed IP associated with id %(id)s."
-msgstr "Žádná pevná IP není spojena s %(id)s."
+msgstr ""
 
 #: cinder/exception.py:578
 #, python-format
 msgid "Fixed ip not found for address %(address)s."
-msgstr "Pevná ip není pro adresu %(address)s nalezena."
+msgstr ""
 
 #: cinder/exception.py:582
 #, python-format
 msgid "Instance %(instance_id)s has zero fixed ips."
-msgstr "Instance %(instance_id)s má nula pevných ip."
+msgstr ""
 
 #: cinder/exception.py:586
 #, python-format
 msgid "Network host %(host)s has zero fixed ips in network %(network_id)s."
-msgstr "Síťový hostitel %(host)s má nula pevných ip v síti %(network_id)s."
+msgstr ""
 
 #: cinder/exception.py:591
 #, python-format
 msgid "Instance %(instance_id)s doesn't have fixed ip '%(ip)s'."
-msgstr "Instance %(instance_id)s nemá pevnou ip '%(ip)s'."
+msgstr ""
 
 #: cinder/exception.py:595
 #, python-format
 msgid "Host %(host)s has zero fixed ips."
-msgstr "Hostitel %(host)s má nula pevných ip."
+msgstr ""
 
 #: cinder/exception.py:599
 #, python-format
 msgid ""
 "Fixed IP address (%(address)s) does not exist in network "
 "(%(network_uuid)s)."
-msgstr "Pevná IP adresa (%(address)s) v síti (%(network_uuid)s) neexistuje."
+msgstr ""
 
 #: cinder/exception.py:604
 #, python-format
 msgid "Fixed IP address %(address)s is already in use."
-msgstr "Pevná IP adresa (%(address)s) je již používána."
+msgstr ""
 
 #: cinder/exception.py:608
 #, python-format
 msgid "Fixed IP address %(address)s is invalid."
-msgstr "Pevná IP adresa (%(address)s) je neplatná."
+msgstr ""
 
 #: cinder/exception.py:612
 msgid "Zero fixed ips available."
-msgstr "Je dostupno nula pevných ip."
+msgstr ""
 
 #: cinder/exception.py:616
 msgid "Zero fixed ips could be found."
-msgstr "Bylo nalezeno nula pevných ip."
+msgstr ""
 
 #: cinder/exception.py:620
 #, python-format
 msgid "Floating ip not found for id %(id)s."
-msgstr "Plovoucí ip není nalezena pro id %(id)s."
+msgstr ""
 
 #: cinder/exception.py:624
 #, python-format
 msgid "The DNS entry %(name)s already exists in domain %(domain)s."
-msgstr "Záznam DNS %(name)s již v doméně %(domain)s existuje."
+msgstr ""
 
 #: cinder/exception.py:628
 #, python-format
 msgid "Floating ip not found for address %(address)s."
-msgstr "Plovoucí ip nenalezeno pro adresu %(address)s."
+msgstr ""
 
 #: cinder/exception.py:632
 #, python-format
 msgid "Floating ip not found for host %(host)s."
-msgstr "Plovoucí ip nenalezeno pro hostitele %(host)s."
+msgstr ""
 
 #: cinder/exception.py:636
 msgid "Zero floating ips available."
-msgstr "Je dostupných nula plovoucích ip."
+msgstr ""
 
 #: cinder/exception.py:640
 #, python-format
 msgid "Floating ip %(address)s is associated."
-msgstr "Plovoucí ip %(address)s je přidružena."
+msgstr ""
 
 #: cinder/exception.py:644
 #, python-format
 msgid "Floating ip %(address)s is not associated."
-msgstr "Plovoucí ip %(address)s není přidružena."
+msgstr ""
 
 #: cinder/exception.py:648
 msgid "Zero floating ips exist."
-msgstr "Existuje nula plovoucích ip."
+msgstr ""
 
 #: cinder/exception.py:652
 #, python-format
 msgid "Interface %(interface)s not found."
-msgstr "Rozhraní %(interface)s nenalezeno."
+msgstr ""
 
 #: cinder/exception.py:656
 #, python-format
 msgid "Keypair %(name)s not found for user %(user_id)s"
-msgstr "Dvojice klíčů %(name)s nenalezena pro uživatele %(user_id)s"
+msgstr ""
 
 #: cinder/exception.py:660
 #, python-format
 msgid "Certificate %(certificate_id)s not found."
-msgstr "Certifikát %(certificate_id)s nenalezen."
+msgstr ""
 
 #: cinder/exception.py:664
 #, python-format
 msgid "Service %(service_id)s could not be found."
-msgstr "Služba %(service_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:668
 #, python-format
 msgid "Host %(host)s could not be found."
-msgstr "Hostitel %(host)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:672
 #, python-format
 msgid "Compute host %(host)s could not be found."
-msgstr "Hostitel výpočtu %(host)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:676
 #, python-format
 msgid "Could not find binary %(binary)s on host %(host)s."
-msgstr "Nelze najít binární soubor %(binary)s v hostiteli %(host)s."
+msgstr ""
 
 #: cinder/exception.py:680
 #, python-format
 msgid "Auth token %(token)s could not be found."
-msgstr "Známka opeávnění %(token)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:684
 #, python-format
 msgid "Access Key %(access_key)s could not be found."
-msgstr "Přístupový klíč %(access_key)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:688
 msgid "Quota could not be found"
-msgstr "Kvóta nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:692
 #, python-format
 msgid "Quota for project %(project_id)s could not be found."
-msgstr "Kvóta pro projekt %(project_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:696
-#, fuzzy, python-format
+#, python-format
 msgid "Quota class %(class_name)s could not be found."
-msgstr "Třída %(class_name)s nemohla být nalezena: %(exception)s"
+msgstr ""
 
 #: cinder/exception.py:700
 #, python-format
 msgid "Security group %(security_group_id)s not found."
-msgstr "Bezpečnostní skupina %(security_group_id)s není nalezena."
+msgstr ""
 
 #: cinder/exception.py:704
 #, python-format
 msgid "Security group %(security_group_id)s not found for project %(project_id)s."
 msgstr ""
-"Bezpečnostní skupina %(security_group_id)s není nalezena v projektu "
-"%(project_id)s."
 
 #: cinder/exception.py:709
 #, python-format
 msgid "Security group with rule %(rule_id)s not found."
-msgstr "Bezpečnostní skupina s pravidlem %(rule_id)s nenalezena."
+msgstr ""
 
 #: cinder/exception.py:713
 #, python-format
@@ -735,8 +707,6 @@ msgid ""
 "Security group %(security_group_id)s is already associated with the "
 "instance %(instance_id)s"
 msgstr ""
-"Bezpečnostní skupina %(security_group_id)s je již přidružena k instanci "
-"%(instance_id)s"
 
 #: cinder/exception.py:718
 #, python-format
@@ -744,23 +714,21 @@ msgid ""
 "Security group %(security_group_id)s is not associated with the instance "
 "%(instance_id)s"
 msgstr ""
-"Bezpečnostní skupina %(security_group_id)s není přidružena k instanci "
-"%(instance_id)s"
 
 #: cinder/exception.py:723
 #, python-format
 msgid "Migration %(migration_id)s could not be found."
-msgstr "Přesun %(migration_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:727
 #, python-format
 msgid "Migration not found for instance %(instance_id)s with status %(status)s."
-msgstr "Přesun nenalezen v instanci %(instance_id)s se stavem %(status)s."
+msgstr ""
 
 #: cinder/exception.py:732
 #, python-format
 msgid "Console pool %(pool_id)s could not be found."
-msgstr "Zásoba konzole %(pool_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:736
 #, python-format
@@ -768,18 +736,16 @@ msgid ""
 "Console pool of type %(console_type)s for compute host %(compute_host)s "
 "on proxy host %(host)s not found."
 msgstr ""
-"Zásoba konzole typu %(console_type)s pro výpočetního hostitele "
-"%(compute_host)s v hostitele proxy %(host)s nemohla být nalezena."
 
 #: cinder/exception.py:742
 #, python-format
 msgid "Console %(console_id)s could not be found."
-msgstr "Konzole %(console_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:746
 #, python-format
 msgid "Console for instance %(instance_id)s could not be found."
-msgstr "Konzole pro instanci %(instance_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:750
 #, python-format
@@ -787,57 +753,55 @@ msgid ""
 "Console for instance %(instance_id)s in pool %(pool_id)s could not be "
 "found."
 msgstr ""
-"Konzole pro instanci %(instance_id)s v zásobě %(pool_id)s nemohla být "
-"nalezena."
 
 #: cinder/exception.py:755
 #, python-format
 msgid "Invalid console type %(console_type)s "
-msgstr "Neplatná konzole typu %(console_type)s "
+msgstr ""
 
 #: cinder/exception.py:759
 msgid "Zero instance types found."
-msgstr "Nalezeno nula typů instancí."
+msgstr ""
 
 #: cinder/exception.py:763
 #, python-format
 msgid "Instance type %(instance_type_id)s could not be found."
-msgstr "Instance typu %(instance_type_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:767
 #, python-format
 msgid "Instance type with name %(instance_type_name)s could not be found."
-msgstr "Instance typu s názvem %(instance_type_name)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:772
 #, python-format
 msgid "Flavor %(flavor_id)s could not be found."
-msgstr "Konfigurace %(flavor_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:776
-#, fuzzy, python-format
+#, python-format
 msgid "Cell %(cell_id)s could not be found."
-msgstr "Zóna %(zone_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:780
 #, python-format
 msgid "Scheduler Host Filter %(filter_name)s could not be found."
-msgstr "Filtr hostitelů plácinderče %(filter_name)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:784
 #, python-format
 msgid "Scheduler cost function %(cost_fn_str)s could not be found."
-msgstr "Funkce nákladů plácinderče %(cost_fn_str)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:789
 #, python-format
 msgid "Scheduler weight flag not found: %(flag_name)s"
-msgstr "Příznak váhy plácinderče nemohl být nalezen: %(flag_name)s"
+msgstr ""
 
 #: cinder/exception.py:793
 #, python-format
 msgid "Instance %(instance_id)s has no metadata with key %(metadata_key)s."
-msgstr "Instance %(instance_id)s nemá žádná metadata s klíčem %(metadata_key)s."
+msgstr ""
 
 #: cinder/exception.py:798
 #, python-format
@@ -845,257 +809,253 @@ msgid ""
 "Instance Type %(instance_type_id)s has no extra specs with key "
 "%(extra_specs_key)s."
 msgstr ""
-"Instance typu %(instance_type_id)s nemá žádné dodatečné specifikace s "
-"klíčem %(extra_specs_key)s."
 
 #: cinder/exception.py:803
 msgid "LDAP object could not be found"
-msgstr "Objekt LDAP nemohl být nalezen"
+msgstr ""
 
 #: cinder/exception.py:807
 #, python-format
 msgid "LDAP user %(user_id)s could not be found."
-msgstr "Uživatel LDAP %(user_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:811
 #, python-format
 msgid "LDAP group %(group_id)s could not be found."
-msgstr "Skupina LDAP %(group_id)s nemohla být nalezena."
+msgstr ""
 
 #: cinder/exception.py:815
 #, python-format
 msgid "LDAP user %(user_id)s is not a member of group %(group_id)s."
-msgstr "Uživatel LDAP %(user_id)s není členem skupiny %(group_id)s."
+msgstr ""
 
 #: cinder/exception.py:819
 #, python-format
 msgid "File %(file_path)s could not be found."
-msgstr "Soubor %(file_path)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:823
 msgid "Zero files could be found."
-msgstr "Nalezeno nula souborů."
+msgstr ""
 
 #: cinder/exception.py:827
 #, python-format
 msgid "Virtual switch associated with the network adapter %(adapter)s not found."
-msgstr "Nenalezen virtuální přepínač sdružený se síťovým adaptérem %(adapter)s."
+msgstr ""
 
 #: cinder/exception.py:832
 #, python-format
 msgid "Network adapter %(adapter)s could not be found."
-msgstr "Síťový adaptér %(adapter)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:836
 #, python-format
 msgid "Class %(class_name)s could not be found: %(exception)s"
-msgstr "Třída %(class_name)s nemohla být nalezena: %(exception)s"
+msgstr ""
 
 #: cinder/exception.py:840
 msgid "Action not allowed."
-msgstr "Činnost není povolena."
+msgstr ""
 
 #: cinder/exception.py:844
 #, python-format
 msgid "Unable to use global role %(role_id)s"
-msgstr "Nelze použít globální roli %(role_id)s"
+msgstr ""
 
 #: cinder/exception.py:848
 msgid "Rotation is not allowed for snapshots"
-msgstr "Střídání není povoleno pro snímky"
+msgstr ""
 
 #: cinder/exception.py:852
 msgid "Rotation param is required for backup image_type"
-msgstr "Parametr rotation je vyžadován pro backup image_type"
+msgstr ""
 
 #: cinder/exception.py:861
 #, python-format
 msgid "Key pair %(key_name)s already exists."
-msgstr "Dvojice klíčů %(key_name)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:865
 #, python-format
 msgid "User %(user)s already exists."
-msgstr "Uživatel %(user)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:869
 #, python-format
 msgid "LDAP user %(user)s already exists."
-msgstr "LDAP uživatel %(user)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:873
 #, python-format
 msgid "LDAP group %(group)s already exists."
-msgstr "LDAP skupina %(group)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:877
 #, python-format
 msgid "User %(uid)s is already a member of the group %(group_dn)s"
-msgstr "Uživatel %(uid)s již je členem skupiny %(group_dn)s"
+msgstr ""
 
 #: cinder/exception.py:882
 #, python-format
 msgid "Project %(project)s already exists."
-msgstr "Projekt %(project)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:886
 #, python-format
 msgid "Instance %(name)s already exists."
-msgstr "Instance %(name)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:890
 #, python-format
 msgid "Instance Type %(name)s already exists."
-msgstr "Instance typu %(name)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:894
 #, python-format
 msgid "Volume Type %(name)s already exists."
-msgstr "Typ svazku %(name)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:898
 #, python-format
 msgid "%(path)s is on shared storage: %(reason)s"
-msgstr "%(path)s je ve sdíleném úložišti: %(reason)s"
+msgstr ""
 
 #: cinder/exception.py:902
 msgid "Migration error"
-msgstr "Chyba přesunu"
+msgstr ""
 
 #: cinder/exception.py:906
 #, python-format
 msgid "Malformed message body: %(reason)s"
-msgstr "Poškozené tělo zprávy: %(reason)s"
+msgstr ""
 
 #: cinder/exception.py:910
 #, python-format
 msgid "Could not find config at %(path)s"
-msgstr "Nelze najít nastavení v %(path)s"
+msgstr ""
 
 #: cinder/exception.py:914
 #, python-format
 msgid "Could not load paste app '%(name)s' from %(path)s"
-msgstr "Nelze načíst aplikaci vložení '%(name)s' z %(path)s"
+msgstr ""
 
 #: cinder/exception.py:918
 msgid "When resizing, instances must change size!"
-msgstr "Při změně velikosti ji musí instance změnit také!"
+msgstr ""
 
 #: cinder/exception.py:922
 msgid "Image is larger than instance type allows"
-msgstr "Obraz je větší než typ instance povoluje"
+msgstr ""
 
 #: cinder/exception.py:926
 msgid "1 or more Zones could not complete the request"
-msgstr "1 nebo více Zón nemohlo požadavek dokončit"
+msgstr ""
 
 #: cinder/exception.py:930
 msgid "Instance type's memory is too small for requested image."
-msgstr "Typ paměti instance je pro požadovaný obraz příliš malý."
+msgstr ""
 
 #: cinder/exception.py:934
 msgid "Instance type's disk is too small for requested image."
-msgstr "Typ disku instance je pro požadovaný obraz příliš malý."
+msgstr ""
 
 #: cinder/exception.py:938
 #, python-format
 msgid "Insufficient free memory on compute node to start %(uuid)s."
-msgstr "Pro spuštění %(uuid)s je v uzlu výpočtu nedostatek volné paměti."
+msgstr ""
 
 #: cinder/exception.py:942
 msgid "Could not fetch bandwidth/cpu/disk metrics for this host."
-msgstr "Nelze získat metriky šířky pásma/procesoru/disku pro tohoto hostitele."
+msgstr ""
 
 #: cinder/exception.py:946
 #, python-format
 msgid "No valid host was found. %(reason)s"
-msgstr "Nebyl nalezen žádný platný hostitel. %(reason)s"
+msgstr ""
 
 #: cinder/exception.py:950
 #, python-format
 msgid "Host %(host)s is not up or doesn't exist."
-msgstr "Hostitel %(host)s není dostupný nebo neexistuje."
+msgstr ""
 
 #: cinder/exception.py:954
 msgid "Quota exceeded"
-msgstr "Kvóta překročena"
+msgstr ""
 
 #: cinder/exception.py:958
-#, fuzzy, python-format
+#, python-format
 msgid ""
 "Aggregate %(aggregate_id)s: action '%(action)s' caused an error: "
 "%(reason)s."
-msgstr "Agregát %(aggregate_id)s nemá hostitele %(host)s."
+msgstr ""
 
 #: cinder/exception.py:963
 #, python-format
 msgid "Aggregate %(aggregate_id)s could not be found."
-msgstr "Agregát %(aggregate_id)s nemohl být nalezen."
+msgstr ""
 
 #: cinder/exception.py:967
 #, python-format
 msgid "Aggregate %(aggregate_name)s already exists."
-msgstr "Agregát %(aggregate_name)s již existuje."
+msgstr ""
 
 #: cinder/exception.py:971
 #, python-format
 msgid "Aggregate %(aggregate_id)s has no host %(host)s."
-msgstr "Agregát %(aggregate_id)s nemá hostitele %(host)s."
+msgstr ""
 
 #: cinder/exception.py:975
 #, python-format
 msgid "Aggregate %(aggregate_id)s has no metadata with key %(metadata_key)s."
-msgstr "Agregát %(aggregate_id)s nemá žádná metadata s klíčem %(metadata_key)s."
+msgstr ""
 
 #: cinder/exception.py:980
 #, python-format
 msgid "Host %(host)s already member of another aggregate."
-msgstr "Hostitel %(host)s již je členem jiného agregátu."
+msgstr ""
 
 #: cinder/exception.py:984
 #, python-format
 msgid "Aggregate %(aggregate_id)s already has host %(host)s."
-msgstr "Agregát %(aggregate_id)s již má hostitele %(host)s."
+msgstr ""
 
 #: cinder/exception.py:988
-#, fuzzy, python-format
+#, python-format
 msgid "Detected more than one volume with name %(vol_name)s"
-msgstr "Zjištěn více než jeden svazek s názvem %(vol_name)"
+msgstr ""
 
 #: cinder/exception.py:992
 #, python-format
 msgid "Cannot create volume_type with name %(name)s and specs %(extra_specs)s"
 msgstr ""
-"Nelze vytvořit typ_svazku s názvem %(name)s a specifikacemi "
-"%(extra_specs)s"
 
 #: cinder/exception.py:997
 msgid "Unable to create instance type"
-msgstr "Nelze vytvořit typ instance"
+msgstr ""
 
 #: cinder/exception.py:1001
 msgid "Bad response from SolidFire API"
-msgstr "Špatná odpověď od SolidFire API"
+msgstr ""
 
 #: cinder/exception.py:1005
 #, python-format
 msgid "Error in SolidFire API response: status=%(status)s"
-msgstr "Chyba v odpovědi SolidFire API: stav=%(status)s"
+msgstr ""
 
 #: cinder/exception.py:1009
 #, python-format
 msgid "Error in SolidFire API response: data=%(data)s"
-msgstr "Chyba v odpovědi SolidFire API: data=%(data)s"
+msgstr ""
 
 #: cinder/exception.py:1013
-#, fuzzy, python-format
+#, python-format
 msgid "Detected existing vlan with id %(vlan)d"
-msgstr "Zjišťěna existující vlan s id %(vlan)"
+msgstr ""
 
 #: cinder/exception.py:1017
 #, python-format
 msgid "Instance %(instance_id)s could not be found."
-msgstr "Instance %(instance_id)s nemohla být nastavena."
+msgstr ""
 
 #: cinder/exception.py:1021
 #, python-format
@@ -1103,43 +1063,41 @@ msgid "Invalid id: %(val)s (expecting \"i-...\")."
 msgstr ""
 
 #: cinder/exception.py:1025
-#, fuzzy, python-format
+#, python-format
 msgid "Could not fetch image %(image)s"
-msgstr "Kernel nenalezen v obrazu %(image_id)s."
+msgstr ""
 
 #: cinder/log.py:315
 #, python-format
 msgid "syslog facility must be one of: %s"
-msgstr "zařízení záznamu systému musí být jedno z: %s"
+msgstr ""
 
 #: cinder/manager.py:146
 #, python-format
 msgid "Skipping %(full_task_name)s, %(ticks_to_skip)s ticks left until next run"
 msgstr ""
-"Přeskakování %(full_task_name)s, zbývá %(ticks_to_skip)s tiků do dalšího "
-"spuštění"
 
 #: cinder/manager.py:152
 #, python-format
 msgid "Running periodic task %(full_task_name)s"
-msgstr "Spuštění pravidelné úlohy %(full_task_name)s"
+msgstr ""
 
 #: cinder/manager.py:159
 #, python-format
 msgid "Error during %(full_task_name)s: %(e)s"
-msgstr "Chyba při %(full_task_name)s: %(e)s"
+msgstr ""
 
 #: cinder/manager.py:203
 msgid "Notifying Schedulers of capabilities ..."
-msgstr "Oznamování schopností plácinderčům ..."
+msgstr ""
 
 #: cinder/policy.py:30
 msgid "JSON file representing policy"
-msgstr "Soubor JSON představující zásady"
+msgstr ""
 
 #: cinder/policy.py:33
 msgid "Rule checked when requested rule is not found"
-msgstr "Kontrolované pravidlo, když požadované není nalezeno"
+msgstr ""
 
 #: cinder/service.py:137
 msgid "SIGTERM received"
@@ -1148,129 +1106,129 @@ msgstr ""
 #: cinder/service.py:177
 #, python-format
 msgid "Starting %(topic)s node (version %(vcs_string)s)"
-msgstr "Začínající uzel %(topic)s (verze %(vcs_string)s)"
+msgstr ""
 
 #: cinder/service.py:195
 #, python-format
 msgid "Creating Consumer connection for Service %s"
-msgstr "Vytváření připojení zákazníka pro službu %s"
+msgstr ""
 
 #: cinder/service.py:282
 msgid "Service killed that has no database entry"
-msgstr "Ukončena služba bez záznamu v databázi"
+msgstr ""
 
 #: cinder/service.py:319
 msgid "The service database object disappeared, Recreating it."
-msgstr "Objekt databáze služby zmizel, je znovu vytvářen."
+msgstr ""
 
 #: cinder/service.py:334
 msgid "Recovered model server connection!"
-msgstr "Obnoveno připojení modelového serveru!"
+msgstr ""
 
 #: cinder/service.py:340
 msgid "model server went away"
-msgstr "modelový server je nedostupný"
+msgstr ""
 
 #: cinder/service.py:433
 msgid "Full set of FLAGS:"
-msgstr "Úplná sada PŘÍZNAKŮ:"
+msgstr ""
 
 #: cinder/service.py:440
 #, python-format
 msgid "%(flag)s : FLAG SET "
-msgstr "%(flag)s : SADA PŽÍZNAKŮ "
+msgstr ""
 
 #: cinder/utils.py:79
 #, python-format
 msgid "Inner Exception: %s"
-msgstr "Vnitřní výjimka: %s"
+msgstr ""
 
 #: cinder/utils.py:165
 #, python-format
 msgid "Fetching %s"
-msgstr "Získávání %s"
+msgstr ""
 
 #: cinder/utils.py:210
 #, python-format
 msgid "Got unknown keyword args to utils.execute: %r"
-msgstr "Získány neznámé argumenty klíčového slova pro utils.execute: %r"
+msgstr ""
 
 #: cinder/utils.py:220
 #, python-format
 msgid "Running cmd (subprocess): %s"
-msgstr "Spouštění příkazu (podproces): %s"
+msgstr ""
 
 #: cinder/utils.py:236 cinder/utils.py:315
 #, python-format
 msgid "Result was %s"
-msgstr "Výsledek byl %s"
+msgstr ""
 
 #: cinder/utils.py:249
 #, python-format
 msgid "%r failed. Retrying."
-msgstr "%r selhalo. Opakování."
+msgstr ""
 
 #: cinder/utils.py:291
 #, python-format
 msgid "Running cmd (SSH): %s"
-msgstr "Spouštění příkazu (SSH): %s"
+msgstr ""
 
 #: cinder/utils.py:293
 msgid "Environment not supported over SSH"
-msgstr "Prostředí není podporováno přes SSH"
+msgstr ""
 
 #: cinder/utils.py:297
 msgid "process_input not supported over SSH"
-msgstr "process_input není podporován přes SSH"
+msgstr ""
 
 #: cinder/utils.py:352
 #, python-format
 msgid "debug in callback: %s"
-msgstr "ladění ve zpětném volání: %s"
+msgstr ""
 
 #: cinder/utils.py:534
 #, python-format
 msgid "Link Local address is not found.:%s"
-msgstr "Adresa místního spojení nenalezena.: %s"
+msgstr ""
 
 #: cinder/utils.py:537
 #, python-format
 msgid "Couldn't get Link Local IP of %(interface)s :%(ex)s"
-msgstr "Nelze získat IP místního spojení %(interface)s :%(ex)s"
+msgstr ""
 
 #: cinder/utils.py:648
 #, python-format
 msgid "Invalid backend: %s"
-msgstr "Neplatná podpůrná vrstva: %s"
+msgstr ""
 
 #: cinder/utils.py:659
 #, python-format
 msgid "backend %s"
-msgstr "podpůrná vrstva: %s"
+msgstr ""
 
 #: cinder/utils.py:709
 msgid "in looping call"
-msgstr "v opakujícím volání"
+msgstr ""
 
 #: cinder/utils.py:927
-#, fuzzy, python-format
+#, python-format
 msgid "Attempting to grab semaphore \"%(lock)s\" for method \"%(method)s\"..."
-msgstr "Pokus získat semafor \"%(lock)s\" pro zámek metody \"%(method)s\""
+msgstr ""
 
 #: cinder/utils.py:931
-#, fuzzy, python-format
+#, python-format
 msgid "Got semaphore \"%(lock)s\" for method \"%(method)s\"..."
-msgstr "Získán semafor \"%(lock)s\" pro zámek metody \"%(method)s\""
+msgstr ""
 
 #: cinder/utils.py:935
-#, fuzzy, python-format
+#, python-format
 msgid "Attempting to grab file lock \"%(lock)s\" for method \"%(method)s\"..."
-msgstr "Pokus o získání zámku souboru \"%(lock)s\" pro zámek metody \"%(method)s\""
+msgstr ""
 
 #: cinder/utils.py:942
-#, fuzzy, python-format
+#, python-format
 msgid "Got file lock \"%(lock)s\" for method \"%(method)s\"..."
-msgstr "Získán zámek souboru \"%(lock)s\" pro zámek metody \"%(method)s\""
+msgstr ""
 
 #: cinder/utils.py:1001
 #, python-format
@@ -1295,41 +1253,41 @@ msgstr ""
 #: cinder/utils.py:1138
 #, python-format
 msgid "Expected object of type: %s"
-msgstr "Očekáván objekt typu: %s"
+msgstr ""
 
 #: cinder/utils.py:1169
 #, python-format
 msgid "Invalid server_string: %s"
-msgstr "Neplatný  server_string: %s"
+msgstr ""
 
 #: cinder/utils.py:1298
 #, python-format
 msgid "timefunc: '%(name)s' took %(total_time).2f secs"
-msgstr "timefunc: '%(name)s' trvalo %(total_time).2f sek"
+msgstr ""
 
 #: cinder/utils.py:1330
 msgid "Original exception being dropped"
-msgstr "Původní výjimka je zahozena"
+msgstr ""
 
 #: cinder/utils.py:1461
 #, python-format
 msgid "Class %(fullname)s is deprecated: %(msg)s"
-msgstr "Třída %(fullname)s je zastaralá: %(msg)s"
+msgstr ""
 
 #: cinder/utils.py:1463
 #, python-format
 msgid "Class %(fullname)s is deprecated"
-msgstr "Třída %(fullname)s je zastaralá"
+msgstr ""
 
 #: cinder/utils.py:1495
 #, python-format
 msgid "Function %(name)s in %(location)s is deprecated: %(msg)s"
-msgstr "Funkce %(name)s v %(location)s je zastaralá: %(msg)s"
+msgstr ""
 
 #: cinder/utils.py:1497
 #, python-format
 msgid "Function %(name)s in %(location)s is deprecated"
-msgstr "Funkce %(name)s v %(location)s je zastaralá"
+msgstr ""
 
 #: cinder/utils.py:1681
 #, python-format
@@ -1339,37 +1297,37 @@ msgstr ""
 #: cinder/wsgi.py:97
 #, python-format
 msgid "Started %(name)s on %(host)s:%(port)s"
-msgstr "%(name)s spuštěno v %(host)s:%(port)s"
+msgstr ""
 
 #: cinder/wsgi.py:108
 msgid "Stopping WSGI server."
-msgstr "Zastavování serveru WSGI."
+msgstr ""
 
 #: cinder/wsgi.py:111
 msgid "Stopping raw TCP server."
-msgstr "Zastavování prostého serveru TCP."
+msgstr ""
 
 #: cinder/wsgi.py:117
 #, python-format
 msgid "Starting TCP server %(arg0)s on %(host)s:%(port)s"
-msgstr "Spiuštění serveru TCP %(arg0)s na %(host)s:%(port)s"
+msgstr ""
 
 #: cinder/wsgi.py:133
 msgid "WSGI server has stopped."
-msgstr "Server WSGI byl zastaven."
+msgstr ""
 
 #: cinder/wsgi.py:211
 msgid "You must implement __call__"
-msgstr "Musíte zavést __call__"
+msgstr ""
 
 #: cinder/api/direct.py:218
 msgid "not available"
-msgstr "nedostupné"
+msgstr ""
 
 #: cinder/api/direct.py:299
 #, python-format
 msgid "Returned non-serializeable type: %s"
-msgstr "Navrácen neserializovatelný typ: %s"
+msgstr ""
 
 #: cinder/api/sizelimit.py:51
 msgid "Request is too large."
@@ -1383,16 +1341,16 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:73
 #, python-format
 msgid "%(code)s: %(message)s"
-msgstr "%(code)s: %(message)s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:95
 #, python-format
 msgid "FaultWrapper: %s"
-msgstr "Obalovačchyb: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:170
 msgid "Too many failed authentications."
-msgstr "Příliš mnoho ověření selhalo."
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:180
 #, python-format
@@ -1400,100 +1358,98 @@ msgid ""
 "Access key %(access_key)s has had %(failures)d failed authentications and"
 " will be locked out for %(lock_mins)d minutes."
 msgstr ""
-"Přístupový klíč %(access_key)s %(failures)d krát selhal při ověření a "
-"bude zablokován na %(lock_mins)d minut."
 
 #: cinder/api/ec2/__init__.py:267
 msgid "Signature not provided"
-msgstr "Podpis není zadán"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:271
 msgid "Access key not provided"
-msgstr "Přístupový klíč není zadán"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:306 cinder/api/ec2/__init__.py:319
 msgid "Failure communicating with keystone"
-msgstr "Chyba při komunikaci s keystone"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:388
 #, python-format
 msgid "Authentication Failure: %s"
-msgstr "Selhání ověření: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:404
 #, python-format
 msgid "Authenticated Request For %(uname)s:%(pname)s)"
-msgstr "Požadavek na ověření pro %(uname)s:%(pname)s)"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:435
 #, python-format
 msgid "action: %s"
-msgstr "činnost: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:437
 #, python-format
 msgid "arg: %(key)s\t\tval: %(value)s"
-msgstr "arg: %(key)s\t\thod: %(value)s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:512
 #, python-format
 msgid "Unauthorized request for controller=%(controller)s and action=%(action)s"
-msgstr "Neoprávnění požadavek pro ovladač=%(controller)s a činnost=%(action)s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:584
 #, python-format
 msgid "InstanceNotFound raised: %s"
-msgstr "Vyvoláno InstanceNenalezena: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:590
 #, python-format
 msgid "VolumeNotFound raised: %s"
-msgstr "Vyvoláno SvazekNenalezen: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:596
 #, python-format
 msgid "SnapshotNotFound raised: %s"
-msgstr "Vyvoláno SnímekNenalzen: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:602
 #, python-format
 msgid "NotFound raised: %s"
-msgstr "Vyvoláno Nenalezeno: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:605
 #, python-format
 msgid "EC2APIError raised: %s"
-msgstr "Vyvoláno ChybaApiEC2: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:613
 #, python-format
 msgid "KeyPairExists raised: %s"
-msgstr "Vyvoláno DvojiceKlíčůExistuje: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:617
 #, python-format
 msgid "InvalidParameterValue raised: %s"
-msgstr "Vyvoláno NeplatnáHodnotaParametru: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:621
 #, python-format
 msgid "InvalidPortRange raised: %s"
-msgstr "Vyvoláno NeplatnýROzsahPortů: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:625
 #, python-format
 msgid "NotAuthorized raised: %s"
-msgstr "Vyvoláno NeníOprávněno: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:629
 #, python-format
 msgid "InvalidRequest raised: %s"
-msgstr "Vyvoláno NeplatnáOperace: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:633
-#, fuzzy, python-format
+#, python-format
 msgid "QuotaError raised: %s"
-msgstr "Vyvolána neznámá chyba: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:637
 #, python-format
@@ -1503,64 +1459,57 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:646
 #, python-format
 msgid "Unexpected error raised: %s"
-msgstr "Vyvolána neznámá chyba: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:647
 #, python-format
 msgid "Environment: %s"
-msgstr "Prostředí: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:649 cinder/api/metadata/handler.py:248
 msgid "An unknown error has occurred. Please try your request again."
-msgstr "Vyskytla se neznámá chyba. Prosím zopakujte Váš požadavek."
+msgstr ""
 
 #: cinder/api/ec2/apirequest.py:64
 #, python-format
 msgid "Unsupported API request: controller = %(controller)s, action = %(action)s"
 msgstr ""
-"Nepodporovaný požadavek API: ovladač = %(controller)s, činnost = "
-"%(action)s"
 
 #: cinder/api/ec2/cloud.py:336
 #, python-format
 msgid "Create snapshot of volume %s"
-msgstr "Vytvořit snímek svazku %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:372
-#, fuzzy, python-format
+#, python-format
 msgid ""
 "Value (%s) for KeyName is invalid. Content limited to Alphanumeric "
 "character, spaces, dashes, and underscore."
 msgstr ""
-"Hodnota (%s) parametru GroupName je neplatná. Obsah je omezen na "
-"alfanumerické znaky, mezery, pomlčky a podtržítka."
 
 #: cinder/api/ec2/cloud.py:378
-#, fuzzy, python-format
+#, python-format
 msgid "Value (%s) for Keyname is invalid. Length exceeds maximum of 255."
 msgstr ""
-"Hodnota (%s) parametru GroupName je neplatná. Délka překračuje maximum "
-"255 znaků."
 
 #: cinder/api/ec2/cloud.py:382
 #, python-format
 msgid "Create key pair %s"
-msgstr "Vytvořit dvojici klíčů %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:391
 #, python-format
 msgid "Import key %s"
-msgstr "Imprtovat klíč %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:409
 #, python-format
 msgid "Delete key pair %s"
-msgstr "Smazat dvojici klíčů %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:551
-#, fuzzy, python-format
 msgid "Invalid CIDR"
-msgstr "Neplatný cidr %(cidr)s."
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:639 cinder/api/ec2/cloud.py:693
 #: cinder/api/ec2/cloud.py:800
@@ -1580,7 +1529,7 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:684 cinder/api/ec2/cloud.py:744
 msgid "No rule for the specified parameters."
-msgstr "Pro zadané parametry není žádné pravidlo."
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:708
 #: cinder/api/openstack/compute/contrib/security_groups.py:354
@@ -1599,8 +1548,6 @@ msgid ""
 "Value (%s) for parameter GroupName is invalid. Content limited to "
 "Alphanumeric characters, spaces, dashes, and underscores."
 msgstr ""
-"Hodnota (%s) parametru GroupName je neplatná. Obsah je omezen na "
-"alfanumerické znaky, mezery, pomlčky a podtržítka."
 
 #: cinder/api/ec2/cloud.py:776
 #, python-format
@@ -1608,41 +1555,39 @@ msgid ""
 "Value (%s) for parameter GroupName is invalid. Length exceeds maximum of "
 "255."
 msgstr ""
-"Hodnota (%s) parametru GroupName je neplatná. Délka překračuje maximum "
-"255 znaků."
 
 #: cinder/api/ec2/cloud.py:780
 #: cinder/api/openstack/compute/contrib/security_groups.py:292
 #, python-format
 msgid "Create Security Group %s"
-msgstr "Vytvořit bezpečnostní skupinu %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:783
 #, python-format
 msgid "group %s already exists"
-msgstr "skupina %s již existuje"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:815
 #: cinder/api/openstack/compute/contrib/security_groups.py:245
 #, python-format
 msgid "Delete security group %s"
-msgstr "Smazat bezpečnostní skupinu %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:823 cinder/compute/manager.py:1630
 #, python-format
 msgid "Get console output for instance %s"
-msgstr "Získat výstup konzole pro instanci %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:894
 #, python-format
 msgid "Create volume from snapshot %s"
-msgstr "Vytvořit svazek ze snímku %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:898 cinder/api/openstack/compute/contrib/volumes.py:186
 #: cinder/api/openstack/volume/volumes.py:222
 #, python-format
 msgid "Create volume of %s GB"
-msgstr "Vytvořit svazek o %s GB"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:921
 msgid "Delete Failed"
@@ -1651,7 +1596,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:931
 #, python-format
 msgid "Attach volume %(volume_id)s to instance %(instance_id)s at %(device)s"
-msgstr "Připojit svazek %(volume_id)s k instanci %(instance_id)s na %(device)s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:939
 msgid "Attach Failed."
@@ -1660,68 +1605,67 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:952 cinder/api/openstack/compute/contrib/volumes.py:366
 #, python-format
 msgid "Detach volume %s"
-msgstr "Odpojit svazek %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:959
-#, fuzzy, python-format
 msgid "Detach Volume Failed."
-msgstr "Odpojit svazek %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:984 cinder/api/ec2/cloud.py:1041
 #: cinder/api/ec2/cloud.py:1518 cinder/api/ec2/cloud.py:1533
 #, python-format
 msgid "attribute not supported: %s"
-msgstr "vlastnost není podporována: %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1107
 #, python-format
 msgid "vol = %s\n"
-msgstr "svz = %s\n"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1255
 msgid "Allocate address"
-msgstr "Přidělit adresu"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1267
 #, python-format
 msgid "Release address %s"
-msgstr "Uvolnit adresu %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1272
 #, python-format
 msgid "Associate address %(public_ip)s to instance %(instance_id)s"
-msgstr "Přidělit adresu %(public_ip)s k instanci %(instance_id)s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1282
 #, python-format
 msgid "Disassociate address %s"
-msgstr "Oddělit adresu %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1308
 msgid "Image must be available"
-msgstr "Obraz musí být dostupný"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1329
 msgid "Going to start terminating instances"
-msgstr "BUde spuštěno ukončování insatncí"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1343
 #, python-format
 msgid "Reboot instance %r"
-msgstr "Restratovat instanci %r"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1354
 msgid "Going to stop instances"
-msgstr "Instance budou zastaveny"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1365
 msgid "Going to start instances"
-msgstr "Instance budou spuštěny"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1455
 #, python-format
 msgid "De-registering image %s"
-msgstr "Zrušení registrace obrazu %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1471
 msgid "imageLocation is required"
@@ -1730,24 +1674,24 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1490
 #, python-format
 msgid "Registered image %(image_location)s with id %(image_id)s"
-msgstr "Obraz %(image_location)s registrován s id %(image_id)s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1536
 msgid "user or group not specified"
-msgstr "uživatel nebo skupina nebyly zadány"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1538
 msgid "only group \"all\" is supported"
-msgstr "podporována je pouze skupina \"all\""
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1540
 msgid "operation_type must be add or remove"
-msgstr "operation_type musí být add nebo remove"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1542
 #, python-format
 msgid "Updating image %s publicity"
-msgstr "Aktualizace publicity obrazu %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1555
 #, python-format
@@ -1757,106 +1701,106 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1603
 #, python-format
 msgid "Couldn't stop instance with in %d sec"
-msgstr "Nelze zastavit instanci za %d sek"
+msgstr ""
 
 #: cinder/api/metadata/handler.py:246 cinder/api/metadata/handler.py:253
 #, python-format
 msgid "Failed to get metadata for ip: %s"
-msgstr "Nelze získat metadata pro ip: %s"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:43
 #, python-format
 msgid "Caught error: %s"
-msgstr "Zachycena chyba: %s"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:45 cinder/api/openstack/wsgi.py:886
 #, python-format
 msgid "%(url)s returned with HTTP %(status)d"
-msgstr "%(url)s vrácena s HTTP %(status)d"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:94
 msgid "Must specify an ExtensionManager class"
-msgstr "Musí být určena třída ExtensionManager"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:105
 #, python-format
 msgid "Extended resource: %s"
-msgstr "Rozšířený zdroj: %s"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:130
 #, python-format
 msgid ""
 "Extension %(ext_name)s: Cannot extend resource %(collection)s: No such "
 "resource"
-msgstr "Rozšíření %(ext_name)s: nelze rozšířit %(collection)s: Žádný takový zdroj"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:135
 #, python-format
 msgid "Extension %(ext_name)s extending resource: %(collection)s"
-msgstr "Rozšíření %(ext_name)s: rozšiřování zdroje %(collection)s"
+msgstr ""
 
 #: cinder/api/openstack/auth.py:90
 #, python-format
 msgid "%(user_id)s could not be found with token '%(token)s'"
-msgstr "%(user_id)s nelze nalézt se známkou '%(token)s'"
+msgstr ""
 
 #: cinder/api/openstack/auth.py:134
 #, python-format
 msgid "%(user_id)s must be an admin or a member of %(project_id)s"
-msgstr "%(user_id)s musí být správcem nebo členem %(project_id)s"
+msgstr ""
 
 #: cinder/api/openstack/auth.py:152
 msgid "Authentication requests must be made against a version root (e.g. /v2)."
-msgstr "Požadavky o ověření musí být prováděny proti verzi kořenu (např. /v2)."
+msgstr ""
 
 #: cinder/api/openstack/auth.py:167
 #, python-format
 msgid "Could not find %s in request."
-msgstr "Nelze najít %s v požadavku."
+msgstr ""
 
 #: cinder/api/openstack/auth.py:191
 #, python-format
 msgid "Successfully authenticated '%s'"
-msgstr "'%s' úspěšně ověřeno"
+msgstr ""
 
 #: cinder/api/openstack/auth.py:241
 msgid "User not found with provided API key."
-msgstr "Uživatel nenalezen pomocí zadaného klíče API."
+msgstr ""
 
 #: cinder/api/openstack/auth.py:258
 #, python-format
 msgid "Provided API key is valid, but not for user '%(username)s'"
-msgstr "Zadaný klíč API je platný, ale ne pro uživatele '%(username)s'"
+msgstr ""
 
 #: cinder/api/openstack/common.py:133 cinder/api/openstack/common.py:167
 msgid "limit param must be an integer"
-msgstr "parametr limit musí být celé číslo"
+msgstr ""
 
 #: cinder/api/openstack/common.py:136 cinder/api/openstack/common.py:171
 msgid "limit param must be positive"
-msgstr "parametr limit musí být kladný"
+msgstr ""
 
 #: cinder/api/openstack/common.py:161
 msgid "offset param must be an integer"
-msgstr "parametr offset musí být celé číslo"
+msgstr ""
 
 #: cinder/api/openstack/common.py:175
 msgid "offset param must be positive"
-msgstr "parametr offset musí být kladný"
+msgstr ""
 
 #: cinder/api/openstack/common.py:203
 #, python-format
 msgid "marker [%s] not found"
-msgstr "značka [%s] nenalezena"
+msgstr ""
 
 #: cinder/api/openstack/common.py:243
 #, python-format
 msgid "href %s does not contain version"
-msgstr "href %s neobsahuje verzi"
+msgstr ""
 
 #: cinder/api/openstack/common.py:278
 msgid "Image metadata limit exceeded"
-msgstr "Metadata obrazu překračují limit"
+msgstr ""
 
 #: cinder/api/openstack/common.py:295
 #, python-format
@@ -1871,125 +1815,125 @@ msgstr ""
 #: cinder/api/openstack/common.py:338
 #, python-format
 msgid "Cannot '%(action)s' while instance is in %(attr)s %(state)s"
-msgstr "Nelze '%(action)s' zatímco instance je %(attr)s %(state)s"
+msgstr ""
 
 #: cinder/api/openstack/common.py:341
 #, python-format
 msgid "Instance is in an invalid state for '%(action)s'"
-msgstr "Instance je v neplatném stavu pro '%(action)s'"
+msgstr ""
 
 #: cinder/api/openstack/common.py:421
 msgid "Rejecting snapshot request, snapshots currently disabled"
-msgstr "Odmítnutí žádosti o snímek, snímky jsou nyní zakázány"
+msgstr ""
 
 #: cinder/api/openstack/common.py:423
 msgid "Instance snapshots are not permitted at this time."
-msgstr "Snímky instance nejsou v současnosti povoleny."
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:188
 #, python-format
 msgid "Loaded extension: %s"
-msgstr "Načteno rozšíření: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:225
 #, python-format
 msgid "Ext name: %s"
-msgstr "Název roz: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:226
 #, python-format
 msgid "Ext alias: %s"
-msgstr "Přezdívká roz: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:227
 #, python-format
 msgid "Ext description: %s"
-msgstr "Popis roz: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:229
 #, python-format
 msgid "Ext namespace: %s"
-msgstr "Jmenný prostor roz: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:230
 #, python-format
 msgid "Ext updated: %s"
-msgstr "Roz aktualizováno: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:232
 #, python-format
 msgid "Exception loading extension: %s"
-msgstr "Výjimka při načítání rozšíření: %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:246
 #, python-format
 msgid "Loading extension %s"
-msgstr "Načítání rozšíření %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:252
 #, python-format
 msgid "Calling extension factory %s"
-msgstr "Volání továrny rozšíření %s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:264
 #, python-format
 msgid "Failed to load extension %(ext_factory)s: %(exc)s"
-msgstr "Nelze načít rozšížení %(ext_factory)s: %(exc)s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:344
 #, python-format
 msgid "Failed to load extension %(classpath)s: %(exc)s"
-msgstr "Nelze načíst rozšíření %(classpath)s: %(exc)s"
+msgstr ""
 
 #: cinder/api/openstack/extensions.py:368
 #, python-format
 msgid "Failed to load extension %(ext_name)s: %(exc)s"
-msgstr "Nelze načíst rozšíření %(ext_name)s: %(exc)s"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:135 cinder/api/openstack/wsgi.py:538
 msgid "cannot understand JSON"
-msgstr "JSON nelze porozumět"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:159
 #: cinder/api/openstack/compute/contrib/hosts.py:86
 msgid "cannot understand XML"
-msgstr "XML nelze porozumět"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:543
 msgid "too many body keys"
-msgstr "příliš mnoho klíčů těla"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:582
-#, fuzzy, python-format
+#, python-format
 msgid "Exception handling resource: %s"
-msgstr "Rozšířený zdroj: %s"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:586
 #, python-format
 msgid "Fault thrown: %s"
-msgstr "Vyvolána chyba: %s"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:589
 #, python-format
 msgid "HTTP exception thrown: %s"
-msgstr "Vyvolána výjimka HTTP: %s"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:697
 msgid "Unrecognized Content-Type provided in request"
-msgstr "V požadavku zadán nerozpoznaný Content-Type"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:701
 msgid "No Content-Type provided in request"
-msgstr "V požadavku nezadán Content-Type"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:705
 msgid "Empty body provided in request"
-msgstr "V požadavku zadáno prázdné tělo"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:816
 #, python-format
 msgid "There is no such action: %s"
-msgstr "Žádná taková činnost: %s"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:819 cinder/api/openstack/wsgi.py:832
 #: cinder/api/openstack/compute/server_metadata.py:58
@@ -1999,80 +1943,78 @@ msgstr "Žádná taková činnost: %s"
 #: cinder/api/openstack/compute/contrib/admin_actions.py:211
 #: cinder/api/openstack/compute/contrib/console_output.py:52
 msgid "Malformed request body"
-msgstr "Poškozené tělo požadavku"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:829
 msgid "Unsupported Content-Type"
-msgstr "Nepodporovaný Content-Type"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:841
 msgid "Malformed request url"
-msgstr "Poškozená url požadavku"
+msgstr ""
 
 #: cinder/api/openstack/wsgi.py:889
 #, python-format
 msgid "%(url)s returned a fault: %(e)s"
-msgstr "%(url)s vrátilo chybu: %(e)s"
+msgstr ""
 
 #: cinder/api/openstack/xmlutil.py:265
 msgid "element is not a child"
-msgstr "prvek není podřazený"
+msgstr ""
 
 #: cinder/api/openstack/xmlutil.py:414
 msgid "root element selecting a list"
-msgstr "kořenový prvek volí seznam"
+msgstr ""
 
 #: cinder/api/openstack/xmlutil.py:739
 #, python-format
 msgid "Template tree mismatch; adding slave %(slavetag)s to master %(mastertag)s"
 msgstr ""
-"Neshoda stromu šablony; přidávání sluhy %(slavetag)s k pánovi "
-"%(mastertag)s"
 
 #: cinder/api/openstack/xmlutil.py:858
 msgid "subclasses must implement construct()!"
-msgstr "podtřídy musí zavádět construct()!"
+msgstr ""
 
 #: cinder/api/openstack/compute/extensions.py:29
 #: cinder/api/openstack/volume/extensions.py:29
 msgid "Initializing extension manager."
-msgstr "Zavádění správce rozšíření."
+msgstr ""
 
 #: cinder/api/openstack/compute/image_metadata.py:40
 #: cinder/api/openstack/compute/images.py:146
 #: cinder/api/openstack/compute/images.py:161
 msgid "Image not found."
-msgstr "Obraz nenalezen"
+msgstr ""
 
 #: cinder/api/openstack/compute/image_metadata.py:79
 msgid "Incorrect request body format"
-msgstr "Nsprávný formát těla požadavku"
+msgstr ""
 
 #: cinder/api/openstack/compute/image_metadata.py:83
 #: cinder/api/openstack/compute/server_metadata.py:80
 #: cinder/api/openstack/compute/contrib/flavorextraspecs.py:79
 #: cinder/api/openstack/compute/contrib/volumetypes.py:188
 msgid "Request body and URI mismatch"
-msgstr "Neshoda s tělem požadavku a URI"
+msgstr ""
 
 #: cinder/api/openstack/compute/image_metadata.py:86
 #: cinder/api/openstack/compute/server_metadata.py:84
 #: cinder/api/openstack/compute/contrib/flavorextraspecs.py:82
 #: cinder/api/openstack/compute/contrib/volumetypes.py:191
 msgid "Request body contains too many items"
-msgstr "Tělo požadavku obsahuje příliš mnoho položek"
+msgstr ""
 
 #: cinder/api/openstack/compute/image_metadata.py:111
 msgid "Invalid metadata key"
-msgstr "Neplatný klíč metadata"
+msgstr ""
 
 #: cinder/api/openstack/compute/ips.py:74
 msgid "Instance does not exist"
-msgstr "Instance neexistuje"
+msgstr ""
 
 #: cinder/api/openstack/compute/ips.py:97
 msgid "Instance is not a member of specified network"
-msgstr "Instance není členem zadané sítě"
+msgstr ""
 
 #: cinder/api/openstack/compute/limits.py:140
 #, python-format
@@ -2080,52 +2022,50 @@ msgid ""
 "Only %(value)s %(verb)s request(s) can be made to %(uri)s every "
 "%(unit_string)s."
 msgstr ""
-"Pouze %(value)s požadavky %(verb)s mohou být provedeny pro %(uri)s "
-"každých %(unit_string)s."
 
 #: cinder/api/openstack/compute/limits.py:266
 msgid "This request was rate-limited."
-msgstr "Tento požadavek má omezen množství."
+msgstr ""
 
 #: cinder/api/openstack/compute/server_metadata.py:38
 #: cinder/api/openstack/compute/server_metadata.py:122
 #: cinder/api/openstack/compute/server_metadata.py:159
 msgid "Server does not exist"
-msgstr "Server neexistuje"
+msgstr ""
 
 #: cinder/api/openstack/compute/server_metadata.py:141
 #: cinder/api/openstack/compute/server_metadata.py:152
 msgid "Metadata item was not found"
-msgstr "Položka metadat nenalezena"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:425
 #, python-format
 msgid "Invalid server status: %(status)s"
-msgstr "Neplatný stav serveru: %(status)s"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:433
 msgid "Invalid changes-since value"
-msgstr "Neplatná hodnota changes-since"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:483
 msgid "Personality file limit exceeded"
-msgstr "Překročen limit osobnostního souboru"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:485
 msgid "Personality file path too long"
-msgstr "Cesta osobnostního souboru je příliš dlouhá"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:487
 msgid "Personality file content too long"
-msgstr "Obsah osobnostního souboru je příliš dlouhý"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:501
 msgid "Server name is not a string or unicode"
-msgstr "Název serveru není řetězec nebo unicode"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:505
 msgid "Server name is an empty string"
-msgstr "Název serveru je prázdný řetězec"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:509
 msgid "Server name must be less than 256 characters."
@@ -2134,205 +2074,204 @@ msgstr ""
 #: cinder/api/openstack/compute/servers.py:527
 #, python-format
 msgid "Bad personality format: missing %s"
-msgstr "Špatný formát osobnosti: chybí %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:530
 msgid "Bad personality format"
-msgstr "Špatný formát osobnosti"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:535
 #, python-format
 msgid "Personality content for %s cannot be decoded"
-msgstr "Obsah osobnosti pro %s nemůže být dekódován"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:550
 #, python-format
 msgid "Bad networks format: network uuid is not in proper format (%s)"
-msgstr "Špatný formát sítí: uuid sítě není ve správném formátu (%s)"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:559
 #, python-format
 msgid "Invalid fixed IP address (%s)"
-msgstr "Neplatná pevná IP adresa (%s)"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:566
 #, python-format
 msgid "Duplicate networks (%s) are not allowed"
-msgstr "Duplicitní sítě (%s) nejosu povoleny"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:572
 #, python-format
 msgid "Bad network format: missing %s"
-msgstr "Špatný formát sítě: chybí %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:575
 msgid "Bad networks format"
-msgstr "Špatný formát sítě"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:587
 msgid "Userdata content cannot be decoded"
-msgstr "Obsah uživatelských dat nemůže být dekódován"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:594
 msgid "accessIPv4 is not proper IPv4 format"
-msgstr "accessIPv4 není ve správném formátu IPv4"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:601
-#, fuzzy
 msgid "accessIPv6 is not proper IPv6 format"
-msgstr "accessIPv4 není ve správném formátu IPv4"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:633
 msgid "Server name is not defined"
-msgstr "Název serveru není určen"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:675
 #: cinder/api/openstack/compute/servers.py:740
 msgid "Invalid flavorRef provided."
-msgstr "Zadáno neplatné flavorRef."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:737
 msgid "Can not find requested image"
-msgstr "Nelze najít požadovaný obraz"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:743
 msgid "Invalid key_name provided."
-msgstr "Zadán neplatný název_klíče."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:829
 #: cinder/api/openstack/compute/servers.py:849
 msgid "Instance has not been resized."
-msgstr "Instanci nebyla změněna velikost."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:835
 #, python-format
 msgid "Error in confirm-resize %s"
-msgstr "Chyba v confirm-resize %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:855
 #, python-format
 msgid "Error in revert-resize %s"
-msgstr "Chyba v revert-resize %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:868
 msgid "Argument 'type' for reboot is not HARD or SOFT"
-msgstr "Argument 'type' pro restart není HARD či SOFT"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:872
 msgid "Missing argument 'type' for reboot"
-msgstr "Chybí argument 'type' pro restart"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:885
 #, python-format
 msgid "Error in reboot %s"
-msgstr "Chyba v restartu %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:897
 msgid "Unable to locate requested flavor."
-msgstr "Nelze najít požadovanou konfiguraci."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:900
 msgid "Resize requires a change in size."
-msgstr "Resize vyžaduje změnu velikosti."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:924
 msgid "Malformed server entity"
-msgstr "Poškozený objekt serveru"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:931
 msgid "Missing imageRef attribute"
-msgstr "Chybí vlastnost imageRef"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:940
 msgid "Invalid imageRef provided."
-msgstr "Zadáno neplatné imageRef."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:949
 msgid "Missing flavorRef attribute"
-msgstr "Chybí vlastnost flavorRef"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:962
 msgid "No adminPass was specified"
-msgstr "Nebylo zadáno adminPass"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:966
 #: cinder/api/openstack/compute/servers.py:1144
 msgid "Invalid adminPass"
-msgstr "Neplatné adminPass"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:980
 msgid "Unable to parse metadata key/value pairs."
-msgstr "Nelze zpracovat metadata dvojic hodnot/klíčů."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:993
 msgid "Resize request has invalid 'flavorRef' attribute."
-msgstr "Požadavek na změnu velikosti má neplatnou vlastnost 'flavorRef'."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:996
 msgid "Resize requests require 'flavorRef' attribute."
-msgstr "Požadavek na změnu velikosti vyžaduje vlastnost 'flavorRef'."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1014
 #: cinder/api/openstack/compute/contrib/aggregates.py:142
 #: cinder/api/openstack/compute/contrib/networks.py:65
 msgid "Invalid request body"
-msgstr "Neplatné tělo požadavku"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1019
 msgid "Could not parse imageRef from request."
-msgstr "Nelze zpracovat imageRef z požadavku."
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1071
 msgid "Instance could not be found"
-msgstr "Instance nemohla být nalezena"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1074
 msgid "Cannot find image for rebuild"
-msgstr "Nelze najít obraz ke znovu sestavení"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1103
 msgid "createImage entity requires name attribute"
-msgstr "Objekt createImage cyžaduje vlastnost name"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1112
 #: cinder/api/openstack/compute/contrib/admin_actions.py:238
 msgid "Invalid metadata"
-msgstr "Neplatná metadata"
+msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1167
 #, python-format
 msgid "Removing options '%(unk_opt_str)s' from query"
-msgstr "Odstraňování voleb '%(unk_opt_str)s' z fronty"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:60
 #, python-format
 msgid "Compute.api::pause %s"
-msgstr "Compute.api::pauza %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:77
 #, python-format
 msgid "Compute.api::unpause %s"
-msgstr "Compute.api::zruš pauzu %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:94
 #, python-format
 msgid "compute.api::suspend %s"
-msgstr "compute.api::přerušení %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:111
 #, python-format
 msgid "compute.api::resume %s"
-msgstr "compute.api::pokračování %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:127
 #, python-format
 msgid "Error in migrate %s"
-msgstr "Chyba v přesunu %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:141
 #, python-format
 msgid "Compute.api::reset_network %s"
-msgstr "Compute.api::reset_sítě %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:154
 #: cinder/api/openstack/compute/contrib/admin_actions.py:170
@@ -2340,35 +2279,35 @@ msgstr "Compute.api::reset_sítě %s"
 #: cinder/api/openstack/compute/contrib/multinic.py:41
 #: cinder/api/openstack/compute/contrib/rescue.py:44
 msgid "Server not found"
-msgstr "Server nenalezen"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:157
 #, python-format
 msgid "Compute.api::inject_network_info %s"
-msgstr "Compute.api::vložit_info_sítě %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:173
 #, python-format
 msgid "Compute.api::lock %s"
-msgstr "Compute.api::uzamčení %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:189
 #, python-format
 msgid "Compute.api::unlock %s"
-msgstr "Compute.api::odemčení %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:219
 #, python-format
 msgid "createBackup entity requires %s attribute"
-msgstr "Objekt createBackup vyžaduej vlastnost %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:223
 msgid "Malformed createBackup entity"
-msgstr "Poškozený objekt createBackup"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:229
 msgid "createBackup attribute 'rotation' must be an integer"
-msgstr "Vlastnost createBackup 'rotation' musí být celé číslo"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:244
 #: cinder/api/openstack/compute/contrib/console_output.py:47
@@ -2379,25 +2318,23 @@ msgstr "Vlastnost createBackup 'rotation' musí být celé číslo"
 #: cinder/api/openstack/compute/contrib/server_diagnostics.py:47
 #: cinder/api/openstack/compute/contrib/server_start_stop.py:38
 msgid "Instance not found"
-msgstr "Instance nenalezena"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:272
 msgid "host and block_migration must be specified."
-msgstr "host a block_migration musí být zadány."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:284
 #, python-format
 msgid "Live migration of instance %(id)s to host %(host)s failed"
-msgstr "Migrace za chodu instance %(id)s na hostitele %(host)s selhala"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:76
-#, fuzzy, python-format
+#, python-format
 msgid ""
 "Cannot create aggregate with name %(name)s and availability zone "
 "%(avail_zone)s"
 msgstr ""
-"Nelze vytvořit typ_svazku s názvem %(name)s a specifikacemi "
-"%(extra_specs)s"
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:88
 #, python-format
@@ -2417,7 +2354,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/aggregates.py:139
 #, python-format
 msgid "Aggregates does not have %s action"
-msgstr "Agregáty nemají činnost %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:152
 #: cinder/api/openstack/compute/contrib/aggregates.py:158
@@ -2438,102 +2375,99 @@ msgstr ""
 
 #: cinder/api/openstack/compute/contrib/certificates.py:75
 msgid "Only root certificate can be retrieved."
-msgstr "Může být získán pouze kořenový certifikát."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/cloudpipe.py:146
 msgid ""
 "Unable to claim IP for VPN instances, ensure it isn't running, and try "
 "again in a few minutes"
 msgstr ""
-"Nelze získat IP pro instance VPN, ujistěte se, že není spuštěna a zkuste "
-"to znovu za pár minut."
 
 #: cinder/api/openstack/compute/contrib/consoles.py:44
 msgid "Missing type specification"
-msgstr "Chybí určení typu"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/consoles.py:56
 msgid "Invalid type specification"
-msgstr "Neplatné určení typu"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/disk_config.py:44
 #, python-format
 msgid "%s must be either 'MANUAL' or 'AUTO'."
-msgstr "%s musí být buď 'MANUAL' nebo 'AUTO'."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/extended_server_attributes.py:77
 #: cinder/api/openstack/compute/contrib/extended_status.py:61
 msgid "Server not found."
-msgstr "Server nenalezen."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/flavorextradata.py:61
 #: cinder/api/openstack/compute/contrib/flavorextradata.py:91
-#, fuzzy
 msgid "Flavor not found."
-msgstr "Server nenalezen."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/flavorextraspecs.py:49
 #: cinder/api/openstack/compute/contrib/volumetypes.py:158
 msgid "No Request Body"
-msgstr "Žádné tělo požadavku"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:159
 #, python-format
 msgid "No more floating ips in pool %s."
-msgstr "Žádné další plovoucí ip v zásobníku %s."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:161
 msgid "No more floating ips available."
-msgstr "Žádné další plovoucí ip nejsou dostupné."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:201
 #: cinder/api/openstack/compute/contrib/floating_ips.py:230
 #: cinder/api/openstack/compute/contrib/security_groups.py:571
 #: cinder/api/openstack/compute/contrib/security_groups.py:604
 msgid "Missing parameter dict"
-msgstr "Chybí parametr dict"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:204
 #: cinder/api/openstack/compute/contrib/floating_ips.py:233
 msgid "Address not specified"
-msgstr "Adresa není určena"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:213
 msgid "No fixed ips associated to instance"
-msgstr "K instanci nejsou přidruženy žádné pevné ip"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:216
 msgid "Associate floating ip failed"
-msgstr "Přidružení plovoucí ip selhalo"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:144
 #, python-format
 msgid "Invalid status: '%s'"
-msgstr "Neplatný stav: '%s'"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:148
-#, fuzzy, python-format
+#, python-format
 msgid "Invalid mode: '%s'"
-msgstr "Neplatný stav: '%s'"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:152
 #, python-format
 msgid "Invalid update setting: '%s'"
-msgstr "Neplatné nastavení aktualizace: '%s'"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:170
-#, fuzzy, python-format
+#, python-format
 msgid "Putting host %(host)s in maintenance mode %(mode)s."
-msgstr "Nastavování hostitele %(host)s na %(state)s."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:181
 #, python-format
 msgid "Setting host %(host)s to %(state)s."
-msgstr "Nastavování hostitele %(host)s na %(state)s."
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:230
 msgid "Describe-resource is admin only functionality"
-msgstr "Describe-resource je funkce pouze pro správce"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:238
 msgid "Host not found"
@@ -2846,9 +2780,8 @@ msgid "No vpn data for project %s"
 msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:46
-#, fuzzy, python-format
 msgid "Instance type for vpn instances"
-msgstr "Neplatná instance typu %(instance_type)s."
+msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:49
 msgid "Template for cloudpipe instance boot script"
@@ -2932,28 +2865,24 @@ msgid "Sending create to scheduler for %(pid)s/%(uid)s's"
 msgstr ""
 
 #: cinder/compute/api.py:871
-#, fuzzy
 msgid "Going to try to soft delete instance"
-msgstr "Instance budou spuštěny"
+msgstr ""
 
 #: cinder/compute/api.py:891
 msgid "No host for instance, deleting immediately"
 msgstr ""
 
 #: cinder/compute/api.py:939
-#, fuzzy
 msgid "Going to try to terminate instance"
-msgstr "BUde spuštěno ukončování insatncí"
+msgstr ""
 
 #: cinder/compute/api.py:977
-#, fuzzy
 msgid "Going to try to stop instance"
-msgstr "Instance budou zastaveny"
+msgstr ""
 
 #: cinder/compute/api.py:996
-#, fuzzy
 msgid "Going to try to start instance"
-msgstr "Instance budou spuštěny"
+msgstr ""
 
 #: cinder/compute/api.py:1000
 #, python-format
@@ -3333,13 +3262,11 @@ msgid "Booting with volume %(volume_id)s at %(mountpoint)s"
 msgstr ""
 
 #: cinder/compute/manager.py:1703
-#, fuzzy, python-format
+#, python-format
 msgid ""
 "instance %(instance_uuid)s: attaching volume %(volume_id)s to "
 "%(mountpoint)s"
 msgstr ""
-"Konzole pro instanci %(instance_id)s v zásobě %(pool_id)s nemohla být "
-"nalezena."
 
 #: cinder/compute/manager.py:1705
 #, python-format
@@ -3347,9 +3274,9 @@ msgid "Attaching volume %(volume_id)s to %(mountpoint)s"
 msgstr ""
 
 #: cinder/compute/manager.py:1714
-#, fuzzy, python-format
+#, python-format
 msgid "instance %(instance_uuid)s: attach failed %(mountpoint)s, removing"
-msgstr "Instance %(instance_id)s není v nouzovém režimu."
+msgstr ""
 
 #: cinder/compute/manager.py:1724
 #, python-format
@@ -3418,7 +3345,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3489,11 +3416,11 @@ msgid "Unrecognized value '%(action)s' for FLAGS.running_deleted_instance_action
 msgstr ""
 
 #: cinder/compute/manager.py:2542
-#, fuzzy, python-format
+#, python-format
 msgid ""
 "Aggregate %(aggregate_id)s: unrecoverable state during operation on "
 "%(host)s"
-msgstr "Agregát %(aggregate_id)s již má hostitele %(host)s."
+msgstr ""
 
 #: cinder/compute/utils.py:142
 msgid "v4 subnets are required for legacy nw_info"
@@ -3505,7 +3432,7 @@ msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
+msgid "Tried to remove non-existent console %(console_id)s."
 msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
@@ -3817,14 +3744,14 @@ msgid "Starting Bridge interface for %s"
 msgstr ""
 
 #: cinder/network/linux_net.py:1142
-#, fuzzy, python-format
+#, python-format
 msgid "Starting bridge %s "
-msgstr "Zrušení registrace obrazu %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:1149
-#, fuzzy, python-format
+#, python-format
 msgid "Done starting bridge %s"
-msgstr "Zrušení registrace obrazu %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:1167
 #, python-format
@@ -3837,9 +3764,9 @@ msgid "Unplugged gateway interface '%s'"
 msgstr ""
 
 #: cinder/network/manager.py:291
-#, fuzzy, python-format
+#, python-format
 msgid "Fixed ip %(fixed_ip_id)s not found"
-msgstr "Certifikát %(certificate_id)s nenalezen."
+msgstr ""
 
 #: cinder/network/manager.py:300 cinder/network/manager.py:496
 #, python-format
@@ -4112,9 +4039,9 @@ msgid "No network with net_id = %s"
 msgstr ""
 
 #: cinder/network/quantum/cinder_ipam_lib.py:221
-#, fuzzy, python-format
+#, python-format
 msgid "No fixed IPs to deallocate for vif %s"
-msgstr "K instanci nejsou přidruženy žádné pevné ip"
+msgstr ""
 
 #: cinder/network/quantum/quantum_connection.py:99
 #, python-format
@@ -4151,27 +4078,27 @@ msgstr ""
 #: cinder/rpc/amqp.py:146
 #, python-format
 msgid "Returning exception %s to caller"
-msgstr "Volajícímu je vrácena výjimka: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:188
 #, python-format
 msgid "unpacked context: %s"
-msgstr "rozbalený kontext: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:231
 #, python-format
 msgid "received %s"
-msgstr "obdrženo: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:236
 #, python-format
 msgid "no method for message: %s"
-msgstr "pro zprávu není metoda: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:237
 #, python-format
 msgid "No method for message: %s"
-msgstr "Pro zprávu není metoda: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:321
 #, python-format
@@ -4181,7 +4108,7 @@ msgstr ""
 #: cinder/rpc/amqp.py:324
 #, python-format
 msgid "MSG_ID is %s"
-msgstr "MSG_ID je %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:346
 #, python-format
@@ -4413,9 +4340,9 @@ msgid "Failed to schedule_%(method)s: %(ex)s"
 msgstr ""
 
 #: cinder/scheduler/manager.py:159
-#, fuzzy, python-format
+#, python-format
 msgid "Setting instance %(instance_uuid)s to %(state)s state."
-msgstr "Nastavování hostitele %(host)s na %(state)s."
+msgstr ""
 
 #: cinder/scheduler/scheduler_options.py:66
 #, python-format
@@ -4560,9 +4487,9 @@ msgid "Removing simulated guest agent files in %s"
 msgstr ""
 
 #: cinder/tests/api/openstack/compute/test_servers.py:2144
-#, fuzzy, python-format
+#, python-format
 msgid "Quota exceeded: code=%(code)s"
-msgstr "Kvóta překročena"
+msgstr ""
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:57
 #, python-format
@@ -5187,13 +5114,13 @@ msgid "detaching LXC block device"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:692
+#, fuzzy, python-format
 msgid "Instance soft rebooted successfully."
-msgstr ""
+msgstr "bind %s: slettet"
 
 #: cinder/virt/libvirt/connection.py:696
-#, fuzzy
 msgid "Failed to soft reboot instance."
-msgstr "Nelze restartovat instanci"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:725
 msgid "Instance shutdown successfully."
@@ -5233,9 +5160,8 @@ msgid "data: %(data)r, fpath: %(fpath)r"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:978
-#, fuzzy
 msgid "Guest does not have a console available"
-msgstr "Uživatel nemá správcovská oprávnění"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:1020
 #, python-format
@@ -5989,9 +5915,8 @@ msgid "Unable to get SR for this host: %s"
 msgstr ""
 
 #: cinder/virt/xenapi/host.py:169
-#, fuzzy
 msgid "Unable to get updated status"
-msgstr "Nelze vytvořit typ instance"
+msgstr ""
 
 #: cinder/virt/xenapi/host.py:172
 #, python-format
@@ -6039,9 +5964,9 @@ msgid "Pool-eject failed: %(e)s"
 msgstr ""
 
 #: cinder/virt/xenapi/pool.py:174
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to set up pool: %(e)s."
-msgstr "Nelze použít globální roli %(role_id)s"
+msgstr ""
 
 #: cinder/virt/xenapi/pool.py:185
 #, python-format
@@ -6070,9 +5995,9 @@ msgid "VBD not found in instance %s"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:262
-#, fuzzy, python-format
+#, python-format
 msgid "VBD %s already detached"
-msgstr "skupina %s již existuje"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:265
 #, python-format
@@ -6127,9 +6052,9 @@ msgid "Cloned VDI %(vdi_ref)s from VDI %(vdi_to_clone_ref)s"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:372
-#, fuzzy, python-format
+#, python-format
 msgid "No primary VDI found for %(vm_ref)s"
-msgstr "Nenalezeno žádné cílové id ve svazku %(volume_id)s."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:379
 #, python-format
@@ -6227,9 +6152,8 @@ msgid "Kernel/Ramdisk VDI %s destroyed"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:895
-#, fuzzy
 msgid "Failed to fetch glance image"
-msgstr "Nelze restartovat instanci"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:934
 #, python-format
@@ -6480,18 +6404,16 @@ msgid "Attempted to power on non-existent instance bad instance id %s"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:233
-#, fuzzy
 msgid "Starting instance"
-msgstr "Instance budou spuštěny"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:303
 msgid "Removing kernel/ramdisk files from dom0"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:358
-#, fuzzy
 msgid "Failed to spawn, rolling back"
-msgstr "Nelze pozastavit instanci"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:443
 msgid "Detected ISO image type, creating blank VM for install"
@@ -6567,14 +6489,13 @@ msgid "Finished snapshot and upload for VM"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:677
-#, fuzzy, python-format
 msgid "Starting snapshot for VM"
-msgstr "Vytvořit snímek svazku %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:686
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to Snapshot instance: %(exc)s"
-msgstr "Nelze vytvořit typ instance"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:702
 msgid "Failed to transfer vhd to new host"
@@ -6687,9 +6608,9 @@ msgid ""
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1379
-#, fuzzy, python-format
+#, python-format
 msgid "Instance %(instance_uuid)s not found"
-msgstr "Instance %(instance_id)s nemohla být nastavena."
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1383
 msgid "In ERROR state"
@@ -7017,9 +6938,8 @@ msgid "Quota exceeded for %(pid)s, tried to create %(size)sG volume"
 msgstr ""
 
 #: cinder/volume/api.py:137
-#, fuzzy
 msgid "Volume status must be available or error"
-msgstr "Obraz musí být dostupný"
+msgstr ""
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -7168,7 +7088,7 @@ msgstr ""
 #: cinder/volume/manager.py:176
 #, python-format
 msgid "volume %s: deleted successfully"
-msgstr ""
+msgstr "bind %s: slettet"
 
 #: cinder/volume/manager.py:183
 #, python-format
@@ -7219,9 +7139,9 @@ msgid "Notification {%s} received"
 msgstr ""
 
 #: cinder/volume/netapp.py:79
-#, fuzzy, python-format
+#, python-format
 msgid "API %(name)sfailed: %(reason)s"
-msgstr "Obraz %(image_id)s je nepřijatelný: %(reason)s"
+msgstr ""
 
 #: cinder/volume/netapp.py:109
 #, python-format
@@ -7229,14 +7149,13 @@ msgid "%s is not set"
 msgstr ""
 
 #: cinder/volume/netapp.py:128
-#, fuzzy
 msgid "Connected to DFM server"
-msgstr "Znovu připojeno k frontě"
+msgstr ""
 
 #: cinder/volume/netapp.py:159
-#, fuzzy, python-format
+#, python-format
 msgid "Job failed: %s"
-msgstr "Vyvoláno Nenalezeno: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:240
 msgid "Failed to provision dataset member"
@@ -7261,24 +7180,24 @@ msgid "No LUN ID for volume %s"
 msgstr ""
 
 #: cinder/volume/netapp.py:607 cinder/volume/netapp.py:661
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get LUN details for LUN ID %s"
-msgstr "Nelze získat metadata pro ip: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:614
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get host details for host ID %s"
-msgstr "Nelze získat metadata pro ip: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:620
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get target portal for filer: %s"
-msgstr "Nelze získat metadata pro ip: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:625
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get target IQN for filer: %s"
-msgstr "Nelze získat metadata pro ip: %s"
+msgstr ""
 
 #: cinder/volume/san.py:113 cinder/volume/san.py:151
 msgid "Specify san_password or san_private_key"
@@ -7485,14 +7404,13 @@ msgid "No headers in server response"
 msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:76
-#, fuzzy
 msgid "Bad response from server"
-msgstr "Špatná odpověď od SolidFire API"
+msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:79
-#, fuzzy, python-format
+#, python-format
 msgid "Got response: %s"
-msgstr "odpověď %s"
+msgstr ""
 
 #: cinder/volume/nexenta/volume.py:96
 #, python-format
@@ -7544,14 +7462,42 @@ msgid ""
 "gone: %(exc)s"
 msgstr ""
 
+#~ msgid "Unable to locate account %(account_name) on Solidfire device"
+#~ msgstr ""
+
+#~ msgid "Zone %(zone_id)s could not be found."
+#~ msgstr ""
+
 #~ msgid "Cinder access parameters were not specified."
-#~ msgstr "Přístupové parametry Cinder nebyly zadány."
+#~ msgstr ""
 
 #~ msgid "Virtual Storage Array %(id)d could not be found."
-#~ msgstr "Pole virtuálního úložiště %(id)d nebylo nalezeno."
+#~ msgstr ""
 
 #~ msgid "Virtual Storage Array %(name)s could not be found."
-#~ msgstr "Pole virtuálního úložiště %(name)s nebylo nalezeno."
+#~ msgstr ""
+
+#~ msgid "Detected more than one volume with name %(vol_name)"
+#~ msgstr ""
+
+#~ msgid "Detected existing vlan with id %(vlan)"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Attempting to grab semaphore \"%(lock)s\" "
+#~ "for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid "Got semaphore \"%(lock)s\" for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Attempting to grab file lock "
+#~ "\"%(lock)s\" for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid "Got file lock \"%(lock)s\" for method \"%(method)s\"...lock"
+#~ msgstr ""
 
 #~ msgid "Parent group id and group id cannot be same"
 #~ msgstr ""
@@ -7694,6 +7640,9 @@ msgstr ""
 #~ msgid "Unable to connect to AMQP server after %(tries)d tries. Shutting down."
 #~ msgstr ""
 
+#~ msgid "Reconnected to queue"
+#~ msgstr ""
+
 #~ msgid "Failed to fetch message from queue: %s"
 #~ msgstr ""
 
@@ -7709,11 +7658,14 @@ msgstr ""
 #~ msgid "Creating \"%(exchange)s\" fanout exchange"
 #~ msgstr ""
 
+#~ msgid "response %s"
+#~ msgstr ""
+
 #~ msgid "topic is %s"
 #~ msgstr ""
 
 #~ msgid "message %s"
-#~ msgstr "zpráva %s"
+#~ msgstr ""
 
 #~ msgid ""
 #~ "Cannot confirm tmpfile at %(ipath)s is"

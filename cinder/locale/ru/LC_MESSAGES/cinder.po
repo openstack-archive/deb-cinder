@@ -1,17 +1,18 @@
-# Translations template for cinder.
-# Copyright (C) 2012 ORGANIZATION
-# This file is distributed under the same license as the cinder project.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2012.
+# Russian translation for cinder
+# Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
+# This file is distributed under the same license as the cinder package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
 #
-#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 2012.2\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"Project-Id-Version:  cinder\n"
+"Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
+"PO-Revision-Date: 2012-03-25 09:34+0000\n"
+"Last-Translator: Eugene Marshal <Unknown>\n"
+"Language-Team: Russian <ru@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -29,46 +30,48 @@ msgstr ""
 
 #: cinder/crypto.py:48
 msgid "Filename of root CA"
-msgstr ""
+msgstr "Имя файла корневого центра сертификации"
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr ""
+msgstr "Имя файла секретного ключа"
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
-msgstr ""
+msgstr "Имя файла корневого списка отзыва сертификатов"
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr ""
+msgstr "Путь к ключам"
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
-msgstr ""
+msgstr "Место расположения нашего корневого центра сертификации"
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr ""
+msgstr "Должны ли мы использовать центр сертификации для каждого проекта?"
 
 #: cinder/crypto.py:67
 #, python-format
 msgid "Subject for certificate for users, %s for project, user, timestamp"
 msgstr ""
+"Тема для сертификатов пользователей, %s для проекта, пользователя, "
+"временной метки"
 
 #: cinder/crypto.py:72
 #, python-format
 msgid "Subject for certificate for projects, %s for project, timestamp"
-msgstr ""
+msgstr "Тема для сертификатов проектов, %s для проекта, временная метка"
 
 #: cinder/crypto.py:292
 #, python-format
 msgid "Flags path: %s"
-msgstr ""
+msgstr "Расположение флагов: %s"
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr ""
+msgstr "Неожиданная ошибка при выполнении команды."
 
 #: cinder/exception.py:59
 #, python-format
@@ -79,6 +82,11 @@ msgid ""
 "Stdout: %(stdout)r\n"
 "Stderr: %(stderr)r"
 msgstr ""
+"%(description)s\n"
+"Команда: %(cmd)s\n"
+"Код выхода: %(exit_code)s\n"
+"Stdout: %(stdout)r\n"
+"Stderr: %(stderr)r"
 
 #: cinder/exception.py:94
 msgid "DB exception wrapped."
@@ -86,11 +94,11 @@ msgstr ""
 
 #: cinder/exception.py:155
 msgid "An unknown exception occurred."
-msgstr ""
+msgstr "Обнаружено неизвестное исключение."
 
 #: cinder/exception.py:178
 msgid "Failed to decrypt text"
-msgstr ""
+msgstr "Ошибка дешифровки текста"
 
 #: cinder/exception.py:182
 msgid "Failed to paginate through images from image service"
@@ -98,50 +106,52 @@ msgstr ""
 
 #: cinder/exception.py:186
 msgid "Virtual Interface creation failed"
-msgstr ""
+msgstr "Ошибка создания виртуального интерфейса"
 
 #: cinder/exception.py:190
 msgid "5 attempts to create virtual interfacewith unique mac address failed"
 msgstr ""
+"5 безуспешных попыток создания виртуального интерфейса с уникальным "
+"mac-адресом"
 
 #: cinder/exception.py:195
 msgid "Connection to glance failed"
-msgstr ""
+msgstr "Сбой соединения с glance"
 
 #: cinder/exception.py:199
 msgid "Connection to melange failed"
-msgstr ""
+msgstr "Сбой соединения c melange"
 
 #: cinder/exception.py:203
 msgid "Not authorized."
-msgstr ""
+msgstr "Не авторизировано."
 
 #: cinder/exception.py:208
 msgid "User does not have admin privileges"
-msgstr ""
+msgstr "Пользователь не имеет административных привилегий"
 
 #: cinder/exception.py:212
 #, python-format
 msgid "Policy doesn't allow %(action)s to be performed."
-msgstr ""
+msgstr "Политика не допускает выполнения %(action)s."
 
 #: cinder/exception.py:216
-#, python-format
+#, fuzzy, python-format
 msgid "Not authorized for image %(image_id)s."
-msgstr ""
+msgstr "Ядро не найдено для образа %(image_id)s."
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
-msgstr ""
+msgstr "Недопустимые параметры."
 
 #: cinder/exception.py:225
 msgid "Invalid snapshot"
-msgstr ""
+msgstr "Недопустимый снимок"
 
 #: cinder/exception.py:229
 #, python-format
 msgid "Volume %(volume_id)s is not attached to anything"
-msgstr ""
+msgstr "Том %(volume_id)s никуда не присоединён"
 
 #: cinder/exception.py:233 cinder/api/openstack/compute/contrib/keypairs.py:113
 msgid "Keypair data is invalid"
@@ -149,16 +159,16 @@ msgstr ""
 
 #: cinder/exception.py:237
 msgid "Failed to load data into json format"
-msgstr ""
+msgstr "Ошибка загрузки данных в формат json"
 
 #: cinder/exception.py:241
 msgid "The request is invalid."
-msgstr ""
+msgstr "Недопустимый запрос."
 
 #: cinder/exception.py:245
 #, python-format
 msgid "Invalid signature %(signature)s for user %(user)s."
-msgstr ""
+msgstr "Недопустимая подпись %(signature)s для пользователя %(user)s."
 
 #: cinder/exception.py:249
 msgid "Invalid input received"
@@ -167,35 +177,35 @@ msgstr ""
 #: cinder/exception.py:253
 #, python-format
 msgid "Invalid instance type %(instance_type)s."
-msgstr ""
+msgstr "Недопустимый тип копии %(instance_type)s."
 
 #: cinder/exception.py:257
 msgid "Invalid volume type"
-msgstr ""
+msgstr "Недопустимый тип тома"
 
 #: cinder/exception.py:261
 msgid "Invalid volume"
-msgstr ""
+msgstr "Недопустимый том"
 
 #: cinder/exception.py:265
 #, python-format
 msgid "Invalid port range %(from_port)s:%(to_port)s. %(msg)s"
-msgstr ""
+msgstr "Недопустимый диапазон портов %(from_port)s:%(to_port)s. %(msg)s"
 
 #: cinder/exception.py:269
 #, python-format
 msgid "Invalid IP protocol %(protocol)s."
-msgstr ""
+msgstr "Недопустимый протокол IP %(protocol)s."
 
 #: cinder/exception.py:273
 #, python-format
 msgid "Invalid content type %(content_type)s."
-msgstr ""
+msgstr "Недопустимый тип содержимого %(content_type)s."
 
 #: cinder/exception.py:277
 #, python-format
 msgid "Invalid cidr %(cidr)s."
-msgstr ""
+msgstr "Недопустимый cidr %(cidr)s."
 
 #: cinder/exception.py:281
 msgid "Invalid reuse of an RPC connection."
@@ -218,9 +228,9 @@ msgid ""
 msgstr ""
 
 #: cinder/exception.py:301
-#, python-format
+#, fuzzy, python-format
 msgid "Group not valid. Reason: %(reason)s"
-msgstr ""
+msgstr "Допустимый узел не найден. %(reason)s"
 
 #: cinder/exception.py:305
 #, python-format
@@ -228,62 +238,65 @@ msgid ""
 "Instance %(instance_uuid)s in %(attr)s %(state)s. Cannot %(method)s while"
 " the instance is in this state."
 msgstr ""
+"Копия %(instance_uuid)s в %(attr)s %(state)s. Невозможно %(method)s во "
+"время нахождения копии в этом состоянии."
 
 #: cinder/exception.py:310
 #, python-format
 msgid "Instance %(instance_id)s is not running."
-msgstr ""
+msgstr "Копия %(instance_id)s не выполняется."
 
 #: cinder/exception.py:314
 #, python-format
 msgid "Instance %(instance_id)s is not suspended."
-msgstr ""
+msgstr "Копия %(instance_id)s не переведена в режим приостановления."
 
 #: cinder/exception.py:318
 #, python-format
 msgid "Instance %(instance_id)s is not in rescue mode"
-msgstr ""
+msgstr "Копия %(instance_id)s не переведена в режим восстановления"
 
 #: cinder/exception.py:322
 msgid "Failed to suspend instance"
-msgstr ""
+msgstr "Ошибка приостановления копии"
 
 #: cinder/exception.py:326
 msgid "Failed to resume server"
-msgstr ""
+msgstr "Ошибка возобновления работы сервера"
 
 #: cinder/exception.py:330
 msgid "Failed to reboot instance"
-msgstr ""
+msgstr "Ошибка перезагрузки копии"
 
 #: cinder/exception.py:334
+#, fuzzy
 msgid "Failed to terminate instance"
-msgstr ""
+msgstr "Ошибка перезагрузки копии"
 
 #: cinder/exception.py:338
 msgid "Service is unavailable at this time."
-msgstr ""
+msgstr "В данный момент служба недоступна."
 
 #: cinder/exception.py:342
 msgid "Volume service is unavailable at this time."
-msgstr ""
+msgstr "Служба томов в данный момент недоступна."
 
 #: cinder/exception.py:346
 msgid "Compute service is unavailable at this time."
-msgstr ""
+msgstr "Служба Compute недоступна в настоящее время."
 
 #: cinder/exception.py:350
 #, python-format
 msgid "Unable to migrate instance (%(instance_id)s) to current host (%(host)s)."
-msgstr ""
+msgstr "Невозможно переместить копию (%(instance_id)s) на текущий узел (%(host)s)."
 
 #: cinder/exception.py:355
 msgid "Destination compute host is unavailable at this time."
-msgstr ""
+msgstr "Назначенный узел compute недоступен в настоящее время."
 
 #: cinder/exception.py:359
 msgid "Original compute host is unavailable at this time."
-msgstr ""
+msgstr "Исходный узел compute недоступен в настоящее время."
 
 #: cinder/exception.py:363
 msgid "The supplied hypervisor type of is invalid."
@@ -291,7 +304,7 @@ msgstr ""
 
 #: cinder/exception.py:367
 msgid "The instance requires a newer hypervisor version than has been provided."
-msgstr ""
+msgstr "Копии необходима новая версия гипервизора, вместо предоставленной."
 
 #: cinder/exception.py:372
 #, python-format
@@ -299,25 +312,27 @@ msgid ""
 "The supplied disk path (%(path)s) already exists, it is expected not to "
 "exist."
 msgstr ""
+"Предоставленный адрес диска (%(path)s) уже существует, но ожидалось, что "
+"отсутствует."
 
 #: cinder/exception.py:377
 #, python-format
 msgid "The supplied device path (%(path)s) is invalid."
-msgstr ""
+msgstr "Недопустимое размещение предоставленного устройства (%(path)s)."
 
 #: cinder/exception.py:381
-#, python-format
+#, fuzzy, python-format
 msgid "The supplied device (%(device)s) is busy."
-msgstr ""
+msgstr "Недопустимое размещение предоставленного устройства (%(path)s)."
 
 #: cinder/exception.py:385
 msgid "Unacceptable CPU info"
-msgstr ""
+msgstr "Недопустимые сведения ЦПУ"
 
 #: cinder/exception.py:389
 #, python-format
 msgid "%(address)s is not a valid IP v4/6 address."
-msgstr ""
+msgstr "%(address)s не является допустимым IP-адресом в4/6."
 
 #: cinder/exception.py:393
 #, python-format
@@ -337,36 +352,36 @@ msgstr ""
 #: cinder/exception.py:406
 #, python-format
 msgid "Disk format %(disk_format)s is not acceptable"
-msgstr ""
+msgstr "Форматирование диска %(disk_format)s недопустимо"
 
 #: cinder/exception.py:410
 #, python-format
 msgid "Image %(image_id)s is unacceptable: %(reason)s"
-msgstr ""
+msgstr "Образ %(image_id)s недопустим: %(reason)s"
 
 #: cinder/exception.py:414
 #, python-format
 msgid "Instance %(instance_id)s is unacceptable: %(reason)s"
-msgstr ""
+msgstr "Копия %(instance_id)s недопустима: %(reason)s"
 
 #: cinder/exception.py:418
 #, python-format
 msgid "Ec2 id %(ec2_id)s is unacceptable."
-msgstr ""
+msgstr "Ec2 id %(ec2_id)s недопустим."
 
 #: cinder/exception.py:422
 msgid "Resource could not be found."
-msgstr ""
+msgstr "Ресурс не может быть найден."
 
 #: cinder/exception.py:427
 #, python-format
 msgid "Required flag %(flag)s not set."
-msgstr ""
+msgstr "Необходимый флаг %(flag)s не назначен."
 
 #: cinder/exception.py:431
 #, python-format
 msgid "Volume %(volume_id)s could not be found."
-msgstr ""
+msgstr "Том %(volume_id)s не найден."
 
 #: cinder/exception.py:435
 #, python-format
@@ -376,12 +391,12 @@ msgstr ""
 #: cinder/exception.py:440
 #, python-format
 msgid "Volume not found for instance %(instance_id)s."
-msgstr ""
+msgstr "Не найден том для копии %(instance_id)s."
 
 #: cinder/exception.py:444
 #, python-format
 msgid "Volume %(volume_id)s has no metadata with key %(metadata_key)s."
-msgstr ""
+msgstr "Том %(volume_id)s не имеет метаданных с ключом %(metadata_key)s."
 
 #: cinder/exception.py:449
 msgid "Zero volume types found."
@@ -390,12 +405,12 @@ msgstr ""
 #: cinder/exception.py:453
 #, python-format
 msgid "Volume type %(volume_type_id)s could not be found."
-msgstr ""
+msgstr "Тип тома %(volume_type_id)s не может быть найден."
 
 #: cinder/exception.py:457
 #, python-format
 msgid "Volume type with name %(volume_type_name)s could not be found."
-msgstr ""
+msgstr "Тип тома под названием %(volume_type_name)s не может быть найден."
 
 #: cinder/exception.py:462
 #, python-format
@@ -403,16 +418,18 @@ msgid ""
 "Volume Type %(volume_type_id)s has no extra specs with key "
 "%(extra_specs_key)s."
 msgstr ""
+"Тип тома %(volume_type_id)s не имеет дополнительных особенностей с ключом"
+" %(extra_specs_key)s."
 
 #: cinder/exception.py:467
 #, python-format
 msgid "Snapshot %(snapshot_id)s could not be found."
-msgstr ""
+msgstr "Снимок %(snapshot_id)s не может быть найден."
 
 #: cinder/exception.py:471
 #, python-format
 msgid "deleting volume %(volume_name)s that has snapshot"
-msgstr ""
+msgstr "удаление тома %(volume_name)s, который имеет снимок"
 
 #: cinder/exception.py:475
 #, python-format
@@ -427,17 +444,17 @@ msgstr ""
 #: cinder/exception.py:484
 #, python-format
 msgid "No disk at %(location)s"
-msgstr ""
+msgstr "Отсутствует диск в %(location)s"
 
 #: cinder/exception.py:488
 #, python-format
 msgid "Could not find a handler for %(driver_type)s volume."
-msgstr ""
+msgstr "Невозможно найти обработчик для тома %(driver_type)s."
 
 #: cinder/exception.py:492
 #, python-format
 msgid "Invalid image href %(image_href)s."
-msgstr ""
+msgstr "Недопустимый образ href %(image_href)s."
 
 #: cinder/exception.py:496
 msgid ""
@@ -448,70 +465,70 @@ msgstr ""
 #: cinder/exception.py:501
 #, python-format
 msgid "Image %(image_id)s could not be found."
-msgstr ""
+msgstr "Образ %(image_id)s не найден."
 
 #: cinder/exception.py:505
 #, python-format
 msgid "Kernel not found for image %(image_id)s."
-msgstr ""
+msgstr "Ядро не найдено для образа %(image_id)s."
 
 #: cinder/exception.py:509
 #, python-format
 msgid "User %(user_id)s could not be found."
-msgstr ""
+msgstr "Пользователь %(user_id)s не найден."
 
 #: cinder/exception.py:513
 #, python-format
 msgid "Project %(project_id)s could not be found."
-msgstr ""
+msgstr "Проект %(project_id)s не найден."
 
 #: cinder/exception.py:517
 #, python-format
 msgid "User %(user_id)s is not a member of project %(project_id)s."
-msgstr ""
+msgstr "Пользователь %(user_id)s не является участником проекта %(project_id)s."
 
 #: cinder/exception.py:521
 #, python-format
 msgid "Role %(role_id)s could not be found."
-msgstr ""
+msgstr "Полномочия %(role_id)s не могут быть найдены."
 
 #: cinder/exception.py:525
 msgid "Cannot find SR to read/write VDI."
-msgstr ""
+msgstr "Невозможно найти SR для чтения/записи VDI."
 
 #: cinder/exception.py:529
 #, python-format
 msgid "%(req)s is required to create a network."
-msgstr ""
+msgstr "%(req)s необходимо для создания сети."
 
 #: cinder/exception.py:533
 #, python-format
 msgid "Network %(network_id)s could not be found."
-msgstr ""
+msgstr "Сеть %(network_id)s не найдена."
 
 #: cinder/exception.py:537
 #, python-format
 msgid "Network could not be found for bridge %(bridge)s"
-msgstr ""
+msgstr "Сеть не может быть найдена для моста %(bridge)s"
 
 #: cinder/exception.py:541
 #, python-format
 msgid "Network could not be found for uuid %(uuid)s"
-msgstr ""
+msgstr "Сеть не может быть найдена для uuid %(uuid)s"
 
 #: cinder/exception.py:545
 #, python-format
 msgid "Network could not be found with cidr %(cidr)s."
-msgstr ""
+msgstr "Сеть не найдена с cidr %(cidr)s."
 
 #: cinder/exception.py:549
 #, python-format
 msgid "Network could not be found for instance %(instance_id)s."
-msgstr ""
+msgstr "Сеть не найдена для копии %(instance_id)s."
 
 #: cinder/exception.py:553
 msgid "No networks defined."
-msgstr ""
+msgstr "Сети не определены."
 
 #: cinder/exception.py:557
 #, python-format
@@ -519,11 +536,13 @@ msgid ""
 "Either Network uuid %(network_uuid)s is not present or is not assigned to"
 " the project %(project_id)s."
 msgstr ""
+"Или uuid %(network_uuid)s сети не предоставлено или не присвоено проекту "
+"%(project_id)s."
 
 #: cinder/exception.py:562
 #, python-format
 msgid "Host is not set to the network (%(network_id)s)."
-msgstr ""
+msgstr "Узел не назначен сети (%(network_id)s)."
 
 #: cinder/exception.py:566
 #, python-format
@@ -579,7 +598,7 @@ msgstr ""
 #: cinder/exception.py:608
 #, python-format
 msgid "Fixed IP address %(address)s is invalid."
-msgstr ""
+msgstr "Недопустимый фиксированный IP-адрес %(address)s."
 
 #: cinder/exception.py:612
 msgid "Zero fixed ips available."
@@ -597,7 +616,7 @@ msgstr ""
 #: cinder/exception.py:624
 #, python-format
 msgid "The DNS entry %(name)s already exists in domain %(domain)s."
-msgstr ""
+msgstr "Запись DNS %(name)s уже существует в домене %(domain)s."
 
 #: cinder/exception.py:628
 #, python-format
@@ -630,7 +649,7 @@ msgstr ""
 #: cinder/exception.py:652
 #, python-format
 msgid "Interface %(interface)s not found."
-msgstr ""
+msgstr "Интерфейс %(interface)s не найден."
 
 #: cinder/exception.py:656
 #, python-format
@@ -640,22 +659,22 @@ msgstr ""
 #: cinder/exception.py:660
 #, python-format
 msgid "Certificate %(certificate_id)s not found."
-msgstr ""
+msgstr "Сертификат %(certificate_id)s не найден."
 
 #: cinder/exception.py:664
 #, python-format
 msgid "Service %(service_id)s could not be found."
-msgstr ""
+msgstr "Служба %(service_id)s не найдена."
 
 #: cinder/exception.py:668
 #, python-format
 msgid "Host %(host)s could not be found."
-msgstr ""
+msgstr "Узел %(host)s не найден."
 
 #: cinder/exception.py:672
 #, python-format
 msgid "Compute host %(host)s could not be found."
-msgstr ""
+msgstr "Узел сompute %(host)s не найден."
 
 #: cinder/exception.py:676
 #, python-format
@@ -670,36 +689,38 @@ msgstr ""
 #: cinder/exception.py:684
 #, python-format
 msgid "Access Key %(access_key)s could not be found."
-msgstr ""
+msgstr "Ключ доступа %(access_key)s не найден."
 
 #: cinder/exception.py:688
 msgid "Quota could not be found"
-msgstr ""
+msgstr "Квота не найдена"
 
 #: cinder/exception.py:692
 #, python-format
 msgid "Quota for project %(project_id)s could not be found."
-msgstr ""
+msgstr "Квота проекта %(project_id)s не найдена."
 
 #: cinder/exception.py:696
-#, python-format
+#, fuzzy, python-format
 msgid "Quota class %(class_name)s could not be found."
-msgstr ""
+msgstr "Класс %(class_name)s не найден: %(exception)s"
 
 #: cinder/exception.py:700
 #, python-format
 msgid "Security group %(security_group_id)s not found."
-msgstr ""
+msgstr "Группа безопасности %(security_group_id)s не найдена."
 
 #: cinder/exception.py:704
 #, python-format
 msgid "Security group %(security_group_id)s not found for project %(project_id)s."
 msgstr ""
+"Группа безопасности %(security_group_id)s не найдена для проекта "
+"%(project_id)s."
 
 #: cinder/exception.py:709
 #, python-format
 msgid "Security group with rule %(rule_id)s not found."
-msgstr ""
+msgstr "Группа безопасности с правилом %(rule_id)s не найдена."
 
 #: cinder/exception.py:713
 #, python-format
@@ -707,6 +728,8 @@ msgid ""
 "Security group %(security_group_id)s is already associated with the "
 "instance %(instance_id)s"
 msgstr ""
+"Группа безопасности %(security_group_id)s уже ассоциирована с копией "
+"%(instance_id)s"
 
 #: cinder/exception.py:718
 #, python-format
@@ -714,21 +737,23 @@ msgid ""
 "Security group %(security_group_id)s is not associated with the instance "
 "%(instance_id)s"
 msgstr ""
+"Группа безопасности %(security_group_id)s не ассоциирована с копией "
+"%(instance_id)s"
 
 #: cinder/exception.py:723
 #, python-format
 msgid "Migration %(migration_id)s could not be found."
-msgstr ""
+msgstr "Перемещение %(migration_id)s не найдено."
 
 #: cinder/exception.py:727
 #, python-format
 msgid "Migration not found for instance %(instance_id)s with status %(status)s."
-msgstr ""
+msgstr "Перемещение не найдено для копии %(instance_id)s в состоянии %(status)s."
 
 #: cinder/exception.py:732
 #, python-format
 msgid "Console pool %(pool_id)s could not be found."
-msgstr ""
+msgstr "Пул консоли %(pool_id)s не найден."
 
 #: cinder/exception.py:736
 #, python-format
@@ -740,24 +765,24 @@ msgstr ""
 #: cinder/exception.py:742
 #, python-format
 msgid "Console %(console_id)s could not be found."
-msgstr ""
+msgstr "Консоль %(console_id)s не найдена."
 
 #: cinder/exception.py:746
 #, python-format
 msgid "Console for instance %(instance_id)s could not be found."
-msgstr ""
+msgstr "Консоль для копии %(instance_id)s не найдена."
 
 #: cinder/exception.py:750
 #, python-format
 msgid ""
 "Console for instance %(instance_id)s in pool %(pool_id)s could not be "
 "found."
-msgstr ""
+msgstr "Консоль для копии %(instance_id)s в пуле %(pool_id)s не найдена."
 
 #: cinder/exception.py:755
 #, python-format
 msgid "Invalid console type %(console_type)s "
-msgstr ""
+msgstr "Недопустимый тип консоли %(console_type)s "
 
 #: cinder/exception.py:759
 msgid "Zero instance types found."
@@ -766,12 +791,12 @@ msgstr ""
 #: cinder/exception.py:763
 #, python-format
 msgid "Instance type %(instance_type_id)s could not be found."
-msgstr ""
+msgstr "Тип копии %(instance_type_id)s не найден."
 
 #: cinder/exception.py:767
 #, python-format
 msgid "Instance type with name %(instance_type_name)s could not be found."
-msgstr ""
+msgstr "Тип копии с названием %(instance_type_name)s не найден."
 
 #: cinder/exception.py:772
 #, python-format
@@ -779,9 +804,9 @@ msgid "Flavor %(flavor_id)s could not be found."
 msgstr ""
 
 #: cinder/exception.py:776
-#, python-format
+#, fuzzy, python-format
 msgid "Cell %(cell_id)s could not be found."
-msgstr ""
+msgstr "Зона %(zone_id)s не найдена."
 
 #: cinder/exception.py:780
 #, python-format
@@ -801,7 +826,7 @@ msgstr ""
 #: cinder/exception.py:793
 #, python-format
 msgid "Instance %(instance_id)s has no metadata with key %(metadata_key)s."
-msgstr ""
+msgstr "Копия %(instance_id)s не имеет метаданных с ключом %(metadata_key)s."
 
 #: cinder/exception.py:798
 #, python-format
@@ -812,27 +837,27 @@ msgstr ""
 
 #: cinder/exception.py:803
 msgid "LDAP object could not be found"
-msgstr ""
+msgstr "Объект LDAP не найден"
 
 #: cinder/exception.py:807
 #, python-format
 msgid "LDAP user %(user_id)s could not be found."
-msgstr ""
+msgstr "Пользователь LDAP %(user_id)s не найден."
 
 #: cinder/exception.py:811
 #, python-format
 msgid "LDAP group %(group_id)s could not be found."
-msgstr ""
+msgstr "Группа LDAP %(group_id)s не найдена."
 
 #: cinder/exception.py:815
 #, python-format
 msgid "LDAP user %(user_id)s is not a member of group %(group_id)s."
-msgstr ""
+msgstr "Пользователь LDAP %(user_id)s не является участником группы %(group_id)s."
 
 #: cinder/exception.py:819
 #, python-format
 msgid "File %(file_path)s could not be found."
-msgstr ""
+msgstr "Файл %(file_path)s не может быть найден."
 
 #: cinder/exception.py:823
 msgid "Zero files could be found."
@@ -842,25 +867,27 @@ msgstr ""
 #, python-format
 msgid "Virtual switch associated with the network adapter %(adapter)s not found."
 msgstr ""
+"Не найден виртуальный переключатель ассоциированный с сетевым адаптером "
+"%(adapter)s."
 
 #: cinder/exception.py:832
 #, python-format
 msgid "Network adapter %(adapter)s could not be found."
-msgstr ""
+msgstr "Сетевой адаптер %(adapter)s не может быть найден."
 
 #: cinder/exception.py:836
 #, python-format
 msgid "Class %(class_name)s could not be found: %(exception)s"
-msgstr ""
+msgstr "Класс %(class_name)s не найден: %(exception)s"
 
 #: cinder/exception.py:840
 msgid "Action not allowed."
-msgstr ""
+msgstr "Действие не разрешено."
 
 #: cinder/exception.py:844
 #, python-format
 msgid "Unable to use global role %(role_id)s"
-msgstr ""
+msgstr "Невозможно использовать глобальные полномочия %(role_id)s"
 
 #: cinder/exception.py:848
 msgid "Rotation is not allowed for snapshots"
@@ -878,61 +905,61 @@ msgstr ""
 #: cinder/exception.py:865
 #, python-format
 msgid "User %(user)s already exists."
-msgstr ""
+msgstr "Пользователь %(user)s уже существует."
 
 #: cinder/exception.py:869
 #, python-format
 msgid "LDAP user %(user)s already exists."
-msgstr ""
+msgstr "Пользователь LDAP %(user)s уже существует."
 
 #: cinder/exception.py:873
 #, python-format
 msgid "LDAP group %(group)s already exists."
-msgstr ""
+msgstr "Группа LDAP %(group)s уже существует."
 
 #: cinder/exception.py:877
 #, python-format
 msgid "User %(uid)s is already a member of the group %(group_dn)s"
-msgstr ""
+msgstr "Пользователь %(uid)s уже является участником группы %(group_dn)s"
 
 #: cinder/exception.py:882
 #, python-format
 msgid "Project %(project)s already exists."
-msgstr ""
+msgstr "Проект %(project)s уже существует."
 
 #: cinder/exception.py:886
 #, python-format
 msgid "Instance %(name)s already exists."
-msgstr ""
+msgstr "Копия %(name)s уже существует."
 
 #: cinder/exception.py:890
 #, python-format
 msgid "Instance Type %(name)s already exists."
-msgstr ""
+msgstr "Тип копии %(name)s уже существует."
 
 #: cinder/exception.py:894
 #, python-format
 msgid "Volume Type %(name)s already exists."
-msgstr ""
+msgstr "Тип тома %(name)s уже существует."
 
 #: cinder/exception.py:898
 #, python-format
 msgid "%(path)s is on shared storage: %(reason)s"
-msgstr ""
+msgstr "%(path)s располагается на общедоступном накопителе: %(reason)s"
 
 #: cinder/exception.py:902
 msgid "Migration error"
-msgstr ""
+msgstr "Ошибка перемещения"
 
 #: cinder/exception.py:906
 #, python-format
 msgid "Malformed message body: %(reason)s"
-msgstr ""
+msgstr "Неправильное тело сообщения: %(reason)s"
 
 #: cinder/exception.py:910
 #, python-format
 msgid "Could not find config at %(path)s"
-msgstr ""
+msgstr "Невозможно найти конфигурацию по адресу %(path)s"
 
 #: cinder/exception.py:914
 #, python-format
@@ -941,15 +968,15 @@ msgstr ""
 
 #: cinder/exception.py:918
 msgid "When resizing, instances must change size!"
-msgstr ""
+msgstr "При изменении размера, копии должны изменить размер!"
 
 #: cinder/exception.py:922
 msgid "Image is larger than instance type allows"
-msgstr ""
+msgstr "Образ больше, чем допустимо для этого типа копии"
 
 #: cinder/exception.py:926
 msgid "1 or more Zones could not complete the request"
-msgstr ""
+msgstr "1-а или несколько зон не могут завершить запрос"
 
 #: cinder/exception.py:930
 msgid "Instance type's memory is too small for requested image."
@@ -962,7 +989,7 @@ msgstr ""
 #: cinder/exception.py:938
 #, python-format
 msgid "Insufficient free memory on compute node to start %(uuid)s."
-msgstr ""
+msgstr "Недостаточно памяти на узле сети compute для запуска %(uuid)s."
 
 #: cinder/exception.py:942
 msgid "Could not fetch bandwidth/cpu/disk metrics for this host."
@@ -971,16 +998,16 @@ msgstr ""
 #: cinder/exception.py:946
 #, python-format
 msgid "No valid host was found. %(reason)s"
-msgstr ""
+msgstr "Допустимый узел не найден. %(reason)s"
 
 #: cinder/exception.py:950
 #, python-format
 msgid "Host %(host)s is not up or doesn't exist."
-msgstr ""
+msgstr "Узел %(host)s не работает или не существует."
 
 #: cinder/exception.py:954
 msgid "Quota exceeded"
-msgstr ""
+msgstr "Превышена квота"
 
 #: cinder/exception.py:958
 #, python-format
@@ -1028,6 +1055,8 @@ msgstr ""
 #, python-format
 msgid "Cannot create volume_type with name %(name)s and specs %(extra_specs)s"
 msgstr ""
+"Невозможно создать volume_type с именем %(name)s и спецификациями "
+"%(extra_specs)s"
 
 #: cinder/exception.py:997
 msgid "Unable to create instance type"
@@ -1055,7 +1084,7 @@ msgstr ""
 #: cinder/exception.py:1017
 #, python-format
 msgid "Instance %(instance_id)s could not be found."
-msgstr ""
+msgstr "Копия %(instance_id)s не найдена."
 
 #: cinder/exception.py:1021
 #, python-format
@@ -1063,9 +1092,9 @@ msgid "Invalid id: %(val)s (expecting \"i-...\")."
 msgstr ""
 
 #: cinder/exception.py:1025
-#, python-format
+#, fuzzy, python-format
 msgid "Could not fetch image %(image)s"
-msgstr ""
+msgstr "Получение образа %(image)s"
 
 #: cinder/log.py:315
 #, python-format
@@ -1076,16 +1105,18 @@ msgstr ""
 #, python-format
 msgid "Skipping %(full_task_name)s, %(ticks_to_skip)s ticks left until next run"
 msgstr ""
+"Пропуск %(full_task_name)s, %(ticks_to_skip)s раз осталось, для "
+"произведения следующего запуска"
 
 #: cinder/manager.py:152
 #, python-format
 msgid "Running periodic task %(full_task_name)s"
-msgstr ""
+msgstr "Запуск повторяющегося задания %(full_task_name)s"
 
 #: cinder/manager.py:159
 #, python-format
 msgid "Error during %(full_task_name)s: %(e)s"
-msgstr ""
+msgstr "Ошибка во время %(full_task_name)s: %(e)s"
 
 #: cinder/manager.py:203
 msgid "Notifying Schedulers of capabilities ..."
@@ -1106,7 +1137,7 @@ msgstr ""
 #: cinder/service.py:177
 #, python-format
 msgid "Starting %(topic)s node (version %(vcs_string)s)"
-msgstr ""
+msgstr "Запуск узла сети (версия %(vcs_string)s) %(topic)s"
 
 #: cinder/service.py:195
 #, python-format
@@ -1115,11 +1146,11 @@ msgstr ""
 
 #: cinder/service.py:282
 msgid "Service killed that has no database entry"
-msgstr ""
+msgstr "Служба завершила работу из-за отсутствия записи базы данных"
 
 #: cinder/service.py:319
 msgid "The service database object disappeared, Recreating it."
-msgstr ""
+msgstr "Объект сервиса в базе данных отсутствует, Повторное создание."
 
 #: cinder/service.py:334
 msgid "Recovered model server connection!"
@@ -1131,7 +1162,7 @@ msgstr ""
 
 #: cinder/service.py:433
 msgid "Full set of FLAGS:"
-msgstr ""
+msgstr "Полный набор ФЛАГОВ:"
 
 #: cinder/service.py:440
 #, python-format
@@ -1141,50 +1172,50 @@ msgstr ""
 #: cinder/utils.py:79
 #, python-format
 msgid "Inner Exception: %s"
-msgstr ""
+msgstr "Вложенное исключение: %s"
 
 #: cinder/utils.py:165
 #, python-format
 msgid "Fetching %s"
-msgstr ""
+msgstr "Получение %s"
 
 #: cinder/utils.py:210
 #, python-format
 msgid "Got unknown keyword args to utils.execute: %r"
-msgstr ""
+msgstr "Приняты неизвестные аргументы ключевого слова для utils.execute: %r"
 
 #: cinder/utils.py:220
 #, python-format
 msgid "Running cmd (subprocess): %s"
-msgstr ""
+msgstr "Выполнение команды (субпроцесс): %s"
 
 #: cinder/utils.py:236 cinder/utils.py:315
 #, python-format
 msgid "Result was %s"
-msgstr ""
+msgstr "Результат %s"
 
 #: cinder/utils.py:249
 #, python-format
 msgid "%r failed. Retrying."
-msgstr ""
+msgstr "%r ошибка. Выполняется повтор."
 
 #: cinder/utils.py:291
 #, python-format
 msgid "Running cmd (SSH): %s"
-msgstr ""
+msgstr "Выполнение команды (SSH): %s"
 
 #: cinder/utils.py:293
 msgid "Environment not supported over SSH"
-msgstr ""
+msgstr "Среда не поддерживается с использованием SSH"
 
 #: cinder/utils.py:297
 msgid "process_input not supported over SSH"
-msgstr ""
+msgstr "process_input не поддерживается с использованием SSH"
 
 #: cinder/utils.py:352
 #, python-format
 msgid "debug in callback: %s"
-msgstr ""
+msgstr "отладка в обратном вызове: %s"
 
 #: cinder/utils.py:534
 #, python-format
@@ -1199,12 +1230,12 @@ msgstr ""
 #: cinder/utils.py:648
 #, python-format
 msgid "Invalid backend: %s"
-msgstr ""
+msgstr "Недопустимый внутренний интерфейс: %s"
 
 #: cinder/utils.py:659
 #, python-format
 msgid "backend %s"
-msgstr ""
+msgstr "внутренний интерфейс %s"
 
 #: cinder/utils.py:709
 msgid "in looping call"
@@ -1253,68 +1284,68 @@ msgstr ""
 #: cinder/utils.py:1138
 #, python-format
 msgid "Expected object of type: %s"
-msgstr ""
+msgstr "Ожидался объект типа: %s"
 
 #: cinder/utils.py:1169
 #, python-format
 msgid "Invalid server_string: %s"
-msgstr ""
+msgstr "Недопустимая server_string: %s"
 
 #: cinder/utils.py:1298
 #, python-format
 msgid "timefunc: '%(name)s' took %(total_time).2f secs"
-msgstr ""
+msgstr "timefunc: '%(name)s' заняла %(total_time).2f с."
 
 #: cinder/utils.py:1330
 msgid "Original exception being dropped"
-msgstr ""
+msgstr "Исходное исключение было сброшено"
 
 #: cinder/utils.py:1461
 #, python-format
 msgid "Class %(fullname)s is deprecated: %(msg)s"
-msgstr ""
+msgstr "Класс %(fullname)s устарел: %(msg)s"
 
 #: cinder/utils.py:1463
 #, python-format
 msgid "Class %(fullname)s is deprecated"
-msgstr ""
+msgstr "Класс %(fullname)s устарел"
 
 #: cinder/utils.py:1495
 #, python-format
 msgid "Function %(name)s in %(location)s is deprecated: %(msg)s"
-msgstr ""
+msgstr "Функция %(name)s в %(location)s устарела: %(msg)s"
 
 #: cinder/utils.py:1497
 #, python-format
 msgid "Function %(name)s in %(location)s is deprecated"
-msgstr ""
+msgstr "Функция %(name)s в %(location)s устарела"
 
 #: cinder/utils.py:1681
-#, python-format
+#, fuzzy, python-format
 msgid "Could not remove tmpdir: %s"
-msgstr ""
+msgstr "Ошибка удаления контейнера: %s"
 
 #: cinder/wsgi.py:97
 #, python-format
 msgid "Started %(name)s on %(host)s:%(port)s"
-msgstr ""
+msgstr "Выполняется %(name)s на %(host)s:%(port)s"
 
 #: cinder/wsgi.py:108
 msgid "Stopping WSGI server."
-msgstr ""
+msgstr "Выполняется останов сервера WSGI."
 
 #: cinder/wsgi.py:111
 msgid "Stopping raw TCP server."
-msgstr ""
+msgstr "Выполняется останов сервера TCP."
 
 #: cinder/wsgi.py:117
 #, python-format
 msgid "Starting TCP server %(arg0)s on %(host)s:%(port)s"
-msgstr ""
+msgstr "Запуск TCP сервера %(arg0)s на %(host)s:%(port)s"
 
 #: cinder/wsgi.py:133
 msgid "WSGI server has stopped."
-msgstr ""
+msgstr "Сервер WSGI был остановлен."
 
 #: cinder/wsgi.py:211
 msgid "You must implement __call__"
@@ -1322,7 +1353,7 @@ msgstr ""
 
 #: cinder/api/direct.py:218
 msgid "not available"
-msgstr ""
+msgstr "недоступно"
 
 #: cinder/api/direct.py:299
 #, python-format
@@ -1350,7 +1381,7 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:170
 msgid "Too many failed authentications."
-msgstr ""
+msgstr "Слишком много неудачных попыток аутентификации."
 
 #: cinder/api/ec2/__init__.py:180
 #, python-format
@@ -1374,17 +1405,17 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:388
 #, python-format
 msgid "Authentication Failure: %s"
-msgstr ""
+msgstr "Ошибка аутентификации: %s"
 
 #: cinder/api/ec2/__init__.py:404
 #, python-format
 msgid "Authenticated Request For %(uname)s:%(pname)s)"
-msgstr ""
+msgstr "Запрос аутентификации для %(uname)s:%(pname)s)"
 
 #: cinder/api/ec2/__init__.py:435
 #, python-format
 msgid "action: %s"
-msgstr ""
+msgstr "действие: %s"
 
 #: cinder/api/ec2/__init__.py:437
 #, python-format
@@ -1395,6 +1426,8 @@ msgstr ""
 #, python-format
 msgid "Unauthorized request for controller=%(controller)s and action=%(action)s"
 msgstr ""
+"Неавторизированный запрос для контроллера=%(controller)s и "
+"действия=%(action)s"
 
 #: cinder/api/ec2/__init__.py:584
 #, python-format
@@ -1469,47 +1502,56 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:649 cinder/api/metadata/handler.py:248
 msgid "An unknown error has occurred. Please try your request again."
 msgstr ""
+"Произошла неизвестная ошибка. Пожалуйста, попытайтесь повторить ваш "
+"запрос."
 
 #: cinder/api/ec2/apirequest.py:64
 #, python-format
 msgid "Unsupported API request: controller = %(controller)s, action = %(action)s"
 msgstr ""
+"Неподдерживаемый запрос API: контроллер = %(controller)s, действие = "
+"%(action)s"
 
 #: cinder/api/ec2/cloud.py:336
 #, python-format
 msgid "Create snapshot of volume %s"
-msgstr ""
+msgstr "Создать снимок тома %s"
 
 #: cinder/api/ec2/cloud.py:372
-#, python-format
+#, fuzzy, python-format
 msgid ""
 "Value (%s) for KeyName is invalid. Content limited to Alphanumeric "
 "character, spaces, dashes, and underscore."
 msgstr ""
+"Значение (%s) для параметра GroupName недопустимо. Содержание ограничено "
+"буквенно-цифровыми символами, пробелами, тире и подчёркиваниями."
 
 #: cinder/api/ec2/cloud.py:378
-#, python-format
+#, fuzzy, python-format
 msgid "Value (%s) for Keyname is invalid. Length exceeds maximum of 255."
 msgstr ""
+"Значение (%s) для параметра GroupName недопустимо. Длина превышает "
+"максимально допустимое значение 255."
 
 #: cinder/api/ec2/cloud.py:382
 #, python-format
 msgid "Create key pair %s"
-msgstr ""
+msgstr "Создание пары ключей %s"
 
 #: cinder/api/ec2/cloud.py:391
 #, python-format
 msgid "Import key %s"
-msgstr ""
+msgstr "Импортировать ключ %s"
 
 #: cinder/api/ec2/cloud.py:409
 #, python-format
 msgid "Delete key pair %s"
-msgstr ""
+msgstr "Удаление пары ключей %s"
 
 #: cinder/api/ec2/cloud.py:551
+#, fuzzy, python-format
 msgid "Invalid CIDR"
-msgstr ""
+msgstr "Недопустимый cidr %(cidr)s."
 
 #: cinder/api/ec2/cloud.py:639 cinder/api/ec2/cloud.py:693
 #: cinder/api/ec2/cloud.py:800
@@ -1523,13 +1565,13 @@ msgid "Revoke security group ingress %s"
 msgstr ""
 
 #: cinder/api/ec2/cloud.py:666 cinder/api/ec2/cloud.py:719
-#, python-format
+#, fuzzy, python-format
 msgid "%s Not enough parameters to build a valid rule"
-msgstr ""
+msgstr "Недостаточно параметров для сбора правильного правила."
 
 #: cinder/api/ec2/cloud.py:684 cinder/api/ec2/cloud.py:744
 msgid "No rule for the specified parameters."
-msgstr ""
+msgstr "Отсутствует правило для заданных параметров."
 
 #: cinder/api/ec2/cloud.py:708
 #: cinder/api/openstack/compute/contrib/security_groups.py:354
@@ -1538,9 +1580,9 @@ msgid "Authorize security group ingress %s"
 msgstr ""
 
 #: cinder/api/ec2/cloud.py:725
-#, python-format
+#, fuzzy, python-format
 msgid "%s - This rule already exists in group"
-msgstr ""
+msgstr "Это правило уже существует в группе %s"
 
 #: cinder/api/ec2/cloud.py:769
 #, python-format
@@ -1548,6 +1590,8 @@ msgid ""
 "Value (%s) for parameter GroupName is invalid. Content limited to "
 "Alphanumeric characters, spaces, dashes, and underscores."
 msgstr ""
+"Значение (%s) для параметра GroupName недопустимо. Содержание ограничено "
+"буквенно-цифровыми символами, пробелами, тире и подчёркиваниями."
 
 #: cinder/api/ec2/cloud.py:776
 #, python-format
@@ -1555,67 +1599,72 @@ msgid ""
 "Value (%s) for parameter GroupName is invalid. Length exceeds maximum of "
 "255."
 msgstr ""
+"Значение (%s) для параметра GroupName недопустимо. Длина превышает "
+"максимально допустимое значение 255."
 
 #: cinder/api/ec2/cloud.py:780
 #: cinder/api/openstack/compute/contrib/security_groups.py:292
 #, python-format
 msgid "Create Security Group %s"
-msgstr ""
+msgstr "Создать группу безопасности %s"
 
 #: cinder/api/ec2/cloud.py:783
 #, python-format
 msgid "group %s already exists"
-msgstr ""
+msgstr "группа %s уже существует"
 
 #: cinder/api/ec2/cloud.py:815
 #: cinder/api/openstack/compute/contrib/security_groups.py:245
 #, python-format
 msgid "Delete security group %s"
-msgstr ""
+msgstr "Удалить группу безопасности %s"
 
 #: cinder/api/ec2/cloud.py:823 cinder/compute/manager.py:1630
 #, python-format
 msgid "Get console output for instance %s"
-msgstr ""
+msgstr "Получить консольный вывод для копии %s"
 
 #: cinder/api/ec2/cloud.py:894
 #, python-format
 msgid "Create volume from snapshot %s"
-msgstr ""
+msgstr "Создать том из снимка %s"
 
 #: cinder/api/ec2/cloud.py:898 cinder/api/openstack/compute/contrib/volumes.py:186
 #: cinder/api/openstack/volume/volumes.py:222
 #, python-format
 msgid "Create volume of %s GB"
-msgstr ""
+msgstr "Создание раздела %s ГБ"
 
 #: cinder/api/ec2/cloud.py:921
+#, fuzzy
 msgid "Delete Failed"
-msgstr ""
+msgstr "Ошибка создания"
 
 #: cinder/api/ec2/cloud.py:931
 #, python-format
 msgid "Attach volume %(volume_id)s to instance %(instance_id)s at %(device)s"
-msgstr ""
+msgstr "Подключить том %(volume_id)s для копии %(instance_id)s на %(device)s"
 
 #: cinder/api/ec2/cloud.py:939
+#, fuzzy
 msgid "Attach Failed."
-msgstr ""
+msgstr "Ошибка создания"
 
 #: cinder/api/ec2/cloud.py:952 cinder/api/openstack/compute/contrib/volumes.py:366
 #, python-format
 msgid "Detach volume %s"
-msgstr ""
+msgstr "Отсоединить том %s"
 
 #: cinder/api/ec2/cloud.py:959
+#, fuzzy, python-format
 msgid "Detach Volume Failed."
-msgstr ""
+msgstr "Отсоединить том %s"
 
 #: cinder/api/ec2/cloud.py:984 cinder/api/ec2/cloud.py:1041
 #: cinder/api/ec2/cloud.py:1518 cinder/api/ec2/cloud.py:1533
 #, python-format
 msgid "attribute not supported: %s"
-msgstr ""
+msgstr "аттрибут не поддерживается: %s"
 
 #: cinder/api/ec2/cloud.py:1107
 #, python-format
@@ -1624,48 +1673,48 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1255
 msgid "Allocate address"
-msgstr ""
+msgstr "Выделить адрес"
 
 #: cinder/api/ec2/cloud.py:1267
 #, python-format
 msgid "Release address %s"
-msgstr ""
+msgstr "Присвоить адрес %s"
 
 #: cinder/api/ec2/cloud.py:1272
 #, python-format
 msgid "Associate address %(public_ip)s to instance %(instance_id)s"
-msgstr ""
+msgstr "Присвоить адрес %(public_ip)s копии %(instance_id)s"
 
 #: cinder/api/ec2/cloud.py:1282
 #, python-format
 msgid "Disassociate address %s"
-msgstr ""
+msgstr "Исключить адрес %s"
 
 #: cinder/api/ec2/cloud.py:1308
 msgid "Image must be available"
-msgstr ""
+msgstr "Образ должен быть доступен"
 
 #: cinder/api/ec2/cloud.py:1329
 msgid "Going to start terminating instances"
-msgstr ""
+msgstr "Выполнение завершения работы копий"
 
 #: cinder/api/ec2/cloud.py:1343
 #, python-format
 msgid "Reboot instance %r"
-msgstr ""
+msgstr "Перезагрузить копию %r"
 
 #: cinder/api/ec2/cloud.py:1354
 msgid "Going to stop instances"
-msgstr ""
+msgstr "Выполнение остановки копий"
 
 #: cinder/api/ec2/cloud.py:1365
 msgid "Going to start instances"
-msgstr ""
+msgstr "Выполнение запуска копий"
 
 #: cinder/api/ec2/cloud.py:1455
 #, python-format
 msgid "De-registering image %s"
-msgstr ""
+msgstr "Исключение регистрации образа %s"
 
 #: cinder/api/ec2/cloud.py:1471
 msgid "imageLocation is required"
@@ -1674,15 +1723,15 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1490
 #, python-format
 msgid "Registered image %(image_location)s with id %(image_id)s"
-msgstr ""
+msgstr "Зарегистрированный образ %(image_location)s с идентификатором %(image_id)s"
 
 #: cinder/api/ec2/cloud.py:1536
 msgid "user or group not specified"
-msgstr ""
+msgstr "не указан пользователь или группа"
 
 #: cinder/api/ec2/cloud.py:1538
 msgid "only group \"all\" is supported"
-msgstr ""
+msgstr "поддерживается только группа \"все(all)\""
 
 #: cinder/api/ec2/cloud.py:1540
 msgid "operation_type must be add or remove"
@@ -1691,7 +1740,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1542
 #, python-format
 msgid "Updating image %s publicity"
-msgstr ""
+msgstr "Обновление осведомлённости об образе %s"
 
 #: cinder/api/ec2/cloud.py:1555
 #, python-format
@@ -1701,22 +1750,22 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1603
 #, python-format
 msgid "Couldn't stop instance with in %d sec"
-msgstr ""
+msgstr "Невозможно остановить копию в течении %d с."
 
 #: cinder/api/metadata/handler.py:246 cinder/api/metadata/handler.py:253
 #, python-format
 msgid "Failed to get metadata for ip: %s"
-msgstr ""
+msgstr "Ошибка получения метаданных для ip: %s"
 
 #: cinder/api/openstack/__init__.py:43
 #, python-format
 msgid "Caught error: %s"
-msgstr ""
+msgstr "Обнаружена ошибка: %s"
 
 #: cinder/api/openstack/__init__.py:45 cinder/api/openstack/wsgi.py:886
 #, python-format
 msgid "%(url)s returned with HTTP %(status)d"
-msgstr ""
+msgstr "%(url)s возвратил с HTTP %(status)d"
 
 #: cinder/api/openstack/__init__.py:94
 msgid "Must specify an ExtensionManager class"
@@ -1725,7 +1774,7 @@ msgstr ""
 #: cinder/api/openstack/__init__.py:105
 #, python-format
 msgid "Extended resource: %s"
-msgstr ""
+msgstr "Расширенный ресурс: %s"
 
 #: cinder/api/openstack/__init__.py:130
 #, python-format
@@ -1733,21 +1782,23 @@ msgid ""
 "Extension %(ext_name)s: Cannot extend resource %(collection)s: No such "
 "resource"
 msgstr ""
+"Расширение %(ext_name)s: Невозможно расширить ресурс %(collection)s: Нет "
+"такого ресурса"
 
 #: cinder/api/openstack/__init__.py:135
 #, python-format
 msgid "Extension %(ext_name)s extending resource: %(collection)s"
-msgstr ""
+msgstr "Расширение %(ext_name)s расширение ресурса: %(collection)s"
 
 #: cinder/api/openstack/auth.py:90
 #, python-format
 msgid "%(user_id)s could not be found with token '%(token)s'"
-msgstr ""
+msgstr "%(user_id)s не может быть найден с токеном '%(token)s'"
 
 #: cinder/api/openstack/auth.py:134
 #, python-format
 msgid "%(user_id)s must be an admin or a member of %(project_id)s"
-msgstr ""
+msgstr "%(user_id)s должен быть администратором или участником %(project_id)s"
 
 #: cinder/api/openstack/auth.py:152
 msgid "Authentication requests must be made against a version root (e.g. /v2)."
@@ -1756,21 +1807,21 @@ msgstr ""
 #: cinder/api/openstack/auth.py:167
 #, python-format
 msgid "Could not find %s in request."
-msgstr ""
+msgstr "В запросе невозможно найти %s."
 
 #: cinder/api/openstack/auth.py:191
 #, python-format
 msgid "Successfully authenticated '%s'"
-msgstr ""
+msgstr "Аутентификация '%s' выполнена"
 
 #: cinder/api/openstack/auth.py:241
 msgid "User not found with provided API key."
-msgstr ""
+msgstr "Не найден пользователь с предоставленным API ключом."
 
 #: cinder/api/openstack/auth.py:258
 #, python-format
 msgid "Provided API key is valid, but not for user '%(username)s'"
-msgstr ""
+msgstr "Предоставленный ключ API допустим, но не для пользователя '%(username)s'"
 
 #: cinder/api/openstack/common.py:133 cinder/api/openstack/common.py:167
 msgid "limit param must be an integer"
@@ -1791,12 +1842,12 @@ msgstr ""
 #: cinder/api/openstack/common.py:203
 #, python-format
 msgid "marker [%s] not found"
-msgstr ""
+msgstr "маркер [%s] не найден"
 
 #: cinder/api/openstack/common.py:243
 #, python-format
 msgid "href %s does not contain version"
-msgstr ""
+msgstr "href %s не содержит версию"
 
 #: cinder/api/openstack/common.py:278
 msgid "Image metadata limit exceeded"
@@ -1808,32 +1859,32 @@ msgid "Converting nw_info: %s"
 msgstr ""
 
 #: cinder/api/openstack/common.py:305
-#, python-format
+#, fuzzy, python-format
 msgid "Converted networks: %s"
-msgstr ""
+msgstr "Непредвиденная ошибка: %s"
 
 #: cinder/api/openstack/common.py:338
 #, python-format
 msgid "Cannot '%(action)s' while instance is in %(attr)s %(state)s"
-msgstr ""
+msgstr "Невозможно '%(action)s', когда копия в %(attr)s %(state)s"
 
 #: cinder/api/openstack/common.py:341
 #, python-format
 msgid "Instance is in an invalid state for '%(action)s'"
-msgstr ""
+msgstr "Копия в недопустимом состоянии для '%(action)s'"
 
 #: cinder/api/openstack/common.py:421
 msgid "Rejecting snapshot request, snapshots currently disabled"
-msgstr ""
+msgstr "Отклонение запроса снимка, снимки в данный момент отключены"
 
 #: cinder/api/openstack/common.py:423
 msgid "Instance snapshots are not permitted at this time."
-msgstr ""
+msgstr "Снимки копии в настоящий момент недопустимы."
 
 #: cinder/api/openstack/extensions.py:188
 #, python-format
 msgid "Loaded extension: %s"
-msgstr ""
+msgstr "Загруженное расширение: %s"
 
 #: cinder/api/openstack/extensions.py:225
 #, python-format
@@ -1868,7 +1919,7 @@ msgstr ""
 #: cinder/api/openstack/extensions.py:246
 #, python-format
 msgid "Loading extension %s"
-msgstr ""
+msgstr "Загрузка расширения %s"
 
 #: cinder/api/openstack/extensions.py:252
 #, python-format
@@ -1878,7 +1929,7 @@ msgstr ""
 #: cinder/api/openstack/extensions.py:264
 #, python-format
 msgid "Failed to load extension %(ext_factory)s: %(exc)s"
-msgstr ""
+msgstr "Ошибка загрузки расширения %(ext_factory)s: %(exc)s"
 
 #: cinder/api/openstack/extensions.py:344
 #, python-format
@@ -1888,7 +1939,7 @@ msgstr ""
 #: cinder/api/openstack/extensions.py:368
 #, python-format
 msgid "Failed to load extension %(ext_name)s: %(exc)s"
-msgstr ""
+msgstr "Ошибка загрузки расширения %(ext_name)s: %(exc)s"
 
 #: cinder/api/openstack/wsgi.py:135 cinder/api/openstack/wsgi.py:538
 msgid "cannot understand JSON"
@@ -1904,9 +1955,9 @@ msgid "too many body keys"
 msgstr ""
 
 #: cinder/api/openstack/wsgi.py:582
-#, python-format
+#, fuzzy, python-format
 msgid "Exception handling resource: %s"
-msgstr ""
+msgstr "Расширенный ресурс: %s"
 
 #: cinder/api/openstack/wsgi.py:586
 #, python-format
@@ -1920,15 +1971,15 @@ msgstr ""
 
 #: cinder/api/openstack/wsgi.py:697
 msgid "Unrecognized Content-Type provided in request"
-msgstr ""
+msgstr "В запросе предоставлен не распознанный тип-содержимого"
 
 #: cinder/api/openstack/wsgi.py:701
 msgid "No Content-Type provided in request"
-msgstr ""
+msgstr "Тип содержимого не предоставлен в запросе"
 
 #: cinder/api/openstack/wsgi.py:705
 msgid "Empty body provided in request"
-msgstr ""
+msgstr "Пустое тело предоставлено в запросе"
 
 #: cinder/api/openstack/wsgi.py:816
 #, python-format
@@ -1943,24 +1994,24 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:211
 #: cinder/api/openstack/compute/contrib/console_output.py:52
 msgid "Malformed request body"
-msgstr ""
+msgstr "Неправильное тело запроса"
 
 #: cinder/api/openstack/wsgi.py:829
 msgid "Unsupported Content-Type"
-msgstr ""
+msgstr "Не поддерживаемый  тип содержимого"
 
 #: cinder/api/openstack/wsgi.py:841
 msgid "Malformed request url"
-msgstr ""
+msgstr "Неправильный запрос url"
 
 #: cinder/api/openstack/wsgi.py:889
 #, python-format
 msgid "%(url)s returned a fault: %(e)s"
-msgstr ""
+msgstr "%(url)s возвратил ошибку: %(e)s"
 
 #: cinder/api/openstack/xmlutil.py:265
 msgid "element is not a child"
-msgstr ""
+msgstr "элемент не является потомком"
 
 #: cinder/api/openstack/xmlutil.py:414
 msgid "root element selecting a list"
@@ -1978,43 +2029,43 @@ msgstr ""
 #: cinder/api/openstack/compute/extensions.py:29
 #: cinder/api/openstack/volume/extensions.py:29
 msgid "Initializing extension manager."
-msgstr ""
+msgstr "Инициализация диспетчера расширений."
 
 #: cinder/api/openstack/compute/image_metadata.py:40
 #: cinder/api/openstack/compute/images.py:146
 #: cinder/api/openstack/compute/images.py:161
 msgid "Image not found."
-msgstr ""
+msgstr "образ не найден."
 
 #: cinder/api/openstack/compute/image_metadata.py:79
 msgid "Incorrect request body format"
-msgstr ""
+msgstr "Неправильный формат тела запроса"
 
 #: cinder/api/openstack/compute/image_metadata.py:83
 #: cinder/api/openstack/compute/server_metadata.py:80
 #: cinder/api/openstack/compute/contrib/flavorextraspecs.py:79
 #: cinder/api/openstack/compute/contrib/volumetypes.py:188
 msgid "Request body and URI mismatch"
-msgstr ""
+msgstr "Тело запроса и URI не совпадают"
 
 #: cinder/api/openstack/compute/image_metadata.py:86
 #: cinder/api/openstack/compute/server_metadata.py:84
 #: cinder/api/openstack/compute/contrib/flavorextraspecs.py:82
 #: cinder/api/openstack/compute/contrib/volumetypes.py:191
 msgid "Request body contains too many items"
-msgstr ""
+msgstr "Тело запроса содержит избыточное количество объектов"
 
 #: cinder/api/openstack/compute/image_metadata.py:111
 msgid "Invalid metadata key"
-msgstr ""
+msgstr "Неправильный ключ метаданных"
 
 #: cinder/api/openstack/compute/ips.py:74
 msgid "Instance does not exist"
-msgstr ""
+msgstr "Копия не существует"
 
 #: cinder/api/openstack/compute/ips.py:97
 msgid "Instance is not a member of specified network"
-msgstr ""
+msgstr "Копия не является участником заданной сети"
 
 #: cinder/api/openstack/compute/limits.py:140
 #, python-format
@@ -2022,6 +2073,8 @@ msgid ""
 "Only %(value)s %(verb)s request(s) can be made to %(uri)s every "
 "%(unit_string)s."
 msgstr ""
+"Только %(value)s %(verb)s запрос(ов) могут быть сделаны для %(uri)s, "
+"каждые %(unit_string)s."
 
 #: cinder/api/openstack/compute/limits.py:266
 msgid "This request was rate-limited."
@@ -2031,17 +2084,17 @@ msgstr ""
 #: cinder/api/openstack/compute/server_metadata.py:122
 #: cinder/api/openstack/compute/server_metadata.py:159
 msgid "Server does not exist"
-msgstr ""
+msgstr "Сервер не существует"
 
 #: cinder/api/openstack/compute/server_metadata.py:141
 #: cinder/api/openstack/compute/server_metadata.py:152
 msgid "Metadata item was not found"
-msgstr ""
+msgstr "Элемент метаданных не найден"
 
 #: cinder/api/openstack/compute/servers.py:425
 #, python-format
 msgid "Invalid server status: %(status)s"
-msgstr ""
+msgstr "Недопустимое состояние сервера: %(status)s"
 
 #: cinder/api/openstack/compute/servers.py:433
 msgid "Invalid changes-since value"
@@ -2065,7 +2118,7 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:505
 msgid "Server name is an empty string"
-msgstr ""
+msgstr "Имя сервера является пустой строкой"
 
 #: cinder/api/openstack/compute/servers.py:509
 msgid "Server name must be less than 256 characters."
@@ -2088,30 +2141,30 @@ msgstr ""
 #: cinder/api/openstack/compute/servers.py:550
 #, python-format
 msgid "Bad networks format: network uuid is not in proper format (%s)"
-msgstr ""
+msgstr "Недопустимый сетевой формат: сетевой uuid имеет неправильный формат (%s)"
 
 #: cinder/api/openstack/compute/servers.py:559
 #, python-format
 msgid "Invalid fixed IP address (%s)"
-msgstr ""
+msgstr "Недопустимый фиксированный IP-адрес (%s)"
 
 #: cinder/api/openstack/compute/servers.py:566
 #, python-format
 msgid "Duplicate networks (%s) are not allowed"
-msgstr ""
+msgstr "Дубликаты сетей (%s) не разрешены"
 
 #: cinder/api/openstack/compute/servers.py:572
 #, python-format
 msgid "Bad network format: missing %s"
-msgstr ""
+msgstr "Недопустимый сетевой формат: отсутствует %s"
 
 #: cinder/api/openstack/compute/servers.py:575
 msgid "Bad networks format"
-msgstr ""
+msgstr "Недопустимый сетевой формат"
 
 #: cinder/api/openstack/compute/servers.py:587
 msgid "Userdata content cannot be decoded"
-msgstr ""
+msgstr "Содержимое данных пользователя не может быть дешифровано"
 
 #: cinder/api/openstack/compute/servers.py:594
 msgid "accessIPv4 is not proper IPv4 format"
@@ -2123,25 +2176,25 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:633
 msgid "Server name is not defined"
-msgstr ""
+msgstr "Имя сервера не задано"
 
 #: cinder/api/openstack/compute/servers.py:675
 #: cinder/api/openstack/compute/servers.py:740
 msgid "Invalid flavorRef provided."
-msgstr ""
+msgstr "Предоставлен недопустимый flavorRef."
 
 #: cinder/api/openstack/compute/servers.py:737
 msgid "Can not find requested image"
-msgstr ""
+msgstr "Невозможно найти запрошенный образ"
 
 #: cinder/api/openstack/compute/servers.py:743
 msgid "Invalid key_name provided."
-msgstr ""
+msgstr "Предоставлен недопустимый key_name."
 
 #: cinder/api/openstack/compute/servers.py:829
 #: cinder/api/openstack/compute/servers.py:849
 msgid "Instance has not been resized."
-msgstr ""
+msgstr "С копией не производилось изменение размера."
 
 #: cinder/api/openstack/compute/servers.py:835
 #, python-format
@@ -2159,12 +2212,12 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:872
 msgid "Missing argument 'type' for reboot"
-msgstr ""
+msgstr "Отсутствует аргумент типа 'type' для перезагрузки"
 
 #: cinder/api/openstack/compute/servers.py:885
 #, python-format
 msgid "Error in reboot %s"
-msgstr ""
+msgstr "Ошибка при перезагрузке %s"
 
 #: cinder/api/openstack/compute/servers.py:897
 msgid "Unable to locate requested flavor."
@@ -2172,15 +2225,15 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:900
 msgid "Resize requires a change in size."
-msgstr ""
+msgstr "Изменение размера требует изменения объёма."
 
 #: cinder/api/openstack/compute/servers.py:924
 msgid "Malformed server entity"
-msgstr ""
+msgstr "Неправильный объект сервера"
 
 #: cinder/api/openstack/compute/servers.py:931
 msgid "Missing imageRef attribute"
-msgstr ""
+msgstr "Отсутствует атрибут imageRef"
 
 #: cinder/api/openstack/compute/servers.py:940
 msgid "Invalid imageRef provided."
@@ -2188,16 +2241,16 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:949
 msgid "Missing flavorRef attribute"
-msgstr ""
+msgstr "Отсутствует атрибут flavorRef"
 
 #: cinder/api/openstack/compute/servers.py:962
 msgid "No adminPass was specified"
-msgstr ""
+msgstr "adminPass не был задан"
 
 #: cinder/api/openstack/compute/servers.py:966
 #: cinder/api/openstack/compute/servers.py:1144
 msgid "Invalid adminPass"
-msgstr ""
+msgstr "Недопустимый adminPass"
 
 #: cinder/api/openstack/compute/servers.py:980
 msgid "Unable to parse metadata key/value pairs."
@@ -2205,17 +2258,17 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:993
 msgid "Resize request has invalid 'flavorRef' attribute."
-msgstr ""
+msgstr "Запрос изменения размера имеет недопустимый атрибут 'flavorRef'."
 
 #: cinder/api/openstack/compute/servers.py:996
 msgid "Resize requests require 'flavorRef' attribute."
-msgstr ""
+msgstr "Запросы изменение размера требуют атрибут 'flavorRef'."
 
 #: cinder/api/openstack/compute/servers.py:1014
 #: cinder/api/openstack/compute/contrib/aggregates.py:142
 #: cinder/api/openstack/compute/contrib/networks.py:65
 msgid "Invalid request body"
-msgstr ""
+msgstr "Недопустимый запрос тела"
 
 #: cinder/api/openstack/compute/servers.py:1019
 msgid "Could not parse imageRef from request."
@@ -2223,7 +2276,7 @@ msgstr ""
 
 #: cinder/api/openstack/compute/servers.py:1071
 msgid "Instance could not be found"
-msgstr ""
+msgstr "Копия не найдена"
 
 #: cinder/api/openstack/compute/servers.py:1074
 msgid "Cannot find image for rebuild"
@@ -2236,12 +2289,12 @@ msgstr ""
 #: cinder/api/openstack/compute/servers.py:1112
 #: cinder/api/openstack/compute/contrib/admin_actions.py:238
 msgid "Invalid metadata"
-msgstr ""
+msgstr "Недопустимые метаданные"
 
 #: cinder/api/openstack/compute/servers.py:1167
 #, python-format
 msgid "Removing options '%(unk_opt_str)s' from query"
-msgstr ""
+msgstr "Удаление параметров '%(unk_opt_str)s' из запроса"
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:60
 #, python-format
@@ -2266,7 +2319,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:127
 #, python-format
 msgid "Error in migrate %s"
-msgstr ""
+msgstr "Ошибка перемещения %s"
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:141
 #, python-format
@@ -2279,7 +2332,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/multinic.py:41
 #: cinder/api/openstack/compute/contrib/rescue.py:44
 msgid "Server not found"
-msgstr ""
+msgstr "Сервер не найден"
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:157
 #, python-format
@@ -2318,7 +2371,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/server_diagnostics.py:47
 #: cinder/api/openstack/compute/contrib/server_start_stop.py:38
 msgid "Instance not found"
-msgstr ""
+msgstr "Копия не найдена"
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:272
 msgid "host and block_migration must be specified."
@@ -2330,11 +2383,13 @@ msgid "Live migration of instance %(id)s to host %(host)s failed"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:76
-#, python-format
+#, fuzzy, python-format
 msgid ""
 "Cannot create aggregate with name %(name)s and availability zone "
 "%(avail_zone)s"
 msgstr ""
+"Невозможно создать volume_type с именем %(name)s и спецификациями "
+"%(extra_specs)s"
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:88
 #, python-format
@@ -2342,9 +2397,9 @@ msgid "Cannot show aggregate: %(id)s"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:114
-#, python-format
+#, fuzzy, python-format
 msgid "Cannot update aggregate: %(id)s"
-msgstr ""
+msgstr "Ошибка обновления агента: %(resp)r"
 
 #: cinder/api/openstack/compute/contrib/aggregates.py:126
 #, python-format
@@ -2399,17 +2454,18 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/extended_server_attributes.py:77
 #: cinder/api/openstack/compute/contrib/extended_status.py:61
 msgid "Server not found."
-msgstr ""
+msgstr "Сервер не найден."
 
 #: cinder/api/openstack/compute/contrib/flavorextradata.py:61
 #: cinder/api/openstack/compute/contrib/flavorextradata.py:91
+#, fuzzy
 msgid "Flavor not found."
-msgstr ""
+msgstr "Сервер не найден."
 
 #: cinder/api/openstack/compute/contrib/flavorextraspecs.py:49
 #: cinder/api/openstack/compute/contrib/volumetypes.py:158
 msgid "No Request Body"
-msgstr ""
+msgstr "Нет тела запроса"
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:159
 #, python-format
@@ -2430,7 +2486,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/floating_ips.py:204
 #: cinder/api/openstack/compute/contrib/floating_ips.py:233
 msgid "Address not specified"
-msgstr ""
+msgstr "Адрес не задан"
 
 #: cinder/api/openstack/compute/contrib/floating_ips.py:213
 msgid "No fixed ips associated to instance"
@@ -2443,27 +2499,27 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/hosts.py:144
 #, python-format
 msgid "Invalid status: '%s'"
-msgstr ""
+msgstr "Недопустимое состояние: '%s'"
 
 #: cinder/api/openstack/compute/contrib/hosts.py:148
-#, python-format
+#, fuzzy, python-format
 msgid "Invalid mode: '%s'"
-msgstr ""
+msgstr "Недопустимое состояние: '%s'"
 
 #: cinder/api/openstack/compute/contrib/hosts.py:152
 #, python-format
 msgid "Invalid update setting: '%s'"
-msgstr ""
+msgstr "Недопустимый параметр обновления: '%s'"
 
 #: cinder/api/openstack/compute/contrib/hosts.py:170
-#, python-format
+#, fuzzy, python-format
 msgid "Putting host %(host)s in maintenance mode %(mode)s."
-msgstr ""
+msgstr "Перевод узла %(host)s в %(state)s."
 
 #: cinder/api/openstack/compute/contrib/hosts.py:181
 #, python-format
 msgid "Setting host %(host)s to %(state)s."
-msgstr ""
+msgstr "Перевод узла %(host)s в %(state)s."
 
 #: cinder/api/openstack/compute/contrib/hosts.py:230
 msgid "Describe-resource is admin only functionality"
@@ -2471,7 +2527,7 @@ msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:238
 msgid "Host not found"
-msgstr ""
+msgstr "Узел не найден"
 
 #: cinder/api/openstack/compute/contrib/keypairs.py:70
 msgid "Keypair name contains unsafe characters"
@@ -2488,16 +2544,16 @@ msgstr ""
 
 #: cinder/api/openstack/compute/contrib/multinic.py:52
 msgid "Missing 'networkId' argument for addFixedIp"
-msgstr ""
+msgstr "Отсутствует аргумент 'networkId' для addFixedIp"
 
 #: cinder/api/openstack/compute/contrib/multinic.py:68
 msgid "Missing 'address' argument for removeFixedIp"
-msgstr ""
+msgstr "Отсутствует аргумент 'address' для removeFixedIp"
 
 #: cinder/api/openstack/compute/contrib/multinic.py:77
 #, python-format
 msgid "Unable to find address %r"
-msgstr ""
+msgstr "Невозможно найти адрес %r"
 
 #: cinder/api/openstack/compute/contrib/networks.py:62
 #, python-format
@@ -2507,23 +2563,23 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/networks.py:70
 #, python-format
 msgid "Disassociating network with id %s"
-msgstr ""
+msgstr "Исключение сети с идентификатором %s"
 
 #: cinder/api/openstack/compute/contrib/networks.py:74
 #: cinder/api/openstack/compute/contrib/networks.py:91
 #: cinder/api/openstack/compute/contrib/networks.py:101
 msgid "Network not found"
-msgstr ""
+msgstr "Сеть не найдена"
 
 #: cinder/api/openstack/compute/contrib/networks.py:87
 #, python-format
 msgid "Showing network with id %s"
-msgstr ""
+msgstr "Отображение сети с идентификатором %s"
 
 #: cinder/api/openstack/compute/contrib/networks.py:97
 #, python-format
 msgid "Deleting network with id %s"
-msgstr ""
+msgstr "Удаление сети с идентификатором %s"
 
 #: cinder/api/openstack/compute/contrib/scheduler_hints.py:41
 msgid "Malformed scheduler_hints attribute"
@@ -2534,13 +2590,14 @@ msgid "Security group id should be integer"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:243
+#, fuzzy, python-format
 msgid "Security group is still in use"
-msgstr ""
+msgstr "Группа безопасности (%s) не найдена"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:295
 #, python-format
 msgid "Security group %s already exists"
-msgstr ""
+msgstr "Группа безопасности %s уже существует"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:315
 #, python-format
@@ -2550,7 +2607,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:318
 #, python-format
 msgid "Security group %s cannot be empty."
-msgstr ""
+msgstr "Группа безопасности %s не может быть пустой."
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:321
 #, python-format
@@ -2564,16 +2621,16 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:351
 #, python-format
 msgid "Security group (%s) not found"
-msgstr ""
+msgstr "Группа безопасности (%s) не найдена"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:369
 msgid "Not enough parameters to build a valid rule."
-msgstr ""
+msgstr "Недостаточно параметров для сбора правильного правила."
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:376
 #, python-format
 msgid "This rule already exists in group %s"
-msgstr ""
+msgstr "Это правило уже существует в группе %s"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:414
 msgid "Parent or group id is not integer"
@@ -2586,17 +2643,17 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:510
 #, python-format
 msgid "Rule (%s) not found"
-msgstr ""
+msgstr "Правило (%s) не найдено"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:574
 #: cinder/api/openstack/compute/contrib/security_groups.py:607
 msgid "Security group not specified"
-msgstr ""
+msgstr "Группа безопасности не задана"
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:578
 #: cinder/api/openstack/compute/contrib/security_groups.py:611
 msgid "Security group name cannot be empty"
-msgstr ""
+msgstr "Наименование группы безопасности не может отсутствовать"
 
 #: cinder/api/openstack/compute/contrib/server_start_stop.py:45
 #, python-format
@@ -2612,30 +2669,30 @@ msgstr ""
 #: cinder/api/openstack/volume/volumes.py:106
 #, python-format
 msgid "vol=%s"
-msgstr ""
+msgstr "vol=%s"
 
 #: cinder/api/openstack/compute/contrib/volumes.py:146
 #: cinder/api/openstack/volume/volumes.py:184
 #, python-format
 msgid "Delete volume with id: %s"
-msgstr ""
+msgstr "Удалить том с идентификатором: %s"
 
 #: cinder/api/openstack/compute/contrib/volumes.py:329
 #, python-format
 msgid "Attach volume %(volume_id)s to instance %(server_id)s at %(device)s"
-msgstr ""
+msgstr "Присоединить том %(volume_id)s к копии %(server_id)s на %(device)s"
 
 #: cinder/api/openstack/compute/contrib/volumes.py:481
 #: cinder/api/openstack/volume/snapshots.py:110
 #, python-format
 msgid "Delete snapshot with id: %s"
-msgstr ""
+msgstr "Удалить снимок с идентификатором: %s"
 
 #: cinder/api/openstack/compute/contrib/volumes.py:524
 #: cinder/api/openstack/volume/snapshots.py:150
 #, python-format
 msgid "Create snapshot from volume %s"
-msgstr ""
+msgstr "Создать снимок из тома %s"
 
 #: cinder/auth/fakeldap.py:33
 msgid "Attempted to instantiate singleton"
@@ -2647,16 +2704,18 @@ msgid ""
 "Attempted to remove the last member of a group. Deleting the group at %s "
 "instead."
 msgstr ""
+"Попытка удаление последнего участника группы. Будет выполнено удаление "
+"группы в %s."
 
 #: cinder/auth/manager.py:298
 #, python-format
 msgid "Looking up user: %r"
-msgstr ""
+msgstr "Поиск пользователя: %r"
 
 #: cinder/auth/manager.py:302
 #, python-format
 msgid "Failed authorization for access key %s"
-msgstr ""
+msgstr "Ошибка авторизации для ключа доступа %s"
 
 #: cinder/auth/manager.py:308
 #, python-format
@@ -2666,7 +2725,7 @@ msgstr ""
 #: cinder/auth/manager.py:315
 #, python-format
 msgid "failed authorization: no project named %(pjid)s (user=%(uname)s)"
-msgstr ""
+msgstr "ошибка авторизации: нет проекта под названием %(pjid)s (user=%(uname)s)"
 
 #: cinder/auth/manager.py:324
 #, python-format
@@ -2674,6 +2733,8 @@ msgid ""
 "Failed authorization: user %(uname)s not admin and not member of project "
 "%(pjname)s"
 msgstr ""
+"Ошибка авторизации: пользователь %(uname)s не является администратором и "
+"не является участником проекта %(pjname)s"
 
 #: cinder/auth/manager.py:331 cinder/auth/manager.py:343
 #, python-format
@@ -2688,12 +2749,12 @@ msgstr ""
 #: cinder/auth/manager.py:333 cinder/auth/manager.py:345
 #, python-format
 msgid "signature: %s"
-msgstr ""
+msgstr "подпись: %s"
 
 #: cinder/auth/manager.py:335 cinder/auth/manager.py:357
 #, python-format
 msgid "Invalid signature for user %s"
-msgstr ""
+msgstr "Не допустимая подпись для пользователя %s"
 
 #: cinder/auth/manager.py:353
 #, python-format
@@ -2702,12 +2763,12 @@ msgstr ""
 
 #: cinder/auth/manager.py:449
 msgid "Must specify project"
-msgstr ""
+msgstr "Необходимо указать проект"
 
 #: cinder/auth/manager.py:490
 #, python-format
 msgid "Adding role %(role)s to user %(uid)s in project %(pid)s"
-msgstr ""
+msgstr "Добавление полномочий %(role)s для пользователя %(uid)s в проекте %(pid)s"
 
 #: cinder/auth/manager.py:493
 #, python-format
@@ -2717,7 +2778,7 @@ msgstr ""
 #: cinder/auth/manager.py:519
 #, python-format
 msgid "Removing role %(role)s from user %(uid)s on project %(pid)s"
-msgstr ""
+msgstr "Удаление полномочий %(role)s для пользователя %(uid)s в проекте %(pid)s"
 
 #: cinder/auth/manager.py:522
 #, python-format
@@ -2727,37 +2788,37 @@ msgstr ""
 #: cinder/auth/manager.py:595
 #, python-format
 msgid "Created project %(name)s with manager %(manager_user)s"
-msgstr ""
+msgstr "Созданный проект %(name)s с диспетчером %(manager_user)s"
 
 #: cinder/auth/manager.py:613
 #, python-format
 msgid "modifying project %s"
-msgstr ""
+msgstr "изменение проекта %s"
 
 #: cinder/auth/manager.py:625
 #, python-format
 msgid "Adding user %(uid)s to project %(pid)s"
-msgstr ""
+msgstr "Добавление пользователя %(uid)s в проект %(pid)s"
 
 #: cinder/auth/manager.py:646
 #, python-format
 msgid "Remove user %(uid)s from project %(pid)s"
-msgstr ""
+msgstr "Исключить пользователя %(uid)s из проекта %(pid)s"
 
 #: cinder/auth/manager.py:676
 #, python-format
 msgid "Deleting project %s"
-msgstr ""
+msgstr "Удаление проекта %s"
 
 #: cinder/auth/manager.py:734
 #, python-format
 msgid "Created user %(rvname)s (admin: %(rvadmin)r)"
-msgstr ""
+msgstr "Созданный пользователь %(rvname)s (admin: %(rvadmin)r)"
 
 #: cinder/auth/manager.py:743
 #, python-format
 msgid "Deleting user %s"
-msgstr ""
+msgstr "Удаление пользователя %s"
 
 #: cinder/auth/manager.py:753
 #, python-format
@@ -2772,16 +2833,17 @@ msgstr ""
 #: cinder/auth/manager.py:757
 #, python-format
 msgid "Admin status set to %(admin)r for user %(uid)s"
-msgstr ""
+msgstr "Режим администратора назначен %(admin)r для пользователя %(uid)s"
 
 #: cinder/auth/manager.py:802
 #, python-format
 msgid "No vpn data for project %s"
-msgstr ""
+msgstr "Нет vpn данных для проекта %s"
 
 #: cinder/cloudpipe/pipelib.py:46
+#, fuzzy, python-format
 msgid "Instance type for vpn instances"
-msgstr ""
+msgstr "Недопустимый тип копии %(instance_type)s."
 
 #: cinder/cloudpipe/pipelib.py:49
 msgid "Template for cloudpipe instance boot script"
@@ -2798,7 +2860,7 @@ msgstr ""
 #: cinder/cloudpipe/pipelib.py:107
 #, python-format
 msgid "Launching VPN for %s"
-msgstr ""
+msgstr "Запуск VPN для %s"
 
 #: cinder/compute/api.py:141
 msgid "No compute host specified"
@@ -2807,7 +2869,7 @@ msgstr ""
 #: cinder/compute/api.py:144
 #, python-format
 msgid "Unable to find host for Instance %s"
-msgstr ""
+msgstr "Невозможно найти узел для копии %s"
 
 #: cinder/compute/api.py:192
 #, python-format
@@ -2815,29 +2877,36 @@ msgid ""
 "Quota exceeded for %(pid)s, tried to set %(num_metadata)s metadata "
 "properties"
 msgstr ""
+"Превышена квота для %(pid)s, попытка назначить %(num_metadata)s свойств "
+"метаданных"
 
 #: cinder/compute/api.py:203
 #, python-format
 msgid "Quota exceeded for %(pid)s, metadata property key or value too long"
 msgstr ""
+"Превышена квота для %(pid)s, превышено ключевое свойство метаданных или "
+"значение"
 
 #: cinder/compute/api.py:257
+#, fuzzy
 msgid "Cannot run any more instances of this type."
 msgstr ""
+"Превышена квота копий. Вы не можете запустить дополнительные копии этого "
+"типа."
 
 #: cinder/compute/api.py:259
-#, python-format
+#, fuzzy, python-format
 msgid "Can only run %s more instances of this type."
-msgstr ""
+msgstr "Превышена квота копий. Вы можете запустить только %s копий этого типа."
 
 #: cinder/compute/api.py:261
-#, python-format
+#, fuzzy, python-format
 msgid "Quota exceeded for %(pid)s, tried to run %(min_count)s instances. "
-msgstr ""
+msgstr "Превышена квота для %(pid)s, попытка выполнить %(min_count)s копий"
 
 #: cinder/compute/api.py:310
 msgid "Creating a raw instance"
-msgstr ""
+msgstr "Создание необработанной копии"
 
 #: cinder/compute/api.py:312
 #, python-format
@@ -2847,58 +2916,63 @@ msgstr ""
 #: cinder/compute/api.py:383
 #, python-format
 msgid "Going to run %s instances..."
-msgstr ""
+msgstr "Выполняет запуск %s копий..."
 
 #: cinder/compute/api.py:447
 #, python-format
 msgid "bdm %s"
-msgstr ""
+msgstr "bdm %s"
 
 #: cinder/compute/api.py:474
 #, python-format
 msgid "block_device_mapping %s"
-msgstr ""
+msgstr "block_device_mapping %s"
 
 #: cinder/compute/api.py:591
 #, python-format
 msgid "Sending create to scheduler for %(pid)s/%(uid)s's"
-msgstr ""
+msgstr "Отправка операции создания в расписание для %(pid)s/%(uid)s's"
 
 #: cinder/compute/api.py:871
+#, fuzzy
 msgid "Going to try to soft delete instance"
-msgstr ""
+msgstr "Выполнение запуска копий"
 
 #: cinder/compute/api.py:891
+#, fuzzy, python-format
 msgid "No host for instance, deleting immediately"
-msgstr ""
+msgstr "Отсутствует узел для копии %s, немедленное удаление"
 
 #: cinder/compute/api.py:939
+#, fuzzy, python-format
 msgid "Going to try to terminate instance"
-msgstr ""
+msgstr "Будет выполнения попытка завершить работу %s"
 
 #: cinder/compute/api.py:977
+#, fuzzy, python-format
 msgid "Going to try to stop instance"
-msgstr ""
+msgstr "Попытка остановить %s"
 
 #: cinder/compute/api.py:996
+#, fuzzy, python-format
 msgid "Going to try to start instance"
-msgstr ""
+msgstr "Попытка запустить %s"
 
 #: cinder/compute/api.py:1000
 #, python-format
 msgid "Instance %(instance_uuid)s is not stopped. (%(vm_state)s"
-msgstr ""
+msgstr "Копия %(instance_uuid)s не остановлена. (%(vm_state)s"
 
 #: cinder/compute/api.py:1071 cinder/volume/api.py:173
 #: cinder/volume/volume_types.py:64
 #, python-format
 msgid "Searching by: %s"
-msgstr ""
+msgstr "Поиск по: %s"
 
 #: cinder/compute/api.py:1201
 #, python-format
 msgid "Image type not recognized %s"
-msgstr ""
+msgstr "Тип образа не распознан %s"
 
 #: cinder/compute/api.py:1369
 msgid "flavor_id is None. Assuming migration."
@@ -2910,6 +2984,8 @@ msgid ""
 "Old instance type %(current_instance_type_name)s,  new instance type "
 "%(new_instance_type_name)s"
 msgstr ""
+"Устаревший тип копии %(current_instance_type_name)s,  новый тип копии "
+"%(new_instance_type_name)s"
 
 #: cinder/compute/api.py:1644
 #, python-format
@@ -2923,17 +2999,17 @@ msgstr ""
 #: cinder/compute/instance_types.py:76 cinder/volume/volume_types.py:41
 #, python-format
 msgid "DB error: %s"
-msgstr ""
+msgstr "Ошибка БД: %s"
 
 #: cinder/compute/instance_types.py:86
 #, python-format
 msgid "Instance type %s not found for deletion"
-msgstr ""
+msgstr "Копия типа %s не найдена для выполнения удаления"
 
 #: cinder/compute/manager.py:138
 #, python-format
 msgid "check_instance_lock: decorating: |%s|"
-msgstr ""
+msgstr "check_instance_lock: оформление: |%s|"
 
 #: cinder/compute/manager.py:140
 #, python-format
@@ -2941,21 +3017,23 @@ msgid ""
 "check_instance_lock: arguments: |%(self)s| |%(context)s| "
 "|%(instance_uuid)s|"
 msgstr ""
+"check_instance_lock: аргументы: |%(self)s| |%(context)s| "
+"|%(instance_uuid)s|"
 
 #: cinder/compute/manager.py:144
 #, python-format
 msgid "check_instance_lock: locked: |%s|"
-msgstr ""
+msgstr "check_instance_lock: заблокирован: |%s|"
 
 #: cinder/compute/manager.py:146
 #, python-format
 msgid "check_instance_lock: admin: |%s|"
-msgstr ""
+msgstr "check_instance_lock: администратор: |%s|"
 
 #: cinder/compute/manager.py:151
 #, python-format
 msgid "check_instance_lock: executing: |%s|"
-msgstr ""
+msgstr "check_instance_lock: исполнение: |%s|"
 
 #: cinder/compute/manager.py:155
 #, python-format
@@ -2965,7 +3043,7 @@ msgstr ""
 #: cinder/compute/manager.py:201
 #, python-format
 msgid "Unable to load the virtualization driver: %s"
-msgstr ""
+msgstr "Невозможно загрузить драйвер виртуализации: %s"
 
 #: cinder/compute/manager.py:223
 #, python-format
@@ -2985,7 +3063,7 @@ msgstr ""
 
 #: cinder/compute/manager.py:255
 msgid "Hypervisor driver does not support firewall rules"
-msgstr ""
+msgstr "Драйвер гипервизора не поддерживает правила брандмауэра"
 
 #: cinder/compute/manager.py:260
 msgid "Checking state"
@@ -3002,18 +3080,18 @@ msgid "Instance %s already deleted from database. Attempting forceful vm deletio
 msgstr ""
 
 #: cinder/compute/manager.py:406
-#, python-format
+#, fuzzy, python-format
 msgid "Exception encountered while terminating the instance %s"
-msgstr ""
+msgstr "исключение завершает работу копии %(instance_uuid)s"
 
 #: cinder/compute/manager.py:444
 #, python-format
 msgid "Instance %s not found."
-msgstr ""
+msgstr "Копия %s не найдена."
 
 #: cinder/compute/manager.py:480
 msgid "Instance has already been created"
-msgstr ""
+msgstr "Копия уже была создана"
 
 #: cinder/compute/manager.py:523
 #, python-format
@@ -3021,6 +3099,8 @@ msgid ""
 "image_id=%(image_id)s, image_size_bytes=%(size_bytes)d, "
 "allowed_size_bytes=%(allowed_size_bytes)d"
 msgstr ""
+"image_id=%(image_id)s, image_size_bytes=%(size_bytes)d, "
+"allowed_size_bytes=%(allowed_size_bytes)d"
 
 #: cinder/compute/manager.py:528
 #, python-format
@@ -3028,6 +3108,8 @@ msgid ""
 "Image '%(image_id)s' size %(size_bytes)d exceeded instance_type allowed "
 "size %(allowed_size_bytes)d"
 msgstr ""
+"Образ '%(image_id)s' размером %(size_bytes)d, превышает exceeded "
+"instance_type допустимый размер %(allowed_size_bytes)d"
 
 #: cinder/compute/manager.py:538
 msgid "Starting instance..."
@@ -3066,18 +3148,18 @@ msgstr ""
 #: cinder/compute/manager.py:699
 #, python-format
 msgid "Ignoring DiskNotFound: %s"
-msgstr ""
+msgstr "Пропуск DiskNotFound: %s"
 
 #: cinder/compute/manager.py:708
 #, python-format
 msgid "terminating bdm %s"
-msgstr ""
+msgstr "завершение работы bdm %s"
 
 #: cinder/compute/manager.py:742 cinder/compute/manager.py:1328
 #: cinder/compute/manager.py:1416 cinder/compute/manager.py:2501
 #, python-format
 msgid "%s. Setting instance vm_state to ERROR"
-msgstr ""
+msgstr "%s. Установка состояния копии vm_state на ERROR"
 
 #: cinder/compute/manager.py:811
 #, python-format
@@ -3094,12 +3176,12 @@ msgstr ""
 #: cinder/compute/manager.py:823
 #, python-format
 msgid "Rebuilding instance %s"
-msgstr ""
+msgstr "Обновление сборки %s"
 
 #: cinder/compute/manager.py:876
 #, python-format
 msgid "Rebooting instance %s"
-msgstr ""
+msgstr "Перезагрузка копии %s"
 
 #: cinder/compute/manager.py:891
 #, python-format
@@ -3107,11 +3189,13 @@ msgid ""
 "trying to reboot a non-running instance: %(instance_uuid)s (state: "
 "%(state)s expected: %(running)s)"
 msgstr ""
+"попытка перезагрузки не выполняемой копии: %(instance_uuid)s (состояние: "
+"%(state)s ожидалось: %(running)s)"
 
 #: cinder/compute/manager.py:933
 #, python-format
 msgid "instance %s: snapshotting"
-msgstr ""
+msgstr "копия %s: выполнение снимка"
 
 #: cinder/compute/manager.py:939
 #, python-format
@@ -3119,11 +3203,13 @@ msgid ""
 "trying to snapshot a non-running instance: %(instance_uuid)s (state: "
 "%(state)s expected: %(running)s)"
 msgstr ""
+"попытка создания снимка не выполняемой копии: %(instance_uuid)s "
+"(состояние: %(state)s ожидалось: %(running)s)"
 
 #: cinder/compute/manager.py:995
 #, python-format
 msgid "Found %(num_images)d images (rotation: %(rotation)d)"
-msgstr ""
+msgstr "Найдено %(num_images)d образов (ротация: %(rotation)d)"
 
 #: cinder/compute/manager.py:1001
 #, python-format
@@ -3133,25 +3219,25 @@ msgstr ""
 #: cinder/compute/manager.py:1005
 #, python-format
 msgid "Deleting image %s"
-msgstr ""
+msgstr "Удаление образа %s"
 
 #: cinder/compute/manager.py:1035
 #, python-format
 msgid "Failed to set admin password. Instance %s is not running"
-msgstr ""
+msgstr "Невозможно назначить пароль администратора. Копия %s не выполняется"
 
 #: cinder/compute/manager.py:1041
 #, python-format
 msgid "Instance %s: Root password set"
-msgstr ""
+msgstr "Копия %s: Назначение административного пароля"
 
 #: cinder/compute/manager.py:1050
 msgid "set_admin_password is not implemented by this driver."
-msgstr ""
+msgstr "set_admin_password не реализован в этой драйвере."
 
 #: cinder/compute/manager.py:1064
 msgid "Error setting admin password"
-msgstr ""
+msgstr "Ошибка назначения пароля администратора"
 
 #: cinder/compute/manager.py:1079
 #, python-format
@@ -3175,7 +3261,7 @@ msgstr ""
 #: cinder/compute/manager.py:1103
 #, python-format
 msgid "instance %(instance_uuid)s: updating agent to %(url)s"
-msgstr ""
+msgstr "копия %(instance_uuid)s: обновление агента до %(url)s"
 
 #: cinder/compute/manager.py:1116
 #, python-format
@@ -3189,57 +3275,57 @@ msgstr ""
 
 #: cinder/compute/manager.py:1270
 msgid "destination same as source!"
-msgstr ""
+msgstr "назначение совпадает с источником!"
 
 #: cinder/compute/manager.py:1287
 #, python-format
 msgid "instance %s: migrating"
-msgstr ""
+msgstr "копия %s: перемещение"
 
 #: cinder/compute/manager.py:1471
 #, python-format
 msgid "instance %s: pausing"
-msgstr ""
+msgstr "копия %s: приостановление"
 
 #: cinder/compute/manager.py:1489
 #, python-format
 msgid "instance %s: unpausing"
-msgstr ""
+msgstr "копия %s: снятие с приостановления"
 
 #: cinder/compute/manager.py:1525
 #, python-format
 msgid "instance %s: retrieving diagnostics"
-msgstr ""
+msgstr "копия %s: принятие диагностики"
 
 #: cinder/compute/manager.py:1534
 #, python-format
 msgid "instance %s: suspending"
-msgstr ""
+msgstr "копия %s: приостановление"
 
 #: cinder/compute/manager.py:1556
 #, python-format
 msgid "instance %s: resuming"
-msgstr ""
+msgstr "копия %s: возобновление"
 
 #: cinder/compute/manager.py:1579
 #, python-format
 msgid "instance %s: locking"
-msgstr ""
+msgstr "копия %s: блокирование"
 
 #: cinder/compute/manager.py:1588
 #, python-format
 msgid "instance %s: unlocking"
-msgstr ""
+msgstr "копия %s: разблокирование"
 
 #: cinder/compute/manager.py:1596
 #, python-format
 msgid "instance %s: getting locked state"
-msgstr ""
+msgstr "копия %s: получение заблокированного состояния"
 
 #: cinder/compute/manager.py:1606
 #, python-format
 msgid "instance %s: reset network"
-msgstr ""
+msgstr "копия %s: сброс сети"
 
 #: cinder/compute/manager.py:1614
 #, python-format
@@ -3254,7 +3340,7 @@ msgstr ""
 #: cinder/compute/manager.py:1655
 #, python-format
 msgid "instance %s: getting vnc console"
-msgstr ""
+msgstr "копия %s: получение консоли vnc"
 
 #: cinder/compute/manager.py:1685
 #, python-format
@@ -3262,11 +3348,11 @@ msgid "Booting with volume %(volume_id)s at %(mountpoint)s"
 msgstr ""
 
 #: cinder/compute/manager.py:1703
-#, python-format
+#, fuzzy, python-format
 msgid ""
 "instance %(instance_uuid)s: attaching volume %(volume_id)s to "
 "%(mountpoint)s"
-msgstr ""
+msgstr "копия %(instance_uuid)s: обновление агента до %(url)s"
 
 #: cinder/compute/manager.py:1705
 #, python-format
@@ -3274,9 +3360,9 @@ msgid "Attaching volume %(volume_id)s to %(mountpoint)s"
 msgstr ""
 
 #: cinder/compute/manager.py:1714
-#, python-format
+#, fuzzy, python-format
 msgid "instance %(instance_uuid)s: attach failed %(mountpoint)s, removing"
-msgstr ""
+msgstr "Копия %(instance_id)s не переведена в режим восстановления"
 
 #: cinder/compute/manager.py:1724
 #, python-format
@@ -3291,7 +3377,7 @@ msgstr ""
 #: cinder/compute/manager.py:1756
 #, python-format
 msgid "Detaching volume from unknown instance %s"
-msgstr ""
+msgstr "Отсоединение тома от неизвестной копии %s"
 
 #: cinder/compute/manager.py:1822
 #, python-format
@@ -3299,6 +3385,8 @@ msgid ""
 "Creating tmpfile %s to notify to other compute nodes that they should "
 "mount the same storage."
 msgstr ""
+"Создание временного файла %s для оповещения других узлов сети compute о "
+"необходимости присоединения того же хранилища."
 
 #: cinder/compute/manager.py:1884
 msgid "Instance has no volume."
@@ -3307,7 +3395,7 @@ msgstr ""
 #: cinder/compute/manager.py:1916
 #, python-format
 msgid "plug_vifs() failed %(cnt)d.Retry up to %(max_retry)d for %(hostname)s."
-msgstr ""
+msgstr "plug_vifs() ошибка %(cnt)d.До %(max_retry)d попыток для %(hostname)s."
 
 #: cinder/compute/manager.py:1973
 #, python-format
@@ -3316,7 +3404,7 @@ msgstr ""
 
 #: cinder/compute/manager.py:2000
 msgid "post_live_migration() is started.."
-msgstr ""
+msgstr "Запущено post_live_migration().."
 
 #: cinder/compute/manager.py:2030
 msgid "No floating_ip found"
@@ -3343,9 +3431,12 @@ msgid ""
 "You may see the error \"libvirt: QEMU error: Domain not found: no domain "
 "with matching name.\" This error can be safely ignored."
 msgstr ""
+"Вы можете увидеть ошибку \"libvirt: ошибка QEMU: Домен не найден: "
+"отсутствует домен с соответствующим именем.\" Эта ошибка может быть "
+"безопасно пропущена."
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3355,11 +3446,11 @@ msgstr ""
 
 #: cinder/compute/manager.py:2255
 msgid "Updating bandwidth usage cache"
-msgstr ""
+msgstr "Обновление временных данных использования полосы пропускания"
 
 #: cinder/compute/manager.py:2277
 msgid "Updating host status"
-msgstr ""
+msgstr "Обновление состояния узла"
 
 #: cinder/compute/manager.py:2305
 #, python-format
@@ -3367,6 +3458,8 @@ msgid ""
 "Found %(num_db_instances)s in the database and %(num_vm_instances)s on "
 "the hypervisor."
 msgstr ""
+"Найдено %(num_db_instances)s в базе данных и %(num_vm_instances)s в "
+"гипервизоре."
 
 #: cinder/compute/manager.py:2331
 #, python-format
@@ -3390,7 +3483,7 @@ msgstr ""
 
 #: cinder/compute/manager.py:2380
 msgid "FLAGS.reclaim_instance_interval <= 0, skipping..."
-msgstr ""
+msgstr "FLAGS.reclaim_instance_interval <= 0, пропуск..."
 
 #: cinder/compute/manager.py:2392
 msgid "Reclaiming deleted instance"
@@ -3414,6 +3507,8 @@ msgstr ""
 #, python-format
 msgid "Unrecognized value '%(action)s' for FLAGS.running_deleted_instance_action"
 msgstr ""
+"Не распознанное значение '%(action)s' для "
+"FLAGS.running_deleted_instance_action"
 
 #: cinder/compute/manager.py:2542
 #, python-format
@@ -3428,26 +3523,26 @@ msgstr ""
 
 #: cinder/console/manager.py:77 cinder/console/vmrc_manager.py:70
 msgid "Adding console"
-msgstr ""
+msgstr "Добавление консоли"
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
-msgstr ""
+msgid "Tried to remove non-existent console %(console_id)s."
+msgstr "Выполнена попытка удаления несуществующей консоли %(console_id)s."
 
 #: cinder/console/vmrc_manager.py:122
 #, python-format
 msgid "Tried to remove non-existent console %(console_id)s."
-msgstr ""
+msgstr "Попытка удаления несуществующей консоли %(console_id)s."
 
 #: cinder/console/vmrc_manager.py:125
 #, python-format
 msgid "Removing console %(console_id)s."
-msgstr ""
+msgstr "Удаление консоли %(console_id)s."
 
 #: cinder/console/xvp.py:98
 msgid "Rebuilding xvp conf"
-msgstr ""
+msgstr "Обновление сборки xvp conf"
 
 #: cinder/console/xvp.py:116
 #, python-format
@@ -3456,39 +3551,39 @@ msgstr ""
 
 #: cinder/console/xvp.py:121
 msgid "Stopping xvp"
-msgstr ""
+msgstr "Выполнение останова xvp"
 
 #: cinder/console/xvp.py:134
 msgid "Starting xvp"
-msgstr ""
+msgstr "Запуск xvp"
 
 #: cinder/console/xvp.py:141
 #, python-format
 msgid "Error starting xvp: %s"
-msgstr ""
+msgstr "Ошибка запуска xvp: %s"
 
 #: cinder/console/xvp.py:144
 msgid "Restarting xvp"
-msgstr ""
+msgstr "Выполнение перезагрузки xvp"
 
 #: cinder/console/xvp.py:146
 msgid "xvp not running..."
-msgstr ""
+msgstr "xvp не выполняется..."
 
 #: cinder/consoleauth/manager.py:63
 #, python-format
 msgid "Deleting Expired Token: (%s)"
-msgstr ""
+msgstr "Удаление токена с истёкшим сроком: (%s)"
 
 #: cinder/consoleauth/manager.py:75
 #, python-format
 msgid "Received Token: %(token)s, %(token_dict)s)"
-msgstr ""
+msgstr "Полученный токен: %(token)s, %(token_dict)s)"
 
 #: cinder/consoleauth/manager.py:79
 #, python-format
 msgid "Checking Token: %(token)s, %(token_valid)s)"
-msgstr ""
+msgstr "Проверка токена: %(token)s, %(token_valid)s)"
 
 #: cinder/db/sqlalchemy/api.py:57
 msgid "Use of empty request context is deprecated"
@@ -3497,7 +3592,7 @@ msgstr ""
 #: cinder/db/sqlalchemy/api.py:198
 #, python-format
 msgid "Unrecognized read_deleted value '%s'"
-msgstr ""
+msgstr "Нераспознанное значение read_deleted '%s'"
 
 #: cinder/db/sqlalchemy/api.py:516 cinder/db/sqlalchemy/api.py:551
 #, python-format
@@ -3521,20 +3616,20 @@ msgstr ""
 
 #: cinder/db/sqlalchemy/migration.py:66
 msgid "python-migrate is not installed. Exiting."
-msgstr ""
+msgstr "python-migrate не установлен. Выход."
 
 #: cinder/db/sqlalchemy/migration.py:78
 msgid "version should be an integer"
 msgstr ""
 
 #: cinder/db/sqlalchemy/session.py:137
-#, python-format
+#, fuzzy, python-format
 msgid "SQL connection failed. %s attempts left."
-msgstr ""
+msgstr "Ошибка соединения с SQL (%(connstring)s). %(attempts)d попыток осталось."
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/030_multi_nic.py:48
 msgid "interface column not added to networks table"
-msgstr ""
+msgstr "столбец интерфейса не добавлен  в таблицу сетей"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/030_multi_nic.py:80
 #: cinder/db/sqlalchemy/migrate_repo/versions/062_add_instance_info_cache_table.py:54
@@ -3542,11 +3637,11 @@ msgstr ""
 #: cinder/db/sqlalchemy/migrate_repo/versions/083_quota_class.py:48
 #, python-format
 msgid "Table |%s| not created!"
-msgstr ""
+msgstr "Таблица |%s| не создана!"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/030_multi_nic.py:87
 msgid "VIF column not added to fixed_ips table"
-msgstr ""
+msgstr "Столбец VIF не добавлен в таблицу fixed_ips"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/030_multi_nic.py:97
 #, python-format
@@ -3566,18 +3661,18 @@ msgstr ""
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/045_add_network_priority.py:34
 msgid "priority column not added to networks table"
-msgstr ""
+msgstr "столбец приоритета не добавлен в таблицу сетей"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/047_remove_instances_fk_from_vif.py:41
 #: cinder/db/sqlalchemy/migrate_repo/versions/060_remove_network_fk_from_vif.py:42
 #: cinder/db/sqlalchemy/migrate_repo/versions/064_change_instance_id_to_uuid_in_instance_actions.py:56
 #: cinder/db/sqlalchemy/migrate_repo/versions/070_untie_cinder_network_models.py:68
 msgid "foreign key constraint couldn't be removed"
-msgstr ""
+msgstr "ограничения внешнего ключа не могут быть удалены"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/049_add_instances_progress.py:34
 msgid "progress column not added to instances table"
-msgstr ""
+msgstr "столбец выполнения не добавлен в таблицу копий"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/055_convert_flavor_id_to_str.py:97
 #, python-format
@@ -3592,7 +3687,7 @@ msgstr ""
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/069_block_migration.py:41
 msgid "progress column not added to compute_nodes table"
-msgstr ""
+msgstr "столбец выполнения не добавлен в таблицу compute_nodes"
 
 #: cinder/db/sqlalchemy/migrate_repo/versions/072_add_dns_table.py:76
 msgid "dns_domains table not dropped"
@@ -3627,7 +3722,7 @@ msgstr ""
 
 #: cinder/image/glance.py:331 cinder/image/glance.py:335
 msgid "Not the image owner"
-msgstr ""
+msgstr "Не владелец образа"
 
 #: cinder/image/glance.py:410
 #, python-format
@@ -3637,70 +3732,70 @@ msgstr ""
 #: cinder/image/s3.py:309
 #, python-format
 msgid "Failed to download %(image_location)s to %(image_path)s"
-msgstr ""
+msgstr "Ошибка загрузки %(image_location)s в %(image_path)s"
 
 #: cinder/image/s3.py:328
 #, python-format
 msgid "Failed to decrypt %(image_location)s to %(image_path)s"
-msgstr ""
+msgstr "Ошибка расшифрования %(image_location)s в %(image_path)s"
 
 #: cinder/image/s3.py:340
 #, python-format
 msgid "Failed to untar %(image_location)s to %(image_path)s"
-msgstr ""
+msgstr "Ошибка извлечения %(image_location)s в %(image_path)s"
 
 #: cinder/image/s3.py:353
 #, python-format
 msgid "Failed to upload %(image_location)s to %(image_path)s"
-msgstr ""
+msgstr "Ошибка выгрузки %(image_location)s в %(image_path)s"
 
 #: cinder/image/s3.py:379
 #, python-format
 msgid "Failed to decrypt private key: %s"
-msgstr ""
+msgstr "Ошибка дешифрирования личного ключа: %s"
 
 #: cinder/image/s3.py:387
 #, python-format
 msgid "Failed to decrypt initialization vector: %s"
-msgstr ""
+msgstr "Ошибка дешифрирования вектора инициализации: %s"
 
 #: cinder/image/s3.py:398
 #, python-format
 msgid "Failed to decrypt image file %(image_file)s: %(err)s"
-msgstr ""
+msgstr "Ошибка дешифрирования файла образа %(image_file)s: %(err)s"
 
 #: cinder/image/s3.py:410
 msgid "Unsafe filenames in image"
-msgstr ""
+msgstr "В образе небезопасные имена файлов"
 
 #: cinder/ipv6/account_identifier.py:38 cinder/ipv6/rfc2462.py:34
 #, python-format
 msgid "Bad mac for to_global_ipv6: %s"
-msgstr ""
+msgstr "Недопустимый mac для to_global_ipv6: %s"
 
 #: cinder/ipv6/account_identifier.py:40 cinder/ipv6/rfc2462.py:36
 #, python-format
 msgid "Bad prefix for to_global_ipv6: %s"
-msgstr ""
+msgstr "Недопустимый префикс для to_global_ipv6: %s"
 
 #: cinder/ipv6/account_identifier.py:42
 #, python-format
 msgid "Bad project_id for to_global_ipv6: %s"
-msgstr ""
+msgstr "Недопустимый project_id для to_global_ipv6: %s"
 
 #: cinder/network/ldapdns.py:321
 msgid "This driver only supports type 'a' entries."
-msgstr ""
+msgstr "Этот драйвер поддерживает только записи типа 'a'."
 
 #: cinder/network/linux_net.py:166
 #, python-format
 msgid "Attempted to remove chain %s which does not exist"
-msgstr ""
+msgstr "Предпринята удалить цепочку %s, которая не существует"
 
 #: cinder/network/linux_net.py:192
 #, python-format
 msgid "Unknown chain: %r"
-msgstr ""
+msgstr "Неизвестная цепочка: %r"
 
 #: cinder/network/linux_net.py:215
 #, python-format
@@ -3708,6 +3803,8 @@ msgid ""
 "Tried to remove rule that was not there: %(chain)r %(rule)r %(wrap)r "
 "%(top)r"
 msgstr ""
+"Предпринята попытка удалить правило, которого там нет: %(chain)r %(rule)r"
+" %(wrap)r %(top)r"
 
 #: cinder/network/linux_net.py:335
 msgid "IPTablesManager.apply completed with success"
@@ -3736,27 +3833,27 @@ msgstr ""
 #: cinder/network/linux_net.py:967
 #, python-format
 msgid "Starting VLAN inteface %s"
-msgstr ""
+msgstr "Запуск интерфейса VLAN %s"
 
 #: cinder/network/linux_net.py:999
 #, python-format
 msgid "Starting Bridge interface for %s"
-msgstr ""
+msgstr "Запуск моста интерфейса для %s"
 
 #: cinder/network/linux_net.py:1142
-#, python-format
+#, fuzzy, python-format
 msgid "Starting bridge %s "
-msgstr ""
+msgstr "Запуск копии %s"
 
 #: cinder/network/linux_net.py:1149
-#, python-format
+#, fuzzy, python-format
 msgid "Done starting bridge %s"
-msgstr ""
+msgstr "Ошибка запуска xvp: %s"
 
 #: cinder/network/linux_net.py:1167
-#, python-format
+#, fuzzy, python-format
 msgid "Failed unplugging gateway interface '%s'"
-msgstr ""
+msgstr "Ошибка отсоединения vif копии '%s'"
 
 #: cinder/network/linux_net.py:1170
 #, python-format
@@ -3764,14 +3861,14 @@ msgid "Unplugged gateway interface '%s'"
 msgstr ""
 
 #: cinder/network/manager.py:291
-#, python-format
+#, fuzzy, python-format
 msgid "Fixed ip %(fixed_ip_id)s not found"
-msgstr ""
+msgstr "Сертификат %(certificate_id)s не найден."
 
 #: cinder/network/manager.py:300 cinder/network/manager.py:496
 #, python-format
 msgid "Interface %(interface)s not found"
-msgstr ""
+msgstr "Интерфейс %(interface)s не найден"
 
 #: cinder/network/manager.py:315
 #, python-format
@@ -3786,17 +3883,17 @@ msgstr ""
 #: cinder/network/manager.py:386
 #, python-format
 msgid "Address |%(address)s| is not allocated"
-msgstr ""
+msgstr "Адрес |%(address)s| не выделен"
 
 #: cinder/network/manager.py:390
 #, python-format
 msgid "Address |%(address)s| is not allocated to your project |%(project)s|"
-msgstr ""
+msgstr "Адрес |%(address)s| не выделен вашему проекту |%(project)s|"
 
 #: cinder/network/manager.py:402
 #, python-format
 msgid "Quota exceeded for %s, tried to allocate address"
-msgstr ""
+msgstr "Превышена квота для %s, попытка выделения адреса"
 
 #: cinder/network/manager.py:614
 #, python-format
@@ -3809,12 +3906,12 @@ msgstr ""
 #: cinder/network/manager.py:660
 #, python-format
 msgid "Domain |%(domain)s| already exists, changing zone to |%(av_zone)s|."
-msgstr ""
+msgstr "Домен |%(domain)s| уже существует, изменение зоны на |%(av_zone)s|."
 
 #: cinder/network/manager.py:670
 #, python-format
 msgid "Domain |%(domain)s| already exists, changing project to |%(project)s|."
-msgstr ""
+msgstr "Домен |%(domain)s| уже существует, изменение проекта на |%(project)s|."
 
 #: cinder/network/manager.py:778
 #, python-format
@@ -3823,7 +3920,7 @@ msgstr ""
 
 #: cinder/network/manager.py:782
 msgid "setting network host"
-msgstr ""
+msgstr "установка сетевого узла"
 
 #: cinder/network/manager.py:896
 #, python-format
@@ -3838,7 +3935,7 @@ msgstr ""
 #: cinder/network/manager.py:930
 #, python-format
 msgid "network deallocation for instance |%s|"
-msgstr ""
+msgstr "исключение сетевых распределений для копии |%s|"
 
 #: cinder/network/manager.py:1152
 #, python-format
@@ -3847,6 +3944,9 @@ msgid ""
 "|%(zone)s|. Instance |%(instance)s| is in zone |%(zone2)s|. No DNS record"
 " will be created."
 msgstr ""
+"instance-dns-zone является |%(domain)s|, который располагается в "
+"доступной зоне |%(zone)s|. Копия |%(instance)s| расположена в зоне "
+"|%(zone2)s|. Запись DNS не будет создана."
 
 #: cinder/network/manager.py:1227
 #, python-format
@@ -3856,7 +3956,7 @@ msgstr ""
 #: cinder/network/manager.py:1244
 #, python-format
 msgid "Leased IP |%(address)s|"
-msgstr ""
+msgstr "Арендованный IP |%(address)s|"
 
 #: cinder/network/manager.py:1248
 #, python-format
@@ -3871,7 +3971,7 @@ msgstr ""
 #: cinder/network/manager.py:1261
 #, python-format
 msgid "Released IP |%(address)s|"
-msgstr ""
+msgstr "Присвоенный IP |%(address)s|"
 
 #: cinder/network/manager.py:1265
 #, python-format
@@ -3885,12 +3985,14 @@ msgstr ""
 
 #: cinder/network/manager.py:1331
 msgid "cidr already in use"
-msgstr ""
+msgstr "cidr уже используется"
 
 #: cinder/network/manager.py:1334
 #, python-format
 msgid "requested cidr (%(cidr)s) conflicts with existing supernet (%(super)s)"
 msgstr ""
+"запрошенная cidr (%(cidr)s) конфликтует с существующей супер-сетью "
+"(%(super)s)"
 
 #: cinder/network/manager.py:1345
 #, python-format
@@ -3898,15 +4000,17 @@ msgid ""
 "requested cidr (%(cidr)s) conflicts with existing smaller cidr "
 "(%(smaller)s)"
 msgstr ""
+"запрошенная cidr (%(cidr)s) конфликтует с существующей, меньшей cidr "
+"(%(smaller)s)"
 
 #: cinder/network/manager.py:1404
 msgid "Network already exists!"
-msgstr ""
+msgstr "Сеть уже существует!"
 
 #: cinder/network/manager.py:1423
 #, python-format
 msgid "Network must be disassociated from project %s before delete"
-msgstr ""
+msgstr "Сеть должна быть исключена из проекта %s перед удалением"
 
 #: cinder/network/manager.py:1832
 msgid ""
@@ -3920,10 +4024,12 @@ msgid ""
 "The network range is not big enough to fit %(num_networks)s. Network size"
 " is %(network_size)s"
 msgstr ""
+"Сетевой диапазон недостаточен для соответствия %(num_networks)s. Размер "
+"сети %(network_size)s"
 
 #: cinder/network/minidns.py:65
 msgid "This driver only supports type 'a'"
-msgstr ""
+msgstr "Этот драйвер поддерживает только тип 'a'"
 
 #: cinder/network/quantum/client.py:154
 msgid "Tenant ID not set"
@@ -3937,17 +4043,17 @@ msgstr ""
 #: cinder/network/quantum/client.py:196
 #, python-format
 msgid "Quantum entity not found: %s"
-msgstr ""
+msgstr "Объект Quantum не найден: %s"
 
 #: cinder/network/quantum/client.py:206
 #, python-format
 msgid "Server %(status_code)s error: %(data)s"
-msgstr ""
+msgstr "Серверная %(status_code)s ошибка: %(data)s"
 
 #: cinder/network/quantum/client.py:210
 #, python-format
 msgid "Unable to connect to server. Got error: %s"
-msgstr ""
+msgstr "Невозможно подключиться к серверу. Принята ошибка: %s"
 
 #: cinder/network/quantum/client.py:228
 #, python-format
@@ -3992,7 +4098,7 @@ msgstr ""
 #: cinder/network/quantum/manager.py:301
 #, python-format
 msgid "network allocations for instance %s"
-msgstr ""
+msgstr "сетевые распределения для копии %s"
 
 #: cinder/network/quantum/manager.py:588
 #, python-format
@@ -4011,7 +4117,7 @@ msgstr ""
 #: cinder/network/quantum/melange_connection.py:96
 #, python-format
 msgid "Server returned error: %s"
-msgstr ""
+msgstr "Сервер возвратил ошибку: %s"
 
 #: cinder/network/quantum/melange_connection.py:98
 msgid "Connection error contacting melange service, retrying"
@@ -4031,32 +4137,34 @@ msgstr ""
 
 #: cinder/network/quantum/cinder_ipam_lib.py:75
 msgid "Error creating network entry"
-msgstr ""
+msgstr "Ошибка создания сетевой записи"
 
 #: cinder/network/quantum/cinder_ipam_lib.py:90
 #, python-format
 msgid "No network with net_id = %s"
-msgstr ""
+msgstr "Нет сети с net_id = %s"
 
 #: cinder/network/quantum/cinder_ipam_lib.py:221
-#, python-format
+#, fuzzy, python-format
 msgid "No fixed IPs to deallocate for vif %s"
-msgstr ""
+msgstr "исключение сетевых распределений для копии |%s|"
 
 #: cinder/network/quantum/quantum_connection.py:99
 #, python-format
 msgid "Connecting interface %(interface_id)s to net %(net_id)s for %(tenant_id)s"
 msgstr ""
+"Подключение интерфейса %(interface_id)s к сети %(net_id)s для "
+"%(tenant_id)s"
 
 #: cinder/network/quantum/quantum_connection.py:113
 #, python-format
 msgid "Deleting port %(port_id)s on net %(net_id)s for %(tenant_id)s"
-msgstr ""
+msgstr "Удаление порта %(port_id)s в сети %(net_id)s для %(tenant_id)s"
 
 #: cinder/notifier/api.py:115
 #, python-format
 msgid "%s not in valid priorities"
-msgstr ""
+msgstr "%s не в допустимых приоритетах"
 
 #: cinder/notifier/api.py:130
 #, python-format
@@ -4064,6 +4172,8 @@ msgid ""
 "Problem '%(e)s' attempting to send to notification system. "
 "Payload=%(payload)s"
 msgstr ""
+"Неполадка '%(e)s', попытка отправить в систему уведомлений. "
+"Нагрузка=%(payload)s"
 
 #: cinder/notifier/list_notifier.py:65
 #, python-format
@@ -4078,37 +4188,37 @@ msgstr ""
 #: cinder/rpc/amqp.py:146
 #, python-format
 msgid "Returning exception %s to caller"
-msgstr ""
+msgstr "Возврат исключения %s вызывающему"
 
 #: cinder/rpc/amqp.py:188
 #, python-format
 msgid "unpacked context: %s"
-msgstr ""
+msgstr "неизвлечённый контекст: %s"
 
 #: cinder/rpc/amqp.py:231
 #, python-format
 msgid "received %s"
-msgstr ""
+msgstr "получено %s"
 
 #: cinder/rpc/amqp.py:236
 #, python-format
 msgid "no method for message: %s"
-msgstr ""
+msgstr "не определен метод для сообщения: %s"
 
 #: cinder/rpc/amqp.py:237
 #, python-format
 msgid "No method for message: %s"
-msgstr ""
+msgstr "Не определен метод для сообщения: %s"
 
 #: cinder/rpc/amqp.py:321
 #, python-format
 msgid "Making asynchronous call on %s ..."
-msgstr ""
+msgstr "Выполнение асинхронного вызова %s ..."
 
 #: cinder/rpc/amqp.py:324
 #, python-format
 msgid "MSG_ID is %s"
-msgstr ""
+msgstr "MSG_ID is %s"
 
 #: cinder/rpc/amqp.py:346
 #, python-format
@@ -4122,7 +4232,7 @@ msgstr ""
 #: cinder/rpc/amqp.py:379
 #, python-format
 msgid "Sending notification on %s..."
-msgstr ""
+msgstr "Отправка оповещения на %s..."
 
 #: cinder/rpc/common.py:54
 #, python-format
@@ -4130,6 +4240,8 @@ msgid ""
 "Remote error: %(exc_type)s %(value)s\n"
 "%(traceback)s."
 msgstr ""
+"Удалённая ошибка: %(exc_type)s %(value)s\n"
+"%(traceback)s."
 
 #: cinder/rpc/common.py:71
 msgid "Timeout while waiting on RPC response."
@@ -4142,12 +4254,12 @@ msgstr ""
 #: cinder/rpc/impl_kombu.py:407
 #, python-format
 msgid "Reconnecting to AMQP server on %(hostname)s:%(port)d"
-msgstr ""
+msgstr "Повторное подключение к серверу AMQP на %(hostname)s:%(port)d"
 
 #: cinder/rpc/impl_kombu.py:430
 #, python-format
 msgid "Connected to AMQP server on %(hostname)s:%(port)d"
-msgstr ""
+msgstr "Подключение к серверу AMQP на %(hostname)s:%(port)d"
 
 #: cinder/rpc/impl_kombu.py:466
 #, python-format
@@ -4155,6 +4267,8 @@ msgid ""
 "Unable to connect to AMQP server on %(hostname)s:%(port)d after "
 "%(max_retries)d tries: %(err_str)s"
 msgstr ""
+"Невозможно подключиться к серверу AMQP на %(hostname)s:%(port)d после "
+"%(max_retries)d попыток: %(err_str)s"
 
 #: cinder/rpc/impl_kombu.py:482
 #, python-format
@@ -4162,11 +4276,13 @@ msgid ""
 "AMQP server on %(hostname)s:%(port)d is unreachable: %(err_str)s. Trying "
 "again in %(sleep_time)d seconds."
 msgstr ""
+"AMQP сервер на %(hostname)s:%(port)d недоступен: %(err_str)s. Повторная "
+"попытка через %(sleep_time)d секунд."
 
 #: cinder/rpc/impl_kombu.py:533 cinder/rpc/impl_qpid.py:385
 #, python-format
 msgid "Failed to declare consumer for topic '%(topic)s': %(err_str)s"
-msgstr ""
+msgstr "Ошибка объявления потребителю темы '%(topic)s': %(err_str)s"
 
 #: cinder/rpc/impl_kombu.py:551 cinder/rpc/impl_qpid.py:400
 #, python-format
@@ -4176,17 +4292,17 @@ msgstr ""
 #: cinder/rpc/impl_kombu.py:555 cinder/rpc/impl_qpid.py:404
 #, python-format
 msgid "Failed to consume message from queue: %s"
-msgstr ""
+msgstr "Ошибка принятия сообщения из очереди: %s"
 
 #: cinder/rpc/impl_kombu.py:589 cinder/rpc/impl_qpid.py:434
 #, python-format
 msgid "Failed to publish message to topic '%(topic)s': %(err_str)s"
-msgstr ""
+msgstr "Ошибка публикации сообщения в тему '%(topic)s': %(err_str)s"
 
 #: cinder/rpc/impl_qpid.py:341
 #, python-format
 msgid "Unable to connect to AMQP server: %s "
-msgstr ""
+msgstr "Невозможно подключиться к серверу AMQP: %s "
 
 #: cinder/rpc/impl_qpid.py:346
 #, python-format
@@ -4204,11 +4320,11 @@ msgstr ""
 #: cinder/scheduler/chance.py:47 cinder/scheduler/simple.py:91
 #: cinder/scheduler/simple.py:143
 msgid "Is the appropriate service running?"
-msgstr ""
+msgstr "Выполняется ли соответствующая служба?"
 
 #: cinder/scheduler/chance.py:52
 msgid "Could not find another compute"
-msgstr ""
+msgstr "Невозможно найти другой compute"
 
 #: cinder/scheduler/driver.py:63
 #, python-format
@@ -4253,7 +4369,7 @@ msgstr ""
 #: cinder/scheduler/driver.py:367 cinder/scheduler/driver.py:457
 #, python-format
 msgid "host %(dest)s is not compatible with original host %(src)s."
-msgstr ""
+msgstr "узел %(dest)s несовместим с исходным узлом %(src)s."
 
 #: cinder/scheduler/driver.py:416
 #, python-format
@@ -4277,7 +4393,7 @@ msgstr ""
 #: cinder/scheduler/filter_scheduler.py:64
 #, python-format
 msgid "Attempting to build %(num_instances)d instance(s)"
-msgstr ""
+msgstr "Попытка собрать %(num_instances)d копию(й)"
 
 #: cinder/scheduler/filter_scheduler.py:157
 msgid "Scheduler only understands Compute nodes (for now)"
@@ -4286,7 +4402,7 @@ msgstr ""
 #: cinder/scheduler/filter_scheduler.py:199
 #, python-format
 msgid "Filtered %(hosts)s"
-msgstr ""
+msgstr "Отфильтрованы %(hosts)s"
 
 #: cinder/scheduler/filter_scheduler.py:209
 #, python-format
@@ -4309,23 +4425,23 @@ msgid "Host filter function %(func)s failed for %(host)s"
 msgstr ""
 
 #: cinder/scheduler/host_manager.py:163
-#, python-format
+#, fuzzy, python-format
 msgid "Host filter passes for %(host)s"
-msgstr ""
+msgstr "Отфильтрованы %(hosts)s"
 
 #: cinder/scheduler/host_manager.py:272
 #, python-format
 msgid "Received %(service_name)s service update from %(host)s."
-msgstr ""
+msgstr "Принято служебное обновление для %(service_name)s от %(host)s."
 
 #: cinder/scheduler/host_manager.py:313
 msgid "host_manager only implemented for 'compute'"
-msgstr ""
+msgstr "host_manager реализован только для 'compute'"
 
 #: cinder/scheduler/host_manager.py:323
 #, python-format
 msgid "No service for compute ID %s"
-msgstr ""
+msgstr "Нет службы для compute ID %s"
 
 #: cinder/scheduler/manager.py:85
 #, python-format
@@ -4337,12 +4453,12 @@ msgstr ""
 #: cinder/scheduler/manager.py:150
 #, python-format
 msgid "Failed to schedule_%(method)s: %(ex)s"
-msgstr ""
+msgstr "Ошибка schedule_%(method)s: %(ex)s"
 
 #: cinder/scheduler/manager.py:159
-#, python-format
+#, fuzzy, python-format
 msgid "Setting instance %(instance_uuid)s to %(state)s state."
-msgstr ""
+msgstr "Копия %(instance_uuid)s не остановлена. (%(vm_state)s"
 
 #: cinder/scheduler/scheduler_options.py:66
 #, python-format
@@ -4352,7 +4468,7 @@ msgstr ""
 #: cinder/scheduler/scheduler_options.py:75
 #, python-format
 msgid "Could not decode scheduler options: '%(e)s'"
-msgstr ""
+msgstr "Невозможно декодировать параметры расписания: '%(e)s'"
 
 #: cinder/scheduler/simple.py:87
 msgid "Not enough allocatable CPU cores remaining"
@@ -4369,7 +4485,7 @@ msgstr ""
 #: cinder/tests/fake_utils.py:72
 #, python-format
 msgid "Faking execution of cmd (subprocess): %s"
-msgstr ""
+msgstr "Имитация выполнения команды (субпроцесс): %s"
 
 #: cinder/tests/fake_utils.py:80
 #, python-format
@@ -4379,12 +4495,12 @@ msgstr ""
 #: cinder/tests/fake_utils.py:96
 #, python-format
 msgid "Faked command raised an exception %s"
-msgstr ""
+msgstr "Имитация команды привела к исключению %s"
 
 #: cinder/tests/fake_utils.py:101
 #, python-format
 msgid "Reply to faked command is stdout='%(stdout)s' stderr='%(stderr)s'"
-msgstr ""
+msgstr "Ответ на имитацию команды в stdout='%(stdout)s' stderr='%(stderr)s'"
 
 #: cinder/tests/fakelibvirt.py:784
 msgid "Please extend mock libvirt module to support flags"
@@ -4397,21 +4513,21 @@ msgstr ""
 #: cinder/tests/test_compute.py:365 cinder/tests/test_compute.py:1419
 #, python-format
 msgid "Running instances: %s"
-msgstr ""
+msgstr "Выполняемые копии: %s"
 
 #: cinder/tests/test_compute.py:371
 #, python-format
 msgid "After terminating instances: %s"
-msgstr ""
+msgstr "После завершения работы копий: %s"
 
 #: cinder/tests/test_compute.py:589
 msgid "Internal error"
-msgstr ""
+msgstr "Внутренняя ошибка"
 
 #: cinder/tests/test_compute.py:1430
 #, python-format
 msgid "After force-killing instances: %s"
-msgstr ""
+msgstr "После принудительного завершения работы копий: %s"
 
 #: cinder/tests/test_misc.py:92
 #, python-format
@@ -4426,11 +4542,11 @@ msgstr ""
 
 #: cinder/tests/test_cinder_manage.py:170
 msgid "IPv4"
-msgstr ""
+msgstr "IPv4"
 
 #: cinder/tests/test_cinder_manage.py:171
 msgid "IPv6"
-msgstr ""
+msgstr "IPv6"
 
 #: cinder/tests/test_cinder_manage.py:172
 msgid "start address"
@@ -4450,7 +4566,7 @@ msgstr ""
 
 #: cinder/tests/test_cinder_manage.py:176
 msgid "project"
-msgstr ""
+msgstr "проект"
 
 #: cinder/tests/test_cinder_manage.py:177
 msgid "uuid"
@@ -4464,82 +4580,82 @@ msgstr ""
 #: cinder/tests/test_volume.py:468
 #, python-format
 msgid "Cannot confirm exported volume id:%s."
-msgstr ""
+msgstr "Невозможно подтвердить идентификатор экспортированного тома:%s."
 
 #: cinder/tests/test_volume_types.py:58
 #, python-format
 msgid "Given data: %s"
-msgstr ""
+msgstr "Заданные данные: %s"
 
 #: cinder/tests/test_volume_types.py:59
 #, python-format
 msgid "Result data: %s"
-msgstr ""
+msgstr "Итоговые данные: %s"
 
 #: cinder/tests/test_xenapi.py:626
 #, python-format
 msgid "Creating files in %s to simulate guest agent"
-msgstr ""
+msgstr "Создание файлов в %s для имитации гостевого агента"
 
 #: cinder/tests/test_xenapi.py:637
 #, python-format
 msgid "Removing simulated guest agent files in %s"
-msgstr ""
+msgstr "Удаление файлов имитации гостевого агента в %s"
 
 #: cinder/tests/api/openstack/compute/test_servers.py:2144
-#, python-format
+#, fuzzy, python-format
 msgid "Quota exceeded: code=%(code)s"
-msgstr ""
+msgstr "Превышена квота"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:57
 #, python-format
 msgid "_create: %s"
-msgstr ""
+msgstr "_создать: %s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:66
 #, python-format
 msgid "_delete: %s"
-msgstr ""
+msgstr "_удалить: %s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:75
 #, python-format
 msgid "_get: %s"
-msgstr ""
+msgstr "_get: %s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:85
 #, python-format
 msgid "_get_all: %s"
-msgstr ""
+msgstr "_get_all: %s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:125
 #, python-format
 msgid "test_snapshot_create: param=%s"
-msgstr ""
+msgstr "test_snapshot_create: param=%s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:134
 #, python-format
 msgid "test_snapshot_create: resp_dict=%s"
-msgstr ""
+msgstr "test_snapshot_create: resp_dict=%s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:156
 #, python-format
 msgid "test_snapshot_create_force: param=%s"
-msgstr ""
+msgstr "test_snapshot_create_force: param=%s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:165
 #, python-format
 msgid "test_snapshot_create_force: resp_dict=%s"
-msgstr ""
+msgstr "test_snapshot_create_force: resp_dict=%s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:205
 #, python-format
 msgid "test_snapshot_show: resp=%s"
-msgstr ""
+msgstr "test_snapshot_show: resp=%s"
 
 #: cinder/tests/api/openstack/compute/contrib/test_snapshots.py:231
 #, python-format
 msgid "test_snapshot_detail: resp_dict=%s"
-msgstr ""
+msgstr "test_snapshot_detail: resp_dict=%s"
 
 #: cinder/tests/integrated/test_login.py:31
 #, python-format
@@ -4553,47 +4669,50 @@ msgid ""
 "Status Code: %(_status)s\n"
 "Body: %(_body)s"
 msgstr ""
+"%(message)s\n"
+"Код состояния: %(_status)s\n"
+"Тело: %(_body)s"
 
 #: cinder/tests/integrated/api/client.py:47
 msgid "Authentication error"
-msgstr ""
+msgstr "Ошибка аутентификации"
 
 #: cinder/tests/integrated/api/client.py:55
 msgid "Authorization error"
-msgstr ""
+msgstr "Ошибка авторизации"
 
 #: cinder/tests/integrated/api/client.py:63
 msgid "Item not found"
-msgstr ""
+msgstr "объект не найден"
 
 #: cinder/tests/integrated/api/client.py:105
 #, python-format
 msgid "Doing %(method)s on %(relative_url)s"
-msgstr ""
+msgstr "Выполнение %(method)s на %(relative_url)s"
 
 #: cinder/tests/integrated/api/client.py:107
 #, python-format
 msgid "Body: %s"
-msgstr ""
+msgstr "Тело: %s"
 
 #: cinder/tests/integrated/api/client.py:125
 #, python-format
 msgid "%(auth_uri)s => code %(http_status)s"
-msgstr ""
+msgstr "%(auth_uri)s => код %(http_status)s"
 
 #: cinder/tests/integrated/api/client.py:151
 #, python-format
 msgid "%(relative_uri)s => code %(http_status)s"
-msgstr ""
+msgstr "%(relative_uri)s => код %(http_status)s"
 
 #: cinder/tests/integrated/api/client.py:161
 msgid "Unexpected status code"
-msgstr ""
+msgstr "Непредвиденный код состояния"
 
 #: cinder/tests/integrated/api/client.py:168
 #, python-format
 msgid "Decoding JSON: %s"
-msgstr ""
+msgstr "Декодирование JSON: %s"
 
 #: cinder/tests/rpc/common.py:133
 #, python-format
@@ -4612,23 +4731,23 @@ msgstr ""
 #: cinder/tests/rpc/common.py:227 cinder/tests/rpc/common.py:233
 #, python-format
 msgid "Received %s"
-msgstr ""
+msgstr "Получено %s"
 
 #: cinder/virt/connection.py:85
 msgid "Failed to open connection to the hypervisor"
-msgstr ""
+msgstr "Ошибка открытия соединения c гипервизором"
 
 #: cinder/virt/fake.py:270 cinder/virt/xenapi_conn.py:396
 #: cinder/virt/baremetal/proxy.py:716 cinder/virt/libvirt/connection.py:2045
 #, python-format
 msgid "Compute_service record created for %s "
-msgstr ""
+msgstr "Запись Compute_service создана для %s "
 
 #: cinder/virt/fake.py:273 cinder/virt/xenapi_conn.py:399
 #: cinder/virt/baremetal/proxy.py:720 cinder/virt/libvirt/connection.py:2048
 #, python-format
 msgid "Compute_service record updated for %s "
-msgstr ""
+msgstr "Запись Compute_service обновлена для %s "
 
 #: cinder/virt/firewall.py:130
 #, python-format
@@ -4642,21 +4761,21 @@ msgstr ""
 
 #: cinder/virt/firewall.py:139
 msgid "Provider Firewall Rules refreshed"
-msgstr ""
+msgstr "Выполненое обновление правил брандмауэра поставщика"
 
 #: cinder/virt/firewall.py:291
 #, python-format
 msgid "Adding security group rule: %r"
-msgstr ""
+msgstr "Добавление правила группы безопасности: %r"
 
 #: cinder/virt/firewall.py:403 cinder/virt/xenapi/firewall.py:87
 #, python-format
 msgid "Adding provider rule: %s"
-msgstr ""
+msgstr "Добавление правила поставщика: %s"
 
 #: cinder/virt/images.py:86
 msgid "'qemu-img info' parsing failed."
-msgstr ""
+msgstr "Ошибка анализа 'qemu-img info'."
 
 #: cinder/virt/images.py:92
 #, python-format
@@ -4666,38 +4785,40 @@ msgstr ""
 #: cinder/virt/images.py:104
 #, python-format
 msgid "Converted to raw, but format is now %s"
-msgstr ""
+msgstr "Преобразование в необработанный, но текущий формат %s"
 
 #: cinder/virt/vmwareapi_conn.py:105
 msgid ""
 "Must specify vmwareapi_host_ip,vmwareapi_host_username and "
 "vmwareapi_host_password to useconnection_type=vmwareapi"
 msgstr ""
+"Необходимо указать vmwareapi_host_ip,vmwareapi_host_username и "
+"vmwareapi_host_password useconnection_type=vmwareapi"
 
 #: cinder/virt/vmwareapi_conn.py:276
 #, python-format
 msgid "In vmwareapi:_create_session, got this exception: %s"
-msgstr ""
+msgstr "В vmwareapi:_create_session, принято это исключение: %s"
 
 #: cinder/virt/vmwareapi_conn.py:359
 #, python-format
 msgid "In vmwareapi:_call_method, got this exception: %s"
-msgstr ""
+msgstr "В vmwareapi:_call_method, принято это исключение: %s"
 
 #: cinder/virt/vmwareapi_conn.py:398
 #, python-format
 msgid "Task [%(task_name)s] %(task_ref)s status: success"
-msgstr ""
+msgstr "Состояние задачи [%(task_name)s] %(task_ref)s: готово"
 
 #: cinder/virt/vmwareapi_conn.py:404
 #, python-format
 msgid "Task [%(task_name)s] %(task_ref)s status: error %(error_info)s"
-msgstr ""
+msgstr "Состояние задачи [%(task_name)s] %(task_ref)s: ошибка %(error_info)s"
 
 #: cinder/virt/vmwareapi_conn.py:409
 #, python-format
 msgid "In vmwareapi:_poll_task, Got this error %s"
-msgstr ""
+msgstr "В vmwareapi:_poll_task, принята эта ошибка %s"
 
 #: cinder/virt/xenapi_conn.py:140
 msgid ""
@@ -4705,6 +4826,9 @@ msgid ""
 "(optionally), and xenapi_connection_password to use "
 "connection_type=xenapi"
 msgstr ""
+"Необходимо указать xenapi_connection_url, xenapi_connection_username "
+"(необязательно) и xenapi_connection_password для использования "
+"connection_type=xenapi"
 
 #: cinder/virt/xenapi_conn.py:329 cinder/virt/libvirt/connection.py:472
 msgid "Could not determine iscsi initiator name"
@@ -4712,11 +4836,13 @@ msgstr ""
 
 #: cinder/virt/xenapi_conn.py:460
 msgid "Host startup on XenServer is not supported."
-msgstr ""
+msgstr "Запуск узла на XenServer не поддерживается."
 
 #: cinder/virt/xenapi_conn.py:489
 msgid "Unable to log in to XenAPI (is the Dom0 disk full?)"
 msgstr ""
+"Невозможно выполнить вход в XenAPI (недостаточно свободного места на "
+"Dom0?)"
 
 #: cinder/virt/xenapi_conn.py:527
 msgid "Host is member of a pool, but DB says otherwise"
@@ -4725,7 +4851,7 @@ msgstr ""
 #: cinder/virt/xenapi_conn.py:599 cinder/virt/xenapi_conn.py:612
 #, python-format
 msgid "Got exception: %s"
-msgstr ""
+msgstr "Исключение: %s"
 
 #: cinder/virt/baremetal/dom.py:93
 msgid "No domains exist."
@@ -4769,7 +4895,7 @@ msgstr ""
 #: cinder/virt/baremetal/dom.py:154
 #, python-format
 msgid "No such domain %s"
-msgstr ""
+msgstr "Домен %s не существует"
 
 #: cinder/virt/baremetal/dom.py:161
 #, python-format
@@ -4843,7 +4969,7 @@ msgstr ""
 #: cinder/virt/baremetal/proxy.py:162
 #, python-format
 msgid "instance %(instance_name)s: deleting instance files %(target)s"
-msgstr ""
+msgstr "копия %(instance_name)s: удаление файлов копии %(target)s"
 
 #: cinder/virt/baremetal/proxy.py:189
 #, python-format
@@ -4903,7 +5029,7 @@ msgstr ""
 #: cinder/virt/baremetal/proxy.py:354
 #, python-format
 msgid "instance %s: Creating image"
-msgstr ""
+msgstr "копия %s: Создание образа"
 
 #: cinder/virt/baremetal/proxy.py:473
 #, python-format
@@ -4932,6 +5058,8 @@ msgid ""
 "Cannot get the number of cpu, because this function is not implemented "
 "for this platform. This error can be safely ignored for now."
 msgstr ""
+"Невозможно получить количество ЦПУ, так как эта возможность не "
+"реализована для этой платформы. Эту ошибку можно безопасно пропустить."
 
 #: cinder/virt/baremetal/proxy.py:714
 #, python-format
@@ -4992,27 +5120,27 @@ msgstr ""
 
 #: cinder/virt/disk/api.py:165
 msgid "no capable image handler configured"
-msgstr ""
+msgstr "нет настроенного совместимого обработчика образа"
 
 #: cinder/virt/disk/api.py:178
 #, python-format
 msgid "unknown disk image handler: %s"
-msgstr ""
+msgstr "неизвестный обработчик образа диска: %s"
 
 #: cinder/virt/disk/api.py:189
 msgid "image already mounted"
-msgstr ""
+msgstr "образ уже присоединён"
 
 #: cinder/virt/disk/api.py:276 cinder/virt/disk/guestfs.py:64
 #: cinder/virt/disk/guestfs.py:78 cinder/virt/disk/mount.py:100
 #, python-format
 msgid "Failed to mount filesystem: %s"
-msgstr ""
+msgstr "Ошибка монтирования файловой системы: %s"
 
 #: cinder/virt/disk/api.py:291
 #, python-format
 msgid "Failed to remove container: %s"
-msgstr ""
+msgstr "Ошибка удаления контейнера: %s"
 
 #: cinder/virt/disk/api.py:441
 #, python-format
@@ -5027,7 +5155,7 @@ msgstr ""
 #: cinder/virt/disk/guestfs.py:39
 #, python-format
 msgid "unsupported partition: %s"
-msgstr ""
+msgstr "неподдерживаемый раздел: %s"
 
 #: cinder/virt/disk/guestfs.py:77
 msgid "unknown guestmount error"
@@ -5036,11 +5164,11 @@ msgstr ""
 #: cinder/virt/disk/loop.py:30
 #, python-format
 msgid "Could not attach image to loopback: %s"
-msgstr ""
+msgstr "Невозможно прикрепить образ для замыкания: %s"
 
 #: cinder/virt/disk/mount.py:76
 msgid "no partitions found"
-msgstr ""
+msgstr "разделы не найдена"
 
 #: cinder/virt/disk/mount.py:77
 #, python-format
@@ -5053,12 +5181,12 @@ msgstr ""
 
 #: cinder/virt/disk/nbd.py:63
 msgid "No free nbd devices"
-msgstr ""
+msgstr "Нет свободных устройств nbd"
 
 #: cinder/virt/disk/nbd.py:81
 #, python-format
 msgid "qemu-nbd error: %s"
-msgstr ""
+msgstr "ошибка qemu-nbd: %s"
 
 #: cinder/virt/disk/nbd.py:93
 #, python-format
@@ -5068,11 +5196,11 @@ msgstr ""
 #: cinder/virt/libvirt/connection.py:265
 #, python-format
 msgid "Connecting to libvirt: %s"
-msgstr ""
+msgstr "Подключение к libvirt: %s"
 
 #: cinder/virt/libvirt/connection.py:286
 msgid "Connection to libvirt broke"
-msgstr ""
+msgstr "Неполадка с подключением к libvirt"
 
 #: cinder/virt/libvirt/connection.py:388
 #, python-format
@@ -5114,12 +5242,14 @@ msgid "detaching LXC block device"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:692
+#, fuzzy, python-format
 msgid "Instance soft rebooted successfully."
-msgstr ""
+msgstr "снимок %s: создание завершено"
 
 #: cinder/virt/libvirt/connection.py:696
+#, fuzzy
 msgid "Failed to soft reboot instance."
-msgstr ""
+msgstr "Ошибка перезагрузки копии"
 
 #: cinder/virt/libvirt/connection.py:725
 msgid "Instance shutdown successfully."
@@ -5139,11 +5269,13 @@ msgid ""
 "Found %(migration_count)d unconfirmed migrations older than "
 "%(confirm_window)d seconds"
 msgstr ""
+"Найдены %(migration_count)d неподтверждённых перемещений, старше "
+"%(confirm_window)d секунд"
 
 #: cinder/virt/libvirt/connection.py:871
 #, python-format
 msgid "Automatically confirming migration %d"
-msgstr ""
+msgstr "Автоматические подтверждение перемещения %d"
 
 #: cinder/virt/libvirt/connection.py:896
 msgid "Instance is running"
@@ -5159,8 +5291,9 @@ msgid "data: %(data)r, fpath: %(fpath)r"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:978
+#, fuzzy
 msgid "Guest does not have a console available"
-msgstr ""
+msgstr "Пользователь не имеет административных привилегий"
 
 #: cinder/virt/libvirt/connection.py:1020
 #, python-format
@@ -5179,7 +5312,7 @@ msgstr ""
 
 #: cinder/virt/libvirt/connection.py:1153
 msgid "Creating image"
-msgstr ""
+msgstr "Создание изображения"
 
 #: cinder/virt/libvirt/connection.py:1339
 #, python-format
@@ -5194,7 +5327,7 @@ msgstr ""
 #: cinder/virt/libvirt/connection.py:1381
 #, python-format
 msgid "block_device_list %s"
-msgstr ""
+msgstr "block_device_list %s"
 
 #: cinder/virt/libvirt/connection.py:1658
 msgid "Starting toXML method"
@@ -5210,15 +5343,17 @@ msgid ""
 "Error from libvirt while looking up %(instance_name)s: [Error Code "
 "%(error_code)s] %(ex)s"
 msgstr ""
+"Ошибка libvirt во время поиска %(instance_name)s: [Код ошибки "
+"%(error_code)s] %(ex)s"
 
 #: cinder/virt/libvirt/connection.py:1920
 msgid "libvirt version is too old (does not support getVersion)"
-msgstr ""
+msgstr "устаревшая версия libvirt (не поддерживается getVersion)"
 
 #: cinder/virt/libvirt/connection.py:1942
 #, python-format
 msgid "'<cpu>' must be 1, but %d\n"
-msgstr ""
+msgstr "'<cpu>' должно быть 1, но %d\n"
 
 #: cinder/virt/libvirt/connection.py:1969
 #, python-format
@@ -5267,8 +5402,9 @@ msgid "During wait running, instance disappeared."
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:2518
+#, fuzzy, python-format
 msgid "Instance running successfully."
-msgstr ""
+msgstr "Копия %s: выполнение"
 
 #: cinder/virt/libvirt/connection.py:2525
 #, python-format
@@ -5285,6 +5421,8 @@ msgid ""
 "Libvirt module could not be loaded. NWFilterFirewall will not work "
 "correctly."
 msgstr ""
+"Модуль Libvirt не может быть загружен. NWFilterFirewall не будет работать"
+" надлежащим образом."
 
 #: cinder/virt/libvirt/firewall.py:93
 msgid "Called setup_basic_filtering in nwfilter"
@@ -5302,11 +5440,11 @@ msgstr ""
 #: cinder/virt/libvirt/firewall.py:217
 #, python-format
 msgid "The nwfilter(%(instance_filter_name)s) for%(name)s is not found."
-msgstr ""
+msgstr "nwfilter(%(instance_filter_name)s) для%(name)s не найден."
 
 #: cinder/virt/libvirt/firewall.py:233
 msgid "iptables firewall: Setup Basic Filtering"
-msgstr ""
+msgstr "Брандмауэр iptables: Настройка базовой фильтрации"
 
 #: cinder/virt/libvirt/firewall.py:252
 msgid "Attempted to unfilter instance which is not filtered"
@@ -5438,7 +5576,7 @@ msgstr ""
 
 #: cinder/virt/libvirt/utils.py:264
 msgid "Unable to find an open port"
-msgstr ""
+msgstr "Невозможно найти открытый порт"
 
 #: cinder/virt/libvirt/vif.py:90
 #, python-format
@@ -5453,12 +5591,12 @@ msgstr ""
 #: cinder/virt/libvirt/vif.py:165 cinder/virt/libvirt/vif.py:220
 #, python-format
 msgid "Failed while unplugging vif of instance '%s'"
-msgstr ""
+msgstr "Ошибка отсоединения vif копии '%s'"
 
 #: cinder/virt/libvirt/volume.py:163
 #, python-format
 msgid "iSCSI device not found at %s"
-msgstr ""
+msgstr "iSCSI-устройство не найдено в %s"
 
 #: cinder/virt/libvirt/volume.py:166
 #, python-format
@@ -5466,11 +5604,13 @@ msgid ""
 "ISCSI volume not yet found at: %(mount_device)s. Will rescan & retry.  "
 "Try number: %(tries)s"
 msgstr ""
+"Том ISCSI не найден в: %(mount_device)s. Будет выполнена повторная "
+"проверка и попытка.  Повторение: %(tries)s"
 
 #: cinder/virt/libvirt/volume.py:178
 #, python-format
 msgid "Found iSCSI node %(mount_device)s (after %(tries)s rescans)"
-msgstr ""
+msgstr "Найден узел iSCSI %(mount_device)s (после %(tries)s повторных проверок)"
 
 #: cinder/virt/vmwareapi/error_util.py:93
 #, python-format
@@ -5480,16 +5620,16 @@ msgstr ""
 #: cinder/virt/vmwareapi/fake.py:44 cinder/virt/xenapi/fake.py:77
 #, python-format
 msgid "%(text)s: _db_content => %(content)s"
-msgstr ""
+msgstr "%(text)s: _db_content => %(content)s"
 
 #: cinder/virt/vmwareapi/fake.py:131
 #, python-format
 msgid "Property %(attr)s not set for the managed object %(objName)s"
-msgstr ""
+msgstr "Свойство %(attr)s не назначено для управляемого объекта %(objName)s"
 
 #: cinder/virt/vmwareapi/fake.py:437
 msgid "There is no VM registered"
-msgstr ""
+msgstr "Отсутствуют зарегистрированные ВМ"
 
 #: cinder/virt/vmwareapi/fake.py:439 cinder/virt/vmwareapi/fake.py:609
 #, python-format
@@ -5499,19 +5639,19 @@ msgstr ""
 #: cinder/virt/vmwareapi/fake.py:502
 #, python-format
 msgid "Logging out a session that is invalid or already logged out: %s"
-msgstr ""
+msgstr "Завершение сеанса с неполадками или уже завершённого сеанса: %s"
 
 #: cinder/virt/vmwareapi/fake.py:517
 msgid "Session is faulty"
-msgstr ""
+msgstr "Сеанс имеет неполадки"
 
 #: cinder/virt/vmwareapi/fake.py:520
 msgid "Session Invalid"
-msgstr ""
+msgstr "Недопустимый сеанс"
 
 #: cinder/virt/vmwareapi/fake.py:606
 msgid " No Virtual Machine has been registered yet"
-msgstr ""
+msgstr " Отсутствуют зарегистриованные виртуальные машины"
 
 #: cinder/virt/vmwareapi/io_util.py:99
 #, python-format
@@ -5546,11 +5686,11 @@ msgstr ""
 
 #: cinder/virt/vmwareapi/vim.py:84
 msgid "Unable to import suds."
-msgstr ""
+msgstr "Невозможно импортировать suds."
 
 #: cinder/virt/vmwareapi/vim.py:90
 msgid "Must specify vmwareapi_wsdl_loc"
-msgstr ""
+msgstr "Необходимо задать vmwareapi_wsdl_loc"
 
 #: cinder/virt/vmwareapi/vim.py:145
 #, python-format
@@ -5575,16 +5715,16 @@ msgstr ""
 #: cinder/virt/vmwareapi/vim.py:166
 #, python-format
 msgid "Exception in %s "
-msgstr ""
+msgstr "Исключение в %s "
 
 #: cinder/virt/vmwareapi/vmops.py:66
 msgid "Getting list of instances"
-msgstr ""
+msgstr "Перечень копий"
 
 #: cinder/virt/vmwareapi/vmops.py:82
 #, python-format
 msgid "Got total of %s instances"
-msgstr ""
+msgstr "Всего %s копий"
 
 #: cinder/virt/vmwareapi/vmops.py:126
 msgid "Couldn't get a local Datastore reference"
@@ -5593,12 +5733,12 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:196
 #, python-format
 msgid "Creating VM with the name %s on the ESX  host"
-msgstr ""
+msgstr "Создание ВМ с именем %s на узле ESX"
 
 #: cinder/virt/vmwareapi/vmops.py:205
 #, python-format
 msgid "Created VM with the name %s on the ESX  host"
-msgstr ""
+msgstr "Создание ВМ с именем %s на узле ESX"
 
 #: cinder/virt/vmwareapi/vmops.py:234
 #, python-format
@@ -5655,22 +5795,22 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:329
 #, python-format
 msgid "Powering on the VM instance %s"
-msgstr ""
+msgstr "Включение питания на копии ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:335
 #, python-format
 msgid "Powered on the VM instance %s"
-msgstr ""
+msgstr "Питание включено на копии ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:381
 #, python-format
 msgid "Creating Snapshot of the VM instance %s "
-msgstr ""
+msgstr "Создание снимка копии ВМ %s "
 
 #: cinder/virt/vmwareapi/vmops.py:391
 #, python-format
 msgid "Created Snapshot of the VM instance %s "
-msgstr ""
+msgstr "Создание снимка копии ВМ %s "
 
 #: cinder/virt/vmwareapi/vmops.py:434
 #, python-format
@@ -5685,41 +5825,41 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:456
 #, python-format
 msgid "Uploading image %s"
-msgstr ""
+msgstr "Выгрузка образа %s"
 
 #: cinder/virt/vmwareapi/vmops.py:469
 #, python-format
 msgid "Uploaded image %s"
-msgstr ""
+msgstr "Выгруженный образ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:479
 #, python-format
 msgid "Deleting temporary vmdk file %s"
-msgstr ""
+msgstr "Удаление временного файла vmdk %s"
 
 #: cinder/virt/vmwareapi/vmops.py:488
 #, python-format
 msgid "Deleted temporary vmdk file %s"
-msgstr ""
+msgstr "Удалённый временный файл vmdk %s"
 
 #: cinder/virt/vmwareapi/vmops.py:520
 msgid "instance is not powered on"
-msgstr ""
+msgstr "копия не включена"
 
 #: cinder/virt/vmwareapi/vmops.py:527
 #, python-format
 msgid "Rebooting guest OS of VM %s"
-msgstr ""
+msgstr "Перезагрузка гостевой ОС ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:530
 #, python-format
 msgid "Rebooted guest OS of VM %s"
-msgstr ""
+msgstr "Выполнена перезагрузка гостевой ОС ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:532
 #, python-format
 msgid "Doing hard reboot of VM %s"
-msgstr ""
+msgstr "Выполнение безотказной перезагрузки ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:536
 #, python-format
@@ -5729,27 +5869,27 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:548
 #, python-format
 msgid "instance - %s not present"
-msgstr ""
+msgstr "копия - %s не представлена"
 
 #: cinder/virt/vmwareapi/vmops.py:567
 #, python-format
 msgid "Powering off the VM %s"
-msgstr ""
+msgstr "Выключение питания ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:572
 #, python-format
 msgid "Powered off the VM %s"
-msgstr ""
+msgstr "Питание ВМ %s выключено"
 
 #: cinder/virt/vmwareapi/vmops.py:576
 #, python-format
 msgid "Unregistering the VM %s"
-msgstr ""
+msgstr "Исключение регистрации ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:579
 #, python-format
 msgid "Unregistered the VM %s"
-msgstr ""
+msgstr "Незарегистрированная ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:581
 #, python-format
@@ -5786,16 +5926,16 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:633
 #, python-format
 msgid "Suspending the VM %s "
-msgstr ""
+msgstr "Приостановка ВМ %s "
 
 #: cinder/virt/vmwareapi/vmops.py:637
 #, python-format
 msgid "Suspended the VM %s "
-msgstr ""
+msgstr "Приостановленная ВМ %s "
 
 #: cinder/virt/vmwareapi/vmops.py:640
 msgid "instance is powered off and can not be suspended."
-msgstr ""
+msgstr "Питание копии выключено и следовательно она не может быть приостановлена."
 
 #: cinder/virt/vmwareapi/vmops.py:643
 #, python-format
@@ -5805,16 +5945,16 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:656
 #, python-format
 msgid "Resuming the VM %s"
-msgstr ""
+msgstr "Возобновление работы ВМ %s"
 
 #: cinder/virt/vmwareapi/vmops.py:661
 #, python-format
 msgid "Resumed the VM %s "
-msgstr ""
+msgstr "Работа ВМ %s возобновлена "
 
 #: cinder/virt/vmwareapi/vmops.py:663
 msgid "instance is not in a suspended state"
-msgstr ""
+msgstr "копия не в приостановленном состоянии"
 
 #: cinder/virt/vmwareapi/vmops.py:699
 msgid "get_diagnostics not implemented for vmwareapi"
@@ -5837,12 +5977,12 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmops.py:802
 #, python-format
 msgid "Creating directory with path %s"
-msgstr ""
+msgstr "Создание папки с адресом %s"
 
 #: cinder/virt/vmwareapi/vmops.py:806
 #, python-format
 msgid "Created directory with path %s"
-msgstr ""
+msgstr "Создана папка с адресом %s"
 
 #: cinder/virt/vmwareapi/vmware_images.py:89
 #, python-format
@@ -5867,12 +6007,12 @@ msgstr ""
 #: cinder/virt/vmwareapi/vmware_images.py:139
 #, python-format
 msgid "Getting image size for the image %s"
-msgstr ""
+msgstr "Получение размера образа для образа %s"
 
 #: cinder/virt/vmwareapi/vmware_images.py:143
 #, python-format
 msgid "Got image size of %(size)s for the image %(image)s"
-msgstr ""
+msgstr "Принят размер образа %(size)s для образа %(image)s"
 
 #: cinder/virt/xenapi/fake.py:553 cinder/virt/xenapi/fake.py:652
 #: cinder/virt/xenapi/fake.py:670 cinder/virt/xenapi/fake.py:732
@@ -5882,17 +6022,17 @@ msgstr ""
 #: cinder/virt/xenapi/fake.py:555
 #, python-format
 msgid "xenapi.fake does not have an implementation for %s"
-msgstr ""
+msgstr "xenapi.fake не имеет реализации для %s"
 
 #: cinder/virt/xenapi/fake.py:589
 #, python-format
 msgid "Calling %(localname)s %(impl)s"
-msgstr ""
+msgstr "Выполняется вызов %(localname)s %(impl)s"
 
 #: cinder/virt/xenapi/fake.py:594
 #, python-format
 msgid "Calling getter %s"
-msgstr ""
+msgstr "Выполняется вызов getter %s"
 
 #: cinder/virt/xenapi/fake.py:654
 #, python-format
@@ -5900,6 +6040,8 @@ msgid ""
 "xenapi.fake does not have an implementation for %s or it has been called "
 "with the wrong number of arguments"
 msgstr ""
+"xenapi.fake не имеет реализации для %s или был вызван с использованием "
+"неправильным числом аргументов"
 
 #: cinder/virt/xenapi/host.py:67
 #, python-format
@@ -5911,31 +6053,32 @@ msgstr ""
 #: cinder/virt/xenapi/host.py:137
 #, python-format
 msgid "Unable to get SR for this host: %s"
-msgstr ""
+msgstr "Невозможно принять SR для этого узла: %s"
 
 #: cinder/virt/xenapi/host.py:169
+#, fuzzy, python-format
 msgid "Unable to get updated status"
-msgstr ""
+msgstr "Невозможно получить обновлённое состояние: %s"
 
 #: cinder/virt/xenapi/host.py:172
 #, python-format
 msgid "The call to %(method)s returned an error: %(e)s."
-msgstr ""
+msgstr "Вызов %(method)s возвратил ошибку: %(e)s."
 
 #: cinder/virt/xenapi/network_utils.py:37
 #, python-format
 msgid "Found non-unique network for name_label %s"
-msgstr ""
+msgstr "Найдена не уникальная сеть для name_label %s"
 
 #: cinder/virt/xenapi/network_utils.py:55
 #, python-format
 msgid "Found non-unique network for bridge %s"
-msgstr ""
+msgstr "Найдена не уникальная сеть для моста %s"
 
 #: cinder/virt/xenapi/network_utils.py:58
 #, python-format
 msgid "Found no network for bridge %s"
-msgstr ""
+msgstr "Не найдена сеть для моста %s"
 
 #: cinder/virt/xenapi/pool.py:111
 #, python-format
@@ -5953,9 +6096,9 @@ msgid "Pool-Join failed: %(e)s"
 msgstr ""
 
 #: cinder/virt/xenapi/pool.py:146
-#, python-format
+#, fuzzy, python-format
 msgid "Unable to join %(host)s in the pool"
-msgstr ""
+msgstr "Невозможно найти узел для копии %s"
 
 #: cinder/virt/xenapi/pool.py:162
 #, python-format
@@ -5963,9 +6106,9 @@ msgid "Pool-eject failed: %(e)s"
 msgstr ""
 
 #: cinder/virt/xenapi/pool.py:174
-#, python-format
+#, fuzzy, python-format
 msgid "Unable to set up pool: %(e)s."
-msgstr ""
+msgstr "Невозможно использовать глобальные полномочия %(role_id)s"
 
 #: cinder/virt/xenapi/pool.py:185
 #, python-format
@@ -5985,18 +6128,19 @@ msgid ""
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:218
+#, fuzzy, python-format
 msgid "Created VM"
-msgstr ""
+msgstr "_создать: %s"
 
 #: cinder/virt/xenapi/vm_utils.py:245
 #, python-format
 msgid "VBD not found in instance %s"
-msgstr ""
+msgstr "VBD не найдено для копии %s"
 
 #: cinder/virt/xenapi/vm_utils.py:262
-#, python-format
+#, fuzzy, python-format
 msgid "VBD %s already detached"
-msgstr ""
+msgstr "группа %s уже существует"
 
 #: cinder/virt/xenapi/vm_utils.py:265
 #, python-format
@@ -6006,7 +6150,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:270
 #, python-format
 msgid "Unable to unplug VBD %s"
-msgstr ""
+msgstr "Невозможно отсоединить VBD %s"
 
 #: cinder/virt/xenapi/vm_utils.py:275
 #, python-format
@@ -6016,22 +6160,22 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:286
 #, python-format
 msgid "Unable to destroy VBD %s"
-msgstr ""
+msgstr "Невозможно ликвидировать VBD %s"
 
 #: cinder/virt/xenapi/vm_utils.py:305
-#, python-format
+#, fuzzy, python-format
 msgid "Creating %(vbd_type)s-type VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
-msgstr ""
+msgstr "Создана VBD %(vbd_ref)s для ВМ %(vm_ref)s, VDI %(vdi_ref)s."
 
 #: cinder/virt/xenapi/vm_utils.py:308
 #, python-format
 msgid "Created VBD %(vbd_ref)s for VM %(vm_ref)s, VDI %(vdi_ref)s."
-msgstr ""
+msgstr "Создана VBD %(vbd_ref)s для ВМ %(vm_ref)s, VDI %(vdi_ref)s."
 
 #: cinder/virt/xenapi/vm_utils.py:319
 #, python-format
 msgid "Unable to destroy VDI %s"
-msgstr ""
+msgstr "Невозможно ликвидировать VDI %s"
 
 #: cinder/virt/xenapi/vm_utils.py:336
 #, python-format
@@ -6039,6 +6183,8 @@ msgid ""
 "Created VDI %(vdi_ref)s (%(name_label)s, %(virtual_size)s, %(read_only)s)"
 " on %(sr_ref)s."
 msgstr ""
+"Создан VDI %(vdi_ref)s (%(name_label)s, %(virtual_size)s, %(read_only)s) "
+"на %(sr_ref)s."
 
 #: cinder/virt/xenapi/vm_utils.py:345
 #, python-format
@@ -6051,24 +6197,24 @@ msgid "Cloned VDI %(vdi_ref)s from VDI %(vdi_to_clone_ref)s"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:372
-#, python-format
+#, fuzzy, python-format
 msgid "No primary VDI found for %(vm_ref)s"
-msgstr ""
+msgstr "Отсутствует первичный VDI для%(vm_ref)s"
 
 #: cinder/virt/xenapi/vm_utils.py:379
-#, python-format
+#, fuzzy, python-format
 msgid "Snapshotting with label '%(label)s'"
-msgstr ""
+msgstr "Снимок ВМ %(vm_ref)s с меткой '%(label)s'..."
 
 #: cinder/virt/xenapi/vm_utils.py:392
-#, python-format
+#, fuzzy, python-format
 msgid "Created snapshot %(template_vm_ref)s"
-msgstr ""
+msgstr "Создан снимок %(template_vm_ref)s из ВМ %(vm_ref)s."
 
 #: cinder/virt/xenapi/vm_utils.py:431
 #, python-format
 msgid "Asking xapi to upload %(vdi_uuids)s as ID %(image_id)s"
-msgstr ""
+msgstr "Запрос xapi для выгрузки %(vdi_uuids)s в качестве ID %(image_id)s"
 
 #: cinder/virt/xenapi/vm_utils.py:583
 #, python-format
@@ -6097,7 +6243,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:750
 #, python-format
 msgid "Asking xapi to fetch vhd image %(image)s"
-msgstr ""
+msgstr "Запрос xapi на приём образа vhd %(image)s"
 
 #: cinder/virt/xenapi/vm_utils.py:760
 #, python-format
@@ -6105,16 +6251,18 @@ msgid ""
 "xapi 'download_vhd' returned VDI of type '%(vdi_type)s' with UUID "
 "'%(vdi_uuid)s'"
 msgstr ""
+"xapi 'download_vhd' возвратил VDI типа '%(vdi_type)s' с UUID "
+"'%(vdi_uuid)s'"
 
 #: cinder/virt/xenapi/vm_utils.py:789
 #, python-format
 msgid "vdi_uuid=%(cur_vdi_uuid)s vdi_size_bytes=%(vdi_size_bytes)d"
-msgstr ""
+msgstr "vdi_uuid=%(cur_vdi_uuid)s vdi_size_bytes=%(vdi_size_bytes)d"
 
 #: cinder/virt/xenapi/vm_utils.py:805
 #, python-format
 msgid "image_size_bytes=%(size_bytes)d, allowed_size_bytes=%(allowed_size_bytes)d"
-msgstr ""
+msgstr "image_size_bytes=%(size_bytes)d, allowed_size_bytes=%(allowed_size_bytes)d"
 
 #: cinder/virt/xenapi/vm_utils.py:809
 #, python-format
@@ -6122,11 +6270,13 @@ msgid ""
 "Image size %(size_bytes)d exceeded instance_type allowed size "
 "%(allowed_size_bytes)d"
 msgstr ""
+"Размер образа %(size_bytes)d превышает допустимый instance_type  размер "
+"%(allowed_size_bytes)d"
 
 #: cinder/virt/xenapi/vm_utils.py:831
-#, python-format
+#, fuzzy, python-format
 msgid "Fetching image %(image)s, type %(image_type_str)"
-msgstr ""
+msgstr "Получение образа %(image)s"
 
 #: cinder/virt/xenapi/vm_utils.py:844
 #, python-format
@@ -6139,40 +6289,43 @@ msgid ""
 "Kernel/Ramdisk image is too large: %(vdi_size)d bytes, max %(max_size)d "
 "bytes"
 msgstr ""
+"Превышен размер ядра/Ramdisk образа: %(vdi_size)d байт, макс. "
+"%(max_size)d байт"
 
 #: cinder/virt/xenapi/vm_utils.py:870
 #, python-format
 msgid "Copying VDI %s to /boot/guest on dom0"
-msgstr ""
+msgstr "Копирование VDI %s в /boot/guest на dom0"
 
 #: cinder/virt/xenapi/vm_utils.py:884
 #, python-format
 msgid "Kernel/Ramdisk VDI %s destroyed"
-msgstr ""
+msgstr "Ядро/Ramdisk VDI %s ликвидирован"
 
 #: cinder/virt/xenapi/vm_utils.py:895
+#, fuzzy
 msgid "Failed to fetch glance image"
-msgstr ""
+msgstr "Ошибка перезагрузки копии"
 
 #: cinder/virt/xenapi/vm_utils.py:934
 #, python-format
 msgid "Detected %(image_type_str)s format for image %(image_ref)s"
-msgstr ""
+msgstr "Обнаружен %(image_type_str)s формат для образа %(image_ref)s"
 
 #: cinder/virt/xenapi/vm_utils.py:955
 #, python-format
 msgid "Looking up vdi %s for PV kernel"
-msgstr ""
+msgstr "Поиск vdi %s для ядра PV"
 
 #: cinder/virt/xenapi/vm_utils.py:973
 #, python-format
 msgid "Unknown image format %(disk_image_type)s"
-msgstr ""
+msgstr "Неизвестный формат образа %(disk_image_type)s"
 
 #: cinder/virt/xenapi/vm_utils.py:1016
 #, python-format
 msgid "VDI %s is still available"
-msgstr ""
+msgstr "VDI %s до сих пор доступен"
 
 #: cinder/virt/xenapi/vm_utils.py:1059
 #, python-format
@@ -6192,7 +6345,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1108
 #, python-format
 msgid "Re-scanning SR %s"
-msgstr ""
+msgstr "Повторная проверка SR %s"
 
 #: cinder/virt/xenapi/vm_utils.py:1136
 #, python-format
@@ -6208,16 +6361,16 @@ msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1167
 msgid "Cannot find SR of content-type ISO"
-msgstr ""
+msgstr "Невозможно найти SR типа содержимого ISO"
 
 #: cinder/virt/xenapi/vm_utils.py:1175
 #, python-format
 msgid "ISO: looking at SR %(sr_rec)s"
-msgstr ""
+msgstr "ISO: поиск SR %(sr_rec)s"
 
 #: cinder/virt/xenapi/vm_utils.py:1177
 msgid "ISO: not iso content"
-msgstr ""
+msgstr "ISO: не содержимое iso типа"
 
 #: cinder/virt/xenapi/vm_utils.py:1180
 msgid "ISO: iso content_type, no 'i18n-key' key"
@@ -6247,7 +6400,7 @@ msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1198
 msgid "ISO: SR with local PBD"
-msgstr ""
+msgstr "ISO: SR с локальной PBD"
 
 #: cinder/virt/xenapi/vm_utils.py:1220
 #, python-format
@@ -6286,37 +6439,39 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1462
 #, python-format
 msgid "Timeout waiting for device %s to be created"
-msgstr ""
+msgstr "Время ожидания при создании устройства %s"
 
 #: cinder/virt/xenapi/vm_utils.py:1473
 #, python-format
 msgid "Plugging VBD %s ... "
-msgstr ""
+msgstr "Подсоединение VBD %s ... "
 
 #: cinder/virt/xenapi/vm_utils.py:1476
 #, python-format
 msgid "Plugging VBD %s done."
-msgstr ""
+msgstr "Подсоединение VBD %s выполнено."
 
 #: cinder/virt/xenapi/vm_utils.py:1478
 #, python-format
 msgid "VBD %(vbd_ref)s plugged as %(orig_dev)s"
-msgstr ""
+msgstr "VBD %(vbd_ref)s подсоединено как %(orig_dev)s"
 
 #: cinder/virt/xenapi/vm_utils.py:1481
 #, python-format
 msgid "VBD %(vbd_ref)s plugged into wrong dev, remapping to %(dev)s"
 msgstr ""
+"VBD %(vbd_ref)s подсоединено в неправильный dev, изменение назначения на "
+"%(dev)s"
 
 #: cinder/virt/xenapi/vm_utils.py:1490
 #, python-format
 msgid "Destroying VBD for VDI %s ... "
-msgstr ""
+msgstr "Ликвидирование VBD для VDI %s ... "
 
 #: cinder/virt/xenapi/vm_utils.py:1498
 #, python-format
 msgid "Destroying VBD for VDI %s done."
-msgstr ""
+msgstr "Ликвидирование VBD для VDI %s завершено."
 
 #: cinder/virt/xenapi/vm_utils.py:1511
 #, python-format
@@ -6326,20 +6481,20 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1518
 #, python-format
 msgid "Found Xen kernel %s"
-msgstr ""
+msgstr "Найдено ядро Xen %s"
 
 #: cinder/virt/xenapi/vm_utils.py:1520
 msgid "No Xen kernel found.  Booting HVM."
-msgstr ""
+msgstr "Ядро Xen не найдено.  Загрузка HVM."
 
 #: cinder/virt/xenapi/vm_utils.py:1533
 msgid "Partitions:"
-msgstr ""
+msgstr "Разделы:"
 
 #: cinder/virt/xenapi/vm_utils.py:1539
 #, python-format
 msgid "  %(num)s: %(ptype)s %(size)d sectors"
-msgstr ""
+msgstr "  %(num)s: %(ptype)s %(size)d секторов"
 
 #: cinder/virt/xenapi/vm_utils.py:1565
 #, python-format
@@ -6347,11 +6502,13 @@ msgid ""
 "Writing partition table %(primary_first)d %(primary_last)d to "
 "%(dev_path)s..."
 msgstr ""
+"Запись таблицы разделов %(primary_first)d %(primary_last)d в "
+"%(dev_path)s..."
 
 #: cinder/virt/xenapi/vm_utils.py:1578
 #, python-format
 msgid "Writing partition table %s done."
-msgstr ""
+msgstr "Запись таблицы разделов %s выполнена."
 
 #: cinder/virt/xenapi/vm_utils.py:1632
 #, python-format
@@ -6381,7 +6538,7 @@ msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1726
 msgid "XenServer tools are not installed in this image"
-msgstr ""
+msgstr "Средства XenServer не установлены в этот образ"
 
 #: cinder/virt/xenapi/vm_utils.py:1742
 msgid "Manipulating interface files directly"
@@ -6391,41 +6548,50 @@ msgstr ""
 #, python-format
 msgid "Failed to mount filesystem (expected for non-linux instances): %s"
 msgstr ""
+"Ошибка присоединения файловой системы (ожидаемо для копий не на базе "
+"linux): %s"
 
 #: cinder/virt/xenapi/vmops.py:131 cinder/virt/xenapi/vmops.py:722
-#, python-format
+#, fuzzy, python-format
 msgid "Updating progress to %(progress)d"
-msgstr ""
+msgstr "Обновление выполнения копии '%(instance_uuid)s' до %(progress)d"
 
 #: cinder/virt/xenapi/vmops.py:231
 #, python-format
 msgid "Attempted to power on non-existent instance bad instance id %s"
 msgstr ""
+"Предпринята попытка включения несуществующей копии, копии с неполадками с"
+" идентификатором %s"
 
 #: cinder/virt/xenapi/vmops.py:233
+#, fuzzy, python-format
 msgid "Starting instance"
-msgstr ""
+msgstr "Запуск копии %s"
 
 #: cinder/virt/xenapi/vmops.py:303
 msgid "Removing kernel/ramdisk files from dom0"
-msgstr ""
+msgstr "Удаление ядра/ramdisk файлов из dom0"
 
 #: cinder/virt/xenapi/vmops.py:358
+#, fuzzy
 msgid "Failed to spawn, rolling back"
-msgstr ""
+msgstr "Ошибка обновления тома в базе данных"
 
 #: cinder/virt/xenapi/vmops.py:443
 msgid "Detected ISO image type, creating blank VM for install"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:462
+#, fuzzy, python-format
 msgid "Auto configuring disk, attempting to resize partition..."
 msgstr ""
+"Автоматическая настройка диска для копии %(instance_uuid)s, выполняется "
+"попытка изменения размера раздела..."
 
 #: cinder/virt/xenapi/vmops.py:515
-#, python-format
+#, fuzzy, python-format
 msgid "Invalid value for injected_files: %r"
-msgstr ""
+msgstr "Недопустимое значение для injected_files: '%s'"
 
 #: cinder/virt/xenapi/vmops.py:520
 #, python-format
@@ -6434,19 +6600,20 @@ msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:527
 msgid "Setting admin password"
-msgstr ""
+msgstr "Настройка пароля администратора"
 
 #: cinder/virt/xenapi/vmops.py:531
 msgid "Resetting network"
-msgstr ""
+msgstr "Восстановление сети"
 
 #: cinder/virt/xenapi/vmops.py:538
 msgid "Setting VCPU weight"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:544
+#, fuzzy
 msgid "Starting VM"
-msgstr ""
+msgstr "Выполнение перезагрузки xvp"
 
 #: cinder/virt/xenapi/vmops.py:551
 #, python-format
@@ -6466,58 +6633,61 @@ msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:573
 msgid "Querying agent version"
-msgstr ""
+msgstr "Запрос версии агента"
 
 #: cinder/virt/xenapi/vmops.py:576
 #, python-format
 msgid "Instance agent version: %s"
-msgstr ""
+msgstr "Версия агента копии: %s"
 
 #: cinder/virt/xenapi/vmops.py:581
 #, python-format
 msgid "Updating Agent to %s"
-msgstr ""
+msgstr "Обновление агента до %s"
 
 #: cinder/virt/xenapi/vmops.py:616
 #, python-format
 msgid "No opaque_ref could be determined for '%s'."
-msgstr ""
+msgstr "opaque_ref не может быть определён для '%s'."
 
 #: cinder/virt/xenapi/vmops.py:670
+#, fuzzy, python-format
 msgid "Finished snapshot and upload for VM"
-msgstr ""
+msgstr "Готовый снимок и выгрузка для ВМ %s"
 
 #: cinder/virt/xenapi/vmops.py:677
+#, fuzzy, python-format
 msgid "Starting snapshot for VM"
-msgstr ""
+msgstr "Запуск снимка для ВМ %s"
 
 #: cinder/virt/xenapi/vmops.py:686
-#, python-format
+#, fuzzy, python-format
 msgid "Unable to Snapshot instance: %(exc)s"
-msgstr ""
+msgstr "Невозможно найти узел для копии %s"
 
 #: cinder/virt/xenapi/vmops.py:702
 msgid "Failed to transfer vhd to new host"
-msgstr ""
+msgstr "Ошибка перемещения vhd на новый узел"
 
 #: cinder/virt/xenapi/vmops.py:770
 #, python-format
 msgid "Resizing down VDI %(cow_uuid)s from %(old_gb)dGB to %(new_gb)dGB"
-msgstr ""
+msgstr "Изменение размера VDI %(cow_uuid)s с %(old_gb)dГБ до %(new_gb)dГБ"
 
 #: cinder/virt/xenapi/vmops.py:893
 #, python-format
 msgid "Resizing up VDI %(vdi_uuid)s from %(old_gb)dGB to %(new_gb)dGB"
-msgstr ""
+msgstr "Изменение размера VDI %(vdi_uuid)s с %(old_gb)dГБ до %(new_gb)dГБ"
 
 #: cinder/virt/xenapi/vmops.py:901
+#, fuzzy, python-format
 msgid "Resize complete"
-msgstr ""
+msgstr "Изменение размера копии %s завершено"
 
 #: cinder/virt/xenapi/vmops.py:928
 #, python-format
 msgid "Failed to query agent version: %(resp)r"
-msgstr ""
+msgstr "Ошибка запроса версии агента: %(resp)r"
 
 #: cinder/virt/xenapi/vmops.py:949
 #, python-format
@@ -6527,17 +6697,17 @@ msgstr ""
 #: cinder/virt/xenapi/vmops.py:962
 #, python-format
 msgid "Failed to update agent: %(resp)r"
-msgstr ""
+msgstr "Ошибка обновления агента: %(resp)r"
 
 #: cinder/virt/xenapi/vmops.py:983
 #, python-format
 msgid "Failed to exchange keys: %(resp)r"
-msgstr ""
+msgstr "Ошибка обмена ключей: %(resp)r"
 
 #: cinder/virt/xenapi/vmops.py:998
 #, python-format
 msgid "Failed to update password: %(resp)r"
-msgstr ""
+msgstr "Ошибка обновления пароля: %(resp)r"
 
 #: cinder/virt/xenapi/vmops.py:1023
 #, python-format
@@ -6554,36 +6724,40 @@ msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1054
 msgid "Unable to find VBD for VM"
-msgstr ""
+msgstr "Невозможно найти VBD для ВМ"
 
 #: cinder/virt/xenapi/vmops.py:1097
+#, fuzzy, python-format
 msgid "Using RAW or VHD, skipping kernel and ramdisk deletion"
 msgstr ""
+"Копия %(instance_uuid)s использует RAW или VHD, пропуск ядра и удаление "
+"ramdisk"
 
 #: cinder/virt/xenapi/vmops.py:1104
 msgid "instance has a kernel or ramdisk but not both"
-msgstr ""
+msgstr "копия содержит ядро или ramdisk, но не оба"
 
 #: cinder/virt/xenapi/vmops.py:1111
 msgid "kernel/ramdisk files removed"
-msgstr ""
+msgstr "файлы ядра/ramdisk удалены"
 
 #: cinder/virt/xenapi/vmops.py:1121
 msgid "VM destroyed"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1147
+#, fuzzy
 msgid "Destroying VM"
-msgstr ""
+msgstr "Выполнение перезагрузки xvp"
 
 #: cinder/virt/xenapi/vmops.py:1169
 msgid "VM is not present, skipping destroy..."
-msgstr ""
+msgstr "ВМ не предоставлена, пропуск выполнения ликвидации..."
 
 #: cinder/virt/xenapi/vmops.py:1222
 #, python-format
 msgid "Instance is already in Rescue Mode: %s"
-msgstr ""
+msgstr "Копия в состоянии режима восстановления: %s"
 
 #: cinder/virt/xenapi/vmops.py:1296
 #, python-format
@@ -6591,8 +6765,9 @@ msgid "Found %(instance_count)d hung reboots older than %(timeout)d seconds"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1300
+#, fuzzy, python-format
 msgid "Automatically hard rebooting"
-msgstr ""
+msgstr "Автоматическая безотказная перезагрузка %d"
 
 #: cinder/virt/xenapi/vmops.py:1363
 #, python-format
@@ -6600,20 +6775,21 @@ msgid "Setting migration %(migration_id)s to error: %(reason)s"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1374
-#, python-format
+#, fuzzy, python-format
 msgid ""
 "Automatically confirming migration %(migration_id)s for instance "
 "%(instance_uuid)s"
-msgstr ""
+msgstr "Завершение работы ВМ для копии %(instance_uuid)s"
 
 #: cinder/virt/xenapi/vmops.py:1379
-#, python-format
+#, fuzzy, python-format
 msgid "Instance %(instance_uuid)s not found"
-msgstr ""
+msgstr "Копия %(instance_id)s не найдена"
 
 #: cinder/virt/xenapi/vmops.py:1383
+#, fuzzy, python-format
 msgid "In ERROR state"
-msgstr ""
+msgstr "Ошибка БД: %s"
 
 #: cinder/virt/xenapi/vmops.py:1389
 #, python-format
@@ -6627,171 +6803,179 @@ msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1418
 msgid "Could not get bandwidth info."
-msgstr ""
+msgstr "Невозможно получить сведения о пропускной способности."
 
 #: cinder/virt/xenapi/vmops.py:1469
+#, fuzzy
 msgid "Injecting network info to xenstore"
-msgstr ""
+msgstr "установка сетевого узла"
 
 #: cinder/virt/xenapi/vmops.py:1483
+#, fuzzy
 msgid "Creating vifs"
-msgstr ""
+msgstr "Создание изображения"
 
 #: cinder/virt/xenapi/vmops.py:1492
-#, python-format
+#, fuzzy, python-format
 msgid "Creating VIF for network %(network_ref)s"
-msgstr ""
+msgstr "Создание VIF для ВМ %(vm_ref)s, сеть %(network_ref)s."
 
 #: cinder/virt/xenapi/vmops.py:1495
-#, python-format
+#, fuzzy, python-format
 msgid "Created VIF %(vif_ref)s, network %(network_ref)s"
-msgstr ""
+msgstr "Создание VIF для ВМ %(vm_ref)s, сеть %(network_ref)s."
 
 #: cinder/virt/xenapi/vmops.py:1520
 msgid "Injecting hostname to xenstore"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1545
-#, python-format
+#, fuzzy, python-format
 msgid ""
 "The agent call to %(method)s returned an invalid response: %(ret)r. "
 "path=%(path)s; args=%(args)r"
 msgstr ""
+"Вызов агентом %(method)s возвратил недопустимый ответ: %(ret)r. VM "
+"id=%(instance_uuid)s; path=%(path)s; args=%(addl_args)r"
 
 #: cinder/virt/xenapi/vmops.py:1566
-#, python-format
+#, fuzzy, python-format
 msgid "TIMEOUT: The call to %(method)s timed out. args=%(args)r"
 msgstr ""
+"ВРЕМЯ ПРОСТОЯ: Срок вызова %(method)s истёк. VM id=%(instance_uuid)s; "
+"args=%(args)r"
 
 #: cinder/virt/xenapi/vmops.py:1570
-#, python-format
+#, fuzzy, python-format
 msgid ""
 "NOT IMPLEMENTED: The call to %(method)s is not supported by the agent. "
 "args=%(args)r"
 msgstr ""
+"НЕ РЕАЛИЗОВАНО: Вызов %(method)s не поддерживается агентом. VM "
+"id=%(instance_uuid)s; args=%(args)r"
 
 #: cinder/virt/xenapi/vmops.py:1575
-#, python-format
+#, fuzzy, python-format
 msgid "The call to %(method)s returned an error: %(e)s. args=%(args)r"
-msgstr ""
+msgstr "Вызов %(method)s возвратил ошибку: %(e)s."
 
 #: cinder/virt/xenapi/vmops.py:1661
 #, python-format
 msgid "OpenSSL error: %s"
-msgstr ""
+msgstr "Ошибка OpenSSL: %s"
 
 #: cinder/virt/xenapi/volume_utils.py:52
 msgid "creating sr within volume_utils"
-msgstr ""
+msgstr "создание sr в volume_utils"
 
 #: cinder/virt/xenapi/volume_utils.py:55 cinder/virt/xenapi/volume_utils.py:83
 #, python-format
 msgid "type is = %s"
-msgstr ""
+msgstr "тип = %s"
 
 #: cinder/virt/xenapi/volume_utils.py:58 cinder/virt/xenapi/volume_utils.py:86
 #, python-format
 msgid "name = %s"
-msgstr ""
+msgstr "наименование = %s"
 
 #: cinder/virt/xenapi/volume_utils.py:71
 #, python-format
 msgid "Created %(label)s as %(sr_ref)s."
-msgstr ""
+msgstr "Создано %(label)s как %(sr_ref)s."
 
 #: cinder/virt/xenapi/volume_utils.py:76 cinder/virt/xenapi/volume_utils.py:174
 msgid "Unable to create Storage Repository"
-msgstr ""
+msgstr "Невозможно создать репозиторий хранилища"
 
 #: cinder/virt/xenapi/volume_utils.py:80
 msgid "introducing sr within volume_utils"
-msgstr ""
+msgstr "внедрение sr в volume_utils"
 
 #: cinder/virt/xenapi/volume_utils.py:103 cinder/virt/xenapi/volume_utils.py:170
 #: cinder/virt/xenapi/volumeops.py:156
 #, python-format
 msgid "Introduced %(label)s as %(sr_ref)s."
-msgstr ""
+msgstr "внедрён %(label)s в качестве %(sr_ref)s."
 
 #: cinder/virt/xenapi/volume_utils.py:106
 msgid "Creating pbd for SR"
-msgstr ""
+msgstr "Создание pbd для SR"
 
 #: cinder/virt/xenapi/volume_utils.py:108
 msgid "Plugging SR"
-msgstr ""
+msgstr "Подключение SR"
 
 #: cinder/virt/xenapi/volume_utils.py:116 cinder/virt/xenapi/volumeops.py:160
 msgid "Unable to introduce Storage Repository"
-msgstr ""
+msgstr "Невозможно внедрить Репозиторий хранения"
 
 #: cinder/virt/xenapi/volume_utils.py:127 cinder/virt/xenapi/volumeops.py:50
 msgid "Unable to get SR using uuid"
-msgstr ""
+msgstr "Невозможно получить SR с использованием uuid"
 
 #: cinder/virt/xenapi/volume_utils.py:129
 #, python-format
 msgid "Forgetting SR %s..."
-msgstr ""
+msgstr "Забывание SR %s..."
 
 #: cinder/virt/xenapi/volume_utils.py:137
 msgid "Unable to forget Storage Repository"
-msgstr ""
+msgstr "Невозможно забыть Репозиторий хранения"
 
 #: cinder/virt/xenapi/volume_utils.py:157
 #, python-format
 msgid "Introducing %s..."
-msgstr ""
+msgstr "Внедрение %s..."
 
 #: cinder/virt/xenapi/volume_utils.py:186
 #, python-format
 msgid "Unable to find SR from VBD %s"
-msgstr ""
+msgstr "Невозможно найти SR из VBD %s"
 
 #: cinder/virt/xenapi/volume_utils.py:204
 #, python-format
 msgid "Ignoring exception %(exc)s when getting PBDs for %(sr_ref)s"
-msgstr ""
+msgstr "Пропуск исключения %(exc)s при получении PBD для %(sr_ref)s"
 
 #: cinder/virt/xenapi/volume_utils.py:210
 #, python-format
 msgid "Ignoring exception %(exc)s when unplugging PBD %(pbd)s"
-msgstr ""
+msgstr "Пропуск исключения %(exc)s при отсоединении PBD %(pbd)s"
 
 #: cinder/virt/xenapi/volume_utils.py:234
 #, python-format
 msgid "Unable to introduce VDI on SR %s"
-msgstr ""
+msgstr "Невозможно внедрить VDI на SR %s"
 
 #: cinder/virt/xenapi/volume_utils.py:242
 #, python-format
 msgid "Unable to get record of VDI %s on"
-msgstr ""
+msgstr "Невозможно получить запись VDI %s на"
 
 #: cinder/virt/xenapi/volume_utils.py:264
 #, python-format
 msgid "Unable to introduce VDI for SR %s"
-msgstr ""
+msgstr "Невозможно внедрить VDI для SR %s"
 
 #: cinder/virt/xenapi/volume_utils.py:274
 #, python-format
 msgid "Error finding vdis in SR %s"
-msgstr ""
+msgstr "Ошибка поиска vdis в SR %s"
 
 #: cinder/virt/xenapi/volume_utils.py:281
 #, python-format
 msgid "Unable to find vbd for vdi %s"
-msgstr ""
+msgstr "Ошибка поиска vbd для vdi %s"
 
 #: cinder/virt/xenapi/volume_utils.py:315
 #, python-format
 msgid "Unable to obtain target information %(data)s, %(mountpoint)s"
-msgstr ""
+msgstr "Невозможно получить сведения назначения %(data)s, %(mountpoint)s"
 
 #: cinder/virt/xenapi/volume_utils.py:341
 #, python-format
 msgid "Mountpoint cannot be translated: %s"
-msgstr ""
+msgstr "Точка подключения не может быть переведена: %s"
 
 #: cinder/virt/xenapi/volumeops.py:64
 msgid "Could not find VDI ref"
@@ -6800,42 +6984,42 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:69
 #, python-format
 msgid "Creating SR %s"
-msgstr ""
+msgstr "Создание SR %s"
 
 #: cinder/virt/xenapi/volumeops.py:73
 msgid "Could not create SR"
-msgstr ""
+msgstr "Невозможно создать SR"
 
 #: cinder/virt/xenapi/volumeops.py:76
 msgid "Could not retrieve SR record"
-msgstr ""
+msgstr "Невозможно получить запись SR"
 
 #: cinder/virt/xenapi/volumeops.py:81
 #, python-format
 msgid "Introducing SR %s"
-msgstr ""
+msgstr "Внедрение SR %s"
 
 #: cinder/virt/xenapi/volumeops.py:85
 msgid "SR found in xapi database. No need to introduce"
-msgstr ""
+msgstr "SR найдено в базе данных xapi. Нет необходимости во внедрении"
 
 #: cinder/virt/xenapi/volumeops.py:90
 msgid "Could not introduce SR"
-msgstr ""
+msgstr "Невозможно внедрить SR"
 
 #: cinder/virt/xenapi/volumeops.py:94
 #, python-format
 msgid "Checking for SR %s"
-msgstr ""
+msgstr "Проверка SR %s"
 
 #: cinder/virt/xenapi/volumeops.py:106
 #, python-format
 msgid "SR %s not found in the xapi database"
-msgstr ""
+msgstr "SR %s не найден в базе данных xapi"
 
 #: cinder/virt/xenapi/volumeops.py:112
 msgid "Could not forget SR"
-msgstr ""
+msgstr "Невозможно забыть SR"
 
 #: cinder/virt/xenapi/volumeops.py:121
 #, python-format
@@ -6845,22 +7029,22 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:178
 #, python-format
 msgid "Unable to create VDI on SR %(sr_ref)s for instance %(instance_name)s"
-msgstr ""
+msgstr "Невозможно создать VDI на SR %(sr_ref)s для копии %(instance_name)s"
 
 #: cinder/virt/xenapi/volumeops.py:189
 #, python-format
 msgid "Unable to use SR %(sr_ref)s for instance %(instance_name)s"
-msgstr ""
+msgstr "Невозможно использовать SR %(sr_ref)s для копии %(instance_name)s"
 
 #: cinder/virt/xenapi/volumeops.py:197
 #, python-format
 msgid "Unable to attach volume to instance %s"
-msgstr ""
+msgstr "Невозможно присоединить том для копии %s"
 
 #: cinder/virt/xenapi/volumeops.py:200
 #, python-format
 msgid "Mountpoint %(mountpoint)s attached to instance %(instance_name)s"
-msgstr ""
+msgstr "Точка подключения %(mountpoint)s присоединена к копии %(instance_name)s"
 
 #: cinder/virt/xenapi/volumeops.py:210
 #, python-format
@@ -6870,62 +7054,62 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:219
 #, python-format
 msgid "Unable to locate volume %s"
-msgstr ""
+msgstr "Невозможно найти том %s"
 
 #: cinder/virt/xenapi/volumeops.py:227
 #, python-format
 msgid "Unable to detach volume %s"
-msgstr ""
+msgstr "Невозможно отсоединить том %s"
 
 #: cinder/virt/xenapi/volumeops.py:232
 #, python-format
 msgid "Unable to destroy vbd %s"
-msgstr ""
+msgstr "Невозможно ликвидировать vbd %s"
 
 #: cinder/virt/xenapi/volumeops.py:239
 #, python-format
 msgid "Error purging SR %s"
-msgstr ""
+msgstr "Ошибка очистки SR %s"
 
 #: cinder/virt/xenapi/volumeops.py:241
 #, python-format
 msgid "Mountpoint %(mountpoint)s detached from instance %(instance_name)s"
-msgstr ""
+msgstr "Точка подключения %(mountpoint)s отсоединена от копии %(instance_name)s"
 
 #: cinder/vnc/xvp_proxy.py:98 cinder/vnc/xvp_proxy.py:103
 #, python-format
 msgid "Error in handshake: %s"
-msgstr ""
+msgstr "Ошибка в соглашении: %s"
 
 #: cinder/vnc/xvp_proxy.py:119
 #, python-format
 msgid "Invalid request: %s"
-msgstr ""
+msgstr "Недопустимый запрос: %s"
 
 #: cinder/vnc/xvp_proxy.py:139
 #, python-format
 msgid "Request: %s"
-msgstr ""
+msgstr "Запрос: %s"
 
 #: cinder/vnc/xvp_proxy.py:142
 #, python-format
 msgid "Request made with missing token: %s"
-msgstr ""
+msgstr "Запрос сделан с отсутствующим токеном: %s"
 
 #: cinder/vnc/xvp_proxy.py:153
 #, python-format
 msgid "Request made with invalid token: %s"
-msgstr ""
+msgstr "Запрос сделан с недопустимым токеном: %s"
 
 #: cinder/vnc/xvp_proxy.py:160
 #, python-format
 msgid "Unexpected error: %s"
-msgstr ""
+msgstr "Непредвиденная ошибка: %s"
 
 #: cinder/vnc/xvp_proxy.py:180
 #, python-format
 msgid "Starting cinder-xvpvncproxy node (version %s)"
-msgstr ""
+msgstr "Запуск узла сети cinder-xvpvncproxy (версия %s)"
 
 #: cinder/volume/api.py:74 cinder/volume/api.py:220
 msgid "status must be available"
@@ -6934,11 +7118,12 @@ msgstr ""
 #: cinder/volume/api.py:85
 #, python-format
 msgid "Quota exceeded for %(pid)s, tried to create %(size)sG volume"
-msgstr ""
+msgstr "Превышена квота для %(pid)s, попытка создания тома %(size)sG"
 
 #: cinder/volume/api.py:137
+#, fuzzy
 msgid "Volume status must be available or error"
-msgstr ""
+msgstr "Состояние тома должно быть доступно"
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -6958,18 +7143,19 @@ msgid "must be available"
 msgstr ""
 
 #: cinder/volume/api.py:325
+#, fuzzy
 msgid "Volume Snapshot status must be available or error"
-msgstr ""
+msgstr "Состояние тома должно быть доступно"
 
 #: cinder/volume/driver.py:96
 #, python-format
 msgid "Recovering from a failed execute.  Try number %s"
-msgstr ""
+msgstr "Восстановление после недопустимого выполнения.  Попытка номер %s"
 
 #: cinder/volume/driver.py:106
 #, python-format
 msgid "volume group %s doesn't exist"
-msgstr ""
+msgstr "том группы %s не существует"
 
 #: cinder/volume/driver.py:270
 #, python-format
@@ -6995,7 +7181,7 @@ msgstr ""
 #: cinder/volume/driver.py:384
 #, python-format
 msgid "Could not find iSCSI export  for volume %s"
-msgstr ""
+msgstr "Невозможно найти экспортирование iSCSI для тома %s"
 
 #: cinder/volume/driver.py:388
 #, python-format
@@ -7006,6 +7192,8 @@ msgstr ""
 #, python-format
 msgid "Cannot confirm exported volume id:%(volume_id)s."
 msgstr ""
+"Невозможно подтвердить идентификатора экспортированного "
+"тома:%(volume_id)s."
 
 #: cinder/volume/driver.py:493
 #, python-format
@@ -7015,55 +7203,55 @@ msgstr ""
 #: cinder/volume/driver.py:505
 #, python-format
 msgid "rbd has no pool %s"
-msgstr ""
+msgstr "rbd не имеет пула %s"
 
 #: cinder/volume/driver.py:579
 #, python-format
 msgid "Sheepdog is not working: %s"
-msgstr ""
+msgstr "Sheepdog не выполняется: %s"
 
 #: cinder/volume/driver.py:581
 msgid "Sheepdog is not working"
-msgstr ""
+msgstr "Sheepdog не выполняется"
 
 #: cinder/volume/driver.py:680 cinder/volume/driver.py:685
 #, python-format
 msgid "LoggingVolumeDriver: %s"
-msgstr ""
+msgstr "LoggingVolumeDriver: %s"
 
 #: cinder/volume/manager.py:96
 #, python-format
 msgid "Re-exporting %s volumes"
-msgstr ""
+msgstr "Повторное экспортирование %s томов"
 
 #: cinder/volume/manager.py:101
 #, python-format
 msgid "volume %s: skipping export"
-msgstr ""
+msgstr "том %s: пропуск экспортирования"
 
 #: cinder/volume/manager.py:107
 #, python-format
 msgid "volume %s: creating"
-msgstr ""
+msgstr "том %s: создание"
 
 #: cinder/volume/manager.py:119
 #, python-format
 msgid "volume %(vol_name)s: creating lv of size %(vol_size)sG"
-msgstr ""
+msgstr "том %(vol_name)s: создание lv объёмом %(vol_size)sG"
 
 #: cinder/volume/manager.py:131
 #, python-format
 msgid "volume %s: creating export"
-msgstr ""
+msgstr "том %s: создание экспортирования"
 
 #: cinder/volume/manager.py:144
 #, python-format
 msgid "volume %s: created successfully"
-msgstr ""
+msgstr "том %s: создание завершено"
 
 #: cinder/volume/manager.py:153
 msgid "Volume is still attached"
-msgstr ""
+msgstr "Том до сих пор присоединён"
 
 #: cinder/volume/manager.py:155
 msgid "Volume is not local to this node"
@@ -7072,75 +7260,75 @@ msgstr ""
 #: cinder/volume/manager.py:159
 #, python-format
 msgid "volume %s: removing export"
-msgstr ""
+msgstr "том %s: удаление экспортирования"
 
 #: cinder/volume/manager.py:161
 #, python-format
 msgid "volume %s: deleting"
-msgstr ""
+msgstr "том %s: удаление"
 
 #: cinder/volume/manager.py:164
 #, python-format
 msgid "volume %s: volume is busy"
-msgstr ""
+msgstr "том %s: том занят"
 
 #: cinder/volume/manager.py:176
 #, python-format
 msgid "volume %s: deleted successfully"
-msgstr ""
+msgstr "том %s: удаление завершено"
 
 #: cinder/volume/manager.py:183
 #, python-format
 msgid "snapshot %s: creating"
-msgstr ""
+msgstr "снимок %s: создание"
 
 #: cinder/volume/manager.py:187
 #, python-format
 msgid "snapshot %(snap_name)s: creating"
-msgstr ""
+msgstr "снимок %(snap_name)s: создание"
 
 #: cinder/volume/manager.py:202
 #, python-format
 msgid "snapshot %s: created successfully"
-msgstr ""
+msgstr "снимок %s: создание завершено"
 
 #: cinder/volume/manager.py:211
 #, python-format
 msgid "snapshot %s: deleting"
-msgstr ""
+msgstr "снимок %s: удаление"
 
 #: cinder/volume/manager.py:214
-#, python-format
+#, fuzzy, python-format
 msgid "snapshot %s: snapshot is busy"
-msgstr ""
+msgstr "снимок %s: создание завершено"
 
 #: cinder/volume/manager.py:226
 #, python-format
 msgid "snapshot %s: deleted successfully"
-msgstr ""
+msgstr "снимок %s: удаление выполнено"
 
 #: cinder/volume/manager.py:310
 msgid "Checking volume capabilities"
-msgstr ""
+msgstr "Проверка возможностей тома"
 
 #: cinder/volume/manager.py:314
 #, python-format
 msgid "New capabilities found: %s"
-msgstr ""
+msgstr "Обнаружены новые возможности: %s"
 
 #: cinder/volume/manager.py:325
 msgid "Clear capabilities"
-msgstr ""
+msgstr "Очистить возможности"
 
 #: cinder/volume/manager.py:329
 #, python-format
 msgid "Notification {%s} received"
-msgstr ""
+msgstr "Принято уведомление {%s}"
 
 #: cinder/volume/netapp.py:79
-#, python-format
+#, fuzzy, python-format
 msgid "API %(name)sfailed: %(reason)s"
-msgstr ""
+msgstr "Образ %(image_id)s недопустим: %(reason)s"
 
 #: cinder/volume/netapp.py:109
 #, python-format
@@ -7148,8 +7336,9 @@ msgid "%s is not set"
 msgstr ""
 
 #: cinder/volume/netapp.py:128
+#, fuzzy
 msgid "Connected to DFM server"
-msgstr ""
+msgstr "Переподлючено к очереди"
 
 #: cinder/volume/netapp.py:159
 #, python-format
@@ -7157,74 +7346,77 @@ msgid "Job failed: %s"
 msgstr ""
 
 #: cinder/volume/netapp.py:240
+#, fuzzy
 msgid "Failed to provision dataset member"
-msgstr ""
+msgstr "Ошибка обновления базы данных"
 
 #: cinder/volume/netapp.py:252
 msgid "No LUN was created by the provision job"
 msgstr ""
 
 #: cinder/volume/netapp.py:261 cinder/volume/netapp.py:433
-#, python-format
+#, fuzzy, python-format
 msgid "Failed to find LUN ID for volume %s"
-msgstr ""
+msgstr "Ошибка поиска vbd для vdi %s"
 
 #: cinder/volume/netapp.py:280
 msgid "Failed to remove and delete dataset member"
 msgstr ""
 
 #: cinder/volume/netapp.py:603 cinder/volume/netapp.py:657
-#, python-format
+#, fuzzy, python-format
 msgid "No LUN ID for volume %s"
-msgstr ""
+msgstr "Невозможно найти экспортирование iSCSI для тома %s"
 
 #: cinder/volume/netapp.py:607 cinder/volume/netapp.py:661
-#, python-format
+#, fuzzy, python-format
 msgid "Failed to get LUN details for LUN ID %s"
-msgstr ""
+msgstr "Ошибка получения метаданных для ip: %s"
 
 #: cinder/volume/netapp.py:614
-#, python-format
+#, fuzzy, python-format
 msgid "Failed to get host details for host ID %s"
-msgstr ""
+msgstr "Ошибка получения метаданных для ip: %s"
 
 #: cinder/volume/netapp.py:620
-#, python-format
+#, fuzzy, python-format
 msgid "Failed to get target portal for filer: %s"
-msgstr ""
+msgstr "Ошибка получения метаданных для ip: %s"
 
 #: cinder/volume/netapp.py:625
-#, python-format
+#, fuzzy, python-format
 msgid "Failed to get target IQN for filer: %s"
-msgstr ""
+msgstr "Ошибка получения метаданных для ip: %s"
 
 #: cinder/volume/san.py:113 cinder/volume/san.py:151
 msgid "Specify san_password or san_private_key"
-msgstr ""
+msgstr "Задайте san_password или san_private_key"
 
 #: cinder/volume/san.py:156
 msgid "san_ip must be set"
-msgstr ""
+msgstr "san_ip должен быть назначен"
 
 #: cinder/volume/san.py:320
 #, python-format
 msgid "LUID not found for %(zfs_poolname)s. Output=%(out)s"
-msgstr ""
+msgstr "LUID не найден для %(zfs_poolname)s. Вывод=%(out)s"
 
 #: cinder/volume/san.py:452
 #, python-format
 msgid "CLIQ command returned %s"
-msgstr ""
+msgstr "Возврат команды CLIQ %s"
 
 #: cinder/volume/san.py:458
 #, python-format
 msgid "Malformed response to CLIQ command %(verb)s %(cliq_args)s. Result=%(out)s"
 msgstr ""
+"Неправильный ответ на команду CLIQ %(verb)s %(cliq_args)s. "
+"Результат=%(out)s"
 
 #: cinder/volume/san.py:466
 #, python-format
 msgid "Error running CLIQ command %(verb)s %(cliq_args)s.  Result=%(out)s"
-msgstr ""
+msgstr "Ошибка выполнения команды CLIQ %(verb)s %(cliq_args)s.  Результат=%(out)s"
 
 #: cinder/volume/san.py:496
 #, python-format
@@ -7232,20 +7424,22 @@ msgid ""
 "Unexpected number of virtual ips for cluster  %(cluster_name)s. "
 "Result=%(_xml)s"
 msgstr ""
+"Непредвиденное количество виртуальных ip для кластера  %(cluster_name)s. "
+"Результат=%(_xml)s"
 
 #: cinder/volume/san.py:549
 #, python-format
 msgid "Volume info: %(volume_name)s => %(volume_attributes)s"
-msgstr ""
+msgstr "Сведения о томе: %(volume_name)s => %(volume_attributes)s"
 
 #: cinder/volume/san.py:594
 msgid "local_path not supported"
-msgstr ""
+msgstr "local_path не поддерживается"
 
 #: cinder/volume/san.py:626
 #, python-format
 msgid "Could not determine project for volume %s, can't export"
-msgstr ""
+msgstr "Невозможно определить проект для тома %s, невозможно экспортировать"
 
 #: cinder/volume/san.py:696
 #, python-format
@@ -7322,11 +7516,11 @@ msgstr ""
 #: cinder/volume/xensm.py:60
 #, python-format
 msgid "Failed to create sr %s...continuing"
-msgstr ""
+msgstr "Ошибка создания sr %s...продолжение"
 
 #: cinder/volume/xensm.py:62
 msgid "Create failed"
-msgstr ""
+msgstr "Ошибка создания"
 
 #: cinder/volume/xensm.py:64
 #, python-format
@@ -7335,12 +7529,12 @@ msgstr ""
 
 #: cinder/volume/xensm.py:71
 msgid "Failed to update db"
-msgstr ""
+msgstr "Ошибка обновления базы данных"
 
 #: cinder/volume/xensm.py:80
 #, python-format
 msgid "Failed to introduce sr %s...continuing"
-msgstr ""
+msgstr "Ошибка внедрения sr %s...продолжение"
 
 #: cinder/volume/xensm.py:91
 #, python-format
@@ -7349,49 +7543,50 @@ msgstr ""
 
 #: cinder/volume/xensm.py:100
 msgid "XenSMDriver requires xenapi connection"
-msgstr ""
+msgstr "XenSMDriver необходимо xenapi соединение"
 
 #: cinder/volume/xensm.py:110
 msgid "Failed to initiate session"
-msgstr ""
+msgstr "Ошибка начала сеанса"
 
 #: cinder/volume/xensm.py:142
 #, python-format
 msgid "Volume will be created in backend - %d"
-msgstr ""
+msgstr "Том будет создан во внутреннем интерфейсе - %d"
 
 #: cinder/volume/xensm.py:154
 msgid "Failed to update volume in db"
-msgstr ""
+msgstr "Ошибка обновления тома в базе данных"
 
 #: cinder/volume/xensm.py:157
 msgid "Unable to create volume"
-msgstr ""
+msgstr "Невозможно создать том"
 
 #: cinder/volume/xensm.py:171
 msgid "Failed to delete vdi"
-msgstr ""
+msgstr "Ошибка удаления vdi"
 
 #: cinder/volume/xensm.py:177
 msgid "Failed to delete volume in db"
-msgstr ""
+msgstr "Ошибка удаления тома в базе данных"
 
 #: cinder/volume/xensm.py:210
 msgid "Failed to find volume in db"
-msgstr ""
+msgstr "Ошибка поиска тома в базе данных"
 
 #: cinder/volume/xensm.py:221
 msgid "Failed to find backend in db"
-msgstr ""
+msgstr "Ошибка поиска внутреннего интерфейса в базе данных"
 
 #: cinder/volume/nexenta/__init__.py:27
+#, fuzzy, python-format
 msgid "Nexenta SA returned the error"
-msgstr ""
+msgstr "Сервер возвратил ошибку: %s"
 
 #: cinder/volume/nexenta/jsonrpc.py:64
-#, python-format
+#, fuzzy, python-format
 msgid "Sending JSON data: %s"
-msgstr ""
+msgstr "Заданные данные: %s"
 
 #: cinder/volume/nexenta/jsonrpc.py:69
 #, python-format
@@ -7407,14 +7602,14 @@ msgid "Bad response from server"
 msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:79
-#, python-format
+#, fuzzy, python-format
 msgid "Got response: %s"
-msgstr ""
+msgstr "ответ %s"
 
 #: cinder/volume/nexenta/volume.py:96
-#, python-format
+#, fuzzy, python-format
 msgid "Volume %s does not exist in Nexenta SA"
-msgstr ""
+msgstr "том группы %s не существует"
 
 #: cinder/volume/nexenta/volume.py:180
 msgid ""
@@ -7460,4 +7655,650 @@ msgid ""
 "Got error trying to delete target %(target)s, assuming it is already "
 "gone: %(exc)s"
 msgstr ""
+
+#~ msgid "Unable to locate account %(account_name) on Solidfire device"
+#~ msgstr ""
+
+#~ msgid "Cinder access parameters were not specified."
+#~ msgstr "Параметры доступы Cinder не заданы."
+
+#~ msgid "Virtual Storage Array %(id)d could not be found."
+#~ msgstr "Виртуальный массив для хранения данных %(id)d не найден."
+
+#~ msgid "Virtual Storage Array %(name)s could not be found."
+#~ msgstr "Виртуальный массив для хранения данных %(name)s не найден."
+
+#~ msgid "Detected more than one volume with name %(vol_name)"
+#~ msgstr ""
+
+#~ msgid "Detected existing vlan with id %(vlan)"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Attempting to grab semaphore \"%(lock)s\" "
+#~ "for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid "Got semaphore \"%(lock)s\" for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Attempting to grab file lock "
+#~ "\"%(lock)s\" for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid "Got file lock \"%(lock)s\" for method \"%(method)s\"...lock"
+#~ msgstr ""
+
+#~ msgid "Parent group id and group id cannot be same"
+#~ msgstr ""
+
+#~ msgid "No body provided"
+#~ msgstr "Тело не предоставлено"
+
+#~ msgid "Create VSA %(display_name)s of type %(vc_type)s"
+#~ msgstr "Создать VSA %(display_name)s типа %(vc_type)s"
+
+#~ msgid "Delete VSA with id: %s"
+#~ msgstr "Удалить VSA с идентификатором: %s"
+
+#~ msgid "Associate address %(ip)s to VSA %(id)s"
+#~ msgstr "Ассоциировать адрес %(ip)s с VSA %(id)s"
+
+#~ msgid "Disassociate address from VSA %(id)s"
+#~ msgstr "Исключить адрес для VSA %(id)s"
+
+#~ msgid "%(obj)s with ID %(id)s not found"
+#~ msgstr "%(obj)s с идентификатором %(id)s не найден"
+
+#~ msgid ""
+#~ "%(obj)s with ID %(id)s belongs to "
+#~ "VSA %(own_vsa_id)s and not to VSA "
+#~ "%(vsa_id)s."
+#~ msgstr ""
+#~ "%(obj)s с идентификатором %(id)s относится "
+#~ "к VSA %(own_vsa_id)s и не VSA "
+#~ "%(vsa_id)s."
+
+#~ msgid "Index. vsa_id=%(vsa_id)s"
+#~ msgstr "Index. vsa_id=%(vsa_id)s"
+
+#~ msgid "Detail. vsa_id=%(vsa_id)s"
+#~ msgstr ""
+
+#~ msgid "Create. vsa_id=%(vsa_id)s, body=%(body)s"
+#~ msgstr ""
+
+#~ msgid "Create volume of %(size)s GB from VSA ID %(vsa_id)s"
+#~ msgstr "Создать том %(size)s ГБ из VSA ID %(vsa_id)s"
+
+#~ msgid "Update %(obj)s with id: %(id)s, changes: %(changes)s"
+#~ msgstr "Обновить %(obj)s с идентификатором: %(id)s, изменения: %(changes)s"
+
+#~ msgid "Delete. vsa_id=%(vsa_id)s, id=%(id)s"
+#~ msgstr ""
+
+#~ msgid "Show. vsa_id=%(vsa_id)s, id=%(id)s"
+#~ msgstr ""
+
+#~ msgid "Index instances for VSA %s"
+#~ msgstr ""
+
+#~ msgid "Going to try to soft delete %s"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Going to force the deletion of the"
+#~ " vm %(instance_uuid)s, even if it is"
+#~ " deleted"
+#~ msgstr "Принудительное удаление вм %(instance_uuid)s, даже если она удалена"
+
+#~ msgid ""
+#~ "Instance %(instance_uuid)s did not exist "
+#~ "in the DB, but I will shut "
+#~ "it down anyway using a special "
+#~ "context"
+#~ msgstr ""
+#~ "Копия %(instance_uuid)s не существует в "
+#~ "БД, но будет выполнено выключение "
+#~ "используя особый контекст"
+
+#~ msgid "trying to destroy already destroyed instance: %s"
+#~ msgstr "попытка ликвидации уже ликвидированной копии: %s"
+
+#~ msgid ""
+#~ "Instance %(name)s found in database but"
+#~ " not known by hypervisor. Setting "
+#~ "power state to NOSTATE"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Detected instance  with name label "
+#~ "'%(name_label)s' which is marked as "
+#~ "DELETED but still present on host."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Destroying instance with name label "
+#~ "'%(name_label)s' which is marked as "
+#~ "DELETED but still present on host."
+#~ msgstr ""
+
+#~ msgid "Can't downgrade without losing data"
+#~ msgstr "Невозможно перейти на предыдущую версию без потери данных"
+
+#~ msgid "Network %s has active ports, cannot delete"
+#~ msgstr ""
+
+#~ msgid "No fixed IPs to deallocate for vif %sid"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "AMQP server on %(fl_host)s:%(fl_port)d is "
+#~ "unreachable: %(e)s. Trying again in "
+#~ "%(fl_intv)d seconds."
+#~ msgstr ""
+#~ "Сервер AMQP на %(fl_host)s:%(fl_port)d "
+#~ "недоступен: %(e)s. Очередная попытка через "
+#~ "%(fl_intv)d секунд."
+
+#~ msgid "Unable to connect to AMQP server after %(tries)d tries. Shutting down."
+#~ msgstr ""
+#~ "Невозможно подключиться к серверу AMQP "
+#~ "после выполнения %(tries)d попыток. Завершение"
+#~ " работы."
+
+#~ msgid "Failed to fetch message from queue: %s"
+#~ msgstr "Ошибка получения сообщения из очереди: %s"
+
+#~ msgid "Initing the Adapter Consumer for %s"
+#~ msgstr ""
+
+#~ msgid "Created \"%(exchange)s\" fanout exchange with \"%(key)s\" routing key"
+#~ msgstr ""
+
+#~ msgid "Exception while processing consumer"
+#~ msgstr ""
+
+#~ msgid "Creating \"%(exchange)s\" fanout exchange"
+#~ msgstr ""
+
+#~ msgid "topic is %s"
+#~ msgstr "тема %s"
+
+#~ msgid "message %s"
+#~ msgstr "сообщение %s"
+
+#~ msgid ""
+#~ "Cannot confirm tmpfile at %(ipath)s is"
+#~ " on same shared storage between "
+#~ "%(src)s and %(dest)s."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Unable to migrate %(instance_id)s to "
+#~ "%(dest)s: Lack of memory(host:%(avail)s <= "
+#~ "instance:%(mem_inst)s)"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Unable to migrate %(instance_id)s to "
+#~ "%(dest)s: Lack of disk(host:%(available)s <="
+#~ " instance:%(necessary)s)"
+#~ msgstr ""
+
+#~ msgid "Driver Method %(driver_method)s missing: %(e)s.Reverting to schedule()"
+#~ msgstr ""
+
+#~ msgid "Setting instance %(instance_uuid)s to ERROR state."
+#~ msgstr ""
+
+#~ msgid "_filter_hosts: %(request_spec)s"
+#~ msgstr "_filter_hosts: %(request_spec)s"
+
+#~ msgid "Filter hosts for drive type %s"
+#~ msgstr ""
+
+#~ msgid "Host %s has no free capacity. Skip"
+#~ msgstr "На узле %s недостаточно свободного места. Пропуск"
+
+#~ msgid "Filter hosts: %s"
+#~ msgstr "Фильтр узлов: %s"
+
+#~ msgid "Must implement host selection mechanism"
+#~ msgstr ""
+
+#~ msgid "Maximum number of hosts selected (%d)"
+#~ msgstr "Выбрано макс. количество узлов (%d)"
+
+#~ msgid "Selected excessive host %(host)s"
+#~ msgstr ""
+
+#~ msgid "Provision volume %(name)s of size %(size)s GB on host %(host)s"
+#~ msgstr "Том обеспечения %(name)s размером %(size)s ГБ на узле %(host)s"
+
+#~ msgid "volume_params %(volume_params)s"
+#~ msgstr ""
+
+#~ msgid "%(i)d: Volume %(name)s"
+#~ msgstr "%(i)d: Том %(name)s"
+
+#~ msgid "Attempting to spawn %(num_volumes)d volume(s)"
+#~ msgstr ""
+
+#~ msgid "Error creating volumes"
+#~ msgstr "Ошибка создания томов"
+
+#~ msgid "Non-VSA volume %d"
+#~ msgstr "Том не-VSA %d"
+
+#~ msgid "Spawning volume %(volume_id)s with drive type %(drive_type)s"
+#~ msgstr ""
+
+#~ msgid "Error creating volume"
+#~ msgstr "Ошибка создания тома"
+
+#~ msgid "No capability selected for volume of size %(size)s"
+#~ msgstr "Возможность для тома, объёмом %(size)s, не выбрана"
+
+#~ msgid "Host %s:"
+#~ msgstr "Узел %s:"
+
+#~ msgid ""
+#~ "\tDrive %(qosgrp)-25s: total %(total)2s, "
+#~ "used %(used)2s, free %(free)2s. Available "
+#~ "capacity %(avail)-5s"
+#~ msgstr ""
+#~ "\tДиск %(qosgrp)-25s: всего %(total)2s, "
+#~ "занято %(used)2s, свободно %(free)2s. "
+#~ "Доступный объём %(avail)-5s"
+
+#~ msgid ""
+#~ "\t LeastUsedHost: Best host: %(best_host)s."
+#~ " (used capacity %(min_used)s)"
+#~ msgstr "\t LeastUsedHost: Наилучший узел: %(best_host)s. (занято %(min_used)s)"
+
+#~ msgid ""
+#~ "\t MostAvailCap: Best host: %(best_host)s. "
+#~ "(available %(max_avail)s %(type_str)s)"
+#~ msgstr ""
+#~ "\t MostAvailCap: Наилучший узел: "
+#~ "%(best_host)s. (доступно %(max_avail)s %(type_str)s)"
+
+#~ msgid "(%(nm)s) publish (key: %(routing_key)s) %(message)s"
+#~ msgstr ""
+
+#~ msgid "Publishing to route %s"
+#~ msgstr ""
+
+#~ msgid "Declaring queue %s"
+#~ msgstr "Объявление очереди %s"
+
+#~ msgid "Declaring exchange %s"
+#~ msgstr "Объявление точки обмена %s"
+
+#~ msgid "Binding %(queue)s to %(exchange)s with key %(routing_key)s"
+#~ msgstr ""
+
+#~ msgid "Getting from %(queue)s: %(message)s"
+#~ msgstr "Получение из %(queue)s: %(message)s"
+
+#~ msgid "Test: Emulate wrong VSA name. Raise"
+#~ msgstr ""
+
+#~ msgid "Test: Emulate DB error. Raise"
+#~ msgstr ""
+
+#~ msgid "Test: user_data = %s"
+#~ msgstr "Тест: user_data = %s"
+
+#~ msgid "_create: param=%s"
+#~ msgstr "_create: param=%s"
+
+#~ msgid "Host %s"
+#~ msgstr "Узел %s"
+
+#~ msgid "Test: provision vol %(name)s on host %(host)s"
+#~ msgstr "Проверка: обеспечение vol %(name)s на узле %(host)s"
+
+#~ msgid "\t vol=%(vol)s"
+#~ msgstr "\t vol=%(vol)s"
+
+#~ msgid "Test: VSA update request: vsa_id=%(vsa_id)s values=%(values)s"
+#~ msgstr "Тест: запрос обновления VSA: vsa_id=%(vsa_id)s values=%(values)s"
+
+#~ msgid "Test: Volume create: %s"
+#~ msgstr "Тест: Создание тома: %s"
+
+#~ msgid "Test: Volume get request: id=%(volume_id)s"
+#~ msgstr "Тест: Том получает запрос: id=%(volume_id)s"
+
+#~ msgid "Test: Volume update request: id=%(volume_id)s values=%(values)s"
+#~ msgstr "Тест: Запрос обновления тома: id=%(volume_id)s значения=%(values)s"
+
+#~ msgid "Test: Volume get: id=%(volume_id)s"
+#~ msgstr "Тест: Том получает: id=%(volume_id)s"
+
+#~ msgid "Task [%(name)s] %(task)s status: success    %(result)s"
+#~ msgstr "Состояние задачи [%(name)s] %(task)s: готово    %(result)s"
+
+#~ msgid "Task [%(name)s] %(task)s status: %(status)s    %(error_info)s"
+#~ msgstr "Состояние задачи [%(name)s] %(task)s: %(status)s    %(error_info)s"
+
+#~ msgid ""
+#~ "deactivate_node is called for                "
+#~ "node_id = %(id)s node_ip = %(ip)s"
+#~ msgstr ""
+
+#~ msgid "virsh said: %r"
+#~ msgstr ""
+
+#~ msgid "cool, it's a device"
+#~ msgstr ""
+
+#~ msgid "Unable to read LXC console"
+#~ msgstr "Невозможно прочитать консоль LXC"
+
+#~ msgid ""
+#~ "to xml...\n"
+#~ ":%s "
+#~ msgstr ""
+#~ "в xml...\n"
+#~ ":%s "
+
+#~ msgid "During wait running, %s disappeared."
+#~ msgstr ""
+
+#~ msgid "Instance %s running successfully."
+#~ msgstr ""
+
+#~ msgid "The nwfilter(%(instance_secgroup_filter_name)s) is not found."
+#~ msgstr ""
+
+#~ msgid "%(container_format)s-%(id)s (%(base_file)s): image verification failed"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "%(container_format)s-%(id)s (%(base_file)s): image "
+#~ "verification skipped, no hash stored"
+#~ msgstr ""
+
+#~ msgid "%(container_format)s-%(id)s (%(base_file)s): checking"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "%(container_format)s-%(id)s (%(base_file)s): in use:"
+#~ " on this node %(local)d local, "
+#~ "%(remote)d on other nodes"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "%(container_format)s-%(id)s (%(base_file)s): warning "
+#~ "-- an absent base file is in "
+#~ "use! instances: %(instance_list)s"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "%(container_format)s-%(id)s (%(base_file)s): in: on"
+#~ " other nodes (%(remote)d on other "
+#~ "nodes)"
+#~ msgstr ""
+
+#~ msgid "%(container_format)s-%(id)s (%(base_file)s): image is not in use"
+#~ msgstr ""
+
+#~ msgid "%(container_format)s-%(id)s (%(base_file)s): image is in use"
+#~ msgstr ""
+
+#~ msgid "Created VM %s..."
+#~ msgstr "Созданная ВМ %s..."
+
+#~ msgid "Created VM %(instance_name)s as %(vm_ref)s."
+#~ msgstr "Созданная ВМ %(instance_name)s как %(vm_ref)s."
+
+#~ msgid "Creating a CDROM-specific VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
+#~ msgstr "Создание особого CDROM VBD для ВМ %(vm_ref)s, VDI %(vdi_ref)s ... "
+
+#~ msgid ""
+#~ "Created a CDROM-specific VBD %(vbd_ref)s"
+#~ "  for VM %(vm_ref)s, VDI %(vdi_ref)s."
+#~ msgstr ""
+#~ "Создана VBD на основе CDROM  %(vbd_ref)s"
+#~ "  для ВМ %(vm_ref)s, VDI %(vdi_ref)s."
+
+#~ msgid "Image Type: %s"
+#~ msgstr "Тип образа: %s"
+
+#~ msgid "ISO: Found sr possibly containing the ISO image"
+#~ msgstr "ISO: Найден sr, возможно содержащий образ ISO"
+
+#~ msgid "Size for image %(image)s:%(virtual_size)d"
+#~ msgstr ""
+
+#~ msgid "instance %s: Failed to fetch glance image"
+#~ msgstr ""
+
+#~ msgid "Creating VBD for VDI %s ... "
+#~ msgstr "Создание VBD для VDI %s ... "
+
+#~ msgid "Creating VBD for VDI %s done."
+#~ msgstr "Создание VBD для VDI %s выполнено."
+
+#~ msgid "VBD.unplug successful first time."
+#~ msgstr ""
+
+#~ msgid "VBD.unplug rejected: retrying..."
+#~ msgstr ""
+
+#~ msgid "Not sleeping anymore!"
+#~ msgstr ""
+
+#~ msgid "VBD.unplug successful eventually."
+#~ msgstr ""
+
+#~ msgid "Ignoring XenAPI.Failure in VBD.unplug: %s"
+#~ msgstr "Пропуск XenAPI.Failure в VBD.unplug: %s"
+
+#~ msgid "Ignoring XenAPI.Failure %s"
+#~ msgstr "Пропуск XenAPI.Failure %s"
+
+#~ msgid "instance %s: Failed to spawn"
+#~ msgstr ""
+
+#~ msgid "Instance %s failed to spawn - performing clean-up"
+#~ msgstr ""
+
+#~ msgid "instance %s: Failed to spawn - Unable to create VM"
+#~ msgstr ""
+
+#~ msgid "Starting VM %s..."
+#~ msgstr "Запуск ВМ %s..."
+
+#~ msgid "Spawning VM %(instance_uuid)s created %(vm_ref)s."
+#~ msgstr ""
+
+#~ msgid "Instance %s: waiting for running"
+#~ msgstr "Копия %s: ожидание запуска"
+
+#~ msgid "Resources to remove:%s"
+#~ msgstr "Ресурсы для удаления:%s"
+
+#~ msgid "Removing VDI %(vdi_ref)s(uuid:%(vdi_to_remove)s)"
+#~ msgstr ""
+
+#~ msgid "Skipping VDI destroy for %s"
+#~ msgstr "Пропуск ликвидации VDI для %s"
+
+#~ msgid "Unable to Snapshot instance %(instance_uuid)s: %(exc)s"
+#~ msgstr ""
+
+#~ msgid "domid changed from %(olddomid)s to %(newdomid)s"
+#~ msgstr ""
+
+#~ msgid "VM %(instance_uuid)s already halted,skipping shutdown..."
+#~ msgstr ""
+
+#~ msgid "Destroying VDIs for Instance %(instance_uuid)s"
+#~ msgstr "Ликвидирование VDI для копии %(instance_uuid)s"
+
+#~ msgid "Instance %(instance_uuid)s VM destroyed"
+#~ msgstr "Копия %(instance_uuid)s ВМ ликвидирована"
+
+#~ msgid "Destroying VM for Instance %(instance_uuid)s"
+#~ msgstr "Ликвидирование ВМ для копии %(instance_uuid)s"
+
+#~ msgid "Instance for migration %d not found, skipping"
+#~ msgstr ""
+
+#~ msgid "injecting network info to xs for vm: |%s|"
+#~ msgstr ""
+
+#~ msgid "creating vif(s) for vm: |%s|"
+#~ msgstr "создание vif(s) для вм: |%s|"
+
+#~ msgid "Created VIF %(vif_ref)s for VM %(vm_ref)s, network %(network_ref)s."
+#~ msgstr "Создан VIF %(vif_ref)s для ВМ %(vm_ref)s, сеть %(network_ref)s."
+
+#~ msgid "injecting hostname to xs for vm: |%s|"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "The call to %(method)s returned an "
+#~ "error: %(e)s. VM id=%(instance_uuid)s; "
+#~ "args=%(args)r"
+#~ msgstr ""
+#~ "Вызов %(method)s возвратил ошибку: %(e)s. "
+#~ "VM id=%(instance_uuid)s; args=%(args)r"
+
+#~ msgid "Creating VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
+#~ msgstr "Создание VBD для ВМ %(vm_ref)s, VDI %(vdi_ref)s ... "
+
+#~ msgid "Error destroying VDI"
+#~ msgstr "Ошибка ликвидации VDI"
+
+#~ msgid "\tVolume %s is NOT VSA volume"
+#~ msgstr "\tТом %s не является VSA томом"
+
+#~ msgid "\tFE VSA Volume %s creation - do nothing"
+#~ msgstr "\tСоздание тома FE VSA %s - ничего не выполнять"
+
+#~ msgid "VSA BE create_volume for %s failed"
+#~ msgstr "Ошибка VSA BE create_volume для %s"
+
+#~ msgid "VSA BE create_volume for %s succeeded"
+#~ msgstr "VSA BE create_volume для %s выполнено"
+
+#~ msgid "\tFE VSA Volume %s deletion - do nothing"
+#~ msgstr "\tУдаление FE VSA тома %s - ничего не выполнять"
+
+#~ msgid "VSA BE delete_volume for %s failed"
+#~ msgstr "Ошибка VSA BE delete_volume для %s"
+
+#~ msgid "VSA BE delete_volume for %s suceeded"
+#~ msgstr "VSA BE delete_volume для %s выполнено"
+
+#~ msgid "\tFE VSA Volume %s local path call - call discover"
+#~ msgstr ""
+
+#~ msgid "\tFE VSA Volume %s ensure export - do nothing"
+#~ msgstr ""
+
+#~ msgid "\tFE VSA Volume %s create export - do nothing"
+#~ msgstr "\tТом FE VSA %s создать экспортирование - ничего не выполнять"
+
+#~ msgid "\tFE VSA Volume %s remove export - do nothing"
+#~ msgstr "\tТом FE VSA %s удалить экспортирование - ничего не выполнять"
+
+#~ msgid "VSA BE remove_export for %s failed"
+#~ msgstr ""
+
+#~ msgid "Failed to retrieve QoS info"
+#~ msgstr "Ошибка приёма сведений QoS"
+
+#~ msgid "invalid drive data"
+#~ msgstr ""
+
+#~ msgid "drive_name not defined"
+#~ msgstr ""
+
+#~ msgid "invalid drive type name %s"
+#~ msgstr ""
+
+#~ msgid "*** Experimental VSA code ***"
+#~ msgstr "*** Экспериментальный код VSA ***"
+
+#~ msgid "Requested number of VCs (%d) is too high. Setting to default"
+#~ msgstr "Запрошенное количество VC (%d) избыточно. Назначение по умолчанию"
+
+#~ msgid "Creating VSA: %s"
+#~ msgstr "Создание VSA: %s"
+
+#~ msgid ""
+#~ "VSA ID %(vsa_id)d %(vsa_name)s: Create "
+#~ "volume %(vol_name)s, %(vol_size)d GB, type "
+#~ "%(vol_type_id)s"
+#~ msgstr ""
+#~ "VSA ID %(vsa_id)d %(vsa_name)s: Создать "
+#~ "том %(vol_name)s, %(vol_size)d ГБ, тип "
+#~ "%(vol_type_id)s"
+
+#~ msgid "VSA ID %(vsa_id)d: Update VSA status to %(status)s"
+#~ msgstr "VSA ID %(vsa_id)d: Обновить состояние VSA на %(status)s"
+
+#~ msgid "VSA ID %(vsa_id)d: Update VSA call"
+#~ msgstr "VSA ID %(vsa_id)d: Обновить вызов VSA"
+
+#~ msgid "Adding %(add_cnt)s VCs to VSA %(vsa_name)s."
+#~ msgstr "Добавление %(add_cnt)s VC в VSA %(vsa_name)s."
+
+#~ msgid "Deleting %(del_cnt)s VCs from VSA %(vsa_name)s."
+#~ msgstr "Удаление %(del_cnt)s VC из VSA %(vsa_name)s."
+
+#~ msgid "VSA ID %(vsa_id)s: Deleting %(direction)s volume %(vol_name)s"
+#~ msgstr "VSA ID %(vsa_id)s: Удаление %(direction)s тома %(vol_name)s"
+
+#~ msgid "Unable to delete volume %s"
+#~ msgstr "Невозможно удалить том %s"
+
+#~ msgid "VSA ID %(vsa_id)s: Forced delete. %(direction)s volume %(vol_name)s"
+#~ msgstr ""
+#~ "VSA ID %(vsa_id)s: Принудительное удаление."
+#~ " %(direction)s том %(vol_name)s"
+
+#~ msgid "Going to try to terminate VSA ID %s"
+#~ msgstr "Выполнение завершения работы VSA ID %s"
+
+#~ msgid "VSA ID %(vsa_id)s: Delete instance %(name)s"
+#~ msgstr "VSA ID %(vsa_id)s: Удалить копию %(name)s"
+
+#~ msgid "Create call received for VSA %s"
+#~ msgstr "Создать вызов полученный для VSA %s"
+
+#~ msgid "Failed to find VSA %(vsa_id)d"
+#~ msgstr "Ошибка поиска VSA %(vsa_id)d"
+
+#~ msgid "VSA ID %(vsa_id)s: Drive %(vol_id)s created. Status %(status)s"
+#~ msgstr "VSA ID %(vsa_id)s: Создан накопитель %(vol_id)s. Состояние %(status)s"
+
+#~ msgid "Drive %(vol_name)s (%(vol_disp_name)s) still in creating phase - wait"
+#~ msgstr "Накопитель %(vol_name)s (%(vol_disp_name)s) в фазе создания - подождите"
+
+#~ msgid ""
+#~ "VSA ID %(vsa_id)d: Not all volumes "
+#~ "are created (%(cvol_real)d of %(cvol_exp)d)"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "VSA ID %(vsa_id)d: Drive %(vol_name)s "
+#~ "(%(vol_disp_name)s) is in %(status)s state"
+#~ msgstr ""
+
+#~ msgid "Failed to update attach status for volume %(vol_name)s. %(ex)s"
+#~ msgstr ""
+
+#~ msgid "VSA ID %(vsa_id)d: Delete all BE volumes"
+#~ msgstr ""
+
+#~ msgid "VSA ID %(vsa_id)d: Start %(vc_count)d instances"
+#~ msgstr ""
 

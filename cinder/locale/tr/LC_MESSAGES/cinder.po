@@ -1,4 +1,4 @@
-# Brazilian Portuguese translation for cinder
+# Turkish translation for cinder
 # Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
 # This file is distributed under the same license as the cinder package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
@@ -8,10 +8,10 @@ msgstr ""
 "Project-Id-Version:  cinder\n"
 "Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: 2012-02-06 21:07+0000\n"
-"Last-Translator: Adriano Steffler <Unknown>\n"
-"Language-Team: Brazilian Portuguese <pt_BR@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n > 1)\n"
+"PO-Revision-Date: 2011-12-14 18:10+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: Turkish <tr@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -29,11 +29,11 @@ msgstr ""
 
 #: cinder/crypto.py:48
 msgid "Filename of root CA"
-msgstr "Nome do arquivo da CA raiz"
+msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "Nome do arquivo da chave privada"
+msgstr ""
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
@@ -41,34 +41,34 @@ msgstr ""
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr "Aonde armazenamos nossas chaves"
+msgstr ""
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
-msgstr "Onde mantemos nosso CA raiz"
+msgstr ""
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr "Devemos usar um CA para cada projeto?"
+msgstr ""
 
 #: cinder/crypto.py:67
 #, python-format
 msgid "Subject for certificate for users, %s for project, user, timestamp"
-msgstr "Assunto do certificado para usuários, %s para projeto, usuário, timestamp"
+msgstr ""
 
 #: cinder/crypto.py:72
 #, python-format
 msgid "Subject for certificate for projects, %s for project, timestamp"
-msgstr "Assunto do certificado para projetos, %s para projeto, timestamp"
+msgstr ""
 
 #: cinder/crypto.py:292
 #, python-format
 msgid "Flags path: %s"
-msgstr "Localização dos sinalizadores: %s"
+msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr "Erro inesperado ao executar o comando."
+msgstr ""
 
 #: cinder/exception.py:59
 #, python-format
@@ -79,11 +79,6 @@ msgid ""
 "Stdout: %(stdout)r\n"
 "Stderr: %(stderr)r"
 msgstr ""
-"%(description)s\n"
-"Comando: %(cmd)s\n"
-"Código de saída: %(exit_code)s\n"
-"Saída padrão: %(stdout)r\n"
-"Erro: %(stderr)r"
 
 #: cinder/exception.py:94
 msgid "DB exception wrapped."
@@ -131,9 +126,9 @@ msgid "Policy doesn't allow %(action)s to be performed."
 msgstr ""
 
 #: cinder/exception.py:216
-#, fuzzy, python-format
+#, python-format
 msgid "Not authorized for image %(image_id)s."
-msgstr "sem método para mensagem: %s"
+msgstr ""
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
@@ -262,9 +257,8 @@ msgid "Failed to reboot instance"
 msgstr ""
 
 #: cinder/exception.py:334
-#, fuzzy
 msgid "Failed to terminate instance"
-msgstr "Começando a terminar instâncias"
+msgstr ""
 
 #: cinder/exception.py:338
 msgid "Service is unavailable at this time."
@@ -899,7 +893,7 @@ msgstr ""
 #: cinder/exception.py:877
 #, python-format
 msgid "User %(uid)s is already a member of the group %(group_dn)s"
-msgstr "Usuário %(uid)s já é um membro do grupo %(group_dn)s"
+msgstr ""
 
 #: cinder/exception.py:882
 #, python-format
@@ -1121,23 +1115,23 @@ msgstr ""
 
 #: cinder/service.py:282
 msgid "Service killed that has no database entry"
-msgstr "Encerrado serviço que não tem entrada na base de dados"
+msgstr ""
 
 #: cinder/service.py:319
 msgid "The service database object disappeared, Recreating it."
-msgstr "O objeto da base de dados do serviço desapareceu, Recriando."
+msgstr ""
 
 #: cinder/service.py:334
 msgid "Recovered model server connection!"
-msgstr "Recuperada conexão servidor de modelo."
+msgstr ""
 
 #: cinder/service.py:340
 msgid "model server went away"
-msgstr "servidor de modelo perdido"
+msgstr ""
 
 #: cinder/service.py:433
 msgid "Full set of FLAGS:"
-msgstr "Conjunto completo de FLAGS:"
+msgstr ""
 
 #: cinder/service.py:440
 #, python-format
@@ -1147,12 +1141,12 @@ msgstr ""
 #: cinder/utils.py:79
 #, python-format
 msgid "Inner Exception: %s"
-msgstr "Exceção interna: %s"
+msgstr ""
 
 #: cinder/utils.py:165
 #, python-format
 msgid "Fetching %s"
-msgstr "Buscando %s"
+msgstr ""
 
 #: cinder/utils.py:210
 #, python-format
@@ -1162,12 +1156,12 @@ msgstr ""
 #: cinder/utils.py:220
 #, python-format
 msgid "Running cmd (subprocess): %s"
-msgstr "Executando comando (subprocesso): %s"
+msgstr ""
 
 #: cinder/utils.py:236 cinder/utils.py:315
 #, python-format
 msgid "Result was %s"
-msgstr "Resultado foi %s"
+msgstr ""
 
 #: cinder/utils.py:249
 #, python-format
@@ -1177,7 +1171,7 @@ msgstr ""
 #: cinder/utils.py:291
 #, python-format
 msgid "Running cmd (SSH): %s"
-msgstr "Executando o comando (SSH): %s"
+msgstr ""
 
 #: cinder/utils.py:293
 msgid "Environment not supported over SSH"
@@ -1190,27 +1184,27 @@ msgstr ""
 #: cinder/utils.py:352
 #, python-format
 msgid "debug in callback: %s"
-msgstr "depuração em retorno de chamada: %s"
+msgstr ""
 
 #: cinder/utils.py:534
 #, python-format
 msgid "Link Local address is not found.:%s"
-msgstr "Endereço para Link Local não encontrado: %s"
+msgstr ""
 
 #: cinder/utils.py:537
 #, python-format
 msgid "Couldn't get Link Local IP of %(interface)s :%(ex)s"
-msgstr "Não foi possível atribuir um IP para o Link Local de %(interface)s :%(ex)s"
+msgstr ""
 
 #: cinder/utils.py:648
 #, python-format
 msgid "Invalid backend: %s"
-msgstr "Backend inválido: %s"
+msgstr ""
 
 #: cinder/utils.py:659
 #, python-format
 msgid "backend %s"
-msgstr "backend %s"
+msgstr ""
 
 #: cinder/utils.py:709
 msgid "in looping call"
@@ -1356,7 +1350,7 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:170
 msgid "Too many failed authentications."
-msgstr "Muitas falhas de autenticação."
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:180
 #, python-format
@@ -1380,7 +1374,7 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:388
 #, python-format
 msgid "Authentication Failure: %s"
-msgstr "Falha de Autenticação: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:404
 #, python-format
@@ -1390,7 +1384,7 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:435
 #, python-format
 msgid "action: %s"
-msgstr "ação: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:437
 #, python-format
@@ -1420,7 +1414,7 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:602
 #, python-format
 msgid "NotFound raised: %s"
-msgstr "NotFound lançado: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:605
 #, python-format
@@ -1453,9 +1447,9 @@ msgid "InvalidRequest raised: %s"
 msgstr ""
 
 #: cinder/api/ec2/__init__.py:633
-#, fuzzy, python-format
+#, python-format
 msgid "QuotaError raised: %s"
-msgstr "Erro inexperado lançado: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:637
 #, python-format
@@ -1465,7 +1459,7 @@ msgstr ""
 #: cinder/api/ec2/__init__.py:646
 #, python-format
 msgid "Unexpected error raised: %s"
-msgstr "Erro inexperado lançado: %s"
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:647
 #, python-format
@@ -1474,7 +1468,7 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:649 cinder/api/metadata/handler.py:248
 msgid "An unknown error has occurred. Please try your request again."
-msgstr "Ocorreu um erro desconhecido. Por favor tente sua requisição cindermente."
+msgstr ""
 
 #: cinder/api/ec2/apirequest.py:64
 #, python-format
@@ -1501,7 +1495,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:382
 #, python-format
 msgid "Create key pair %s"
-msgstr "Criar par de chaves %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:391
 #, python-format
@@ -1511,7 +1505,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:409
 #, python-format
 msgid "Delete key pair %s"
-msgstr "Remover par de chaves %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:551
 msgid "Invalid CIDR"
@@ -1526,7 +1520,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:517
 #, python-format
 msgid "Revoke security group ingress %s"
-msgstr "Revogado entrada do grupo de segurança %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:666 cinder/api/ec2/cloud.py:719
 #, python-format
@@ -1535,18 +1529,18 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:684 cinder/api/ec2/cloud.py:744
 msgid "No rule for the specified parameters."
-msgstr "Não existe regra para os parâmetros especificados"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:708
 #: cinder/api/openstack/compute/contrib/security_groups.py:354
 #, python-format
 msgid "Authorize security group ingress %s"
-msgstr "Autorizada entrada do grupo de segurança %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:725
-#, fuzzy, python-format
+#, python-format
 msgid "%s - This rule already exists in group"
-msgstr "Esta regra já existe no grupo %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:769
 #, python-format
@@ -1566,23 +1560,23 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:292
 #, python-format
 msgid "Create Security Group %s"
-msgstr "Criar Grupo de Segurança %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:783
 #, python-format
 msgid "group %s already exists"
-msgstr "group %s já existe"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:815
 #: cinder/api/openstack/compute/contrib/security_groups.py:245
 #, python-format
 msgid "Delete security group %s"
-msgstr "Excluir grupo de segurança %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:823 cinder/compute/manager.py:1630
 #, python-format
 msgid "Get console output for instance %s"
-msgstr "Obter saída do console para instância %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:894
 #, python-format
@@ -1593,7 +1587,7 @@ msgstr ""
 #: cinder/api/openstack/volume/volumes.py:222
 #, python-format
 msgid "Create volume of %s GB"
-msgstr "Criar volume de %s GB"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:921
 msgid "Delete Failed"
@@ -1611,18 +1605,17 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:952 cinder/api/openstack/compute/contrib/volumes.py:366
 #, python-format
 msgid "Detach volume %s"
-msgstr "Desanexar volume %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:959
-#, fuzzy, python-format
 msgid "Detach Volume Failed."
-msgstr "Desanexar volume %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:984 cinder/api/ec2/cloud.py:1041
 #: cinder/api/ec2/cloud.py:1518 cinder/api/ec2/cloud.py:1533
 #, python-format
 msgid "attribute not supported: %s"
-msgstr "atributo não suportado: %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1107
 #, python-format
@@ -1631,12 +1624,12 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1255
 msgid "Allocate address"
-msgstr "Alocar endereço"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1267
 #, python-format
 msgid "Release address %s"
-msgstr "Liberar endereço %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1272
 #, python-format
@@ -1646,7 +1639,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1282
 #, python-format
 msgid "Disassociate address %s"
-msgstr "Desatribuir endereço %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1308
 msgid "Image must be available"
@@ -1654,12 +1647,12 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1329
 msgid "Going to start terminating instances"
-msgstr "Começando a terminar instâncias"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1343
 #, python-format
 msgid "Reboot instance %r"
-msgstr "Reiniciar instância %r"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1354
 msgid "Going to stop instances"
@@ -1672,7 +1665,7 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:1455
 #, python-format
 msgid "De-registering image %s"
-msgstr "Removendo o registro da imagem %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1471
 msgid "imageLocation is required"
@@ -1685,20 +1678,20 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1536
 msgid "user or group not specified"
-msgstr "usuário ou grupo não especificado"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1538
 msgid "only group \"all\" is supported"
-msgstr "apenas o grupo \"all\" é suportado"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1540
 msgid "operation_type must be add or remove"
-msgstr "operation_type deve ser add ou remove"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1542
 #, python-format
 msgid "Updating image %s publicity"
-msgstr "Atualizando publicidade da imagem %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1555
 #, python-format
@@ -1713,12 +1706,12 @@ msgstr ""
 #: cinder/api/metadata/handler.py:246 cinder/api/metadata/handler.py:253
 #, python-format
 msgid "Failed to get metadata for ip: %s"
-msgstr "Falha ao obter metadados para o ip: %s"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:43
 #, python-format
 msgid "Caught error: %s"
-msgstr "Capturado o erro: %s"
+msgstr ""
 
 #: cinder/api/openstack/__init__.py:45 cinder/api/openstack/wsgi.py:886
 #, python-format
@@ -2253,22 +2246,22 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:60
 #, python-format
 msgid "Compute.api::pause %s"
-msgstr "Compute.api::pause %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:77
 #, python-format
 msgid "Compute.api::unpause %s"
-msgstr "Compute.api::unpause %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:94
 #, python-format
 msgid "compute.api::suspend %s"
-msgstr "compute.api::suspend %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:111
 #, python-format
 msgid "compute.api::resume %s"
-msgstr "compute.api::resume %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:127
 #, python-format
@@ -2278,7 +2271,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:141
 #, python-format
 msgid "Compute.api::reset_network %s"
-msgstr "Compute.api::reset_network %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:154
 #: cinder/api/openstack/compute/contrib/admin_actions.py:170
@@ -2296,12 +2289,12 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:173
 #, python-format
 msgid "Compute.api::lock %s"
-msgstr "Compute.api::lock %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:189
 #, python-format
 msgid "Compute.api::unlock %s"
-msgstr "Compute.api::unlock %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:219
 #, python-format
@@ -2453,9 +2446,9 @@ msgid "Invalid status: '%s'"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:148
-#, fuzzy, python-format
+#, python-format
 msgid "Invalid mode: '%s'"
-msgstr "Backend inválido: %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/hosts.py:152
 #, python-format
@@ -2541,9 +2534,8 @@ msgid "Security group id should be integer"
 msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:243
-#, fuzzy, python-format
 msgid "Security group is still in use"
-msgstr "Revogado entrada do grupo de segurança %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:295
 #, python-format
@@ -2581,7 +2573,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:376
 #, python-format
 msgid "This rule already exists in group %s"
-msgstr "Esta regra já existe no grupo %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:414
 msgid "Parent or group id is not integer"
@@ -2647,7 +2639,7 @@ msgstr ""
 
 #: cinder/auth/fakeldap.py:33
 msgid "Attempted to instantiate singleton"
-msgstr "Tentativa de instanciar singleton"
+msgstr ""
 
 #: cinder/auth/ldapdriver.py:650
 #, python-format
@@ -2655,23 +2647,21 @@ msgid ""
 "Attempted to remove the last member of a group. Deleting the group at %s "
 "instead."
 msgstr ""
-"Tentatica de remover o último membto de um grupo. Ao invés disso "
-"excluindo o grupo %s."
 
 #: cinder/auth/manager.py:298
 #, python-format
 msgid "Looking up user: %r"
-msgstr "Procurando usuário: %r"
+msgstr ""
 
 #: cinder/auth/manager.py:302
 #, python-format
 msgid "Failed authorization for access key %s"
-msgstr "Falha de autorização para chave de acesso %s"
+msgstr ""
 
 #: cinder/auth/manager.py:308
 #, python-format
 msgid "Using project name = user name (%s)"
-msgstr "Usando nome do projeto = nome do usuário (%s)"
+msgstr ""
 
 #: cinder/auth/manager.py:315
 #, python-format
@@ -2703,7 +2693,7 @@ msgstr ""
 #: cinder/auth/manager.py:335 cinder/auth/manager.py:357
 #, python-format
 msgid "Invalid signature for user %s"
-msgstr "Assinatura inválida para usuário %s"
+msgstr ""
 
 #: cinder/auth/manager.py:353
 #, python-format
@@ -2712,7 +2702,7 @@ msgstr ""
 
 #: cinder/auth/manager.py:449
 msgid "Must specify project"
-msgstr "Deve especificar projeto"
+msgstr ""
 
 #: cinder/auth/manager.py:490
 #, python-format
@@ -2742,22 +2732,22 @@ msgstr ""
 #: cinder/auth/manager.py:613
 #, python-format
 msgid "modifying project %s"
-msgstr "modificando projeto %s"
+msgstr ""
 
 #: cinder/auth/manager.py:625
 #, python-format
 msgid "Adding user %(uid)s to project %(pid)s"
-msgstr "Adicionando usuário %(uid)s ao projeto %(pid)s"
+msgstr ""
 
 #: cinder/auth/manager.py:646
 #, python-format
 msgid "Remove user %(uid)s from project %(pid)s"
-msgstr "Remover usuário %(uid)s do projeto %(pid)s"
+msgstr ""
 
 #: cinder/auth/manager.py:676
 #, python-format
 msgid "Deleting project %s"
-msgstr "Excluindo projeto %s"
+msgstr ""
 
 #: cinder/auth/manager.py:734
 #, python-format
@@ -2767,7 +2757,7 @@ msgstr ""
 #: cinder/auth/manager.py:743
 #, python-format
 msgid "Deleting user %s"
-msgstr "Apagando usuário %s"
+msgstr ""
 
 #: cinder/auth/manager.py:753
 #, python-format
@@ -2790,9 +2780,8 @@ msgid "No vpn data for project %s"
 msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:46
-#, fuzzy, python-format
 msgid "Instance type for vpn instances"
-msgstr "Obter saída do console para instância %s"
+msgstr ""
 
 #: cinder/cloudpipe/pipelib.py:49
 msgid "Template for cloudpipe instance boot script"
@@ -2809,7 +2798,7 @@ msgstr ""
 #: cinder/cloudpipe/pipelib.py:107
 #, python-format
 msgid "Launching VPN for %s"
-msgstr "Executando VPN para %s"
+msgstr ""
 
 #: cinder/compute/api.py:141
 msgid "No compute host specified"
@@ -2876,27 +2865,24 @@ msgid "Sending create to scheduler for %(pid)s/%(uid)s's"
 msgstr ""
 
 #: cinder/compute/api.py:871
-#, fuzzy
 msgid "Going to try to soft delete instance"
-msgstr "Começando a terminar instâncias"
+msgstr ""
 
 #: cinder/compute/api.py:891
 msgid "No host for instance, deleting immediately"
 msgstr ""
 
 #: cinder/compute/api.py:939
-#, fuzzy
 msgid "Going to try to terminate instance"
-msgstr "Começando a terminar instâncias"
+msgstr ""
 
 #: cinder/compute/api.py:977
 msgid "Going to try to stop instance"
 msgstr ""
 
 #: cinder/compute/api.py:996
-#, fuzzy
 msgid "Going to try to start instance"
-msgstr "Começando a terminar instâncias"
+msgstr ""
 
 #: cinder/compute/api.py:1000
 #, python-format
@@ -2947,7 +2933,7 @@ msgstr ""
 #: cinder/compute/manager.py:138
 #, python-format
 msgid "check_instance_lock: decorating: |%s|"
-msgstr "check_instance_lock: decorating: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:140
 #, python-format
@@ -2959,22 +2945,22 @@ msgstr ""
 #: cinder/compute/manager.py:144
 #, python-format
 msgid "check_instance_lock: locked: |%s|"
-msgstr "check_instance_lock: locked: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:146
 #, python-format
 msgid "check_instance_lock: admin: |%s|"
-msgstr "check_instance_lock: admin: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:151
 #, python-format
 msgid "check_instance_lock: executing: |%s|"
-msgstr "check_instance_lock: executando: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:155
 #, python-format
 msgid "check_instance_lock: not executing |%s|"
-msgstr "check_instance_lock: not executando |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:201
 #, python-format
@@ -3027,7 +3013,7 @@ msgstr ""
 
 #: cinder/compute/manager.py:480
 msgid "Instance has already been created"
-msgstr "A instância já foi criada"
+msgstr ""
 
 #: cinder/compute/manager.py:523
 #, python-format
@@ -3113,7 +3099,7 @@ msgstr ""
 #: cinder/compute/manager.py:876
 #, python-format
 msgid "Rebooting instance %s"
-msgstr "Reiniciando a instância %s"
+msgstr ""
 
 #: cinder/compute/manager.py:891
 #, python-format
@@ -3125,7 +3111,7 @@ msgstr ""
 #: cinder/compute/manager.py:933
 #, python-format
 msgid "instance %s: snapshotting"
-msgstr "instância %s: fazendo um snapshot"
+msgstr ""
 
 #: cinder/compute/manager.py:939
 #, python-format
@@ -3194,12 +3180,12 @@ msgstr ""
 #: cinder/compute/manager.py:1116
 #, python-format
 msgid "instance %s: rescuing"
-msgstr "instância %s: resgatando"
+msgstr ""
 
 #: cinder/compute/manager.py:1141
 #, python-format
 msgid "instance %s: unrescuing"
-msgstr "instância %s: desfazendo o resgate"
+msgstr ""
 
 #: cinder/compute/manager.py:1270
 msgid "destination same as source!"
@@ -3213,47 +3199,47 @@ msgstr ""
 #: cinder/compute/manager.py:1471
 #, python-format
 msgid "instance %s: pausing"
-msgstr "instância %s: pausando"
+msgstr ""
 
 #: cinder/compute/manager.py:1489
 #, python-format
 msgid "instance %s: unpausing"
-msgstr "instância %s: saindo do pause"
+msgstr ""
 
 #: cinder/compute/manager.py:1525
 #, python-format
 msgid "instance %s: retrieving diagnostics"
-msgstr "instância %s: recuperando os diagnósticos"
+msgstr ""
 
 #: cinder/compute/manager.py:1534
 #, python-format
 msgid "instance %s: suspending"
-msgstr "instância %s: suspendendo"
+msgstr ""
 
 #: cinder/compute/manager.py:1556
 #, python-format
 msgid "instance %s: resuming"
-msgstr "instância %s: resumindo"
+msgstr ""
 
 #: cinder/compute/manager.py:1579
 #, python-format
 msgid "instance %s: locking"
-msgstr "instância %s: bloqueando"
+msgstr ""
 
 #: cinder/compute/manager.py:1588
 #, python-format
 msgid "instance %s: unlocking"
-msgstr "instância %s: desbloqueando"
+msgstr ""
 
 #: cinder/compute/manager.py:1596
 #, python-format
 msgid "instance %s: getting locked state"
-msgstr "instância %s: obtendo estado de bloqueio"
+msgstr ""
 
 #: cinder/compute/manager.py:1606
 #, python-format
 msgid "instance %s: reset network"
-msgstr "instância %s: reset da rede"
+msgstr ""
 
 #: cinder/compute/manager.py:1614
 #, python-format
@@ -3305,7 +3291,7 @@ msgstr ""
 #: cinder/compute/manager.py:1756
 #, python-format
 msgid "Detaching volume from unknown instance %s"
-msgstr "Desconectando volume da instância desconhecida %s"
+msgstr ""
 
 #: cinder/compute/manager.py:1822
 #, python-format
@@ -3359,7 +3345,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3442,11 +3428,11 @@ msgstr ""
 
 #: cinder/console/manager.py:77 cinder/console/vmrc_manager.py:70
 msgid "Adding console"
-msgstr "Adicionando console"
+msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
+msgid "Tried to remove non-existent console %(console_id)s."
 msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
@@ -3735,7 +3721,7 @@ msgstr ""
 #: cinder/network/linux_net.py:696
 #, python-format
 msgid "Pid %d is stale, relaunching dnsmasq"
-msgstr "Pid %d está ultrapassado, reiniciando dnsmasq"
+msgstr ""
 
 #: cinder/network/linux_net.py:756
 #, python-format
@@ -3745,27 +3731,27 @@ msgstr ""
 #: cinder/network/linux_net.py:758
 #, python-format
 msgid "Pid %d is stale, relaunching radvd"
-msgstr "Pid %d está ultrapassado, reiniciando radvd"
+msgstr ""
 
 #: cinder/network/linux_net.py:967
 #, python-format
 msgid "Starting VLAN inteface %s"
-msgstr "Iniciando a VLAN %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:999
 #, python-format
 msgid "Starting Bridge interface for %s"
-msgstr "Iniciando a Bridge para %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:1142
-#, fuzzy, python-format
+#, python-format
 msgid "Starting bridge %s "
-msgstr "Iniciando a Bridge para %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:1149
-#, fuzzy, python-format
+#, python-format
 msgid "Done starting bridge %s"
-msgstr "Removendo o registro da imagem %s"
+msgstr ""
 
 #: cinder/network/linux_net.py:1167
 #, python-format
@@ -4092,27 +4078,27 @@ msgstr ""
 #: cinder/rpc/amqp.py:146
 #, python-format
 msgid "Returning exception %s to caller"
-msgstr "Retornando exceção %s ao método de origem"
+msgstr ""
 
 #: cinder/rpc/amqp.py:188
 #, python-format
 msgid "unpacked context: %s"
-msgstr "conteúdo descompactado: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:231
 #, python-format
 msgid "received %s"
-msgstr "recebido %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:236
 #, python-format
 msgid "no method for message: %s"
-msgstr "sem método para mensagem: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:237
 #, python-format
 msgid "No method for message: %s"
-msgstr "Sem método para mensagem: %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:321
 #, python-format
@@ -4122,7 +4108,7 @@ msgstr ""
 #: cinder/rpc/amqp.py:324
 #, python-format
 msgid "MSG_ID is %s"
-msgstr "MSG_ID é %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:346
 #, python-format
@@ -4630,7 +4616,7 @@ msgstr ""
 
 #: cinder/virt/connection.py:85
 msgid "Failed to open connection to the hypervisor"
-msgstr "Falha ao abrir a conexão com o hypervisor"
+msgstr ""
 
 #: cinder/virt/fake.py:270 cinder/virt/xenapi_conn.py:396
 #: cinder/virt/baremetal/proxy.py:716 cinder/virt/libvirt/connection.py:2045
@@ -5128,9 +5114,8 @@ msgid "detaching LXC block device"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:692
-#, fuzzy, python-format
 msgid "Instance soft rebooted successfully."
-msgstr "volume %s: criado com sucesso"
+msgstr ""
 
 #: cinder/virt/libvirt/connection.py:696
 msgid "Failed to soft reboot instance."
@@ -5453,7 +5438,7 @@ msgstr ""
 
 #: cinder/virt/libvirt/utils.py:264
 msgid "Unable to find an open port"
-msgstr "Impossível localizar uma porta aberta"
+msgstr ""
 
 #: cinder/virt/libvirt/vif.py:90
 #, python-format
@@ -5495,7 +5480,7 @@ msgstr ""
 #: cinder/virt/vmwareapi/fake.py:44 cinder/virt/xenapi/fake.py:77
 #, python-format
 msgid "%(text)s: _db_content => %(content)s"
-msgstr "%(text)s: _db_content => %(content)s"
+msgstr ""
 
 #: cinder/virt/vmwareapi/fake.py:131
 #, python-format
@@ -5892,22 +5877,22 @@ msgstr ""
 #: cinder/virt/xenapi/fake.py:553 cinder/virt/xenapi/fake.py:652
 #: cinder/virt/xenapi/fake.py:670 cinder/virt/xenapi/fake.py:732
 msgid "Raising NotImplemented"
-msgstr "Aumento não implementado"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:555
 #, python-format
 msgid "xenapi.fake does not have an implementation for %s"
-msgstr "xenapi.fake não tem uma implementação para %s"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:589
 #, python-format
 msgid "Calling %(localname)s %(impl)s"
-msgstr "Chamando %(localname)s %(impl)s"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:594
 #, python-format
 msgid "Calling getter %s"
-msgstr "Chamando o pai %s"
+msgstr ""
 
 #: cinder/virt/xenapi/fake.py:654
 #, python-format
@@ -5915,8 +5900,6 @@ msgid ""
 "xenapi.fake does not have an implementation for %s or it has been called "
 "with the wrong number of arguments"
 msgstr ""
-"xenapi.fake não tem implementação para %s ou foi chamado com um número de"
-" argumentos inválido"
 
 #: cinder/virt/xenapi/host.py:67
 #, python-format
@@ -5947,12 +5930,12 @@ msgstr ""
 #: cinder/virt/xenapi/network_utils.py:55
 #, python-format
 msgid "Found non-unique network for bridge %s"
-msgstr "Encontrado múltiplas redes para a bridge %s"
+msgstr ""
 
 #: cinder/virt/xenapi/network_utils.py:58
 #, python-format
 msgid "Found no network for bridge %s"
-msgstr "Não foi encontrada rede para bridge %s"
+msgstr ""
 
 #: cinder/virt/xenapi/pool.py:111
 #, python-format
@@ -5980,9 +5963,9 @@ msgid "Pool-eject failed: %(e)s"
 msgstr ""
 
 #: cinder/virt/xenapi/pool.py:174
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to set up pool: %(e)s."
-msgstr "Não é possível desconectar o volume %s"
+msgstr ""
 
 #: cinder/virt/xenapi/pool.py:185
 #, python-format
@@ -6008,12 +5991,12 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:245
 #, python-format
 msgid "VBD not found in instance %s"
-msgstr "O VBD não foi encontrado na instância %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:262
-#, fuzzy, python-format
+#, python-format
 msgid "VBD %s already detached"
-msgstr "group %s já existe"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:265
 #, python-format
@@ -6023,7 +6006,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:270
 #, python-format
 msgid "Unable to unplug VBD %s"
-msgstr "Não é possível desconectar o VBD %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:275
 #, python-format
@@ -6033,17 +6016,17 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:286
 #, python-format
 msgid "Unable to destroy VBD %s"
-msgstr "Não é possível destruir o VBD %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:305
-#, fuzzy, python-format
+#, python-format
 msgid "Creating %(vbd_type)s-type VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
-msgstr "VBD %(vbd_ref)s criado para VM %(vm_ref)s, VDI %(vdi_ref)s."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:308
 #, python-format
 msgid "Created VBD %(vbd_ref)s for VM %(vm_ref)s, VDI %(vdi_ref)s."
-msgstr "VBD %(vbd_ref)s criado para VM %(vm_ref)s, VDI %(vdi_ref)s."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:319
 #, python-format
@@ -6056,8 +6039,6 @@ msgid ""
 "Created VDI %(vdi_ref)s (%(name_label)s, %(virtual_size)s, %(read_only)s)"
 " on %(sr_ref)s."
 msgstr ""
-"VDI %(vdi_ref)s (%(name_label)s, %(virtual_size)s, %(read_only)s) no SR "
-"%(sr_ref)s criada com sucesso."
 
 #: cinder/virt/xenapi/vm_utils.py:345
 #, python-format
@@ -6075,21 +6056,19 @@ msgid "No primary VDI found for %(vm_ref)s"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:379
-#, fuzzy, python-format
+#, python-format
 msgid "Snapshotting with label '%(label)s'"
-msgstr "Fazendo um snapshot da VM %(vm_ref)s com rótulo '%(label)s'..."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:392
-#, fuzzy, python-format
+#, python-format
 msgid "Created snapshot %(template_vm_ref)s"
-msgstr "Snapshot %(template_vm_ref)s criado a partir da VM %(vm_ref)s."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:431
 #, python-format
 msgid "Asking xapi to upload %(vdi_uuids)s as ID %(image_id)s"
 msgstr ""
-"Solicitando à xapi para realizar upload da imagem %(vdi_uuids)s com ID "
-"%(image_id)s"
 
 #: cinder/virt/xenapi/vm_utils.py:583
 #, python-format
@@ -6150,9 +6129,9 @@ msgid "Fetching image %(image)s, type %(image_type_str)"
 msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:844
-#, fuzzy, python-format
+#, python-format
 msgid "Size for image %(image)s: %(virtual_size)d"
-msgstr "Tamanho da imagem %(image)s:%(virtual_size)d"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:853
 #, python-format
@@ -6164,12 +6143,12 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:870
 #, python-format
 msgid "Copying VDI %s to /boot/guest on dom0"
-msgstr "Copiando o VDI %s de /boot/guest no dom0"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:884
 #, python-format
 msgid "Kernel/Ramdisk VDI %s destroyed"
-msgstr "Kernel/Ramdisk %s destruidos"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:895
 msgid "Failed to fetch glance image"
@@ -6183,7 +6162,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:955
 #, python-format
 msgid "Looking up vdi %s for PV kernel"
-msgstr "Verificando o vdi %s para kernel PV"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:973
 #, python-format
@@ -6193,17 +6172,17 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1016
 #, python-format
 msgid "VDI %s is still available"
-msgstr "O VDI %s continua disponível"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1059
 #, python-format
 msgid "(VM_UTILS) xenserver vm state -> |%s|"
-msgstr "(VM_UTILS) xenserver vm state -> |%s|"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1061
 #, python-format
 msgid "(VM_UTILS) xenapi power_state -> |%s|"
-msgstr "(VM_UTILS) xenapi power_state -> |%s|"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1088
 #, python-format
@@ -6213,7 +6192,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1108
 #, python-format
 msgid "Re-scanning SR %s"
-msgstr "Re-escaneando SR %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1136
 #, python-format
@@ -6290,7 +6269,7 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1343
 #, python-format
 msgid "VHD %(vdi_uuid)s has parent %(parent_ref)s"
-msgstr "O VHD %(vdi_uuid)s tem pai %(parent_ref)s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1417
 #, python-format
@@ -6312,12 +6291,12 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1473
 #, python-format
 msgid "Plugging VBD %s ... "
-msgstr "Conectando VBD %s ... "
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1476
 #, python-format
 msgid "Plugging VBD %s done."
-msgstr "O VDB %s foi conectado."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1478
 #, python-format
@@ -6332,26 +6311,26 @@ msgstr ""
 #: cinder/virt/xenapi/vm_utils.py:1490
 #, python-format
 msgid "Destroying VBD for VDI %s ... "
-msgstr "Destruindo VBD para o VDI %s ... "
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1498
 #, python-format
 msgid "Destroying VBD for VDI %s done."
-msgstr "O VBD para o VDI %s foi destruído."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1511
 #, python-format
 msgid "Running pygrub against %s"
-msgstr "Rodando pygrub cindermente %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1518
 #, python-format
 msgid "Found Xen kernel %s"
-msgstr "Kernel Xen encontrado: %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1520
 msgid "No Xen kernel found.  Booting HVM."
-msgstr "Kernel Xen não encontrado. Iniciando como HVM."
+msgstr ""
 
 #: cinder/virt/xenapi/vm_utils.py:1533
 msgid "Partitions:"
@@ -6424,9 +6403,8 @@ msgid "Attempted to power on non-existent instance bad instance id %s"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:233
-#, fuzzy, python-format
 msgid "Starting instance"
-msgstr "Reiniciando a instância %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:303
 msgid "Removing kernel/ramdisk files from dom0"
@@ -6514,9 +6492,9 @@ msgid "Starting snapshot for VM"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:686
-#, fuzzy, python-format
+#, python-format
 msgid "Unable to Snapshot instance: %(exc)s"
-msgstr "Não é possível anexar o volume na instância %s"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:702
 msgid "Failed to transfer vhd to new host"
@@ -6660,14 +6638,14 @@ msgid "Creating vifs"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1492
-#, fuzzy, python-format
+#, python-format
 msgid "Creating VIF for network %(network_ref)s"
-msgstr "Criando a VIF para VM %(vm_ref)s, rede %(network_ref)s."
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1495
-#, fuzzy, python-format
+#, python-format
 msgid "Created VIF %(vif_ref)s, network %(network_ref)s"
-msgstr "Criando a VIF para VM %(vm_ref)s, rede %(network_ref)s."
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:1520
 msgid "Injecting hostname to xenstore"
@@ -6700,7 +6678,7 @@ msgstr ""
 #: cinder/virt/xenapi/vmops.py:1661
 #, python-format
 msgid "OpenSSL error: %s"
-msgstr "Erro de OpenSSL: %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:52
 msgid "creating sr within volume_utils"
@@ -6763,7 +6741,7 @@ msgstr ""
 #: cinder/virt/xenapi/volume_utils.py:157
 #, python-format
 msgid "Introducing %s..."
-msgstr "Introduzindo %s..."
+msgstr ""
 
 #: cinder/virt/xenapi/volume_utils.py:186
 #, python-format
@@ -6813,7 +6791,7 @@ msgstr ""
 #: cinder/virt/xenapi/volume_utils.py:341
 #, python-format
 msgid "Mountpoint cannot be translated: %s"
-msgstr "Ponto de montagem não pode ser traduzido: %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:64
 msgid "Could not find VDI ref"
@@ -6868,38 +6846,36 @@ msgstr ""
 #, python-format
 msgid "Unable to create VDI on SR %(sr_ref)s for instance %(instance_name)s"
 msgstr ""
-"Não é possível criar o VDI no SR %(sr_ref)s para a instância "
-"%(instance_name)s"
 
 #: cinder/virt/xenapi/volumeops.py:189
 #, python-format
 msgid "Unable to use SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "Não é possível usar o SR %(sr_ref)s para a instância %(instance_name)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:197
 #, python-format
 msgid "Unable to attach volume to instance %s"
-msgstr "Não é possível anexar o volume na instância %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:200
 #, python-format
 msgid "Mountpoint %(mountpoint)s attached to instance %(instance_name)s"
-msgstr "Ponto de montagem %(mountpoint)s conectada à instância %(instance_name)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:210
 #, python-format
 msgid "Detach_volume: %(instance_name)s, %(mountpoint)s"
-msgstr "Detach_volume: %(instance_name)s, %(mountpoint)s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:219
 #, python-format
 msgid "Unable to locate volume %s"
-msgstr "Não é possível localizar o volume %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:227
 #, python-format
 msgid "Unable to detach volume %s"
-msgstr "Não é possível desconectar o volume %s"
+msgstr ""
 
 #: cinder/virt/xenapi/volumeops.py:232
 #, python-format
@@ -6914,7 +6890,7 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:241
 #, python-format
 msgid "Mountpoint %(mountpoint)s detached from instance %(instance_name)s"
-msgstr "Ponto de montagem %(mountpoint)s desanexada da instância %(instance_name)s"
+msgstr ""
 
 #: cinder/vnc/xvp_proxy.py:98 cinder/vnc/xvp_proxy.py:103
 #, python-format
@@ -6961,9 +6937,8 @@ msgid "Quota exceeded for %(pid)s, tried to create %(size)sG volume"
 msgstr ""
 
 #: cinder/volume/api.py:137
-#, fuzzy
 msgid "Volume status must be available or error"
-msgstr "O status do volume parece estar disponível"
+msgstr ""
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -6983,9 +6958,8 @@ msgid "must be available"
 msgstr ""
 
 #: cinder/volume/api.py:325
-#, fuzzy
 msgid "Volume Snapshot status must be available or error"
-msgstr "O status do volume parece estar disponível"
+msgstr ""
 
 #: cinder/volume/driver.py:96
 #, python-format
@@ -7060,50 +7034,50 @@ msgstr ""
 #: cinder/volume/manager.py:96
 #, python-format
 msgid "Re-exporting %s volumes"
-msgstr "Re-exportando %s volumes"
+msgstr ""
 
 #: cinder/volume/manager.py:101
 #, python-format
 msgid "volume %s: skipping export"
-msgstr "volume %s: ignorando export"
+msgstr ""
 
 #: cinder/volume/manager.py:107
 #, python-format
 msgid "volume %s: creating"
-msgstr "volume %s: criando"
+msgstr ""
 
 #: cinder/volume/manager.py:119
 #, python-format
 msgid "volume %(vol_name)s: creating lv of size %(vol_size)sG"
-msgstr "volume %(vol_name)s: criando lv com tamanho %(vol_size)sG"
+msgstr ""
 
 #: cinder/volume/manager.py:131
 #, python-format
 msgid "volume %s: creating export"
-msgstr "volume %s: criando o export"
+msgstr ""
 
 #: cinder/volume/manager.py:144
 #, python-format
 msgid "volume %s: created successfully"
-msgstr "volume %s: criado com sucesso"
+msgstr ""
 
 #: cinder/volume/manager.py:153
 msgid "Volume is still attached"
-msgstr "O volume continua atachado"
+msgstr ""
 
 #: cinder/volume/manager.py:155
 msgid "Volume is not local to this node"
-msgstr "O volume não pertence à este node"
+msgstr ""
 
 #: cinder/volume/manager.py:159
 #, python-format
 msgid "volume %s: removing export"
-msgstr "volume %s: removendo export"
+msgstr ""
 
 #: cinder/volume/manager.py:161
 #, python-format
 msgid "volume %s: deleting"
-msgstr "volume %s: removendo"
+msgstr ""
 
 #: cinder/volume/manager.py:164
 #, python-format
@@ -7113,7 +7087,7 @@ msgstr ""
 #: cinder/volume/manager.py:176
 #, python-format
 msgid "volume %s: deleted successfully"
-msgstr "volume %s: remoção realizada com sucesso"
+msgstr ""
 
 #: cinder/volume/manager.py:183
 #, python-format
@@ -7136,9 +7110,9 @@ msgid "snapshot %s: deleting"
 msgstr ""
 
 #: cinder/volume/manager.py:214
-#, fuzzy, python-format
+#, python-format
 msgid "snapshot %s: snapshot is busy"
-msgstr "instância %s: fazendo um snapshot"
+msgstr ""
 
 #: cinder/volume/manager.py:226
 #, python-format
@@ -7174,14 +7148,13 @@ msgid "%s is not set"
 msgstr ""
 
 #: cinder/volume/netapp.py:128
-#, fuzzy
 msgid "Connected to DFM server"
-msgstr "Reconectado à fila"
+msgstr ""
 
 #: cinder/volume/netapp.py:159
-#, fuzzy, python-format
+#, python-format
 msgid "Job failed: %s"
-msgstr "NotFound lançado: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:240
 msgid "Failed to provision dataset member"
@@ -7192,38 +7165,38 @@ msgid "No LUN was created by the provision job"
 msgstr ""
 
 #: cinder/volume/netapp.py:261 cinder/volume/netapp.py:433
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to find LUN ID for volume %s"
-msgstr "Não é possível localizar o volume %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:280
 msgid "Failed to remove and delete dataset member"
 msgstr ""
 
 #: cinder/volume/netapp.py:603 cinder/volume/netapp.py:657
-#, fuzzy, python-format
+#, python-format
 msgid "No LUN ID for volume %s"
-msgstr "Não é possível localizar o volume %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:607 cinder/volume/netapp.py:661
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get LUN details for LUN ID %s"
-msgstr "Falha ao obter metadados para o ip: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:614
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get host details for host ID %s"
-msgstr "Falha ao obter metadados para o ip: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:620
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get target portal for filer: %s"
-msgstr "Falha ao obter metadados para o ip: %s"
+msgstr ""
 
 #: cinder/volume/netapp.py:625
-#, fuzzy, python-format
+#, python-format
 msgid "Failed to get target IQN for filer: %s"
-msgstr "Falha ao obter metadados para o ip: %s"
+msgstr ""
 
 #: cinder/volume/san.py:113 cinder/volume/san.py:151
 msgid "Specify san_password or san_private_key"
@@ -7434,9 +7407,9 @@ msgid "Bad response from server"
 msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:79
-#, fuzzy, python-format
+#, python-format
 msgid "Got response: %s"
-msgstr "resposta %s"
+msgstr ""
 
 #: cinder/volume/nexenta/volume.py:96
 #, python-format
@@ -7622,7 +7595,7 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "trying to destroy already destroyed instance: %s"
-#~ msgstr "tentando destruir instância já destruida: %s"
+#~ msgstr ""
 
 #~ msgid ""
 #~ "Instance %(name)s found in database but"
@@ -7666,11 +7639,14 @@ msgstr ""
 #~ msgid "Unable to connect to AMQP server after %(tries)d tries. Shutting down."
 #~ msgstr ""
 
+#~ msgid "Reconnected to queue"
+#~ msgstr ""
+
 #~ msgid "Failed to fetch message from queue: %s"
 #~ msgstr ""
 
 #~ msgid "Initing the Adapter Consumer for %s"
-#~ msgstr "Iniciando o Adaptador Consumidor para %s"
+#~ msgstr ""
 
 #~ msgid "Created \"%(exchange)s\" fanout exchange with \"%(key)s\" routing key"
 #~ msgstr ""
@@ -7681,11 +7657,14 @@ msgstr ""
 #~ msgid "Creating \"%(exchange)s\" fanout exchange"
 #~ msgstr ""
 
+#~ msgid "response %s"
+#~ msgstr ""
+
 #~ msgid "topic is %s"
-#~ msgstr "topico é %s"
+#~ msgstr ""
 
 #~ msgid "message %s"
-#~ msgstr "mensagem %s"
+#~ msgstr ""
 
 #~ msgid ""
 #~ "Cannot confirm tmpfile at %(ipath)s is"
@@ -7779,22 +7758,22 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "(%(nm)s) publish (key: %(routing_key)s) %(message)s"
-#~ msgstr "(%(nm)s) publicar (key: %(routing_key)s) %(message)s"
+#~ msgstr ""
 
 #~ msgid "Publishing to route %s"
-#~ msgstr "Publicando para rota %s"
+#~ msgstr ""
 
 #~ msgid "Declaring queue %s"
-#~ msgstr "Declarando fila %s"
+#~ msgstr ""
 
 #~ msgid "Declaring exchange %s"
-#~ msgstr "Declarando troca %s"
+#~ msgstr ""
 
 #~ msgid "Binding %(queue)s to %(exchange)s with key %(routing_key)s"
-#~ msgstr "Ligação %(queue)s para %(exchange)s com chave %(routing_key)s"
+#~ msgstr ""
 
 #~ msgid "Getting from %(queue)s: %(message)s"
-#~ msgstr "Recebendo de %(queue)s: %(message)s"
+#~ msgstr ""
 
 #~ msgid "Test: Emulate wrong VSA name. Raise"
 #~ msgstr ""
@@ -7905,10 +7884,10 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Created VM %s..."
-#~ msgstr "VM %s criada..."
+#~ msgstr ""
 
 #~ msgid "Created VM %(instance_name)s as %(vm_ref)s."
-#~ msgstr "VM %(instance_name)s criada como %(vm_ref)s."
+#~ msgstr ""
 
 #~ msgid "Creating a CDROM-specific VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
 #~ msgstr ""
@@ -7921,6 +7900,12 @@ msgstr ""
 #~ msgid "No primary VDI found for%(vm_ref)s"
 #~ msgstr ""
 
+#~ msgid "Snapshotting VM %(vm_ref)s with label '%(label)s'..."
+#~ msgstr ""
+
+#~ msgid "Created snapshot %(template_vm_ref)s from VM %(vm_ref)s."
+#~ msgstr ""
+
 #~ msgid "Fetching image %(image)s"
 #~ msgstr ""
 
@@ -7930,14 +7915,17 @@ msgstr ""
 #~ msgid "ISO: Found sr possibly containing the ISO image"
 #~ msgstr ""
 
+#~ msgid "Size for image %(image)s:%(virtual_size)d"
+#~ msgstr ""
+
 #~ msgid "instance %s: Failed to fetch glance image"
 #~ msgstr ""
 
 #~ msgid "Creating VBD for VDI %s ... "
-#~ msgstr "Criando VBD para VDI %s ... "
+#~ msgstr ""
 
 #~ msgid "Creating VBD for VDI %s done."
-#~ msgstr "O VBD para VDI %s foi criado."
+#~ msgstr ""
 
 #~ msgid "VBD.unplug successful first time."
 #~ msgstr ""
@@ -7952,7 +7940,7 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Ignoring XenAPI.Failure in VBD.unplug: %s"
-#~ msgstr "Ignorando XenAPI.Failure em VBD.unplug: %s"
+#~ msgstr ""
 
 #~ msgid "Ignoring XenAPI.Failure %s"
 #~ msgstr ""
@@ -7961,7 +7949,7 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "instance %s: Failed to spawn"
-#~ msgstr "instância %s: falha na geração"
+#~ msgstr ""
 
 #~ msgid "Instance %s failed to spawn - performing clean-up"
 #~ msgstr ""
@@ -8050,8 +8038,11 @@ msgstr ""
 #~ msgid "creating vif(s) for vm: |%s|"
 #~ msgstr ""
 
+#~ msgid "Creating VIF for VM %(vm_ref)s, network %(network_ref)s."
+#~ msgstr ""
+
 #~ msgid "Created VIF %(vif_ref)s for VM %(vm_ref)s, network %(network_ref)s."
-#~ msgstr "VIF %(vif_ref)s criada para VM %(vm_ref)s, rede %(network_ref)s."
+#~ msgstr ""
 
 #~ msgid "injecting hostname to xs for vm: |%s|"
 #~ msgstr ""
@@ -8080,9 +8071,12 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Creating VBD for VM %(vm_ref)s, VDI %(vdi_ref)s ... "
-#~ msgstr "Criando VBD para VM %(vm_ref)s, VDI %(vdi_ref)s ... "
+#~ msgstr ""
 
 #~ msgid "Error destroying VDI"
+#~ msgstr ""
+
+#~ msgid "Volume status must be available"
 #~ msgstr ""
 
 #~ msgid "\tVolume %s is NOT VSA volume"

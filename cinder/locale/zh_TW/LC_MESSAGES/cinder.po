@@ -1,4 +1,4 @@
-# Korean translation for cinder
+# Chinese (Traditional) translation for cinder
 # Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
 # This file is distributed under the same license as the cinder package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
@@ -8,9 +8,9 @@ msgstr ""
 "Project-Id-Version:  cinder\n"
 "Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
-"PO-Revision-Date: 2011-12-16 04:42+0000\n"
-"Last-Translator: Zhongyue Luo <lzyeval@gmail.com>\n"
-"Language-Team: Korean <ko@li.org>\n"
+"PO-Revision-Date: 2012-03-07 02:00+0000\n"
+"Last-Translator: Charles Hsu <charles0126+openstack@gmail.com>\n"
+"Language-Team: Chinese (Traditional) <zh_TW@li.org>\n"
 "Plural-Forms: nplurals=1; plural=0\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
@@ -29,11 +29,11 @@ msgstr ""
 
 #: cinder/crypto.py:48
 msgid "Filename of root CA"
-msgstr "CA 루트의 파일이름"
+msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "비밀키의 파일명"
+msgstr "Private key 私鑰檔案名稱"
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
@@ -41,15 +41,15 @@ msgstr ""
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr "키를 저장하는 경로"
+msgstr "我們的keys留存於何處"
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
-msgstr "CA 루트를 저장하는 경로"
+msgstr "我們的根憑證留存於何處"
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr "각 프로젝트마다 CA를 사용하시겠습니까?"
+msgstr "是否需要一個project 使用一個CA"
 
 #: cinder/crypto.py:67
 #, python-format
@@ -64,11 +64,11 @@ msgstr ""
 #: cinder/crypto.py:292
 #, python-format
 msgid "Flags path: %s"
-msgstr "플래그 경로: %s"
+msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr "명령 실행도중 예측하지 못한 에러가 발생했습니다"
+msgstr "非預期的執行錯誤"
 
 #: cinder/exception.py:59
 #, python-format
@@ -80,10 +80,10 @@ msgid ""
 "Stderr: %(stderr)r"
 msgstr ""
 "%(description)s\n"
-"Command: %(cmd)s\n"
-"Exit code: %(exit_code)s\n"
-"Stdout: %(stdout)r\n"
-"Stderr: %(stderr)r"
+"命令: %(cmd)s\n"
+"退出代碼: %(exit_code)s\n"
+"標準輸出: %(stdout)r\n"
+"標準錯誤輸出: %(stderr)r"
 
 #: cinder/exception.py:94
 msgid "DB exception wrapped."
@@ -91,11 +91,11 @@ msgstr ""
 
 #: cinder/exception.py:155
 msgid "An unknown exception occurred."
-msgstr ""
+msgstr "發生一個未知例外"
 
 #: cinder/exception.py:178
 msgid "Failed to decrypt text"
-msgstr ""
+msgstr "內文解碼失敗"
 
 #: cinder/exception.py:182
 msgid "Failed to paginate through images from image service"
@@ -103,15 +103,15 @@ msgstr ""
 
 #: cinder/exception.py:186
 msgid "Virtual Interface creation failed"
-msgstr ""
+msgstr "建立虛擬介面失敗"
 
 #: cinder/exception.py:190
 msgid "5 attempts to create virtual interfacewith unique mac address failed"
-msgstr ""
+msgstr "連續嘗試 5 次建立唯一網路位置(MAC)的虛擬介面失敗"
 
 #: cinder/exception.py:195
 msgid "Connection to glance failed"
-msgstr ""
+msgstr "連接到glance失敗"
 
 #: cinder/exception.py:199
 msgid "Connection to melange failed"
@@ -119,11 +119,11 @@ msgstr ""
 
 #: cinder/exception.py:203
 msgid "Not authorized."
-msgstr ""
+msgstr "未被授權"
 
 #: cinder/exception.py:208
 msgid "User does not have admin privileges"
-msgstr ""
+msgstr "使用者並沒有管理者權力"
 
 #: cinder/exception.py:212
 #, python-format
@@ -137,11 +137,11 @@ msgstr ""
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
-msgstr ""
+msgstr "不可接受的參數值"
 
 #: cinder/exception.py:225
 msgid "Invalid snapshot"
-msgstr ""
+msgstr "無效的快照(snapshot)"
 
 #: cinder/exception.py:229
 #, python-format
@@ -150,7 +150,7 @@ msgstr ""
 
 #: cinder/exception.py:233 cinder/api/openstack/compute/contrib/keypairs.py:113
 msgid "Keypair data is invalid"
-msgstr ""
+msgstr "無效的Keypair"
 
 #: cinder/exception.py:237
 msgid "Failed to load data into json format"
@@ -2251,22 +2251,22 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:60
 #, python-format
 msgid "Compute.api::pause %s"
-msgstr "Compute.api::pause %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:77
 #, python-format
 msgid "Compute.api::unpause %s"
-msgstr "Compute.api::unpause %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:94
 #, python-format
 msgid "compute.api::suspend %s"
-msgstr "compute.api::suspend %s"
+msgstr "compute.api::暫停 %s"
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:111
 #, python-format
 msgid "compute.api::resume %s"
-msgstr "compute.api::resume %s"
+msgstr "compute.api::繼續 %s"
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:127
 #, python-format
@@ -2276,7 +2276,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:141
 #, python-format
 msgid "Compute.api::reset_network %s"
-msgstr "Compute.api::reset_network %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:154
 #: cinder/api/openstack/compute/contrib/admin_actions.py:170
@@ -2294,12 +2294,12 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/admin_actions.py:173
 #, python-format
 msgid "Compute.api::lock %s"
-msgstr "Compute.api::lock %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:189
 #, python-format
 msgid "Compute.api::unlock %s"
-msgstr "Compute.api::unlock %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/admin_actions.py:219
 #, python-format
@@ -2938,7 +2938,7 @@ msgstr ""
 #: cinder/compute/manager.py:138
 #, python-format
 msgid "check_instance_lock: decorating: |%s|"
-msgstr "check_instance_lock: decorating: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:140
 #, python-format
@@ -2950,22 +2950,22 @@ msgstr ""
 #: cinder/compute/manager.py:144
 #, python-format
 msgid "check_instance_lock: locked: |%s|"
-msgstr "check_instance_lock: locked: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:146
 #, python-format
 msgid "check_instance_lock: admin: |%s|"
-msgstr "check_instance_lock: admin: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:151
 #, python-format
 msgid "check_instance_lock: executing: |%s|"
-msgstr "check_instance_lock: executing: |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:155
 #, python-format
 msgid "check_instance_lock: not executing |%s|"
-msgstr "check_instance_lock: not executing |%s|"
+msgstr ""
 
 #: cinder/compute/manager.py:201
 #, python-format
@@ -3018,7 +3018,7 @@ msgstr ""
 
 #: cinder/compute/manager.py:480
 msgid "Instance has already been created"
-msgstr "인스턴스가 이미 생성되었습니다"
+msgstr ""
 
 #: cinder/compute/manager.py:523
 #, python-format
@@ -3104,7 +3104,7 @@ msgstr ""
 #: cinder/compute/manager.py:876
 #, python-format
 msgid "Rebooting instance %s"
-msgstr "인스턴스 %s를 재부팅합니다"
+msgstr ""
 
 #: cinder/compute/manager.py:891
 #, python-format
@@ -3116,7 +3116,7 @@ msgstr ""
 #: cinder/compute/manager.py:933
 #, python-format
 msgid "instance %s: snapshotting"
-msgstr "인스턴스 %s: 스냅샷 저장중"
+msgstr ""
 
 #: cinder/compute/manager.py:939
 #, python-format
@@ -3350,7 +3350,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3437,7 +3437,7 @@ msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
+msgid "Tried to remove non-existent console %(console_id)s."
 msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
@@ -5164,8 +5164,9 @@ msgid "data: %(data)r, fpath: %(fpath)r"
 msgstr ""
 
 #: cinder/virt/libvirt/connection.py:978
+#, fuzzy
 msgid "Guest does not have a console available"
-msgstr ""
+msgstr "使用者並沒有管理者權力"
 
 #: cinder/virt/libvirt/connection.py:1020
 #, python-format
@@ -5970,7 +5971,7 @@ msgstr ""
 #: cinder/virt/xenapi/pool.py:174
 #, fuzzy, python-format
 msgid "Unable to set up pool: %(e)s."
-msgstr "%s 볼륨 탈착에 실패했습니다"
+msgstr "無法卸載 Volume %s"
 
 #: cinder/virt/xenapi/pool.py:185
 #, python-format
@@ -6408,9 +6409,8 @@ msgid "Attempted to power on non-existent instance bad instance id %s"
 msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:233
-#, fuzzy, python-format
 msgid "Starting instance"
-msgstr "인스턴스 %s를 재부팅합니다"
+msgstr ""
 
 #: cinder/virt/xenapi/vmops.py:303
 msgid "Removing kernel/ramdisk files from dom0"
@@ -6500,7 +6500,7 @@ msgstr ""
 #: cinder/virt/xenapi/vmops.py:686
 #, fuzzy, python-format
 msgid "Unable to Snapshot instance: %(exc)s"
-msgstr "%s 인스턴스에 볼륨장착 할 수 없습니다"
+msgstr "無法掛載Volume 到虛擬機器 %s"
 
 #: cinder/virt/xenapi/vmops.py:702
 msgid "Failed to transfer vhd to new host"
@@ -6851,37 +6851,37 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:178
 #, python-format
 msgid "Unable to create VDI on SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "%(instance_name)s 인스턴스의 %(sr_ref)s SR에 대한 VDI 생성이 실패했습니다"
+msgstr "無法替 instance實例 %(instance_name)s , 建立 VDI 在SR %(sr_ref)s"
 
 #: cinder/virt/xenapi/volumeops.py:189
 #, python-format
 msgid "Unable to use SR %(sr_ref)s for instance %(instance_name)s"
-msgstr "%(instance_name)s 인스턴스의 %(sr_ref)s SR을 사용 할 수 없습니다"
+msgstr "無法替 instance實例 %(instance_name)s ,  使用SR %(sr_ref)s"
 
 #: cinder/virt/xenapi/volumeops.py:197
 #, python-format
 msgid "Unable to attach volume to instance %s"
-msgstr "%s 인스턴스에 볼륨장착 할 수 없습니다"
+msgstr "無法掛載Volume 到虛擬機器 %s"
 
 #: cinder/virt/xenapi/volumeops.py:200
 #, python-format
 msgid "Mountpoint %(mountpoint)s attached to instance %(instance_name)s"
-msgstr "%(instance_name)s 인스턴스에 %(mountpoint)s 마운트지점이 장착되었습니다"
+msgstr "掛載點 %(mountpoint)s 掛載到虛擬機器 %(instance_name)s"
 
 #: cinder/virt/xenapi/volumeops.py:210
 #, python-format
 msgid "Detach_volume: %(instance_name)s, %(mountpoint)s"
-msgstr "볼륨 탈착: %(instance_name)s, %(mountpoint)s"
+msgstr "卸載_Volume: %(instance_name)s, %(mountpoint)s"
 
 #: cinder/virt/xenapi/volumeops.py:219
 #, python-format
 msgid "Unable to locate volume %s"
-msgstr "%s 볼륨을 찾을수 없습니다"
+msgstr "找不到Volume %s"
 
 #: cinder/virt/xenapi/volumeops.py:227
 #, python-format
 msgid "Unable to detach volume %s"
-msgstr "%s 볼륨 탈착에 실패했습니다"
+msgstr "無法卸載 Volume %s"
 
 #: cinder/virt/xenapi/volumeops.py:232
 #, python-format
@@ -6896,7 +6896,7 @@ msgstr ""
 #: cinder/virt/xenapi/volumeops.py:241
 #, python-format
 msgid "Mountpoint %(mountpoint)s detached from instance %(instance_name)s"
-msgstr "%(instance_name)s 인스턴스에 %(mountpoint)s 마운트지점이 탈착되었습니다"
+msgstr "掛載點 %(mountpoint)s 從虛擬機器 %(instance_name)s 卸載"
 
 #: cinder/vnc/xvp_proxy.py:98 cinder/vnc/xvp_proxy.py:103
 #, python-format
@@ -6945,7 +6945,7 @@ msgstr ""
 #: cinder/volume/api.py:137
 #, fuzzy
 msgid "Volume status must be available or error"
-msgstr "볼륨의 상태를 알 수 없습니다"
+msgstr "Volume 狀態需要可被使用"
 
 #: cinder/volume/api.py:142
 #, python-format
@@ -6967,7 +6967,7 @@ msgstr ""
 #: cinder/volume/api.py:325
 #, fuzzy
 msgid "Volume Snapshot status must be available or error"
-msgstr "볼륨의 상태를 알 수 없습니다"
+msgstr "Volume 狀態需要可被使用"
 
 #: cinder/volume/driver.py:96
 #, python-format
@@ -7118,9 +7118,9 @@ msgid "snapshot %s: deleting"
 msgstr ""
 
 #: cinder/volume/manager.py:214
-#, fuzzy, python-format
+#, python-format
 msgid "snapshot %s: snapshot is busy"
-msgstr "인스턴스 %s: 스냅샷 저장중"
+msgstr ""
 
 #: cinder/volume/manager.py:226
 #, python-format
@@ -7175,7 +7175,7 @@ msgstr ""
 #: cinder/volume/netapp.py:261 cinder/volume/netapp.py:433
 #, fuzzy, python-format
 msgid "Failed to find LUN ID for volume %s"
-msgstr "%s 볼륨을 찾을수 없습니다"
+msgstr "找不到Volume %s"
 
 #: cinder/volume/netapp.py:280
 msgid "Failed to remove and delete dataset member"
@@ -7184,7 +7184,7 @@ msgstr ""
 #: cinder/volume/netapp.py:603 cinder/volume/netapp.py:657
 #, fuzzy, python-format
 msgid "No LUN ID for volume %s"
-msgstr "%s 볼륨을 찾을수 없습니다"
+msgstr "找不到Volume %s"
 
 #: cinder/volume/netapp.py:607 cinder/volume/netapp.py:661
 #, python-format
@@ -7603,7 +7603,7 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "trying to destroy already destroyed instance: %s"
-#~ msgstr "인스턴스 %s가 이미 삭제되었습니다"
+#~ msgstr ""
 
 #~ msgid ""
 #~ "Instance %(name)s found in database but"
@@ -7957,7 +7957,7 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "instance %s: Failed to spawn"
-#~ msgstr "인스턴스 %s: 생성에 실패했습니다"
+#~ msgstr ""
 
 #~ msgid "Instance %s failed to spawn - performing clean-up"
 #~ msgstr ""

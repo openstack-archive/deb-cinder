@@ -18,7 +18,7 @@
 """
 Volume manager manages creating, attaching, detaching, and persistent storage.
 
-Persistant storage volumes keep their state independent of instances.  You can
+Persistent storage volumes keep their state independent of instances.  You can
 attach to an instance, terminate the instance, spawn a new instance (even
 one from a different image) and re-attach the volume with the same data
 intact.
@@ -47,11 +47,14 @@ from cinder.openstack.common import cfg
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import timeutils
+from cinder import quota
 from cinder import utils
 from cinder.volume import utils as volume_utils
 
 
 LOG = logging.getLogger(__name__)
+
+QUOTAS = quota.QUOTAS
 
 volume_manager_opts = [
     cfg.StrOpt('volume_driver',
@@ -98,6 +101,12 @@ class VolumeManager(manager.SchedulerDependentManager):
                 self.driver.ensure_export(ctxt, volume)
             else:
                 LOG.info(_("volume %s: skipping export"), volume['name'])
+
+        LOG.debug(_('Resuming any in progress delete operations'))
+        for volume in volumes:
+            if volume['status'] == 'deleting':
+                LOG.info(_('Resuming delete on volume: %s') % volume['id'])
+                self.delete_volume(ctxt, volume['id'])
 
     def create_volume(self, context, volume_id, snapshot_id=None,
                       image_id=None):
@@ -147,6 +156,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             model_update = self.driver.create_export(context, volume_ref)
             if model_update:
                 self.db.volume_update(context, volume_ref['id'], model_update)
+
         except Exception:
             with excutils.save_and_reraise_exception():
                 self.db.volume_update(context,
@@ -195,9 +205,22 @@ class VolumeManager(manager.SchedulerDependentManager):
                                       volume_ref['id'],
                                       {'status': 'error_deleting'})
 
+        # Get reservations
+        try:
+            reservations = QUOTAS.reserve(context, volumes=-1,
+                                          gigabytes=-volume_ref['size'])
+        except Exception:
+            reservations = None
+            LOG.exception(_("Failed to update usages deleting volume"))
+
         self.db.volume_destroy(context, volume_id)
         LOG.debug(_("volume %s: deleted successfully"), volume_ref['name'])
         self._notify_about_volume_usage(context, volume_ref, "delete.end")
+
+        # Commit the reservations
+        if reservations:
+            QUOTAS.commit(context, reservations)
+
         return True
 
     def create_snapshot(self, context, volume_id, snapshot_id):
@@ -257,6 +280,17 @@ class VolumeManager(manager.SchedulerDependentManager):
         if not utils.is_uuid_like(instance_uuid):
             raise exception.InvalidUUID(instance_uuid)
 
+        try:
+            self.driver.attach_volume(context,
+                                      volume_id,
+                                      instance_uuid,
+                                      mountpoint)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                self.db.volume_update(context,
+                                      volume_id,
+                                      {'status': 'error_attaching'})
+
         self.db.volume_attached(context.elevated(),
                                 volume_id,
                                 instance_uuid,
@@ -266,6 +300,14 @@ class VolumeManager(manager.SchedulerDependentManager):
         """Updates db to show volume is detached"""
         # TODO(vish): refactor this into a more general "unreserve"
         # TODO(sleepsonthefloor): Is this 'elevated' appropriate?
+        try:
+            self.driver.detach_volume(context, volume_id)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                self.db.volume_update(context,
+                                      volume_id,
+                                      {'status': 'error_detaching'})
+
         self.db.volume_detached(context.elevated(), volume_id)
 
     def _copy_image_to_volume(self, context, volume, image_id):
@@ -273,7 +315,6 @@ class VolumeManager(manager.SchedulerDependentManager):
         volume_id = volume['id']
         payload = {'volume_id': volume_id, 'image_id': image_id}
         try:
-            self.driver.ensure_export(context.elevated(), volume)
             image_service, image_id = glance.get_remote_image_service(context,
                                                                       image_id)
             self.driver.copy_image_to_volume(context, volume, image_service,

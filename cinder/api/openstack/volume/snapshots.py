@@ -21,6 +21,7 @@ import webob
 from cinder.api.openstack import common
 from cinder.api.openstack import wsgi
 from cinder.api.openstack import xmlutil
+from cinder.api.openstack.volume import volumes
 from cinder import exception
 from cinder import flags
 from cinder.openstack.common import log as logging
@@ -83,11 +84,12 @@ class SnapshotsTemplate(xmlutil.TemplateBuilder):
         return xmlutil.MasterTemplate(root, 1)
 
 
-class SnapshotsController(object):
+class SnapshotsController(wsgi.Controller):
     """The Volumes API controller for the OpenStack API."""
 
-    def __init__(self):
+    def __init__(self, ext_mgr=None):
         self.volume_api = volume.API()
+        self.ext_mgr = ext_mgr
         super(SnapshotsController, self).__init__()
 
     @wsgi.serializers(xml=SnapshotTemplate)
@@ -131,6 +133,9 @@ class SnapshotsController(object):
 
         search_opts = {}
         search_opts.update(req.GET)
+        allowed_search_options = ('status', 'volume_id', 'display_name')
+        volumes.remove_invalid_options(context, search_opts,
+                                       allowed_search_options)
 
         snapshots = self.volume_api.get_all_snapshots(context,
                                                       search_opts=search_opts)
@@ -143,8 +148,8 @@ class SnapshotsController(object):
         """Creates a new snapshot."""
         context = req.environ['cinder.context']
 
-        if not body:
-            return exc.HTTPUnprocessableEntity()
+        if not self.is_valid_body(body, 'snapshot'):
+            raise exc.HTTPUnprocessableEntity()
 
         snapshot = body['snapshot']
         volume_id = snapshot['volume_id']
@@ -169,5 +174,5 @@ class SnapshotsController(object):
         return {'snapshot': retval}
 
 
-def create_resource():
-    return wsgi.Resource(SnapshotsController())
+def create_resource(ext_mgr):
+    return wsgi.Resource(SnapshotsController(ext_mgr))

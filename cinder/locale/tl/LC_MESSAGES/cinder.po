@@ -1,4 +1,4 @@
-# Ukrainian translation for cinder
+# Tagalog translation for cinder
 # Copyright (c) 2011 Rosetta Contributors and Canonical Ltd 2011
 # This file is distributed under the same license as the cinder package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011.
@@ -10,9 +10,8 @@ msgstr ""
 "POT-Creation-Date: 2012-04-08 23:04+0000\n"
 "PO-Revision-Date: 2011-08-23 11:21+0000\n"
 "Last-Translator: Thierry Carrez <thierry.carrez+lp@gmail.com>\n"
-"Language-Team: Ukrainian <uk@li.org>\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
-"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)\n"
+"Language-Team: Tagalog <tl@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -34,7 +33,7 @@ msgstr ""
 
 #: cinder/crypto.py:51
 msgid "Filename of private key"
-msgstr "Ім'я файлу секретного ключа"
+msgstr ""
 
 #: cinder/crypto.py:54
 msgid "Filename of root Certificate Revocation List"
@@ -42,7 +41,7 @@ msgstr ""
 
 #: cinder/crypto.py:57
 msgid "Where we keep our keys"
-msgstr "Шлях до збережених ключів"
+msgstr ""
 
 #: cinder/crypto.py:60
 msgid "Where we keep our root CA"
@@ -50,7 +49,7 @@ msgstr ""
 
 #: cinder/crypto.py:63
 msgid "Should we use a CA for each project?"
-msgstr ""
+msgstr "Kailangan bang gumamit ng CA bawat proyekto?"
 
 #: cinder/crypto.py:67
 #, python-format
@@ -69,7 +68,7 @@ msgstr ""
 
 #: cinder/exception.py:56
 msgid "Unexpected error while running command."
-msgstr "Неочікувана помилка при виконанні команди."
+msgstr "Merong hindi-inaasahang pagkakamali habang tumatakbo ang command."
 
 #: cinder/exception.py:59
 #, python-format
@@ -129,7 +128,7 @@ msgstr ""
 #: cinder/exception.py:216
 #, fuzzy, python-format
 msgid "Not authorized for image %(image_id)s."
-msgstr "без порядку для повідомлень: %s"
+msgstr "walang paraan para sa mensahe: %s"
 
 #: cinder/exception.py:220
 msgid "Unacceptable parameters."
@@ -1351,7 +1350,7 @@ msgstr ""
 
 #: cinder/api/ec2/__init__.py:170
 msgid "Too many failed authentications."
-msgstr "Занадто багато невдалих аутентифікацій."
+msgstr ""
 
 #: cinder/api/ec2/__init__.py:180
 #, python-format
@@ -1539,9 +1538,9 @@ msgid "Authorize security group ingress %s"
 msgstr ""
 
 #: cinder/api/ec2/cloud.py:725
-#, fuzzy, python-format
+#, python-format
 msgid "%s - This rule already exists in group"
-msgstr "Це правило вже існує в групі %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:769
 #, python-format
@@ -1572,7 +1571,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:245
 #, python-format
 msgid "Delete security group %s"
-msgstr "Вилучити групу безпеки %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:823 cinder/compute/manager.py:1630
 #, python-format
@@ -1588,7 +1587,7 @@ msgstr ""
 #: cinder/api/openstack/volume/volumes.py:222
 #, python-format
 msgid "Create volume of %s GB"
-msgstr "Створити розділ на %s ГБ"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:921
 msgid "Delete Failed"
@@ -1606,12 +1605,11 @@ msgstr ""
 #: cinder/api/ec2/cloud.py:952 cinder/api/openstack/compute/contrib/volumes.py:366
 #, python-format
 msgid "Detach volume %s"
-msgstr "Від'єднати том %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:959
-#, fuzzy, python-format
 msgid "Detach Volume Failed."
-msgstr "Від'єднати том %s"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:984 cinder/api/ec2/cloud.py:1041
 #: cinder/api/ec2/cloud.py:1518 cinder/api/ec2/cloud.py:1533
@@ -1684,7 +1682,7 @@ msgstr ""
 
 #: cinder/api/ec2/cloud.py:1538
 msgid "only group \"all\" is supported"
-msgstr "лише група \"всі\" підтримується"
+msgstr ""
 
 #: cinder/api/ec2/cloud.py:1540
 msgid "operation_type must be add or remove"
@@ -2575,7 +2573,7 @@ msgstr ""
 #: cinder/api/openstack/compute/contrib/security_groups.py:376
 #, python-format
 msgid "This rule already exists in group %s"
-msgstr "Це правило вже існує в групі %s"
+msgstr ""
 
 #: cinder/api/openstack/compute/contrib/security_groups.py:414
 msgid "Parent or group id is not integer"
@@ -3347,7 +3345,7 @@ msgid ""
 msgstr ""
 
 #: cinder/compute/manager.py:2090
-msgid "Post operation of migraton started"
+msgid "Post operation of migration started"
 msgstr ""
 
 #: cinder/compute/manager.py:2226
@@ -3434,7 +3432,7 @@ msgstr ""
 
 #: cinder/console/manager.py:97
 #, python-format
-msgid "Tried to remove non-existant console %(console_id)s."
+msgid "Tried to remove non-existent console %(console_id)s."
 msgstr ""
 
 #: cinder/console/vmrc_manager.py:122
@@ -4090,17 +4088,17 @@ msgstr ""
 #: cinder/rpc/amqp.py:231
 #, python-format
 msgid "received %s"
-msgstr "отримано %s"
+msgstr "natanggap %s"
 
 #: cinder/rpc/amqp.py:236
 #, python-format
 msgid "no method for message: %s"
-msgstr "без порядку для повідомлень: %s"
+msgstr "walang paraan para sa mensahe: %s"
 
 #: cinder/rpc/amqp.py:237
 #, python-format
 msgid "No method for message: %s"
-msgstr "Без порядку для повідомлень: %s"
+msgstr "Walang paraan para sa mensahe: %s"
 
 #: cinder/rpc/amqp.py:321
 #, python-format
@@ -4110,7 +4108,7 @@ msgstr ""
 #: cinder/rpc/amqp.py:324
 #, python-format
 msgid "MSG_ID is %s"
-msgstr "MSG_ID %s"
+msgstr ""
 
 #: cinder/rpc/amqp.py:346
 #, python-format
@@ -7152,7 +7150,7 @@ msgstr ""
 #: cinder/volume/netapp.py:128
 #, fuzzy
 msgid "Connected to DFM server"
-msgstr "Оновлено з'єднання до черги"
+msgstr "Muling kumonekta sa queue"
 
 #: cinder/volume/netapp.py:159
 #, python-format
@@ -7410,9 +7408,9 @@ msgid "Bad response from server"
 msgstr ""
 
 #: cinder/volume/nexenta/jsonrpc.py:79
-#, fuzzy, python-format
+#, python-format
 msgid "Got response: %s"
-msgstr "відповідь %s"
+msgstr ""
 
 #: cinder/volume/nexenta/volume.py:96
 #, python-format
@@ -7657,11 +7655,14 @@ msgstr ""
 #~ msgid "Creating \"%(exchange)s\" fanout exchange"
 #~ msgstr ""
 
+#~ msgid "response %s"
+#~ msgstr ""
+
 #~ msgid "topic is %s"
-#~ msgstr "заголовок %s"
+#~ msgstr ""
 
 #~ msgid "message %s"
-#~ msgstr "повідомлення %s"
+#~ msgstr ""
 
 #~ msgid ""
 #~ "Cannot confirm tmpfile at %(ipath)s is"
@@ -7761,10 +7762,10 @@ msgstr ""
 #~ msgstr ""
 
 #~ msgid "Declaring queue %s"
-#~ msgstr "Оголошення черги %s"
+#~ msgstr ""
 
 #~ msgid "Declaring exchange %s"
-#~ msgstr "Оголошення точки обміну %s"
+#~ msgstr ""
 
 #~ msgid "Binding %(queue)s to %(exchange)s with key %(routing_key)s"
 #~ msgstr ""
