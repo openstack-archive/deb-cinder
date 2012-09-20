@@ -1,4 +1,4 @@
-cinder (2012.2~rc1-1) experimental; urgency=low
+cinder (2012.2~rc1+git1~6b31057-1) experimental; urgency=low
 
   * First debian release
 
