@@ -1,13 +1,38 @@
 Description: Install some missing files
 Author: Mehdi Abaakouk <sileht@sileht.net>
 
---- cinder-2012.2~f3.orig/MANIFEST.in
-+++ cinder-2012.2~f3/MANIFEST.in
-@@ -1,5 +1,7 @@
- include AUTHORS
- include ChangeLog
-+include cinder/db/sqlalchemy/migrate_repo/migrate.cfg
-+include cinder/db/sqlalchemy/migrate_repo/versions/*.sql
- exclude .gitignore
+--- a/MANIFEST.in
++++ b/MANIFEST.in
+@@ -4,3 +4,32 @@
  exclude .gitreview
  
+ global-exclude *.pyc
++include cinder/api/openstack/volume/schemas/atom-link.rng
++include cinder/api/openstack/volume/schemas/v1.1/extension.rng
++include cinder/api/openstack/volume/schemas/v1.1/extensions.rng
++include cinder/api/openstack/volume/schemas/v1.1/metadata.rng
++include cinder/db/sqlalchemy/migrate_repo/README
++include cinder/db/sqlalchemy/migrate_repo/migrate.cfg
++include cinder/locale/bs/LC_MESSAGES/nova.po
++include cinder/locale/cs/LC_MESSAGES/nova.po
++include cinder/locale/da/LC_MESSAGES/nova.po
++include cinder/locale/de/LC_MESSAGES/nova.po
++include cinder/locale/en_AU/LC_MESSAGES/nova.po
++include cinder/locale/en_GB/LC_MESSAGES/nova.po
++include cinder/locale/es/LC_MESSAGES/nova.po
++include cinder/locale/fr/LC_MESSAGES/nova.po
++include cinder/locale/it/LC_MESSAGES/nova.po
++include cinder/locale/ja/LC_MESSAGES/nova.po
++include cinder/locale/ko/LC_MESSAGES/nova.po
++include cinder/locale/nova.pot
++include cinder/locale/pt_BR/LC_MESSAGES/nova.po
++include cinder/locale/ru/LC_MESSAGES/nova.po
++include cinder/locale/tl/LC_MESSAGES/nova.po
++include cinder/locale/tr/LC_MESSAGES/nova.po
++include cinder/locale/uk/LC_MESSAGES/nova.po
++include cinder/locale/zh_CN/LC_MESSAGES/nova.po
++include cinder/locale/zh_TW/LC_MESSAGES/nova.po
++include cinder/openstack/common/README
++include cinder/testing/README.rst
++include cinder/tests/policy.json
++include cinder/tests/test_migrations.conf
