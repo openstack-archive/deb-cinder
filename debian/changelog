@@ -1,3 +1,9 @@
+cinder (2012.2-1) experimental; urgency=low
+
+  * New upstream release 2012.2
+
+ -- Mehdi Abaakouk <sileht@sileht.net>  Sat, 29 Sep 2012 09:23:22 +0200
+
 cinder (2012.2~rc1+git1~6b31057-1) experimental; urgency=low
 
   * First debian release
