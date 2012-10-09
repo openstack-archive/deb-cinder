@@ -22,3 +22,4 @@ cover/*
 dist/*
 .coverage
 covhtml
+setuptools_git-*-py2.*.egg/
