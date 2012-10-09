@@ -12,10 +12,10 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 
     # Create config files if they don't exist
     if ! [ -d /etc/cinder ] ; then
-        mkdir /etc/cinder
+        mkdir -p /etc/cinder
     fi
     if ! [ -e /etc/cinder/cinder.conf ] ; then
-        cp /usr/share/doc/cinder-common/cinder.conf.dist /etc/cinder/cinder.conf
+        cp /usr/share/cinder-common/cinder.conf /etc/cinder/cinder.conf
     fi
 
     chown -R cinder:adm /var/log/cinder

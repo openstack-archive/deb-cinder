@@ -1,6 +1,10 @@
 cinder (2012.2-1) experimental; urgency=low
 
+  [ Mehdi Abaakouk ]
   * New upstream release 2012.2
+
+  [ Thomas Goirand ]
+  * Fixes wrong handling (eg: policy violation) of /etc/cinder/cinder.conf.
 
  -- Mehdi Abaakouk <sileht@sileht.net>  Sat, 29 Sep 2012 09:23:22 +0200
 
