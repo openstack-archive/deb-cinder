@@ -14,6 +14,15 @@ override_dh_auto_test:
 	./run_tests.sh -N -P || true
 endif
 
+override_dh_installinit:
+	if dpkg-vendor --derives-from ubuntu ; then \
+		for i in *.upstart.in ; do \
+			MYPKG=`echo $i | cut -d. -f1` ; \
+			cp $MYPKG.upstart.in $MYPKG.upstart ; \
+		done ; \
+	fi
+	dh_installinit --error-handler=true
+
 # Checkout master repo and create the orig.tar.xz
 get-vcs-source:
 	git remote add upstream git://github.com/openstack/cinder.git || true
