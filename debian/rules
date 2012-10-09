@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
-# Uncomment this to turn on verbose mode.
-#export DH_VERBOSE=1
+# Find upstream version (to be used later in this file)
+export UPSTR_VER=$(shell dpkg-parsechangelog | grep Version: | cut -d" " -f2 | cut -d"-" -f1)
 
 %:
 	dh $@  --with python2
@@ -14,6 +14,16 @@ override_dh_auto_test:
 	./run_tests.sh -N -P || true
 endif
 
+# Checkout master repo and create the orig.tar.xz
+get-vcs-source:
+	git remote add upstream git://github.com/openstack/cinder.git || true
+	git fetch upstream
+	git archive --prefix=cinder-$(UPSTR_VER)/ $(UPSTR_VER) | xz >../cinder_$(UPSTR_VER).orig.tar.xz
+	if ! git checkout master ; then \
+		echo "No upstream branch: checking out" ; \
+		git checkout -b master upstream/master ; \
+	fi
+	git checkout debian/experimental
 
 display-po-stats:
 	cd $(CURDIR)/debian/po ; for i in *.po ; do \
@@ -32,3 +42,7 @@ regen-manifest-patch:
 	git ls-files --no-empty-directory --exclude-standard cinder | grep -v '.py$$' | sed -n 's/.*/include &/gp' >> MANIFEST.in
 	quilt refresh
 	quilt pop -a
+
+# Enable XZ compression in the .debs
+override_dh_builddeb:
+	dh_builddeb -- -Zxz -z9
