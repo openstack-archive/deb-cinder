@@ -17,6 +17,8 @@ cinder (2012.2-1) experimental; urgency=low
   * Removed useless empty cinder-volume.postrm, cinder-api.postrm,
   cinder-scheduler.postinst, cinder-scheduler.postrm.
   * Pre-Depends: dpkg (>= 1.15.6~) because we use xz compression.
+  * Asks for admin tenant, user and password with debconf, patches
+  api-paste.ini so it is syntaxicaly correct.
 
  -- Mehdi Abaakouk <sileht@sileht.net>  Sat, 29 Sep 2012 09:23:22 +0200
 

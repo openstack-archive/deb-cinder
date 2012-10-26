@@ -1,8 +1,10 @@
 #!/bin/sh
 
 set -e
+set -x
 
 CINDER_CONF=/etc/cinder/cinder.conf
+CINDER_API=/etc/cinder/api-paste.ini
 
 #PKGOS-INCLUDE#
 
@@ -12,7 +14,9 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 
 	pkgos_var_user_group cinder
 	pkgos_write_new_conf cinder cinder.conf
+	pkgos_write_new_conf cinder api-paste.ini
 	pkgos_dbc_postinst ${CINDER_CONF} cinder DEFAULT sql_connection $@
+	pkgos_write_admin_creds ${CINDER_API} cinder filter:authtoken
 
 	chmod 0440 /etc/sudoers.d/cinder-common
 	echo "Now calling cinder-manage db sync: this may take a while..."

@@ -1,0 +1,17 @@
+Description: Fixes api-paste.ini syntax so it is really a .ini file
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: no
+
+--- cinder-2012.2.orig/etc/cinder/api-paste.ini
++++ cinder-2012.2/etc/cinder/api-paste.ini
+@@ -4,8 +4,8 @@
+ 
+ [composite:osapi_volume]
+ use = call:cinder.api.openstack.urlmap:urlmap_factory
+-/: osvolumeversions
+-/v1: openstack_volume_api_v1
++/ = osvolumeversions
++/v1 = openstack_volume_api_v1
+ 
+ [composite:openstack_volume_api_v1]
+ use = call:cinder.api.auth:pipeline_factory
