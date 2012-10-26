@@ -6,4 +6,3 @@ etc/cinder/rootwrap.d/volume.filters /etc/cinder/rootwrap.d
 etc/cinder/rootwrap.conf etc/cinder
 debian/cinder.conf usr/share/cinder-common
 debian/logging.conf etc/cinder
-debian/cinder_sudoers etc/sudoers.d

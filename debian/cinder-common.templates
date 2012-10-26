@@ -1,11 +1,11 @@
-Template: cinder-common/start_services
+Template: cinder/start_services
 Type: boolean
 Default: true
 _Description: Start cinder services at boot?
  Please choose whether you want to start Cinder services when the
  machine is booted up.
 
-Template: cinder-common/configure_db
+Template: cinder/configure_db
 Type: boolean
 Default: false
 _Description: Set up a database for Cinder?

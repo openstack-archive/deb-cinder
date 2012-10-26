@@ -1,7 +1,10 @@
 #!/usr/bin/make -f
 
 # Find upstream version (to be used later in this file)
-export UPSTR_VER=$(shell dpkg-parsechangelog | grep Version: | cut -d" " -f2 | cut -d"-" -f1)
+DEBVERS := $(shell dpkg-parsechangelog | sed -n -e 's/^Version: //p')
+VERSION := $(shell echo '$(DEBVERS)' | sed -e 's/^[[:digit:]]*://' -e 's/[~-].*//')
+DEBFLAVOR :=$(shell dpkg-parsechangelog | grep -E ^Distribution: | cut -d" " -f2)
+DEBPKGNAME :=$(shell dpkg-parsechangelog | grep -E ^Source: | cut -d" " -f2)
 
 %:
 	dh $@  --with python2
@@ -14,6 +17,10 @@ override_dh_auto_test:
 	./run_tests.sh -N -P || true
 endif
 
+override_dh_clean:
+	dh_clean
+	rm -f cinder-common.config cinder-common.postinst
+
 override_dh_installinit:
 	if dpkg-vendor --derives-from ubuntu ; then \
 		for i in *.upstart.in ; do \
@@ -23,11 +30,19 @@ override_dh_installinit:
 	fi
 	dh_installinit --error-handler=true
 
+override_dh_install:
+	dh_install
+	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
+
+override_dh_fixperms:
+	dh_fixperms
+	chmod 0440 $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
+
 # Checkout master repo and create the orig.tar.xz
 get-vcs-source:
-	git remote add upstream git://github.com/openstack/cinder.git || true
+	git remote add upstream git://github.com/openstack/$(DEBPKGNAME).git || true
 	git fetch upstream
-	git archive --prefix=cinder-$(UPSTR_VER)/ $(UPSTR_VER) | xz >../cinder_$(UPSTR_VER).orig.tar.xz
+	git archive --prefix=$(DEBPKGNAME)-$(VERSION)/ $(VERSION) | xz >../$(DEBPKGNAME)_$(VERSION).orig.tar.xz
 	if ! git checkout master ; then \
 		echo "No upstream branch: checking out" ; \
 		git checkout -b master upstream/master ; \
@@ -55,3 +70,10 @@ regen-manifest-patch:
 # Enable XZ compression in the .debs
 override_dh_builddeb:
 	dh_builddeb -- -Zxz -z9
+
+override_dh_auto_build:
+	dh_auto_build
+
+	chmod +x $(CURDIR)/debian/pkgos_insert_include
+	$(CURDIR)/debian/pkgos_insert_include pkgos_func cinder-common.config
+	$(CURDIR)/debian/pkgos_insert_include pkgos_func cinder-common.postinst

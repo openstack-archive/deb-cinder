@@ -2,104 +2,135 @@ Source: cinder
 Section: net
 Priority: extra
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
-Uploaders: Mehdi Abaakouk <sileht@sileht.net>
+Uploaders: Loic Dachary (OuoU) <loic@debian.org>,
+           Julien Danjou <acid@debian.org>,
+           Thomas Goirand <zigo@debian.org>,
+           Ghe Rivero <ghe.rivero@stackops.com>,
+           Mehdi Abaakouk <sileht@sileht.net>
 Build-Depends: debhelper (>= 8.0.0),
  po-debconf,
- python-all (>= 2.6),
+ python-all (>= 2.6.6-3~),
 Build-Depends-Indep:
- python-sqlalchemy,
- python-setuptools,
- python-cheetah,
+ pep8,
  python-amqplib,
  python-anyjson,
+ python-cheetah,
+ python-coverage,
+ python-daemon,
  python-eventlet,
+ python-glance,
+ python-glanceclient,
+ python-greenlet,
+ python-iso8601,
  python-kombu,
  python-lockfile,
  python-lxml,
- python-daemon,
- python-routes,
- python-webob,
- python-greenlet,
- python-glanceclient,
- python-pastedeploy,
- python-paste,
  python-migrate,
- python-netaddr,
- python-glance,
- python-suds,
- python-paramiko,
- python-iso8601,
- python-coverage,
  python-mox,
- python-nose,
- python-sphinx,
  python-mysqldb,
+ python-netaddr,
+ python-nose,
+ python-paramiko,
+ python-paste,
+ python-pastedeploy,
+ python-routes,
+ python-setuptools,
  python-setuptools-git,
- pep8,
+ python-sphinx,
+ python-sqlalchemy,
+ python-suds,
+ python-webob,
 Standards-Version: 3.9.3
-Homepage: http://launchpad.net/cinder
+Homepage: http://cinder.openstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/cinder.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/cinder.git
 
 Package: python-cinder
 Section: python
 Architecture: all
-Depends: ${python:Depends}, python-sqlalchemy,
- python-cheetah,
+Pre-Depends: dpkg (>= 1.15.6~)
+Depends: ${python:Depends},
  python-amqplib,
  python-anyjson,
+ python-cheetah, 
+ python-daemon,  
  python-eventlet,
- python-kombu,
+ python-glance,
+ python-glanceclient,
+ python-greenlet,
+ python-iso8601,
+ python-kombu,  
  python-lockfile,
  python-lxml,
- python-daemon,
- python-routes,
- python-webob,
- python-greenlet,
- python-pastedeploy,
- python-paste,
  python-migrate,
- python-netaddr,
- python-glance,
- python-suds,
+ python-netaddr,   
  python-paramiko,
- python-iso8601,
- python-glanceclient,
+ python-paste,
+ python-pastedeploy,
+ python-routes,
+ python-suds,
+ python-sqlalchemy,
+ python-webob,
  ${misc:Depends}
-Description: Cinder python libraries
- Cinder is a storage service for the Openstack project.
+Description: Openstack block storage as a service - Python libraries
+ Cinder is a block storage as service system for the Openstack cloud computing
+ software suite. It is a direct replacement for nova-volume as a separate
+ project. Cinder users LVM partitions of your volume servers in order to
+ provide iSCSI permanent block storage devices for your virtual machines
+ running on Nova.
  .
- This package contains the proython parts of cinder.
+ This package contains the Python libraries that are parts of cinder.
 
 Package: cinder-common
 Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
 Depends: python-cinder (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, adduser, debconf, dbconfig-common
 Provides: ${python:Provides}
-Description: Cinder starage service - common files
- Cinder is a storage service for the Openstack project
+Description: Openstack block storage as a service - common files
+ Cinder is a block storage as service system for the Openstack cloud computing
+ software suite. It is a direct replacement for nova-volume as a separate
+ project. Cinder users LVM partitions of your volume servers in order to
+ provide iSCSI permanent block storage devices for your virtual machines
+ running on Nova.
  .
- This package contains things that are needed for all parts of cinder
+ This package contains common files and configuration that are
+ needed by all the daemon packages of Cinder.
 
 Package: cinder-api
 Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
 Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Cinder storage service - API server
- Cinder is a storage service for the Openstack project
+Description: Openstack block storage as a service - API server
+ Cinder is a block storage as service system for the Openstack cloud computing
+ software suite. It is a direct replacement for nova-volume as a separate
+ project. Cinder users LVM partitions of your volume servers in order to
+ provide iSCSI permanent block storage devices for your virtual machines
+ running on Nova.
  .
- This package contains the API server
+ This package contains the API server on which client will connect.
 
 Package: cinder-volume
 Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
 Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Cinder storage service - Volume server
- Cinder is a storage service for the Openstack project
+Description: Openstack block storage as a service - Volume server
+ Cinder is a block storage as service system for the Openstack cloud computing
+ software suite. It is a direct replacement for nova-volume as a separate
+ project. Cinder users LVM partitions of your volume servers in order to
+ provide iSCSI permanent block storage devices for your virtual machines
+ running on Nova.
  .
- This package contains the Volume server
+ This package contains the Volume server which will actually do the storage.
 
 Package: cinder-scheduler
 Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
 Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Cinder storage service - Scheduler server
- Cinder is a storage service for the Openstack project
+Description: Openstack block storage as a service - Scheduler server
+ Cinder is a block storage as service system for the Openstack cloud computing
+ software suite. It is a direct replacement for nova-volume as a separate
+ project. Cinder users LVM partitions of your volume servers in order to
+ provide iSCSI permanent block storage devices for your virtual machines
+ running on Nova.
  .
- This package contains the Scheduler server
+ This package contains the Scheduler server.

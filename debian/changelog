@@ -5,6 +5,18 @@ cinder (2012.2-1) experimental; urgency=low
 
   [ Thomas Goirand ]
   * Fixes wrong handling (eg: policy violation) of /etc/cinder/cinder.conf.
+  * Now uses pkgos_func functions for debconf and dbconfig-common handling.
+  * Renames /etc/sudoers.d/cinder_sudoers as /etc/sudoers.d/cinder-common.
+  * Debconf now users cinder/<debconf-screen-name> and not cinder-common/.
+  * Reviewed long and short descriptions in debian/control.
+  * Bumped Build-Depends-Indep: python-all to 2.6.6-3~ since we are using
+  dh_python2.
+  * Added everyone in the team as Uploaders:.
+  * Changed Homepage field to http://cinder.openstack.org/.
+  * Dependencies are now by alpha order.
+  * Removed useless empty cinder-volume.postrm, cinder-api.postrm,
+  cinder-scheduler.postinst, cinder-scheduler.postrm.
+  * Pre-Depends: dpkg (>= 1.15.6~) because we use xz compression.
 
  -- Mehdi Abaakouk <sileht@sileht.net>  Sat, 29 Sep 2012 09:23:22 +0200
 
