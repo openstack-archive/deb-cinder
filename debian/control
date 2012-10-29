@@ -11,6 +11,7 @@ Build-Depends: debhelper (>= 8.0.0),
  po-debconf,
  python-all (>= 2.6.6-3~),
 Build-Depends-Indep:
+ openstack-pkg-tools,
  pep8,
  python-amqplib,
  python-anyjson,
