@@ -44,3 +44,9 @@ _Description: Auth server username:
 Template: cinder/admin-password
 Type: password
 _Description: Auth server password:
+
+Template: cinder/volume_group
+Type: string
+_Description: Cinder volume group:
+ Please specify the name of the LVM volume group (vg) on which Cinder
+ will create partitions.

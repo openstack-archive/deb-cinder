@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2012-09-17 09:47+0200\n"
+"POT-Creation-Date: 2012-11-01 16:43+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -69,4 +69,50 @@ msgstr ""
 msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "cinder-common\"."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:3001
+msgid "Auth server hostname:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:3001
+msgid ""
+"Please specify the URL of your Cinder authentication server. Typically  this "
+"is also the URL of your OpenStack Identity Service (Keystone)."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:4001
+msgid "Auth server tenant name:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:5001
+msgid "Auth server username:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:6001
+msgid "Auth server password:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:7001
+msgid "Cinder volume group:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:7001
+msgid ""
+"Please specify the name of the LVM volume group (vg) on which Cinder will "
+"create partitions."
 msgstr ""

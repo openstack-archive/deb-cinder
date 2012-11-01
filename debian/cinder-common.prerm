@@ -4,7 +4,7 @@ set -e
 
 . /usr/share/debconf/confmodule
 
-db_get cinder/configure_db
+db_get cinder/configure_db || true
 if [ "$RET" = "true" ]; then
     . /usr/share/dbconfig-common/dpkg/prerm
     dbc_go cinder-common $@
