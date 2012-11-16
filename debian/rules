@@ -1,10 +1,6 @@
 #!/usr/bin/make -f
 
-# Find upstream version (to be used later in this file)
-DEBVERS := $(shell dpkg-parsechangelog | sed -n -e 's/^Version: //p')
-VERSION := $(shell echo '$(DEBVERS)' | sed -e 's/^[[:digit:]]*://' -e 's/[~-].*//')
-DEBFLAVOR :=$(shell dpkg-parsechangelog | grep -E ^Distribution: | cut -d" " -f2)
-DEBPKGNAME :=$(shell dpkg-parsechangelog | grep -E ^Source: | cut -d" " -f2)
+include /usr/share/openstack-pkg-tools/pkgos.make
 
 %:
 	dh $@  --with python2
@@ -37,39 +33,6 @@ override_dh_install:
 override_dh_fixperms:
 	dh_fixperms
 	chmod 0440 $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
-
-# Checkout master repo and create the orig.tar.xz
-get-vcs-source:
-	git remote add upstream git://github.com/openstack/$(DEBPKGNAME).git || true
-	git fetch upstream
-	git archive --prefix=$(DEBPKGNAME)-$(VERSION)/ $(VERSION) | xz >../$(DEBPKGNAME)_$(VERSION).orig.tar.xz
-	if ! git checkout master ; then \
-		echo "No upstream branch: checking out" ; \
-		git checkout -b master upstream/master ; \
-	fi
-	git checkout debian/experimental
-
-display-po-stats:
-	cd $(CURDIR)/debian/po ; for i in *.po ; do \
-		echo -n $$i": " ; \
-		msgfmt -o /dev/null --statistic $$i ; \
-	done
-
-call-for-po-trans:
-	podebconf-report-po --call --withtranslators --languageteam
-
-
-regen-manifest-patch:
-	quilt pop -a || true
-	quilt push install-missing-files.patch
-	git checkout MANIFEST.in
-	git ls-files --no-empty-directory --exclude-standard cinder | grep -v '.py$$' | sed -n 's/.*/include &/gp' >> MANIFEST.in
-	quilt refresh
-	quilt pop -a
-
-# Enable XZ compression in the .debs
-override_dh_builddeb:
-	dh_builddeb -- -Zxz -z9
 
 override_dh_auto_build:
 	dh_auto_build
