@@ -14,6 +14,9 @@ override_dh_clean:
 	dh_clean
 	rm -f cinder-common.config cinder-common.postinst
 
+override_dh_installchangelogs:
+	dh_installchangelogs debian/CHANGELOG
+
 override_dh_installinit:
 	if dpkg-vendor --derives-from ubuntu ; then \
 		for i in *.upstart.in ; do \
