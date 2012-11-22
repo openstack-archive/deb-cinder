@@ -1,1 +1,2 @@
 [type: gettext/rfc822deb] cinder-common.templates
+[type: gettext/rfc822deb] cinder-api.templates

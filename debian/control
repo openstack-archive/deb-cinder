@@ -99,7 +99,7 @@ Description: Openstack block storage as a service - common files
 Package: cinder-api
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Depends: debconf, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, python-keystoneclient
 Description: Openstack block storage as a service - API server
  Cinder is a block storage as service system for the Openstack cloud computing
  software suite. It is a direct replacement for nova-volume as a separate
