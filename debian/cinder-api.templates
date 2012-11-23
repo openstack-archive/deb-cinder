@@ -16,7 +16,7 @@ _Description: Keystone IP address:
  contact Keystone to do the Cinder service and endpoint creation.
 
 Template: cinder/keystone-auth-token
-Type: string
+Type: password
 _Description: Keystone Auth Token:
  To configure its endpoint in Keystone, cinder-api needs the Keystone auth
  token.
