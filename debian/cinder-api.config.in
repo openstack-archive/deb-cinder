@@ -6,6 +6,6 @@ set -e
 
 #PKGOS-INCLUDE#
 
-pkgos_register_endpoint_config glance
+pkgos_register_endpoint_config cinder
 
 exit 0

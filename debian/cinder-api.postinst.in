@@ -6,7 +6,7 @@ set -e
 
 if [ "$1" = "configure" ] ; then
 	. /usr/share/debconf/confmodule
-	pkgos_register_endpoint_postinst glance cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
+	pkgos_register_endpoint_postinst cinder cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
 	db_stop
 fi
 
