@@ -14,18 +14,6 @@ override_dh_clean:
 	dh_clean
 	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst
 
-override_dh_installchangelogs:
-	dh_installchangelogs debian/CHANGELOG
-
-override_dh_installinit:
-	if dpkg-vendor --derives-from ubuntu ; then \
-		for i in *.upstart.in ; do \
-			MYPKG=`echo $i | cut -d. -f1` ; \
-			cp $MYPKG.upstart.in $MYPKG.upstart ; \
-		done ; \
-	fi
-	dh_installinit --error-handler=true
-
 override_dh_install:
 	dh_install
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
