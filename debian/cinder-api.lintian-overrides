@@ -1,0 +1,5 @@
+cinder-api: unused-debconf-template cinder/register-endpoint
+cinder-api: unused-debconf-template cinder/keystone-ip
+cinder-api: unused-debconf-template cinder/keystone-auth-token
+cinder-api: unused-debconf-template cinder/endpoint-ip
+cinder-api: unused-debconf-template cinder/region-name

@@ -1,1 +1,6 @@
 cinder-common: unused-debconf-template cinder/start_services
+cinder-common: unused-debconf-template cinder/start_services
+cinder-common: unused-debconf-template cinder/auth-host
+cinder-common: unused-debconf-template cinder/admin-tenant-name
+cinder-common: unused-debconf-template cinder/admin-user
+cinder-common: unused-debconf-template cinder/admin-password
