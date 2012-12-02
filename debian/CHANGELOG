@@ -1,3 +1,120 @@
+commit 07e947e3bea12d90f303bb953346fff68950d638
+Author: Mark McLoughlin <markmc@redhat.com>
+Date:   Thu Nov 29 21:30:12 2012 +0000
+
+    Final versioning for 2012.2.1
+    
+    Change-Id: I74e485f7fde8d34fa5e6e8852e06d522b2ccc1d1
+
+commit f990ff0b2f3e23c32e0bb67f28eef556976c0aea
+Author: Eric Harney <eharney@redhat.com>
+Date:   Thu Nov 15 15:26:16 2012 -0500
+
+    Remove unused python-daemon dependency
+    
+    python-daemon is listed as a dependency, but it is not needed.
+    
+    Change-Id: I4d6eadfef5d60cd277ff7395a12f5ad255db7155
+    (cherry picked from commit 6217a3df0a34b1d0ac6fad8e9ea5044d2056c45d)
+
+commit 940f363dafd8a511e0c37b8a1ce1370e36c5a835
+Author: Adam Gandelman <adam.gandelman@canonical.com>
+Date:   Tue Nov 27 17:51:26 2012 -0800
+
+    Improve provider_location cleanup code for RBD.
+    
+    The RBD driver does not make use of the 'provider_location' field
+    but the current cleanup code assumes it does.  Ensure the field
+    is in use before testing whether or not it needs fixing.
+    
+    Fixes bug 1083818.
+    
+    Change-Id: Id6ff85101f85e70575ba244c2df7aca0196cf224
+    (cherry picked from commit d030c5b10e9e8d73d967562259e7db6146347108)
+
+commit 7f34ba39abcaa4f885d7448b427148fab4e49892
+Author: John Griffith <john.griffith@solidfire.com>
+Date:   Wed Oct 31 16:43:09 2012 -0600
+
+    Detect and fix issues caused by vol ID migration
+    
+    The migration from volume ID to UUID neglected to update the provider_location
+    field on the volume.  As a result the iqn and volume name no long match and
+    existing volumes are no longer able to be attached after an upgrade
+    (essex -> folsom and then nova-vol->cinder).
+    
+    This patch adds a method to the volume driver that will check for the
+    mismatch of volume name in the iqn during service start up.  If
+    detected it will update the provider_location field in the database
+    to include the new ID.  Also it will create a symlink to the device backing
+    file that also has the correct naming convention.
+    
+    Note: We don't disturb an connections that are currently attached.
+    For this case we add a check in manager.detach and do any provider_location
+    cleanup that's needed at that time.  This ensures that connections
+    persist on restarts of tgtd and reboot.
+    
+    Change-Id: I4683df4ef489972752dc58cb4e91d458a79a8ef2
+    Fixes: bug 1065702enter the commit message for your changes. Lines starting
+
+commit 1c99b242e97ebc8b46e2a9175091dbe0d117a26c
+Author: Sean Dague <sdague@linux.vnet.ibm.com>
+Date:   Wed Oct 31 11:39:40 2012 -0400
+
+    pin sqlalchemy to the 0.7.x series
+    
+    sqlalchemy 0.8beta is now out and has internal changes
+    which means it's not an in place seemless upgrade. This pins
+    sqlalchemy to the 0.7.x series to avoid those breaks.
+    
+    Fixes bug #1073569
+    
+    Change-Id: If204690569eb92b9077833a5da121fc072c6dcfa
+
+commit f13c425d6681869c6e377b825775e89d473408ff
+Merge: ce5e002 d12d4b6
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Sun Oct 14 00:43:16 2012 +0000
+
+    Merge "Restore SIGPIPE default action for subprocesses" into stable/folsom
+
+commit ce5e002daf535a6bd89e75e3f58bba414fb5a088
+Author: Mark McLoughlin <markmc@redhat.com>
+Date:   Sat Oct 13 22:47:27 2012 +0100
+
+    Set defaultbranch in .gitreview to stable/folsom
+    
+    This allows people run git-review without any arguments.
+    
+    Change-Id: I2b2488ffffd783b64e5c760324e7d4a00d5a39db
+
+commit d12d4b62076c2c73bab295a328d9d254c16d5569
+Author: Thierry Carrez <thierry@openstack.org>
+Date:   Thu Sep 20 14:21:00 2012 +0200
+
+    Restore SIGPIPE default action for subprocesses
+    
+    Python ignores SIGPIPE on startup, because it prefers to check every
+    write and raise an IOError exception rather than taking the signal. Most
+    Unix subprocesses don't expect to work this way. This patch (adapted
+    from Colin Watson's post at http://tinyurl.com/2a7mzh5) sets SIGPIPE
+    back to the default action for cinder.utils.execute and cinder-rootwrap
+    created subprocesses.
+    
+    Fixes bug 1053364
+    
+    Change-Id: I4b3307bd2f0f5d0da529d8b7d80fabae28c57732
+
+commit 7a158d2e29b939f0fa25f46afae09c8a8eb1f336
+Author: Thierry Carrez <thierry@openstack.org>
+Date:   Fri Sep 28 16:21:33 2012 +0200
+
+    Bump next version to 2012.2.1
+    
+    Open stable/folsom by bumping next version to 2012.2.1.
+    
+    Change-Id: If60a8e714ba78c8d9bfcc5f07d9abaea5c4cf785
+
 commit 8bcfae7e2261812854cbd34ecfee960e109ac956
 Merge: 2da0df3 ce60315
 Author: Jenkins <jenkins@review.openstack.org>
