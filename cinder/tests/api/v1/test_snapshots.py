@@ -170,17 +170,6 @@ class SnapshotApiTest(test.TestCase):
         self.assertRaises(webob.exc.HTTPNotFound, self.controller.update, req,
                           'not-the-uuid', body)
 
-        snapshot = {"volume_id": "12",
-                "force": "**&&^^%%$$##@@",
-                "display_name": "Snapshot Test Name",
-                "display_description": "Snapshot Test Desc"}
-        body = dict(snapshot=snapshot)
-        req = fakes.HTTPRequest.blank('/v1/snapshots')
-        self.assertRaises(exception.InvalidParameterValue,
-                          self.controller.create,
-                          req,
-                          body)
-
     def test_snapshot_delete(self):
         self.stubs.Set(volume.api.API, "get_snapshot", stub_snapshot_get)
         self.stubs.Set(volume.api.API, "delete_snapshot", stub_snapshot_delete)
