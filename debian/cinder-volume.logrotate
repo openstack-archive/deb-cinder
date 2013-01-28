@@ -1,4 +1,7 @@
 /var/log/cinder/cinder-volume.log {
 	daily
 	missingok
+	compress 
+	delaycompress
+	notifempty
 }

@@ -1,1 +1,2 @@
 usr/bin/cinder-volume
+debian/cinder_tgt.conf etc/tgt/conf.d

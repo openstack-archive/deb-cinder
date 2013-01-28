@@ -22,6 +22,7 @@ Build-Depends-Indep: pep8,
  python-glanceclient,
  python-greenlet,
  python-iso8601,
+ python-keystoneclient,
  python-kombu,
  python-lockfile,
  python-lxml,
@@ -38,6 +39,7 @@ Build-Depends-Indep: pep8,
  python-setuptools-git,
  python-sphinx,
  python-sqlalchemy,
+ python-stevedore (>= 0.7),
  python-suds,
  python-webob,
 Standards-Version: 3.9.3
@@ -55,7 +57,6 @@ Depends: ${python:Depends},
  python-cheetah, 
  python-daemon,  
  python-eventlet,
- python-glance,
  python-glanceclient,
  python-greenlet,
  python-iso8601,
@@ -67,6 +68,8 @@ Depends: ${python:Depends},
  python-paramiko,
  python-paste,
  python-pastedeploy,
+ python-migrate,
+ python-netaddr,
  python-routes,
  python-suds,
  python-sqlalchemy,
@@ -112,7 +115,8 @@ Description: Openstack block storage as a service - API server
 Package: cinder-volume
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Depends: ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends},
+ lvm2, tgt
 Description: Openstack block storage as a service - Volume server
  Cinder is a block storage as service system for the Openstack cloud computing
  software suite. It is a direct replacement for nova-volume as a separate

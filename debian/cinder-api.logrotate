@@ -1,4 +1,7 @@
 /var/log/cinder/cinder-api.log {
 	daily
 	missingok
+	compress 
+	delaycompress
+	notifempty
 }

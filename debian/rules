@@ -12,14 +12,14 @@ endif
 
 override_dh_clean:
 	dh_clean
-	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst
+	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst debian/cinder-volume.postinst
 
 override_dh_install:
 	dh_install
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
 override_dh_fixperms:
-	dh_fixperms
+	dh_fixperms -Xcinder_tgt.conf
 	chmod 0440 $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
 override_dh_auto_build:
@@ -29,3 +29,4 @@ override_dh_auto_build:
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-common.postinst
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-api.config
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-api.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-volume.postinst
