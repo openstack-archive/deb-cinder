@@ -16,8 +16,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from cinder import test
 from cinder import exception
+from cinder import test
 from cinder import utils
 
 
@@ -70,6 +70,9 @@ class CinderExceptionTestCase(test.TestCase):
         self.assertEquals(unicode(exc), 'default message: 500')
 
     def test_error_msg_exception_with_kwargs(self):
+        # NOTE(dprince): disable format errors for this test
+        self.flags(fatal_exception_format_errors=False)
+
         class FakeCinderException(exception.CinderException):
             message = "default message: %(mispelled_code)s"
 

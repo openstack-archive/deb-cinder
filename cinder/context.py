@@ -20,18 +20,19 @@
 """RequestContext: context for requests that persist through all of cinder."""
 
 import copy
+import uuid
 
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import local
+from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
-from cinder import utils
+from cinder import policy
 
 
 LOG = logging.getLogger(__name__)
 
 
 def generate_request_id():
-    return 'req-' + str(utils.gen_uuid())
+    return 'req-' + str(uuid.uuid4())
 
 
 class RequestContext(object):
@@ -58,14 +59,14 @@ class RequestContext(object):
         """
         if kwargs:
             LOG.warn(_('Arguments dropped when creating context: %s') %
-                    str(kwargs))
+                     str(kwargs))
 
         self.user_id = user_id
         self.project_id = project_id
         self.roles = roles or []
         self.is_admin = is_admin
         if self.is_admin is None:
-            self.is_admin = 'admin' in [x.lower() for x in self.roles]
+            self.is_admin = policy.check_is_admin(self.roles)
         elif self.is_admin and 'admin' not in self.roles:
             self.roles.append('admin')
         self.read_deleted = read_deleted

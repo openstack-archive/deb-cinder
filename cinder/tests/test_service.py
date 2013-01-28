@@ -26,10 +26,10 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
-from cinder import test
-from cinder import service
 from cinder import manager
+from cinder.openstack.common import cfg
+from cinder import service
+from cinder import test
 from cinder import wsgi
 
 
@@ -42,8 +42,7 @@ test_service_opts = [
                help="Host to bind test service to"),
     cfg.IntOpt("test_service_listen_port",
                default=0,
-               help="Port number to bind test service to"),
-    ]
+               help="Port number to bind test service to"), ]
 
 flags.FLAGS.register_opts(test_service_opts)
 
@@ -131,15 +130,15 @@ class ServiceTestCase(test.TestCase):
                           'report_count': 0,
                           'availability_zone': 'nova'}
         service_ref = {'host': host,
-                          'binary': binary,
-                          'topic': topic,
-                          'report_count': 0,
-                          'availability_zone': 'nova',
-                          'id': 1}
+                       'binary': binary,
+                       'topic': topic,
+                       'report_count': 0,
+                       'availability_zone': 'nova',
+                       'id': 1}
 
         service.db.service_get_by_args(mox.IgnoreArg(),
-                                      host,
-                                      binary).AndRaise(exception.NotFound())
+                                       host,
+                                       binary).AndRaise(exception.NotFound())
         service.db.service_create(mox.IgnoreArg(),
                                   service_create).AndReturn(service_ref)
         service.db.service_get(mox.IgnoreArg(),
@@ -164,15 +163,15 @@ class ServiceTestCase(test.TestCase):
                           'report_count': 0,
                           'availability_zone': 'nova'}
         service_ref = {'host': host,
-                          'binary': binary,
-                          'topic': topic,
-                          'report_count': 0,
-                          'availability_zone': 'nova',
-                          'id': 1}
+                       'binary': binary,
+                       'topic': topic,
+                       'report_count': 0,
+                       'availability_zone': 'nova',
+                       'id': 1}
 
         service.db.service_get_by_args(mox.IgnoreArg(),
-                                      host,
-                                      binary).AndRaise(exception.NotFound())
+                                       host,
+                                       binary).AndRaise(exception.NotFound())
         service.db.service_create(mox.IgnoreArg(),
                                   service_create).AndReturn(service_ref)
         service.db.service_get(mox.IgnoreArg(),

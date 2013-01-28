@@ -17,8 +17,8 @@
 import httplib
 import urlparse
 
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import jsonutils
+from cinder.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class OpenStackApiAuthorizationException(OpenStackApiException):
         if not message:
             message = _("Authorization error")
         super(OpenStackApiAuthorizationException, self).__init__(message,
-                                                                  response)
+                                                                 response)
 
 
 class OpenStackApiNotFoundException(OpenStackApiException):
@@ -157,8 +157,8 @@ class TestOpenStackClient(object):
                     raise OpenStackApiAuthorizationException(response=response)
                 else:
                     raise OpenStackApiException(
-                                        message=_("Unexpected status code"),
-                                        response=response)
+                        message=_("Unexpected status code"),
+                        response=response)
 
         return response
 
@@ -214,3 +214,6 @@ class TestOpenStackClient(object):
 
     def delete_volume(self, volume_id):
         return self.api_delete('/volumes/%s' % volume_id)
+
+    def put_volume(self, volume_id, volume):
+        return self.api_put('/volumes/%s' % volume_id, volume)['volume']

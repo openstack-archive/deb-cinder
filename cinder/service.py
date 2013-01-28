@@ -31,9 +31,9 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import cfg
 from cinder.openstack.common import importutils
+from cinder.openstack.common import log as logging
 from cinder.openstack.common import rpc
 from cinder import utils
 from cinder import version
@@ -59,8 +59,7 @@ service_opts = [
                help='IP address for OpenStack Volume API to listen'),
     cfg.IntOpt('osapi_volume_listen_port',
                default=8776,
-               help='port for os volume api to listen'),
-    ]
+               help='port for os volume api to listen'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(service_opts)
@@ -305,7 +304,7 @@ class Service(object):
                 state_catalog['availability_zone'] = zone
 
             db.service_update(ctxt,
-                             self.service_id, state_catalog)
+                              self.service_id, state_catalog)
 
             # TODO(termie): make this pattern be more elegant.
             if getattr(self, 'model_disconnected', False):

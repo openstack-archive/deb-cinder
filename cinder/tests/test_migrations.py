@@ -24,16 +24,16 @@ properly both upgrading and downgrading, and that no data loss occurs
 if possible.
 """
 
-import ConfigParser
 import commands
+import ConfigParser
 import os
 import urlparse
 
 from migrate.versioning import repository
 import sqlalchemy
 
-import cinder.db.sqlalchemy.migrate_repo
 import cinder.db.migration as migration
+import cinder.db.sqlalchemy.migrate_repo
 from cinder.db.sqlalchemy.migration import versioning_api as migration_api
 from cinder.openstack.common import log as logging
 from cinder import test
@@ -76,7 +76,7 @@ def _have_mysql():
 
 
 class TestMigrations(test.TestCase):
-    """Test sqlalchemy-migrate migrations"""
+    """Test sqlalchemy-migrate migrations."""
 
     TEST_DATABASES = {}
     DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(__file__),
@@ -87,7 +87,7 @@ class TestMigrations(test.TestCase):
                                       DEFAULT_CONFIG_FILE)
     MIGRATE_FILE = cinder.db.sqlalchemy.migrate_repo.__file__
     REPOSITORY = repository.Repository(
-                                os.path.abspath(os.path.dirname(MIGRATE_FILE)))
+        os.path.abspath(os.path.dirname(MIGRATE_FILE)))
 
     def setUp(self):
         super(TestMigrations, self).setUp()
@@ -256,11 +256,12 @@ class TestMigrations(test.TestCase):
         # upgrades successfully.
 
         # Place the database under version control
-        migration_api.version_control(engine, TestMigrations.REPOSITORY,
-                                     migration.INIT_VERSION)
+        migration_api.version_control(engine,
+                                      TestMigrations.REPOSITORY,
+                                      migration.INIT_VERSION)
         self.assertEqual(migration.INIT_VERSION,
-                migration_api.db_version(engine,
-                                         TestMigrations.REPOSITORY))
+                         migration_api.db_version(engine,
+                                                  TestMigrations.REPOSITORY))
 
         migration_api.upgrade(engine, TestMigrations.REPOSITORY,
                               migration.INIT_VERSION + 1)
@@ -268,7 +269,7 @@ class TestMigrations(test.TestCase):
         LOG.debug('latest version is %s' % TestMigrations.REPOSITORY.latest)
 
         for version in xrange(migration.INIT_VERSION + 2,
-                               TestMigrations.REPOSITORY.latest + 1):
+                              TestMigrations.REPOSITORY.latest + 1):
             # upgrade -> downgrade -> upgrade
             self._migrate_up(engine, version)
             if snake_walk:
@@ -300,5 +301,52 @@ class TestMigrations(test.TestCase):
                               TestMigrations.REPOSITORY,
                               version)
         self.assertEqual(version,
-                migration_api.db_version(engine,
-                                         TestMigrations.REPOSITORY))
+                         migration_api.db_version(engine,
+                                                  TestMigrations.REPOSITORY))
+
+    def test_migration_004(self):
+        """Test that volume_type_id migration works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 3)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 4)
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            volume_types = sqlalchemy.Table('volume_types',
+                                            metadata,
+                                            autoload=True)
+            extra_specs = sqlalchemy.Table('volume_type_extra_specs',
+                                           metadata,
+                                           autoload=True)
+
+            self.assertTrue(isinstance(volumes.c.volume_type_id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(volume_types.c.id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(extra_specs.c.volume_type_id.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            self.assertTrue(extra_specs.c.volume_type_id.foreign_keys)
+
+    def test_migration_005(self):
+        """Test that adding source_volid column works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 4)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 5)
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue(isinstance(volumes.c.source_volid.type,
+                                       sqlalchemy.types.VARCHAR))

@@ -16,7 +16,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-"""Quotas for instances, volumes, and floating ips."""
+"""Quotas for volumes."""
 
 import datetime
 
@@ -49,8 +49,7 @@ quota_opts = [
                help='number of seconds between subsequent usage refreshes'),
     cfg.StrOpt('quota_driver',
                default='cinder.quota.DbQuotaDriver',
-               help='default driver to use for quota checks'),
-    ]
+               help='default driver to use for quota checks'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(quota_opts)
@@ -156,9 +155,9 @@ class DbQuotaDriver(object):
                 continue
 
             quotas[resource.name] = dict(
-                limit=project_quotas.get(resource.name, class_quotas.get(
-                        resource.name, resource.default)),
-                )
+                limit=project_quotas.get(resource.name,
+                                         class_quotas.get(resource.name,
+                                                          resource.default)), )
 
             # Include usages if desired.  This is optional because one
             # internal consumer of this interface wants to access the
@@ -167,8 +166,7 @@ class DbQuotaDriver(object):
                 usage = project_usages.get(resource.name, {})
                 quotas[resource.name].update(
                     in_use=usage.get('in_use', 0),
-                    reserved=usage.get('reserved', 0),
-                    )
+                    reserved=usage.get('reserved', 0), )
 
         return quotas
 
@@ -353,7 +351,7 @@ class BaseResource(object):
         """
         Initializes a Resource.
 
-        :param name: The name of the resource, i.e., "instances".
+        :param name: The name of the resource, i.e., "volumes".
         :param flag: The name of the flag or configuration option
                      which specifies the default value of the quota
                      for this resource.
@@ -424,7 +422,7 @@ class ReservableResource(BaseResource):
         Initializes a ReservableResource.
 
         Reservable resources are those resources which directly
-        correspond to objects in the database, i.e., instances, cores,
+        correspond to objects in the database, i.e., volumes, gigabytes,
         etc.  A ReservableResource must be constructed with a usage
         synchronization function, which will be called to determine the
         current counts of one or more resources.
@@ -439,7 +437,7 @@ class ReservableResource(BaseResource):
         synchronization functions may be associated with more than one
         ReservableResource.
 
-        :param name: The name of the resource, i.e., "instances".
+        :param name: The name of the resource, i.e., "volumes".
         :param sync: A callable which returns a dictionary to
                      resynchronize the in_use count for one or more
                      resources, as described above.
@@ -469,7 +467,7 @@ class CountableResource(AbsoluteResource):
         Initializes a CountableResource.
 
         Countable resources are those resources which directly
-        correspond to objects in the database, i.e., instances, cores,
+        correspond to objects in the database, i.e., volumes, gigabytes,
         etc., but for which a count by project ID is inappropriate.  A
         CountableResource must be constructed with a counting
         function, which will be called to determine the current counts
@@ -485,7 +483,7 @@ class CountableResource(AbsoluteResource):
         required functionality, until a better approach to solving
         this problem can be evolved.
 
-        :param name: The name of the resource, i.e., "instances".
+        :param name: The name of the resource, i.e., "volumes".
         :param count: A callable which returns the count of the
                       resource.  The arguments passed are as described
                       above.
@@ -577,10 +575,10 @@ class QuotaEngine(object):
         """
 
         return self._driver.get_project_quotas(context, self._resources,
-                                              project_id,
-                                              quota_class=quota_class,
-                                              defaults=defaults,
-                                              usages=usages)
+                                               project_id,
+                                               quota_class=quota_class,
+                                               defaults=defaults,
+                                               usages=usages)
 
     def count(self, context, resource, *args, **kwargs):
         """Count a resource.
@@ -727,16 +725,11 @@ class QuotaEngine(object):
         return sorted(self._resources.keys())
 
 
-def _sync_instances(context, project_id, session):
-    return dict(zip(('instances', 'cores', 'ram'),
-                    db.instance_data_get_for_project(
-                context, project_id, session=session)))
-
-
 def _sync_volumes(context, project_id, session):
     return dict(zip(('volumes', 'gigabytes'),
-                    db.volume_data_get_for_project(
-                context, project_id, session=session)))
+                db.volume_data_get_for_project(context,
+                                               project_id,
+                                               session=session)))
 
 
 QUOTAS = QuotaEngine()
@@ -744,8 +737,7 @@ QUOTAS = QuotaEngine()
 
 resources = [
     ReservableResource('volumes', _sync_volumes, 'quota_volumes'),
-    ReservableResource('gigabytes', _sync_volumes, 'quota_gigabytes'),
-    ]
+    ReservableResource('gigabytes', _sync_volumes, 'quota_gigabytes'), ]
 
 
 QUOTAS.register_resources(resources)

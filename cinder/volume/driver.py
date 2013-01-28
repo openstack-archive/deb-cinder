@@ -20,16 +20,17 @@ Drivers for volumes.
 
 """
 
+import math
 import os
 import re
-import tempfile
 import time
-import urllib
 
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import log as logging
+from cinder.image import image_utils
 from cinder.openstack.common import cfg
+from cinder.openstack.common import log as logging
+from cinder.openstack.common import timeutils
 from cinder import utils
 from cinder.volume import iscsi
 
@@ -40,6 +41,10 @@ volume_opts = [
     cfg.StrOpt('volume_group',
                default='cinder-volumes',
                help='Name for the VG that will contain exported volumes'),
+    cfg.IntOpt('lvm_mirrors',
+               default=0,
+               help='If set, create lvms with multiple mirrors. Note that '
+                    'this requires lvm_mirrors + 2 pvs with available space'),
     cfg.IntOpt('num_shell_tries',
                default=3,
                help='number of times to attempt to run flakey shell commands'),
@@ -58,21 +63,10 @@ volume_opts = [
     cfg.IntOpt('iscsi_port',
                default=3260,
                help='The port that the iSCSI daemon is listening on'),
-    cfg.StrOpt('rbd_pool',
-               default='rbd',
-               help='the RADOS pool in which rbd volumes are stored'),
-    cfg.StrOpt('rbd_user',
-               default=None,
-               help='the RADOS client name for accessing rbd volumes'),
-    cfg.StrOpt('rbd_secret_uuid',
-               default=None,
-               help='the libvirt uuid of the secret for the rbd_user'
-                    'volumes'),
-    cfg.StrOpt('volume_tmp_dir',
-               default=None,
-               help='where to store temporary image files if the volume '
-                    'driver does not write them directly to the volume'),
-    ]
+    cfg.IntOpt('reserved_percentage',
+               default=0,
+               help='The percentage of backend capacity is reserved'),
+]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(volume_opts)
@@ -84,6 +78,7 @@ class VolumeDriver(object):
         # NOTE(vish): db is set by Manager
         self.db = None
         self.set_execute(execute)
+        self._stats = {}
 
     def set_execute(self, execute):
         self._execute = execute
@@ -108,16 +103,26 @@ class VolumeDriver(object):
     def check_for_setup_error(self):
         """Returns an error if prerequisites aren't met"""
         out, err = self._execute('vgs', '--noheadings', '-o', 'name',
-                                run_as_root=True)
+                                 run_as_root=True)
         volume_groups = out.split()
         if not FLAGS.volume_group in volume_groups:
             exception_message = (_("volume group %s doesn't exist")
-                                  % FLAGS.volume_group)
+                                 % FLAGS.volume_group)
             raise exception.VolumeBackendAPIException(data=exception_message)
 
     def _create_volume(self, volume_name, sizestr):
-        self._try_execute('lvcreate', '-L', sizestr, '-n',
-                          volume_name, FLAGS.volume_group, run_as_root=True)
+        cmd = ['lvcreate', '-L', sizestr, '-n', volume_name,
+               FLAGS.volume_group]
+        if FLAGS.lvm_mirrors:
+            cmd += ['-m', FLAGS.lvm_mirrors, '--nosync']
+            terras = int(sizestr[:-1]) / 1024.0
+            if terras >= 1.5:
+                rsize = int(2 ** math.ceil(math.log(terras) / math.log(2)))
+                # NOTE(vish): Next power of two for region size. See:
+                #             http://red.ht/U2BPOD
+                cmd += ['-R', str(rsize)]
+
+        self._try_execute(*cmd, run_as_root=True)
 
     def _copy_volume(self, srcstr, deststr, size_in_g):
         # Use O_DIRECT to avoid thrashing the system buffer cache
@@ -148,11 +153,12 @@ class VolumeDriver(object):
         """Deletes a logical volume."""
         # zero out old volumes to prevent data leaking between users
         # TODO(ja): reclaiming space should be done lazy and low priority
-        self._copy_volume('/dev/zero', self.local_path(volume), size_in_g)
         dev_path = self.local_path(volume)
-        if os.path.exists(dev_path):
-            self._try_execute('dmsetup', 'remove', '-f', dev_path,
-                              run_as_root=True)
+        if FLAGS.secure_delete and os.path.exists(dev_path):
+            LOG.info(_("Performing secure delete on volume: %s")
+                     % volume['id'])
+            self._copy_volume('/dev/zero', dev_path, size_in_g)
+
         self._try_execute('lvremove', '-f', "%s/%s" %
                           (FLAGS.volume_group,
                            self._escape_snapshot(volume['name'])),
@@ -180,6 +186,23 @@ class VolumeDriver(object):
         self._create_volume(volume['name'], self._sizestr(volume['size']))
         self._copy_volume(self.local_path(snapshot), self.local_path(volume),
                           snapshot['volume_size'])
+
+    def create_cloned_volume(self, volume, src_vref):
+        """Creates a clone of the specified volume."""
+        LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
+        volume_name = FLAGS.volume_name_template % src_vref['id']
+        temp_snapshot = {'volume_name': volume_name,
+                         'size': src_vref['size'],
+                         'volume_size': src_vref['size'],
+                         'name': 'clone-snap-%s' % src_vref['id']}
+        self.create_snapshot(temp_snapshot)
+        self._create_volume(volume['name'], self._sizestr(volume['size']))
+        try:
+            self._copy_volume(self.local_path(temp_snapshot),
+                              self.local_path(volume),
+                              src_vref['size'])
+        finally:
+            self.delete_snapshot(temp_snapshot)
 
     def delete_volume(self, volume):
         """Deletes a logical volume."""
@@ -239,15 +262,11 @@ class VolumeDriver(object):
         """Removes an export for a logical volume."""
         raise NotImplementedError()
 
-    def check_for_export(self, context, volume_id):
-        """Make sure volume is exported."""
-        raise NotImplementedError()
-
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
         raise NotImplementedError()
 
-    def terminate_connection(self, volume, connector):
+    def terminate_connection(self, volume, connector, force=False, **kwargs):
         """Disallow connection from connector"""
         raise NotImplementedError()
 
@@ -319,8 +338,9 @@ class ISCSIDriver(VolumeDriver):
         # cooresponding target admin class
         if not isinstance(self.tgtadm, iscsi.TgtAdm):
             try:
-                iscsi_target = self.db.volume_get_iscsi_target_num(context,
-                                                               volume['id'])
+                iscsi_target = self.db.volume_get_iscsi_target_num(
+                    context,
+                    volume['id'])
             except exception.NotFound:
                 LOG.info(_("Skipping ensure_export. No iscsi_target "
                            "provisioned for volume: %s"), volume['id'])
@@ -332,7 +352,7 @@ class ISCSIDriver(VolumeDriver):
         old_name = None
         volume_name = volume['name']
         if (volume['provider_location'] is not None and
-            volume['name'] not in volume['provider_location']):
+                volume['name'] not in volume['provider_location']):
 
             msg = _('Detected inconsistency in provider_location id')
             LOG.debug(msg)
@@ -413,6 +433,7 @@ class ISCSIDriver(VolumeDriver):
 
     def create_export(self, context, volume):
         """Creates an export for a logical volume."""
+
         iscsi_name = "%s%s" % (FLAGS.iscsi_target_prefix, volume['name'])
         volume_path = "/dev/%s/%s" % (FLAGS.volume_group, volume['name'])
         model_update = {}
@@ -429,14 +450,22 @@ class ISCSIDriver(VolumeDriver):
             lun = 1  # For tgtadm the controller is lun 0, dev starts at lun 1
             iscsi_target = 0  # NOTE(jdg): Not used by tgtadm
 
+        # Use the same method to generate the username and the password.
+        chap_username = utils.generate_username()
+        chap_password = utils.generate_password()
+        chap_auth = _iscsi_authentication('IncomingUser', chap_username,
+                                          chap_password)
         # NOTE(jdg): For TgtAdm case iscsi_name is the ONLY param we need
         # should clean this all up at some point in the future
         tid = self.tgtadm.create_iscsi_target(iscsi_name,
                                               iscsi_target,
                                               0,
-                                              volume_path)
+                                              volume_path,
+                                              chap_auth)
         model_update['provider_location'] = _iscsi_location(
             FLAGS.iscsi_ip_address, tid, iscsi_name, lun)
+        model_update['provider_auth'] = _iscsi_authentication(
+            'CHAP', chap_username, chap_password)
         return model_update
 
     def remove_export(self, context, volume):
@@ -446,8 +475,9 @@ class ISCSIDriver(VolumeDriver):
         # cooresponding target admin class
         if not isinstance(self.tgtadm, iscsi.TgtAdm):
             try:
-                iscsi_target = self.db.volume_get_iscsi_target_num(context,
-                                                               volume['id'])
+                iscsi_target = self.db.volume_get_iscsi_target_num(
+                    context,
+                    volume['id'])
             except exception.NotFound:
                 LOG.info(_("Skipping remove_export. No iscsi_target "
                            "provisioned for volume: %s"), volume['id'])
@@ -523,9 +553,9 @@ class ISCSIDriver(VolumeDriver):
             location = self._do_iscsi_discovery(volume)
 
             if not location:
-                raise exception.InvalidVolume(_("Could not find iSCSI export "
-                                                " for volume %s") %
-                                              (volume['name']))
+                msg = (_("Could not find iSCSI export for volume %s") %
+                        (volume['name']))
+                raise exception.InvalidVolume(reason=msg)
 
             LOG.debug(_("ISCSI Discovery: Found %s") % (location))
             properties['target_discovered'] = True
@@ -592,42 +622,58 @@ class ISCSIDriver(VolumeDriver):
             'data': iscsi_properties
         }
 
-    def terminate_connection(self, volume, connector):
+    def terminate_connection(self, volume, connector, **kwargs):
         pass
 
-    def check_for_export(self, context, volume_id):
-        """Make sure volume is exported."""
-        vol_uuid_file = 'volume-%s' % volume_id
-        volume_path = os.path.join(FLAGS.volumes_dir, vol_uuid_file)
-        if os.path.isfile(volume_path):
-            iqn = '%s%s' % (FLAGS.iscsi_target_prefix,
-                            vol_uuid_file)
-        else:
-            raise exception.PersistentVolumeFileNotFound(volume_id=volume_id)
+    def get_volume_stats(self, refresh=False):
+        """Get volume status.
 
-        # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
-        if not isinstance(self.tgtadm, iscsi.TgtAdm):
-            tid = self.db.volume_get_iscsi_target_num(context, volume_id)
-        else:
-            tid = 0
+        If 'refresh' is True, run update the stats first."""
+        if refresh:
+            self._update_volume_status()
+
+        return self._stats
+
+    def _update_volume_status(self):
+        """Retrieve status info from volume group."""
+
+        LOG.debug(_("Updating volume status"))
+        data = {}
+
+        # Note(zhiteng): These information are driver/backend specific,
+        # each driver may define these values in its own config options
+        # or fetch from driver specific configuration file.
+        data["volume_backend_name"] = 'LVM_iSCSI'
+        data["vendor_name"] = 'Open Source'
+        data["driver_version"] = '1.0'
+        data["storage_protocol"] = 'iSCSI'
+
+        data['total_capacity_gb'] = 0
+        data['free_capacity_gb'] = 0
+        data['reserved_percentage'] = FLAGS.reserved_percentage
+        data['QoS_support'] = False
 
         try:
-            self.tgtadm.show_target(tid, iqn=iqn)
-        except exception.ProcessExecutionError, e:
-            # Instances remount read-only in this case.
-            # /etc/init.d/iscsitarget restart and rebooting cinder-volume
-            # is better since ensure_export() works at boot time.
-            LOG.error(_("Cannot confirm exported volume "
-                        "id:%(volume_id)s.") % locals())
-            raise
+            out, err = self._execute('vgs', '--noheadings', '--nosuffix',
+                                     '--unit=G', '-o', 'name,size,free',
+                                     FLAGS.volume_group, run_as_root=True)
+        except exception.ProcessExecutionError as exc:
+            LOG.error(_("Error retrieving volume status: "), exc.stderr)
+            out = False
+
+        if out:
+            volume = out.split()
+            data['total_capacity_gb'] = float(volume[1])
+            data['free_capacity_gb'] = float(volume[2])
+
+        self._stats = data
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
-        volume_path = self.local_path(volume)
-        with utils.temporary_chown(volume_path):
-            with utils.file_open(volume_path, "wb") as image_file:
-                image_service.download(context, image_id, image_file)
+        image_utils.fetch_to_raw(context,
+                                 image_service,
+                                 image_id,
+                                 self.local_path(volume))
 
     def copy_volume_to_image(self, context, volume, image_service, image_id):
         """Copy the volume to the specified image."""
@@ -653,7 +699,7 @@ class FakeISCSIDriver(ISCSIDriver):
             'data': {}
         }
 
-    def terminate_connection(self, volume, connector):
+    def terminate_connection(self, volume, connector, **kwargs):
         pass
 
     @staticmethod
@@ -663,347 +709,9 @@ class FakeISCSIDriver(ISCSIDriver):
         return (None, None)
 
 
-class RBDDriver(VolumeDriver):
-    """Implements RADOS block device (RBD) volume commands"""
-
-    def check_for_setup_error(self):
-        """Returns an error if prerequisites aren't met"""
-        (stdout, stderr) = self._execute('rados', 'lspools')
-        pools = stdout.split("\n")
-        if not FLAGS.rbd_pool in pools:
-            exception_message = (_("rbd has no pool %s") %
-                                    FLAGS.rbd_pool)
-            raise exception.VolumeBackendAPIException(data=exception_message)
-
-    def _supports_layering(self):
-        stdout, _ = self._execute('rbd', '--help')
-        return 'clone' in stdout
-
-    def create_volume(self, volume):
-        """Creates a logical volume."""
-        if int(volume['size']) == 0:
-            size = 100
-        else:
-            size = int(volume['size']) * 1024
-        args = ['rbd', 'create',
-                '--pool', FLAGS.rbd_pool,
-                '--size', size,
-                volume['name']]
-        if self._supports_layering():
-            args += ['--new-format']
-        self._try_execute(*args)
-
-    def _clone(self, volume, src_pool, src_image, src_snap):
-        self._try_execute('rbd', 'clone',
-                          '--pool', src_pool,
-                          '--image', src_image,
-                          '--snap', src_snap,
-                          '--dest-pool', FLAGS.rbd_pool,
-                          '--dest', volume['name'])
-
-    def _resize(self, volume):
-        size = int(volume['size']) * 1024
-        self._try_execute('rbd', 'resize',
-                          '--pool', FLAGS.rbd_pool,
-                          '--image', volume['name'],
-                          '--size', size)
-
-    def create_volume_from_snapshot(self, volume, snapshot):
-        """Creates a volume from a snapshot."""
-        self._clone(volume, FLAGS.rbd_pool,
-                    snapshot['volume_name'], snapshot['name'])
-        if int(volume['size']):
-            self._resize(volume)
-
-    def delete_volume(self, volume):
-        """Deletes a logical volume."""
-        stdout, _ = self._execute('rbd', 'snap', 'ls',
-                                  '--pool', FLAGS.rbd_pool,
-                                  volume['name'])
-        if stdout.count('\n') > 1:
-            raise exception.VolumeIsBusy(volume_name=volume['name'])
-        self._try_execute('rbd', 'rm',
-                          '--pool', FLAGS.rbd_pool,
-                          volume['name'])
-
-    def create_snapshot(self, snapshot):
-        """Creates an rbd snapshot"""
-        self._try_execute('rbd', 'snap', 'create',
-                          '--pool', FLAGS.rbd_pool,
-                          '--snap', snapshot['name'],
-                          snapshot['volume_name'])
-        if self._supports_layering():
-            self._try_execute('rbd', 'snap', 'protect',
-                              '--pool', FLAGS.rbd_pool,
-                              '--snap', snapshot['name'],
-                              snapshot['volume_name'])
-
-    def delete_snapshot(self, snapshot):
-        """Deletes an rbd snapshot"""
-        if self._supports_layering():
-            try:
-                self._try_execute('rbd', 'snap', 'unprotect',
-                                  '--pool', FLAGS.rbd_pool,
-                                  '--snap', snapshot['name'],
-                                  snapshot['volume_name'])
-            except exception.ProcessExecutionError:
-                raise exception.SnapshotIsBusy(snapshot_name=snapshot['name'])
-        self._try_execute('rbd', 'snap', 'rm',
-                          '--pool', FLAGS.rbd_pool,
-                          '--snap', snapshot['name'],
-                          snapshot['volume_name'])
-
-    def local_path(self, volume):
-        """Returns the path of the rbd volume."""
-        # This is the same as the remote path
-        # since qemu accesses it directly.
-        return "rbd:%s/%s" % (FLAGS.rbd_pool, volume['name'])
-
-    def ensure_export(self, context, volume):
-        """Synchronously recreates an export for a logical volume."""
-        pass
-
-    def create_export(self, context, volume):
-        """Exports the volume"""
-        pass
-
-    def remove_export(self, context, volume):
-        """Removes an export for a logical volume"""
-        pass
-
-    def check_for_export(self, context, volume_id):
-        """Make sure volume is exported."""
-        pass
-
-    def initialize_connection(self, volume, connector):
-        return {
-            'driver_volume_type': 'rbd',
-            'data': {
-                'name': '%s/%s' % (FLAGS.rbd_pool, volume['name']),
-                'auth_enabled': FLAGS.rbd_secret_uuid is not None,
-                'auth_username': FLAGS.rbd_user,
-                'secret_type': 'ceph',
-                'secret_uuid': FLAGS.rbd_secret_uuid,
-            }
-        }
-
-    def terminate_connection(self, volume, connector):
-        pass
-
-    def _parse_location(self, location):
-        prefix = 'rbd://'
-        if not location.startswith(prefix):
-            reason = _('Image %s is not stored in rbd') % location
-            raise exception.ImageUnacceptable(reason)
-        pieces = map(urllib.unquote, location[len(prefix):].split('/'))
-        if any(map(lambda p: p == '', pieces)):
-            reason = _('Image %s has blank components') % location
-            raise exception.ImageUnacceptable(reason)
-        if len(pieces) != 4:
-            reason = _('Image %s is not an rbd snapshot') % location
-            raise exception.ImageUnacceptable(reason)
-        return pieces
-
-    def _get_fsid(self):
-        stdout, _ = self._execute('ceph', 'fsid')
-        return stdout.rstrip('\n')
-
-    def _is_cloneable(self, image_location):
-        try:
-            fsid, pool, image, snapshot = self._parse_location(image_location)
-        except exception.ImageUnacceptable:
-            return False
-
-        if self._get_fsid() != fsid:
-            reason = _('%s is in a different ceph cluster') % image_location
-            LOG.debug(reason)
-            return False
-
-        # check that we can read the image
-        try:
-            self._execute('rbd', 'info',
-                          '--pool', pool,
-                          '--image', image,
-                          '--snap', snapshot)
-        except exception.ProcessExecutionError:
-            LOG.debug(_('Unable to read image %s') % image_location)
-            return False
-
-        return True
-
-    def clone_image(self, volume, image_location):
-        if image_location is None or not self._is_cloneable(image_location):
-            return False
-        _, pool, image, snapshot = self._parse_location(image_location)
-        self._clone(volume, pool, image, snapshot)
-        self._resize(volume)
-        return True
-
-    def copy_image_to_volume(self, context, volume, image_service, image_id):
-        # TODO(jdurgin): replace with librbd
-        # this is a temporary hack, since rewriting this driver
-        # to use librbd would take too long
-        if FLAGS.volume_tmp_dir and not os.exists(FLAGS.volume_tmp_dir):
-            os.makedirs(FLAGS.volume_tmp_dir)
-
-        with tempfile.NamedTemporaryFile(dir=FLAGS.volume_tmp_dir) as tmp:
-            image_service.download(context, image_id, tmp)
-            # import creates the image, so we must remove it first
-            self._try_execute('rbd', 'rm',
-                              '--pool', FLAGS.rbd_pool,
-                              volume['name'])
-            self._try_execute('rbd', 'import',
-                              '--pool', FLAGS.rbd_pool,
-                              tmp.name, volume['name'])
-
-
-class SheepdogDriver(VolumeDriver):
-    """Executes commands relating to Sheepdog Volumes"""
-
-    def check_for_setup_error(self):
-        """Returns an error if prerequisites aren't met"""
-        try:
-            #NOTE(francois-charlier) Since 0.24 'collie cluster info -r'
-            #  gives short output, but for compatibility reason we won't
-            #  use it and just check if 'running' is in the output.
-            (out, err) = self._execute('collie', 'cluster', 'info')
-            if not 'running' in out.split():
-                exception_message = (_("Sheepdog is not working: %s") % out)
-                raise exception.VolumeBackendAPIException(
-                                                data=exception_message)
-
-        except exception.ProcessExecutionError:
-            exception_message = _("Sheepdog is not working")
-            raise exception.VolumeBackendAPIException(data=exception_message)
-
-    def create_volume(self, volume):
-        """Creates a sheepdog volume"""
-        self._try_execute('qemu-img', 'create',
-                          "sheepdog:%s" % volume['name'],
-                          self._sizestr(volume['size']))
-
-    def create_volume_from_snapshot(self, volume, snapshot):
-        """Creates a sheepdog volume from a snapshot."""
-        self._try_execute('qemu-img', 'create', '-b',
-                          "sheepdog:%s:%s" % (snapshot['volume_name'],
-                                              snapshot['name']),
-                          "sheepdog:%s" % volume['name'])
-
-    def delete_volume(self, volume):
-        """Deletes a logical volume"""
-        self._try_execute('collie', 'vdi', 'delete', volume['name'])
-
-    def create_snapshot(self, snapshot):
-        """Creates a sheepdog snapshot"""
-        self._try_execute('qemu-img', 'snapshot', '-c', snapshot['name'],
-                          "sheepdog:%s" % snapshot['volume_name'])
-
-    def delete_snapshot(self, snapshot):
-        """Deletes a sheepdog snapshot"""
-        self._try_execute('collie', 'vdi', 'delete', snapshot['volume_name'],
-                          '-s', snapshot['name'])
-
-    def local_path(self, volume):
-        return "sheepdog:%s" % volume['name']
-
-    def ensure_export(self, context, volume):
-        """Safely and synchronously recreates an export for a logical volume"""
-        pass
-
-    def create_export(self, context, volume):
-        """Exports the volume"""
-        pass
-
-    def remove_export(self, context, volume):
-        """Removes an export for a logical volume"""
-        pass
-
-    def check_for_export(self, context, volume_id):
-        """Make sure volume is exported."""
-        pass
-
-    def initialize_connection(self, volume, connector):
-        return {
-            'driver_volume_type': 'sheepdog',
-            'data': {
-                'name': volume['name']
-            }
-        }
-
-    def terminate_connection(self, volume, connector):
-        pass
-
-
-class LoggingVolumeDriver(VolumeDriver):
-    """Logs and records calls, for unit tests."""
-
-    def check_for_setup_error(self):
-        pass
-
-    def create_volume(self, volume):
-        self.log_action('create_volume', volume)
-
-    def delete_volume(self, volume):
-        self.log_action('delete_volume', volume)
-
-    def local_path(self, volume):
-        print "local_path not implemented"
-        raise NotImplementedError()
-
-    def ensure_export(self, context, volume):
-        self.log_action('ensure_export', volume)
-
-    def create_export(self, context, volume):
-        self.log_action('create_export', volume)
-
-    def remove_export(self, context, volume):
-        self.log_action('remove_export', volume)
-
-    def initialize_connection(self, volume, connector):
-        self.log_action('initialize_connection', volume)
-
-    def terminate_connection(self, volume, connector):
-        self.log_action('terminate_connection', volume)
-
-    def check_for_export(self, context, volume_id):
-        self.log_action('check_for_export', volume_id)
-
-    _LOGS = []
-
-    @staticmethod
-    def clear_logs():
-        LoggingVolumeDriver._LOGS = []
-
-    @staticmethod
-    def log_action(action, parameters):
-        """Logs the command."""
-        LOG.debug(_("LoggingVolumeDriver: %s") % (action))
-        log_dictionary = {}
-        if parameters:
-            log_dictionary = dict(parameters)
-        log_dictionary['action'] = action
-        LOG.debug(_("LoggingVolumeDriver: %s") % (log_dictionary))
-        LoggingVolumeDriver._LOGS.append(log_dictionary)
-
-    @staticmethod
-    def all_logs():
-        return LoggingVolumeDriver._LOGS
-
-    @staticmethod
-    def logs_like(action, **kwargs):
-        matches = []
-        for entry in LoggingVolumeDriver._LOGS:
-            if entry['action'] != action:
-                continue
-            match = True
-            for k, v in kwargs.iteritems():
-                if entry.get(k) != v:
-                    match = False
-                    break
-            if match:
-                matches.append(entry)
-        return matches
-
-
 def _iscsi_location(ip, target, iqn, lun=None):
     return "%s:%s,%s %s %s" % (ip, FLAGS.iscsi_port, target, iqn, lun)
+
+
+def _iscsi_authentication(chap, name, password):
+    return "%s %s %s" % (chap, name, password)

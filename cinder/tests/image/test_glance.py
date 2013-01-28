@@ -26,12 +26,11 @@ from cinder import context
 from cinder import exception
 from cinder.image import glance
 from cinder import test
-from cinder.tests.api.openstack import fakes
 from cinder.tests.glance import stubs as glance_stubs
 
 
 class NullWriter(object):
-    """Used to test ImageService.get which takes a writer object"""
+    """Used to test ImageService.get which takes a writer object."""
 
     def write(self, *arg, **kwargs):
         pass
@@ -103,16 +102,17 @@ class TestGlanceImageService(test.TestCase):
         client = glance_stubs.StubGlanceClient()
         self.service = self._create_image_service(client)
         self.context = context.RequestContext('fake', 'fake', auth_token=True)
+        self.stubs.Set(glance.time, 'sleep', lambda s: None)
 
     def _create_image_service(self, client):
-        def _fake_create_glance_client(context, host, port, version):
+        def _fake_create_glance_client(context, host, port, use_ssl, version):
             return client
 
-        self.stubs.Set(glance, '_create_glance_client',
-                _fake_create_glance_client)
+        self.stubs.Set(glance,
+                       '_create_glance_client',
+                       _fake_create_glance_client)
 
-        client_wrapper = glance.GlanceClientWrapper(
-                'fake', 'fake_host', 9292)
+        client_wrapper = glance.GlanceClientWrapper('fake', 'fake_host', 9292)
         return glance.GlanceImageService(client=client_wrapper)
 
     @staticmethod
@@ -130,7 +130,7 @@ class TestGlanceImageService(test.TestCase):
                                   deleted_at=self.NOW_GLANCE_FORMAT)
 
     def test_create_with_instance_id(self):
-        """Ensure instance_id is persisted as an image-property"""
+        """Ensure instance_id is persisted as an image-property."""
         fixture = {'name': 'test image',
                    'is_public': False,
                    'properties': {'instance_id': '42', 'user_id': 'fake'}}
@@ -457,7 +457,10 @@ class TestGlanceImageService(test.TestCase):
         # When retries are disabled, we should get an exception
         self.flags(glance_num_retries=0)
         self.assertRaises(exception.GlanceConnectionFailed,
-                service.download, self.context, image_id, writer)
+                          service.download,
+                          self.context,
+                          image_id,
+                          writer)
 
         # Now lets enable retries. No exception should happen now.
         tries = [0]
@@ -519,19 +522,19 @@ class TestGlanceImageService(test.TestCase):
     def test_glance_client_image_id(self):
         fixture = self._make_fixture(name='test image')
         image_id = self.service.create(self.context, fixture)['id']
-        (service, same_id) = glance.get_remote_image_service(
-                self.context, image_id)
+        (service, same_id) = glance.get_remote_image_service(self.context,
+                                                             image_id)
         self.assertEquals(same_id, image_id)
 
     def test_glance_client_image_ref(self):
         fixture = self._make_fixture(name='test image')
         image_id = self.service.create(self.context, fixture)['id']
         image_url = 'http://something-less-likely/%s' % image_id
-        (service, same_id) = glance.get_remote_image_service(
-                self.context, image_url)
+        (service, same_id) = glance.get_remote_image_service(self.context,
+                                                             image_url)
         self.assertEquals(same_id, image_id)
         self.assertEquals(service._client.host,
-                'something-less-likely')
+                          'something-less-likely')
 
 
 def _create_failing_glance_client(info):

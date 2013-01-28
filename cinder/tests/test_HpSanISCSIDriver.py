@@ -14,7 +14,7 @@
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder import test
-from cinder.volume import san
+from cinder.volume.drivers.san.hp_lefthand import HpSanISCSIDriver
 
 LOG = logging.getLogger(__name__)
 
@@ -23,20 +23,21 @@ class HpSanISCSITestCase(test.TestCase):
 
     def setUp(self):
         super(HpSanISCSITestCase, self).setUp()
-        self.stubs.Set(san.HpSanISCSIDriver, "_cliq_run",
+        self.stubs.Set(HpSanISCSIDriver, "_cliq_run",
                        self._fake_cliq_run)
-        self.stubs.Set(san.HpSanISCSIDriver, "_get_iscsi_properties",
+        self.stubs.Set(HpSanISCSIDriver, "_get_iscsi_properties",
                        self._fake_get_iscsi_properties)
-        self.driver = san.HpSanISCSIDriver()
+        self.driver = HpSanISCSIDriver()
         self.volume_name = "fakevolume"
         self.connector = {'ip': '10.0.0.2',
                           'initiator': 'iqn.1993-08.org.debian:01:222',
                           'host': 'fakehost'}
-        self.properties = {'target_discoverd': True,
-                           'target_portal': '10.0.1.6:3260',
-                           'target_iqn':
-                        'iqn.2003-10.com.lefthandnetworks:group01:25366:fakev',
-                           'volume_id': 1}
+        self.properties = {
+            'target_discoverd': True,
+            'target_portal': '10.0.1.6:3260',
+            'target_iqn':
+            'iqn.2003-10.com.lefthandnetworks:group01:25366:fakev',
+            'volume_id': 1}
 
     def tearDown(self):
         super(HpSanISCSITestCase, self).tearDown()

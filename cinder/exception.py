@@ -26,9 +26,20 @@ SHOULD include dedicated exception logging.
 
 import webob.exc
 
+from cinder import flags
+from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
+
+exc_log_opts = [
+    cfg.BoolOpt('fatal_exception_format_errors',
+                default=False,
+                help='make exception message format errors fatal'),
+]
+
+FLAGS = flags.FLAGS
+FLAGS.register_opts(exc_log_opts)
 
 
 class ConvertedException(webob.exc.WSGIHTTPException):
@@ -114,8 +125,11 @@ class CinderException(Exception):
                 LOG.exception(_('Exception in string format operation'))
                 for name, value in kwargs.iteritems():
                     LOG.error("%s: %s" % (name, value))
-                # at least get the core message out if something happened
-                message = self.message
+                if FLAGS.fatal_exception_format_errors:
+                    raise e
+                else:
+                    # at least get the core message out if something happened
+                    message = self.message
 
         super(CinderException, self).__init__(message)
 
@@ -300,6 +314,14 @@ class HostNotFound(NotFound):
     message = _("Host %(host)s could not be found.")
 
 
+class SchedulerHostFilterNotFound(NotFound):
+    message = _("Scheduler Host Filter %(filter_name)s could not be found.")
+
+
+class SchedulerHostWeigherNotFound(NotFound):
+    message = _("Scheduler Host Weigher %(weigher_name)s could not be found.")
+
+
 class HostBinaryNotFound(NotFound):
     message = _("Could not find binary %(binary)s on host %(host)s.")
 
@@ -372,7 +394,7 @@ class KeyPairExists(Duplicate):
 
 
 class VolumeTypeExists(Duplicate):
-    message = _("Volume Type %(name)s already exists.")
+    message = _("Volume Type %(id)s already exists.")
 
 
 class MigrationError(CinderException):
@@ -490,3 +512,8 @@ class NfsNoSharesMounted(NotFound):
 
 class NfsNoSuitableShareFound(NotFound):
     message = _("There is no share which can host %(volume_size)sG")
+
+
+class GlanceMetadataExists(Invalid):
+    message = _("Glance metadata cannot be updated, key %(key)s"
+                " exists for volume id %(volume_id)s")

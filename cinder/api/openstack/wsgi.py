@@ -21,9 +21,9 @@ import time
 import webob
 
 from cinder import exception
-from cinder import wsgi
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import jsonutils
+from cinder.openstack.common import log as logging
+from cinder import wsgi
 
 from lxml import etree
 from xml.dom import minidom
@@ -79,7 +79,7 @@ class Request(webob.Request):
                 content_type = self.accept.best_match(SUPPORTED_CONTENT_TYPES)
 
             self.environ['cinder.best_content_type'] = (content_type or
-                                                      'application/json')
+                                                        'application/json')
 
         return self.environ['cinder.best_content_type']
 
@@ -577,8 +577,9 @@ class ResourceExceptionHandler(object):
                 code=ex_value.code, explanation=unicode(ex_value)))
         elif isinstance(ex_value, TypeError):
             exc_info = (ex_type, ex_value, ex_traceback)
-            LOG.error(_('Exception handling resource: %s') % ex_value,
-                    exc_info=exc_info)
+            LOG.error(_(
+                'Exception handling resource: %s') %
+                ex_value, exc_info=exc_info)
             raise Fault(webob.exc.HTTPBadRequest())
         elif isinstance(ex_value, Fault):
             LOG.info(_("Fault thrown: %s"), unicode(ex_value))
@@ -901,7 +902,7 @@ class Resource(wsgi.Application):
                 meth = getattr(self.controller, action)
         except AttributeError:
             if (not self.wsgi_actions or
-                action not in ['action', 'create', 'delete']):
+                    action not in ['action', 'create', 'delete']):
                 # Propagate the error
                 raise
         else:
@@ -911,6 +912,7 @@ class Resource(wsgi.Application):
             # OK, it's an action; figure out which action...
             mtype = _MEDIA_TYPE_MAP.get(content_type)
             action_name = self.action_peek[mtype](body)
+            LOG.debug("Action body: %s" % body)
         else:
             action_name = action
 
@@ -1037,17 +1039,16 @@ class Controller(object):
 class Fault(webob.exc.HTTPException):
     """Wrap webob.exc.HTTPException to provide API friendly response."""
 
-    _fault_names = {
-            400: "badRequest",
-            401: "unauthorized",
-            403: "forbidden",
-            404: "itemNotFound",
-            405: "badMethod",
-            409: "conflictingRequest",
-            413: "overLimit",
-            415: "badMediaType",
-            501: "notImplemented",
-            503: "serviceUnavailable"}
+    _fault_names = {400: "badRequest",
+                    401: "unauthorized",
+                    403: "forbidden",
+                    404: "itemNotFound",
+                    405: "badMethod",
+                    409: "conflictingRequest",
+                    413: "overLimit",
+                    415: "badMediaType",
+                    501: "notImplemented",
+                    503: "serviceUnavailable"}
 
     def __init__(self, exception):
         """Create a Fault for the given webob.exc.exception."""

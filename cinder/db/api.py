@@ -58,11 +58,10 @@ db_opts = [
                 help='Services to be added to the available pool on create'),
     cfg.StrOpt('volume_name_template',
                default='volume-%s',
-               help='Template string to be used to generate instance names'),
+               help='Template string to be used to generate volume names'),
     cfg.StrOpt('snapshot_name_template',
                default='snapshot-%s',
-               help='Template string to be used to generate snapshot names'),
-    ]
+               help='Template string to be used to generate snapshot names'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(db_opts)
@@ -155,8 +154,9 @@ def migration_get(context, migration_id):
 
 def migration_get_by_instance_and_status(context, instance_uuid, status):
     """Finds a migration by the instance uuid its migrating."""
-    return IMPL.migration_get_by_instance_and_status(context, instance_uuid,
-            status)
+    return IMPL.migration_get_by_instance_and_status(context,
+                                                     instance_uuid,
+                                                     status)
 
 
 def migration_get_all_unconfirmed(context, confirm_window):
@@ -200,6 +200,13 @@ def volume_create(context, values):
     return IMPL.volume_create(context, values)
 
 
+def volume_data_get_for_host(context, host, session=None):
+    """Get (volume_count, gigabytes) for project."""
+    return IMPL.volume_data_get_for_host(context,
+                                         host,
+                                         session)
+
+
 def volume_data_get_for_project(context, project_id, session=None):
     """Get (volume_count, gigabytes) for project."""
     return IMPL.volume_data_get_for_project(context,
@@ -222,9 +229,9 @@ def volume_get(context, volume_id):
     return IMPL.volume_get(context, volume_id)
 
 
-def volume_get_all(context):
+def volume_get_all(context, marker, limit, sort_key, sort_dir):
     """Get all volumes."""
-    return IMPL.volume_get_all(context)
+    return IMPL.volume_get_all(context, marker, limit, sort_key, sort_dir)
 
 
 def volume_get_all_by_host(context, host):
@@ -237,9 +244,11 @@ def volume_get_all_by_instance_uuid(context, instance_uuid):
     return IMPL.volume_get_all_by_instance_uuid(context, instance_uuid)
 
 
-def volume_get_all_by_project(context, project_id):
+def volume_get_all_by_project(context, project_id, marker, limit, sort_key,
+                              sort_dir):
     """Get all volumes belonging to a project."""
-    return IMPL.volume_get_all_by_project(context, project_id)
+    return IMPL.volume_get_all_by_project(context, project_id, marker, limit,
+                                          sort_key, sort_dir)
 
 
 def volume_get_iscsi_target_num(context, volume_id):
@@ -298,6 +307,13 @@ def snapshot_update(context, snapshot_id, values):
     return IMPL.snapshot_update(context, snapshot_id, values)
 
 
+def snapshot_data_get_for_project(context, project_id, session=None):
+    """Get count and gigabytes used for snapshots for specified project."""
+    return IMPL.snapshot_data_get_for_project(context,
+                                              project_id,
+                                              session=None)
+
+
 ####################
 
 
@@ -339,9 +355,9 @@ def volume_type_get_by_name(context, name):
     return IMPL.volume_type_get_by_name(context, name)
 
 
-def volume_type_destroy(context, name):
+def volume_type_destroy(context, id):
     """Delete a volume type."""
-    return IMPL.volume_type_destroy(context, name)
+    return IMPL.volume_type_destroy(context, id)
 
 
 def volume_get_active_by_window(context, begin, end=None, project_id=None):
@@ -364,12 +380,65 @@ def volume_type_extra_specs_delete(context, volume_type_id, key):
     IMPL.volume_type_extra_specs_delete(context, volume_type_id, key)
 
 
-def volume_type_extra_specs_update_or_create(context, volume_type_id,
-                                               extra_specs):
+def volume_type_extra_specs_update_or_create(context,
+                                             volume_type_id,
+                                             extra_specs):
     """Create or update volume type extra specs. This adds or modifies the
     key/value pairs specified in the extra specs dict argument"""
-    IMPL.volume_type_extra_specs_update_or_create(context, volume_type_id,
-                                                    extra_specs)
+    IMPL.volume_type_extra_specs_update_or_create(context,
+                                                  volume_type_id,
+                                                  extra_specs)
+
+
+###################
+
+
+def volume_glance_metadata_create(context, volume_id, key, value):
+    """Update the Glance metadata for the specified volume."""
+    return IMPL.volume_glance_metadata_create(context,
+                                              volume_id,
+                                              key,
+                                              value)
+
+
+def volume_glance_metadata_get(context, volume_id):
+    """Return the glance metadata for a volume."""
+    return IMPL.volume_glance_metadata_get(context, volume_id)
+
+
+def volume_snapshot_glance_metadata_get(context, snapshot_id):
+    """Return the Glance metadata for the specified snapshot."""
+    return IMPL.volume_snapshot_glance_metadata_get(context, snapshot_id)
+
+
+def volume_glance_metadata_copy_to_snapshot(context, snapshot_id, volume_id):
+    """
+    Update the Glance metadata for a snapshot by copying all of the key:value
+    pairs from the originating volume. This is so that a volume created from
+    the snapshot will retain the original metadata.
+    """
+    return IMPL.volume_glance_metadata_copy_to_snapshot(context, snapshot_id,
+                                                        volume_id)
+
+
+def volume_glance_metadata_copy_to_volume(context, volume_id, snapshot_id):
+    """
+    Update the Glance metadata from a volume (created from a snapshot) by
+    copying all of the key:value pairs from the originating snapshot. This is
+    so that the Glance metadata from the original volume is retained.
+    """
+    return IMPL.volume_glance_metadata_copy_to_volume(context, volume_id,
+                                                      snapshot_id)
+
+
+def volume_glance_metadata_delete_by_volume(context, volume_id):
+    """Delete the glance metadata for a volume."""
+    return IMPL.volume_glance_metadata_delete_by_volume(context, volume_id)
+
+
+def volume_glance_metadata_delete_by_snapshot(context, snapshot_id):
+    """Delete the glance metadata for a snapshot."""
+    return IMPL.volume_glance_metadata_delete_by_snapshot(context, snapshot_id)
 
 
 ###################
@@ -539,18 +608,6 @@ def quota_usage_get(context, project_id, resource):
 def quota_usage_get_all_by_project(context, project_id):
     """Retrieve all usage associated with a given resource."""
     return IMPL.quota_usage_get_all_by_project(context, project_id)
-
-
-def quota_usage_update(context, class_name, resource, in_use, reserved,
-                       until_refresh):
-    """Update a quota usage or raise if it does not exist."""
-    return IMPL.quota_usage_update(context, project_id, resource,
-                                   in_use, reserved, until_refresh)
-
-
-def quota_usage_destroy(context, project_id, resource):
-    """Destroy the quota usage or raise if it does not exist."""
-    return IMPL.quota_usage_destroy(context, project_id, resource)
 
 
 ###################

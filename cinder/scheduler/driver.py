@@ -23,56 +23,30 @@ Scheduler base class that all Schedulers should inherit from
 
 from cinder import db
 from cinder import flags
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import cfg
 from cinder.openstack.common import importutils
-from cinder.openstack.common import rpc
 from cinder.openstack.common import timeutils
 from cinder import utils
+from cinder.volume import rpcapi as volume_rpcapi
 
-
-LOG = logging.getLogger(__name__)
 
 scheduler_driver_opts = [
     cfg.StrOpt('scheduler_host_manager',
                default='cinder.scheduler.host_manager.HostManager',
-               help='The scheduler host manager class to use'),
-    ]
+               help='The scheduler host manager class to use'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(scheduler_driver_opts)
 
 
-def cast_to_volume_host(context, host, method, update_db=True, **kwargs):
-    """Cast request to a volume host queue"""
+def volume_update_db(context, volume_id, host):
+    '''Set the host and set the scheduled_at field of a volume.
 
-    if update_db:
-        volume_id = kwargs.get('volume_id', None)
-        if volume_id is not None:
-            now = timeutils.utcnow()
-            db.volume_update(context, volume_id,
-                    {'host': host, 'scheduled_at': now})
-    rpc.cast(context,
-             rpc.queue_get_for(context, FLAGS.volume_topic, host),
-             {"method": method, "args": kwargs})
-    LOG.debug(_("Casted '%(method)s' to host '%(host)s'") % locals())
-
-
-def cast_to_host(context, topic, host, method, update_db=True, **kwargs):
-    """Generic cast to host"""
-
-    topic_mapping = {
-            "volume": cast_to_volume_host}
-
-    func = topic_mapping.get(topic)
-    if func:
-        func(context, host, method, update_db=update_db, **kwargs)
-    else:
-        rpc.cast(context,
-                 rpc.queue_get_for(context, topic, host),
-                 {"method": method, "args": kwargs})
-        LOG.debug(_("Casted '%(method)s' to %(topic)s '%(host)s'")
-                % locals())
+    :returns: A Volume with the updated fields set properly.
+    '''
+    now = timeutils.utcnow()
+    values = {'host': host, 'scheduled_at': now}
+    return db.volume_update(context, volume_id, values)
 
 
 class Scheduler(object):
@@ -80,7 +54,8 @@ class Scheduler(object):
 
     def __init__(self):
         self.host_manager = importutils.import_object(
-                FLAGS.scheduler_host_manager)
+            FLAGS.scheduler_host_manager)
+        self.volume_rpcapi = volume_rpcapi.VolumeAPI()
 
     def get_host_list(self):
         """Get a list of hosts from the HostManager."""
@@ -94,7 +69,8 @@ class Scheduler(object):
     def update_service_capabilities(self, service_name, host, capabilities):
         """Process a capability update from a service node."""
         self.host_manager.update_service_capabilities(service_name,
-                host, capabilities)
+                                                      host,
+                                                      capabilities)
 
     def hosts_up(self, context, topic):
         """Return the list of hosts that have a running service for topic."""
@@ -107,3 +83,7 @@ class Scheduler(object):
     def schedule(self, context, topic, method, *_args, **_kwargs):
         """Must override schedule method for scheduler to work."""
         raise NotImplementedError(_("Must implement a fallback schedule"))
+
+    def schedule_create_volume(self, context, request_spec, filter_properties):
+        """Must override schedule method for scheduler to work."""
+        raise NotImplementedError(_("Must implement schedule_create_volume"))

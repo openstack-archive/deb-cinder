@@ -3,10 +3,10 @@
 import inspect
 import webob
 
+from cinder.api.openstack import wsgi
 from cinder import exception
 from cinder import test
-from cinder.api.openstack import wsgi
-from cinder.tests.api.openstack import fakes
+from cinder.tests.api import fakes
 
 
 class RequestTest(test.TestCase):
@@ -441,10 +441,9 @@ class ResourceTest(test.TestCase):
 
         extended = ControllerExtended()
         resource.register_actions(extended)
-        self.assertEqual({
-                'fooAction': extended._action_foo,
-                'barAction': extended._action_bar,
-                }, resource.wsgi_actions)
+        self.assertEqual({'fooAction': extended._action_foo,
+                          'barAction': extended._action_bar, },
+                         resource.wsgi_actions)
 
     def test_register_extensions(self):
         class Controller(object):

@@ -1,5 +1,4 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -28,6 +27,7 @@ import hashlib
 import inspect
 import itertools
 import os
+import paramiko
 import pyclbr
 import random
 import re
@@ -40,20 +40,20 @@ import sys
 import tempfile
 import time
 import types
-import uuid
 import warnings
 from xml.sax import saxutils
 
 from eventlet import event
-from eventlet import greenthread
 from eventlet.green import subprocess
+from eventlet import greenthread
+from eventlet import pools
 
 from cinder.common import deprecated
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
+from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 
 
@@ -181,10 +181,10 @@ def execute(*cmd, **kwargs):
                 if not ignore_exit_code and _returncode not in check_exit_code:
                     (stdout, stderr) = result
                     raise exception.ProcessExecutionError(
-                            exit_code=_returncode,
-                            stdout=stdout,
-                            stderr=stderr,
-                            cmd=' '.join(cmd))
+                        exit_code=_returncode,
+                        stdout=stdout,
+                        stderr=stderr,
+                        cmd=' '.join(cmd))
             return result
         except exception.ProcessExecutionError:
             if not attempts:
@@ -232,7 +232,7 @@ def trycmd(*args, **kwargs):
 
 def ssh_execute(ssh, cmd, process_input=None,
                 addl_env=None, check_exit_code=True):
-    LOG.debug(_('Running cmd (SSH): %s'), ' '.join(cmd))
+    LOG.debug(_('Running cmd (SSH): %s'), cmd)
     if addl_env:
         raise exception.Error(_('Environment not supported over SSH'))
 
@@ -251,6 +251,8 @@ def ssh_execute(ssh, cmd, process_input=None,
     stdout = stdout_stream.read()
     stderr = stderr_stream.read()
     stdin_stream.close()
+    stdout_stream.close()
+    stderr_stream.close()
 
     exit_status = channel.recv_exit_status()
 
@@ -261,9 +263,82 @@ def ssh_execute(ssh, cmd, process_input=None,
             raise exception.ProcessExecutionError(exit_code=exit_status,
                                                   stdout=stdout,
                                                   stderr=stderr,
-                                                  cmd=' '.join(cmd))
-
+                                                  cmd=cmd)
+    channel.close()
     return (stdout, stderr)
+
+
+class SSHPool(pools.Pool):
+    """A simple eventlet pool to hold ssh connections."""
+
+    def __init__(self, ip, port, conn_timeout, login, password=None,
+                 privatekey=None, *args, **kwargs):
+        self.ip = ip
+        self.port = port
+        self.login = login
+        self.password = password
+        self.conn_timeout = conn_timeout
+        self.privatekey = privatekey
+        super(SSHPool, self).__init__(*args, **kwargs)
+
+    def create(self):
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            if self.password:
+                ssh.connect(self.ip,
+                            port=self.port,
+                            username=self.login,
+                            password=self.password,
+                            timeout=self.conn_timeout)
+            elif self.privatekey:
+                pkfile = os.path.expanduser(self.privatekey)
+                privatekey = paramiko.RSAKey.from_private_key_file(pkfile)
+                ssh.connect(self.ip,
+                            port=self.port,
+                            username=self.login,
+                            pkey=privatekey,
+                            timeout=self.conn_timeout)
+            else:
+                msg = _("Specify a password or private_key")
+                raise exception.CinderException(msg)
+
+            # Paramiko by default sets the socket timeout to 0.1 seconds,
+            # ignoring what we set thru the sshclient. This doesn't help for
+            # keeping long lived connections. Hence we have to bypass it, by
+            # overriding it after the transport is initialized. We are setting
+            # the sockettimeout to None and setting a keepalive packet so that,
+            # the server will keep the connection open. All that does is send
+            # a keepalive packet every ssh_conn_timeout seconds.
+            transport = ssh.get_transport()
+            transport.sock.settimeout(None)
+            transport.set_keepalive(self.conn_timeout)
+            return ssh
+        except Exception as e:
+            msg = _("Error connecting via ssh: %s") % e
+            LOG.error(msg)
+            raise paramiko.SSHException(msg)
+
+    def get(self):
+        """
+        Return an item from the pool, when one is available.  This may
+        cause the calling greenthread to block. Check if a connection is active
+        before returning it. For dead connections create and return a new
+        connection.
+        """
+        if self.free_items:
+            conn = self.free_items.popleft()
+            if conn:
+                if conn.get_transport().is_active():
+                    return conn
+                else:
+                    conn.close()
+            return self.create()
+        if self.current_size < self.max_size:
+            created = self.create()
+            self.current_size += 1
+            return created
+        return self.channel.get()
 
 
 def cinderdir():
@@ -312,7 +387,7 @@ def last_completed_audit_period(unit=None):
               The begin timestamp of this audit period is the same as the
               end of the previous."""
     if not unit:
-        unit = FLAGS.instance_usage_audit_period
+        unit = FLAGS.volume_usage_audit_period
 
     offset = 0
     if '@' in unit:
@@ -364,9 +439,9 @@ def last_completed_audit_period(unit=None):
 
     elif unit == 'day':
         end = datetime.datetime(hour=offset,
-                               day=rightnow.day,
-                               month=rightnow.month,
-                               year=rightnow.year)
+                                day=rightnow.day,
+                                month=rightnow.month,
+                                year=rightnow.year)
         if end >= rightnow:
             end = end - datetime.timedelta(days=1)
         begin = end - datetime.timedelta(days=1)
@@ -411,6 +486,11 @@ def generate_password(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
     r.shuffle(password)
 
     return ''.join(password)
+
+
+def generate_username(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
+    # Use the same implementation as the password generation.
+    return generate_password(length, symbolgroups)
 
 
 def last_octet(address):
@@ -672,22 +752,6 @@ def check_isinstance(obj, cls):
     return cls()  # Ugly PyLint hack
 
 
-def gen_uuid():
-    return uuid.uuid4()
-
-
-def is_uuid_like(val):
-    """For our purposes, a UUID is a string in canonical form:
-
-        aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-    """
-    try:
-        uuid.UUID(val)
-        return True
-    except (TypeError, ValueError, AttributeError):
-        return False
-
-
 def bool_from_str(val):
     """Convert a string representation of a bool into a bool value"""
 
@@ -702,10 +766,10 @@ def bool_from_str(val):
 def is_valid_boolstr(val):
     """Check if the provided string is a valid bool string or not. """
     val = str(val).lower()
-    return val == 'true' or val == 'false' or \
-           val == 'yes' or val == 'no' or \
-           val == 'y' or val == 'n' or \
-           val == '1' or val == '0'
+    return (val == 'true' or val == 'false' or
+            val == 'yes' or val == 'no' or
+            val == 'y' or val == 'n' or
+            val == '1' or val == '0')
 
 
 def is_valid_ipv4(address):
@@ -756,13 +820,14 @@ def monkey_patch():
             if isinstance(module_data[key], pyclbr.Class):
                 clz = importutils.import_class("%s.%s" % (module, key))
                 for method, func in inspect.getmembers(clz, inspect.ismethod):
-                    setattr(clz, method,
+                    setattr(
+                        clz, method,
                         decorator("%s.%s.%s" % (module, key, method), func))
             # set the decorator for the function
             if isinstance(module_data[key], pyclbr.Function):
                 func = importutils.import_class("%s.%s" % (module, key))
                 setattr(sys.modules[module], key,
-                    decorator("%s.%s" % (module, key), func))
+                        decorator("%s.%s" % (module, key), func))
 
 
 def convert_to_list_dict(lst, label):
@@ -1061,3 +1126,39 @@ def ensure_tree(path):
                 raise
         else:
             raise
+
+
+def to_bytes(text, default=0):
+    """Try to turn a string into a number of bytes. Looks at the last
+    characters of the text to determine what conversion is needed to
+    turn the input text into a byte number.
+
+    Supports: B/b, K/k, M/m, G/g, T/t (or the same with b/B on the end)
+
+    """
+    BYTE_MULTIPLIERS = {
+        '': 1,
+        't': 1024 ** 4,
+        'g': 1024 ** 3,
+        'm': 1024 ** 2,
+        'k': 1024,
+    }
+
+    # Take off everything not number 'like' (which should leave
+    # only the byte 'identifier' left)
+    mult_key_org = text.lstrip('-1234567890')
+    mult_key = mult_key_org.lower()
+    mult_key_len = len(mult_key)
+    if mult_key.endswith("b"):
+        mult_key = mult_key[0:-1]
+    try:
+        multiplier = BYTE_MULTIPLIERS[mult_key]
+        if mult_key_len:
+            # Empty cases shouldn't cause text[0:-0]
+            text = text[0:-mult_key_len]
+        return int(text) * multiplier
+    except KeyError:
+        msg = _('Unknown byte multiplier: %s') % mult_key_org
+        raise TypeError(msg)
+    except ValueError:
+        return default

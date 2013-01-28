@@ -48,20 +48,25 @@ def _parse_image_ref(image_href):
     :raises ValueError
 
     """
-    o = urlparse.urlparse(image_href)
-    port = o.port or 80
-    host = o.netloc.split(':', 1)[0]
-    image_id = o.path.split('/')[-1]
-    return (image_id, host, port)
+    url = urlparse.urlparse(image_href)
+    port = url.port or 80
+    host = url.netloc.split(':', 1)[0]
+    image_id = url.path.split('/')[-1]
+    use_ssl = (url.scheme == 'https')
+    return (image_id, host, port, use_ssl)
 
 
-def _create_glance_client(context, host, port, version=1):
+def _create_glance_client(context, host, port, use_ssl, version=1):
     """Instantiate a new glanceclient.Client object"""
+    if use_ssl:
+        scheme = 'https'
+    else:
+        scheme = 'http'
     params = {}
+    params['insecure'] = FLAGS.glance_api_insecure
     if FLAGS.auth_strategy == 'keystone':
         params['token'] = context.auth_token
-    endpoint = 'http://%s:%s' % (host, port)
-
+    endpoint = '%s://%s:%s' % (scheme, host, port)
     return glanceclient.Client(str(version), endpoint, **params)
 
 
@@ -73,8 +78,13 @@ def get_api_servers():
     """
     api_servers = []
     for api_server in FLAGS.glance_api_servers:
-        host, port_str = api_server.split(':')
-        api_servers.append((host, int(port_str)))
+        if '//' not in api_server:
+            api_server = 'http://' + api_server
+        url = urlparse.urlparse(api_server)
+        port = url.port or 80
+        host = url.netloc.split(':', 1)[0]
+        use_ssl = (url.scheme == 'https')
+        api_servers.append((host, port, use_ssl))
     random.shuffle(api_servers)
     return itertools.cycle(api_servers)
 
@@ -82,28 +92,34 @@ def get_api_servers():
 class GlanceClientWrapper(object):
     """Glance client wrapper class that implements retries."""
 
-    def __init__(self, context=None, host=None, port=None, version=None):
+    def __init__(self, context=None, host=None, port=None, use_ssl=False,
+                 version=None):
         if host is not None:
-            self.client = self._create_static_client(context, host, port,
-                                                     version)
+            self.client = self._create_static_client(context,
+                                                     host, port,
+                                                     use_ssl, version)
         else:
             self.client = None
         self.api_servers = None
 
-    def _create_static_client(self, context, host, port, version):
+    def _create_static_client(self, context, host, port, use_ssl, version):
         """Create a client that we'll use for every call."""
         self.host = host
         self.port = port
+        self.use_ssl = use_ssl
         self.version = version
-        return _create_glance_client(context, self.host, self.port,
-                                     self.version)
+        return _create_glance_client(context,
+                                     self.host, self.port,
+                                     self.use_ssl, self.version)
 
     def _create_onetime_client(self, context, version):
         """Create a client that will be used for one call."""
         if self.api_servers is None:
             self.api_servers = get_api_servers()
-        self.host, self.port = self.api_servers.next()
-        return _create_glance_client(context, self.host, self.port, version)
+        self.host, self.port, self.use_ssl = self.api_servers.next()
+        return _create_glance_client(context,
+                                     self.host, self.port,
+                                     self.use_ssl, version)
 
     def call(self, context, version, method, *args, **kwargs):
         """
@@ -111,8 +127,8 @@ class GlanceClientWrapper(object):
         retry the request according to FLAGS.glance_num_retries.
         """
         retry_excs = (glanceclient.exc.ServiceUnavailable,
-                glanceclient.exc.InvalidEndpoint,
-                glanceclient.exc.CommunicationError)
+                      glanceclient.exc.InvalidEndpoint,
+                      glanceclient.exc.CommunicationError)
         num_attempts = 1 + FLAGS.glance_num_retries
 
         for attempt in xrange(1, num_attempts + 1):
@@ -125,12 +141,14 @@ class GlanceClientWrapper(object):
                 port = self.port
                 extra = "retrying"
                 error_msg = _("Error contacting glance server "
-                        "'%(host)s:%(port)s' for '%(method)s', %(extra)s.")
+                              "'%(host)s:%(port)s' for '%(method)s', "
+                              "%(extra)s.")
                 if attempt == num_attempts:
                     extra = 'done trying'
                     LOG.exception(error_msg, locals())
-                    raise exception.GlanceConnectionFailed(
-                            host=host, port=port, reason=str(e))
+                    raise exception.GlanceConnectionFailed(host=host,
+                                                           port=port,
+                                                           reason=str(e))
                 LOG.exception(error_msg, locals())
                 time.sleep(1)
 
@@ -165,9 +183,9 @@ class GlanceImageService(object):
                 _params[param] = params.get(param)
 
         # ensure filters is a dict
-        params.setdefault('filters', {})
+        _params.setdefault('filters', {})
         # NOTE(vish): don't filter out private images
-        params['filters'].setdefault('is_public', 'none')
+        _params['filters'].setdefault('is_public', 'none')
 
         return _params
 
@@ -220,8 +238,8 @@ class GlanceImageService(object):
 
         return self._translate_from_glance(recv_service_image_meta)
 
-    def update(self, context, image_id, image_meta, data=None,
-            purge_props=True):
+    def update(self, context, image_id,
+               image_meta, data=None, purge_props=True):
         """Modify the given image with the new data."""
         image_meta = self._translate_to_glance(image_meta)
         image_meta['purge_props'] = purge_props
@@ -378,7 +396,7 @@ def _reraise_translated_exception():
 
 def _translate_image_exception(image_id, exc_value):
     if isinstance(exc_value, (glanceclient.exc.Forbidden,
-                    glanceclient.exc.Unauthorized)):
+                              glanceclient.exc.Unauthorized)):
         return exception.ImageNotAuthorized(image_id=image_id)
     if isinstance(exc_value, glanceclient.exc.NotFound):
         return exception.ImageNotFound(image_id=image_id)
@@ -389,7 +407,7 @@ def _translate_image_exception(image_id, exc_value):
 
 def _translate_plain_exception(exc_value):
     if isinstance(exc_value, (glanceclient.exc.Forbidden,
-                    glanceclient.exc.Unauthorized)):
+                              glanceclient.exc.Unauthorized)):
         return exception.NotAuthorized(exc_value)
     if isinstance(exc_value, glanceclient.exc.NotFound):
         return exception.NotFound(exc_value)
@@ -417,9 +435,12 @@ def get_remote_image_service(context, image_href):
         return image_service, image_href
 
     try:
-        (image_id, glance_host, glance_port) = _parse_image_ref(image_href)
+        (image_id, glance_host, glance_port, use_ssl) = \
+            _parse_image_ref(image_href)
         glance_client = GlanceClientWrapper(context=context,
-                host=glance_host, port=glance_port)
+                                            host=glance_host,
+                                            port=glance_port,
+                                            use_ssl=use_ssl)
     except ValueError:
         raise exception.InvalidImageRef(image_href=image_href)
 

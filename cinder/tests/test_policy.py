@@ -15,17 +15,17 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-"""Test of Policy Engine For Cinder"""
+"""Test of Policy Engine For Cinder."""
 
 import os.path
 import StringIO
 import urllib2
 
-from cinder.common import policy as common_policy
 from cinder import context
 from cinder import exception
 from cinder import flags
-import cinder.common.policy
+import cinder.openstack.common.policy
+from cinder.openstack.common import policy as common_policy
 from cinder import policy
 from cinder import test
 from cinder import utils
@@ -36,8 +36,9 @@ FLAGS = flags.FLAGS
 class PolicyFileTestCase(test.TestCase):
     def setUp(self):
         super(PolicyFileTestCase, self).setUp()
-        policy.reset()
+        # since is_admin is defined by policy, create context before reset
         self.context = context.RequestContext('fake', 'fake')
+        policy.reset()
         self.target = {}
 
     def tearDown(self):
@@ -146,8 +147,8 @@ class PolicyTestCase(test.TestCase):
         # NOTE(dprince) we mix case in the Admin role here to ensure
         # case is ignored
         admin_context = context.RequestContext('admin',
-                                                'fake',
-                                                roles=['AdMiN'])
+                                               'fake',
+                                               roles=['AdMiN'])
         policy.enforce(admin_context, lowercase_action, self.target)
         policy.enforce(admin_context, uppercase_action, self.target)
 
@@ -169,8 +170,9 @@ class DefaultPolicyTestCase(test.TestCase):
         self.context = context.RequestContext('fake', 'fake')
 
     def _set_brain(self, default_rule):
-        brain = cinder.common.policy.HttpBrain(self.rules, default_rule)
-        cinder.common.policy.set_brain(brain)
+        brain = cinder.openstack.common.policy.HttpBrain(self.rules,
+                                                         default_rule)
+        cinder.openstack.common.policy.set_brain(brain)
 
     def tearDown(self):
         super(DefaultPolicyTestCase, self).tearDown()
@@ -178,7 +180,7 @@ class DefaultPolicyTestCase(test.TestCase):
 
     def test_policy_called(self):
         self.assertRaises(exception.PolicyNotAuthorized, policy.enforce,
-                self.context, "example:exist", {})
+                          self.context, "example:exist", {})
 
     def test_not_found_policy_calls_default(self):
         policy.enforce(self.context, "example:noexist", {})
@@ -186,4 +188,45 @@ class DefaultPolicyTestCase(test.TestCase):
     def test_default_not_found(self):
         self._set_brain("default_noexist")
         self.assertRaises(exception.PolicyNotAuthorized, policy.enforce,
-                self.context, "example:noexist", {})
+                          self.context, "example:noexist", {})
+
+
+class ContextIsAdminPolicyTestCase(test.TestCase):
+
+    def setUp(self):
+        super(ContextIsAdminPolicyTestCase, self).setUp()
+        policy.reset()
+        policy.init()
+
+    def test_default_admin_role_is_admin(self):
+        ctx = context.RequestContext('fake', 'fake', roles=['johnny-admin'])
+        self.assertFalse(ctx.is_admin)
+        ctx = context.RequestContext('fake', 'fake', roles=['admin'])
+        self.assert_(ctx.is_admin)
+
+    def test_custom_admin_role_is_admin(self):
+        # define explict rules for context_is_admin
+        rules = {
+            'context_is_admin': [["role:administrator"], ["role:johnny-admin"]]
+        }
+        brain = common_policy.Brain(rules, FLAGS.policy_default_rule)
+        common_policy.set_brain(brain)
+        ctx = context.RequestContext('fake', 'fake', roles=['johnny-admin'])
+        self.assert_(ctx.is_admin)
+        ctx = context.RequestContext('fake', 'fake', roles=['administrator'])
+        self.assert_(ctx.is_admin)
+        # default rule no longer applies
+        ctx = context.RequestContext('fake', 'fake', roles=['admin'])
+        self.assertFalse(ctx.is_admin)
+
+    def test_context_is_admin_undefined(self):
+        rules = {
+            "admin_or_owner": [["role:admin"], ["project_id:%(project_id)s"]],
+            "default": [["rule:admin_or_owner"]],
+        }
+        brain = common_policy.Brain(rules, FLAGS.policy_default_rule)
+        common_policy.set_brain(brain)
+        ctx = context.RequestContext('fake', 'fake')
+        self.assertFalse(ctx.is_admin)
+        ctx = context.RequestContext('fake', 'fake', roles=['admin'])
+        self.assert_(ctx.is_admin)

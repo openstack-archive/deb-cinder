@@ -98,8 +98,7 @@ core_opts = [
                help='Directory where cinder binaries are installed'),
     cfg.StrOpt('state_path',
                default='$pybasedir',
-               help="Top-level directory for maintaining cinder's state"),
-    ]
+               help="Top-level directory for maintaining cinder's state"), ]
 
 debug_opts = [
 ]
@@ -122,31 +121,45 @@ global_opts = [
                 help='A list of the glance api servers available to cinder '
                      '([hostname|ip]:port)'),
     cfg.IntOpt('glance_num_retries',
-                default=0,
-                help='Number retries when downloading an image from glance'),
+               default=0,
+               help='Number retries when downloading an image from glance'),
+    cfg.BoolOpt('glance_api_insecure',
+                default=False,
+                help='Allow to perform insecure SSL (https) requests to '
+                'glance'),
     cfg.StrOpt('scheduler_topic',
                default='cinder-scheduler',
                help='the topic scheduler nodes listen on'),
     cfg.StrOpt('volume_topic',
                default='cinder-volume',
                help='the topic volume nodes listen on'),
+    cfg.BoolOpt('enable_v1_api',
+                default=True,
+                help=_("Deploy v1 of the Cinder API. ")),
+    cfg.BoolOpt('enable_v2_api',
+                default=True,
+                help=_("Deploy v2 of the Cinder API. ")),
     cfg.BoolOpt('api_rate_limit',
                 default=True,
                 help='whether to rate limit the api'),
     cfg.ListOpt('osapi_volume_ext_list',
                 default=[],
                 help='Specify list of extensions to load when using osapi_'
-                     'volume_extension option with cinder.api.openstack.'
-                     'volume.contrib.select_extensions'),
+                     'volume_extension option with cinder.api.contrib.'
+                     'select_extensions'),
+    # NOTE(thingee): default contrib for old and new location for compatibility
     cfg.MultiStrOpt('osapi_volume_extension',
                     default=[
-                      'cinder.api.openstack.volume.contrib.standard_extensions'
-                      ],
+                        'cinder.api.openstack.volume.contrib.'
+                        'standard_extensions',
+                        'cinder.api.contrib.standard_extensions',
+                    ],
                     help='osapi volume extension to load'),
-    cfg.StrOpt('osapi_compute_link_prefix',
+    cfg.StrOpt('osapi_volume_base_URL',
                default=None,
                help='Base URL that will be presented to users in links '
-                    'to the OpenStack Compute API'),
+                    'to the OpenStack Volume API',
+               deprecated_name='osapi_compute_link_prefix'),
     cfg.IntOpt('osapi_max_limit',
                default=1000,
                help='the maximum number of items returned in a single '
@@ -184,9 +197,12 @@ global_opts = [
     cfg.ListOpt('memcached_servers',
                 default=None,
                 help='Memcached servers or None for in process cache.'),
-    cfg.StrOpt('instance_usage_audit_period',
+    cfg.StrOpt('default_volume_type',
+               default=None,
+               help='default volume type to use'),
+    cfg.StrOpt('volume_usage_audit_period',
                default='month',
-               help='time period to generate instance usages for.  '
+               help='time period to generate volume usages for.  '
                     'Time period must be hour, day, month or year'),
     cfg.StrOpt('root_helper',
                default='sudo',
@@ -201,15 +217,12 @@ global_opts = [
     cfg.ListOpt('monkey_patch_modules',
                 default=[],
                 help='List of modules/decorators to monkey patch'),
-    cfg.IntOpt('reclaim_instance_interval',
-               default=0,
-               help='Interval in seconds for reclaiming deleted instances'),
     cfg.IntOpt('service_down_time',
                default=60,
                help='maximum time since last check-in for up service'),
     cfg.StrOpt('volume_api_class',
-                default='cinder.volume.api.API',
-                help='The full class name of the volume API class to use'),
+               default='cinder.volume.api.API',
+               help='The full class name of the volume API class to use'),
     cfg.StrOpt('auth_strategy',
                default='noauth',
                help='The strategy to use for auth. Supports noauth, keystone, '
@@ -217,6 +230,8 @@ global_opts = [
     cfg.StrOpt('control_exchange',
                default='cinder',
                help='AMQP exchange to connect to if using RabbitMQ or Qpid'),
-]
+    cfg.BoolOpt('secure_delete',
+                default=True,
+                help='Whether to perform secure delete'), ]
 
 FLAGS.register_opts(global_opts)

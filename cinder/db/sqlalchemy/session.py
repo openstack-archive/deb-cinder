@@ -20,9 +20,9 @@
 
 import time
 
+from sqlalchemy.exc import DisconnectionError, OperationalError
 import sqlalchemy.interfaces
 import sqlalchemy.orm
-from sqlalchemy.exc import DisconnectionError, OperationalError
 from sqlalchemy.pool import NullPool, StaticPool
 
 import cinder.exception
@@ -68,7 +68,7 @@ def ping_listener(dbapi_conn, connection_rec, connection_proxy):
         dbapi_conn.cursor().execute('select 1')
     except dbapi_conn.OperationalError, ex:
         if ex.args[0] in (2006, 2013, 2014, 2045, 2055):
-            LOG.warn('Got mysql server has gone away: %s', ex)
+            LOG.warn(_('Got mysql server has gone away: %s'), ex)
             raise DisconnectionError("Database server went away")
         else:
             raise
@@ -138,8 +138,8 @@ def get_engine():
                     _ENGINE.connect()
                     break
                 except OperationalError, e:
-                    if (remaining != 'infinite' and remaining == 0) or \
-                       not is_db_connection_error(e.args[0]):
+                    if ((remaining != 'infinite' and remaining == 0) or
+                            not is_db_connection_error(e.args[0])):
                         raise
     return _ENGINE
 

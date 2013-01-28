@@ -41,14 +41,15 @@ from cinder import context
 from cinder import exception
 from cinder import flags
 from cinder.image import glance
-from cinder.openstack.common import log as logging
 from cinder import manager
 from cinder.openstack.common import cfg
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
+from cinder.openstack.common import lockutils
+from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
+from cinder.openstack.common import uuidutils
 from cinder import quota
-from cinder import utils
 from cinder.volume import utils as volume_utils
 
 
@@ -60,31 +61,63 @@ volume_manager_opts = [
     cfg.StrOpt('volume_driver',
                default='cinder.volume.driver.ISCSIDriver',
                help='Driver to use for volume creation'),
-    cfg.BoolOpt('use_local_volumes',
-                default=True,
-                help='if True, will not discover local volumes'),
-    cfg.BoolOpt('volume_force_update_capabilities',
-                default=False,
-                help='if True will force update capabilities on each check'),
-    ]
+]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(volume_manager_opts)
 
+MAPPING = {
+    'cinder.volume.driver.RBDDriver': 'cinder.volume.drivers.rbd.RBDDriver',
+    'cinder.volume.driver.SheepdogDriver':
+    'cinder.volume.drivers.sheepdog.SheepdogDriver',
+    'cinder.volume.nexenta.volume.NexentaDriver':
+    'cinder.volume.drivers.nexenta.volume.NexentaDriver',
+    'cinder.volume.san.SanISCSIDriver':
+    'cinder.volume.drivers.san.san.SanISCSIDriver',
+    'cinder.volume.san.SolarisISCSIDriver':
+    'cinder.volume.drivers.san.solaris.SolarisISCSIDriver',
+    'cinder.volume.san.HpSanISCSIDriver':
+    'cinder.volume.drivers.san.hp_lefthand.HpSanISCSIDriver',
+    'cinder.volume.netapp.NetAppISCSIDriver':
+    'cinder.volume.drivers.netapp.NetAppISCSIDriver',
+    'cinder.volume.netapp.NetAppCmodeISCSIDriver':
+    'cinder.volume.drivers.netapp.NetAppCmodeISCSIDriver',
+    'cinder.volume.netapp_nfs.NetAppNFSDriver':
+    'cinder.volume.drivers.netapp_nfs.NetAppNFSDriver',
+    'cinder.volume.nfs.NfsDriver':
+    'cinder.volume.drivers.nfs.NfsDriver',
+    'cinder.volume.solidfire.SolidFire':
+    'cinder.volume.drivers.solidfire.SolidFire',
+    'cinder.volume.storwize_svc.StorwizeSVCDriver':
+    'cinder.volume.drivers.storwize_svc.StorwizeSVCDriver',
+    'cinder.volume.windows.WindowsDriver':
+    'cinder.volume.drivers.windows.WindowsDriver',
+    'cinder.volume.xiv.XIVDriver':
+    'cinder.volume.drivers.xiv.XIVDriver',
+    'cinder.volume.zadara.ZadaraVPSAISCSIDriver':
+    'cinder.volume.drivers.zadara.ZadaraVPSAISCSIDriver'}
+
 
 class VolumeManager(manager.SchedulerDependentManager):
     """Manages attachable block storage devices."""
+
+    RPC_API_VERSION = '1.2'
+
     def __init__(self, volume_driver=None, *args, **kwargs):
         """Load the driver from the one specified in args, or from flags."""
         if not volume_driver:
             volume_driver = FLAGS.volume_driver
-        self.driver = importutils.import_object(volume_driver)
+        if volume_driver in MAPPING:
+            LOG.warn(_("Driver path %s is deprecated, update your "
+                       "configuration to the new path."), volume_driver)
+            self.driver = importutils.import_object(MAPPING[volume_driver])
+        else:
+            self.driver = importutils.import_object(volume_driver)
         super(VolumeManager, self).__init__(service_name='volume',
-                                                    *args, **kwargs)
+                                            *args, **kwargs)
         # NOTE(vish): Implementation specific db handling is done
         #             by the driver.
         self.driver.db = self.db
-        self._last_volume_stats = []
 
     def init_host(self):
         """Do any initialization that needs to be run if this is a
@@ -108,42 +141,48 @@ class VolumeManager(manager.SchedulerDependentManager):
                 LOG.info(_('Resuming delete on volume: %s') % volume['id'])
                 self.delete_volume(ctxt, volume['id'])
 
+        # collect and publish service capabilities
+        self.publish_service_capabilities(ctxt)
+
     def create_volume(self, context, volume_id, snapshot_id=None,
-                      image_id=None):
+                      image_id=None, source_volid=None):
         """Creates and exports the volume."""
         context = context.elevated()
         volume_ref = self.db.volume_get(context, volume_id)
         self._notify_about_volume_usage(context, volume_ref, "create.start")
         LOG.info(_("volume %s: creating"), volume_ref['name'])
 
-        self.db.volume_update(context,
-                              volume_id,
-                              {'host': self.host})
         # NOTE(vish): so we don't have to get volume from db again
         #             before passing it to the driver.
         volume_ref['host'] = self.host
 
         status = 'available'
         model_update = False
+        image_meta = None
 
         try:
             vol_name = volume_ref['name']
             vol_size = volume_ref['size']
             LOG.debug(_("volume %(vol_name)s: creating lv of"
-                    " size %(vol_size)sG") % locals())
-            if snapshot_id is None and image_id is None:
+                        " size %(vol_size)sG") % locals())
+            if all(x is None for x in(snapshot_id, image_id, source_volid)):
                 model_update = self.driver.create_volume(volume_ref)
             elif snapshot_id is not None:
                 snapshot_ref = self.db.snapshot_get(context, snapshot_id)
                 model_update = self.driver.create_volume_from_snapshot(
                     volume_ref,
                     snapshot_ref)
+            elif source_volid is not None:
+                src_vref = self.db.volume_get(context, source_volid)
+                model_update = self.driver.create_cloned_volume(volume_ref,
+                                                                src_vref)
             else:
                 # create the volume from an image
                 image_service, image_id = \
-                               glance.get_remote_image_service(context,
-                                                               image_id)
+                    glance.get_remote_image_service(context,
+                                                    image_id)
                 image_location = image_service.get_location(context, image_id)
+                image_meta = image_service.show(context, image_id)
                 cloned = self.driver.clone_image(volume_ref, image_location)
                 if not cloned:
                     model_update = self.driver.create_volume(volume_ref)
@@ -162,6 +201,12 @@ class VolumeManager(manager.SchedulerDependentManager):
                 self.db.volume_update(context,
                                       volume_ref['id'], {'status': 'error'})
 
+        if snapshot_id:
+            # Copy any Glance metadata from the original volume
+            self.db.volume_glance_metadata_copy_to_volume(context,
+                                                          volume_ref['id'],
+                                                          snapshot_id)
+
         now = timeutils.utcnow()
         self.db.volume_update(context,
                               volume_ref['id'], {'status': status,
@@ -170,6 +215,23 @@ class VolumeManager(manager.SchedulerDependentManager):
         self._reset_stats()
 
         if image_id and not cloned:
+            if image_meta:
+                # Copy all of the Glance image properties to the
+                # volume_glance_metadata table for future reference.
+                self.db.volume_glance_metadata_create(context,
+                                                      volume_ref['id'],
+                                                      'image_id', image_id)
+                name = image_meta.get('name', None)
+                if name:
+                    self.db.volume_glance_metadata_create(context,
+                                                          volume_ref['id'],
+                                                          'image_name', name)
+                image_properties = image_meta.get('properties', {})
+                for key, value in image_properties.items():
+                    self.db.volume_glance_metadata_create(context,
+                                                          volume_ref['id'],
+                                                          key, value)
+
             #copy the image onto the volume.
             self._copy_image_to_volume(context, volume_ref, image_id)
         self._notify_about_volume_usage(context, volume_ref, "create.end")
@@ -184,7 +246,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             raise exception.VolumeAttached(volume_id=volume_id)
         if volume_ref['host'] != self.host:
             raise exception.InvalidVolume(
-                    reason=_("Volume is not local to this node"))
+                reason=_("Volume is not local to this node"))
 
         self._notify_about_volume_usage(context, volume_ref, "delete.start")
         self._reset_stats()
@@ -213,6 +275,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             reservations = None
             LOG.exception(_("Failed to update usages deleting volume"))
 
+        self.db.volume_glance_metadata_delete_by_volume(context, volume_id)
         self.db.volume_destroy(context, volume_id)
         LOG.debug(_("volume %s: deleted successfully"), volume_ref['name'])
         self._notify_about_volume_usage(context, volume_ref, "delete.end")
@@ -246,6 +309,9 @@ class VolumeManager(manager.SchedulerDependentManager):
         self.db.snapshot_update(context,
                                 snapshot_ref['id'], {'status': 'available',
                                                      'progress': '100%'})
+        self.db.volume_glance_metadata_copy_to_snapshot(context,
+                                                        snapshot_ref['id'],
+                                                        volume_id)
         LOG.debug(_("snapshot %s: created successfully"), snapshot_ref['name'])
         return snapshot_id
 
@@ -269,32 +335,51 @@ class VolumeManager(manager.SchedulerDependentManager):
                                         snapshot_ref['id'],
                                         {'status': 'error_deleting'})
 
+        self.db.volume_glance_metadata_delete_by_snapshot(context, snapshot_id)
         self.db.snapshot_destroy(context, snapshot_id)
         LOG.debug(_("snapshot %s: deleted successfully"), snapshot_ref['name'])
         return True
 
     def attach_volume(self, context, volume_id, instance_uuid, mountpoint):
         """Updates db to show volume is attached"""
-        # TODO(vish): refactor this into a more general "reserve"
-        # TODO(sleepsonthefloor): Is this 'elevated' appropriate?
-        if not utils.is_uuid_like(instance_uuid):
-            raise exception.InvalidUUID(instance_uuid)
 
-        try:
-            self.driver.attach_volume(context,
-                                      volume_id,
-                                      instance_uuid,
-                                      mountpoint)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                self.db.volume_update(context,
-                                      volume_id,
-                                      {'status': 'error_attaching'})
+        @lockutils.synchronized(volume_id, 'cinder-', external=True)
+        def do_attach():
+            # check the volume status before attaching
+            volume = self.db.volume_get(context, volume_id)
+            if volume['status'] == 'attaching':
+                if (volume['instance_uuid'] and volume['instance_uuid'] !=
+                        instance_uuid):
+                    msg = _("being attached by another instance")
+                    raise exception.InvalidVolume(reason=msg)
+            elif volume['status'] != "available":
+                msg = _("status must be available")
+                raise exception.InvalidVolume(reason=msg)
+            self.db.volume_update(context, volume_id,
+                                  {"instance_uuid": instance_uuid,
+                                   "status": "attaching"})
 
-        self.db.volume_attached(context.elevated(),
-                                volume_id,
-                                instance_uuid,
-                                mountpoint)
+            # TODO(vish): refactor this into a more general "reserve"
+            # TODO(sleepsonthefloor): Is this 'elevated' appropriate?
+            if not uuidutils.is_uuid_like(instance_uuid):
+                raise exception.InvalidUUID(uuid=instance_uuid)
+
+            try:
+                self.driver.attach_volume(context,
+                                          volume_id,
+                                          instance_uuid,
+                                          mountpoint)
+            except Exception:
+                with excutils.save_and_reraise_exception():
+                    self.db.volume_update(context,
+                                          volume_id,
+                                          {'status': 'error_attaching'})
+
+            self.db.volume_attached(context.elevated(),
+                                    volume_id,
+                                    instance_uuid,
+                                    mountpoint)
+        return do_attach()
 
     def detach_volume(self, context, volume_id):
         """Updates db to show volume is detached"""
@@ -313,7 +398,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         # Check for https://bugs.launchpad.net/cinder/+bug/1065702
         volume_ref = self.db.volume_get(context, volume_id)
         if (volume_ref['provider_location'] and
-            volume_ref['name'] not in volume_ref['provider_location']):
+                volume_ref['name'] not in volume_ref['provider_location']):
             self.driver.ensure_export(context, volume_ref)
 
     def _copy_image_to_volume(self, context, volume, image_id):
@@ -397,48 +482,27 @@ class VolumeManager(manager.SchedulerDependentManager):
         volume_ref = self.db.volume_get(context, volume_id)
         return self.driver.initialize_connection(volume_ref, connector)
 
-    def terminate_connection(self, context, volume_id, connector):
+    def terminate_connection(self, context, volume_id, connector, force=False):
         """Cleanup connection from host represented by connector.
 
         The format of connector is the same as for initialize_connection.
         """
         volume_ref = self.db.volume_get(context, volume_id)
-        self.driver.terminate_connection(volume_ref, connector)
-
-    def check_for_export(self, context, instance_uuid):
-        """Make sure whether volume is exported."""
-        volumes = self.db.volume_get_all_by_instance_uuid(context,
-                                                          instance_uuid)
-        for volume in volumes:
-            self.driver.check_for_export(context, volume['id'])
-
-    def _volume_stats_changed(self, stat1, stat2):
-        if FLAGS.volume_force_update_capabilities:
-            return True
-        if len(stat1) != len(stat2):
-            return True
-        for (k, v) in stat1.iteritems():
-            if (k, v) not in stat2.iteritems():
-                return True
-        return False
+        self.driver.terminate_connection(volume_ref, connector, force=force)
 
     @manager.periodic_task
     def _report_driver_status(self, context):
+        LOG.info(_("Updating volume status"))
         volume_stats = self.driver.get_volume_stats(refresh=True)
         if volume_stats:
-            LOG.info(_("Checking volume capabilities"))
+            # This will grab info about the host and queue it
+            # to be sent to the Schedulers.
+            self.update_service_capabilities(volume_stats)
 
-            if self._volume_stats_changed(self._last_volume_stats,
-                                          volume_stats):
-                LOG.info(_("New capabilities found: %s"), volume_stats)
-                self._last_volume_stats = volume_stats
-
-                # This will grab info about the host and queue it
-                # to be sent to the Schedulers.
-                self.update_service_capabilities(self._last_volume_stats)
-            else:
-                # avoid repeating fanouts
-                self.update_service_capabilities(None)
+    def publish_service_capabilities(self, context):
+        """ Collect driver status and then publish """
+        self._report_driver_status(context)
+        self._publish_service_capabilities(context)
 
     def _reset_stats(self):
         LOG.info(_("Clear capabilities"))
@@ -448,8 +512,11 @@ class VolumeManager(manager.SchedulerDependentManager):
         LOG.info(_("Notification {%s} received"), event)
         self._reset_stats()
 
-    def _notify_about_volume_usage(self, context, volume, event_suffix,
-                                     extra_usage_info=None):
+    def _notify_about_volume_usage(self,
+                                   context,
+                                   volume,
+                                   event_suffix,
+                                   extra_usage_info=None):
         volume_utils.notify_about_volume_usage(
-                context, volume, event_suffix,
-                extra_usage_info=extra_usage_info, host=self.host)
+            context, volume, event_suffix,
+            extra_usage_info=extra_usage_info, host=self.host)

@@ -15,6 +15,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import contextlib
+import os
+import tempfile
+
 from cinder import db
 from cinder import exception
 from cinder.openstack.common import log as logging
@@ -22,9 +26,14 @@ from cinder.openstack.common import timeutils
 from cinder import test
 from cinder.tests.image import fake as fake_image
 from cinder.tests.test_volume import DriverTestCase
-from cinder.volume.driver import RBDDriver
+from cinder.volume.drivers.rbd import RBDDriver
 
 LOG = logging.getLogger(__name__)
+
+
+class FakeImageService:
+    def download(self, context, image_id, path):
+        pass
 
 
 class RBDTestCase(test.TestCase):
@@ -37,22 +46,18 @@ class RBDTestCase(test.TestCase):
         self.driver = RBDDriver(execute=fake_execute)
 
     def test_good_locations(self):
-        locations = [
-            'rbd://fsid/pool/image/snap',
-            'rbd://%2F/%2F/%2F/%2F',
-            ]
+        locations = ['rbd://fsid/pool/image/snap',
+                     'rbd://%2F/%2F/%2F/%2F', ]
         map(self.driver._parse_location, locations)
 
     def test_bad_locations(self):
-        locations = [
-            'rbd://image',
-            'http://path/to/somewhere/else',
-            'rbd://image/extra',
-            'rbd://image/',
-            'rbd://fsid/pool/image/',
-            'rbd://fsid/pool/image/snap/',
-            'rbd://///',
-            ]
+        locations = ['rbd://image',
+                     'http://path/to/somewhere/else',
+                     'rbd://image/extra',
+                     'rbd://image/',
+                     'rbd://fsid/pool/image/',
+                     'rbd://fsid/pool/image/snap/',
+                     'rbd://///', ]
         for loc in locations:
             self.assertRaises(exception.ImageUnacceptable,
                               self.driver._parse_location,
@@ -76,6 +81,26 @@ class RBDTestCase(test.TestCase):
         self.stubs.Set(self.driver, '_execute', fake_exc)
         location = 'rbd://abc/pool/image/snap'
         self.assertFalse(self.driver._is_cloneable(location))
+
+    def _copy_image(self):
+        @contextlib.contextmanager
+        def fake_temp_file(dir):
+            class FakeTmp:
+                def __init__(self, name):
+                    self.name = name
+            yield FakeTmp('test')
+        self.stubs.Set(tempfile, 'NamedTemporaryFile', fake_temp_file)
+        self.stubs.Set(os.path, 'exists', lambda x: True)
+        self.driver.copy_image_to_volume(None, {'name': 'test'},
+                                         FakeImageService(), None)
+
+    def test_copy_image_no_volume_tmp(self):
+        self.flags(volume_tmp_dir=None)
+        self._copy_image()
+
+    def test_copy_image_volume_tmp(self):
+        self.flags(volume_tmp_dir='/var/run/cinder/tmp')
+        self._copy_image()
 
 
 class FakeRBDDriver(RBDDriver):
@@ -113,13 +138,14 @@ class ManagedRBDTestCase(DriverTestCase):
         image_id = 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'
         volume_id = 1
         # creating volume testdata
-        db.volume_create(self.context, {'id': volume_id,
-                            'updated_at': timeutils.utcnow(),
-                            'display_description': 'Test Desc',
-                            'size': 20,
-                            'status': 'creating',
-                            'instance_uuid': None,
-                            'host': 'dummy'})
+        db.volume_create(self.context,
+                         {'id': volume_id,
+                          'updated_at': timeutils.utcnow(),
+                          'display_description': 'Test Desc',
+                          'size': 20,
+                          'status': 'creating',
+                          'instance_uuid': None,
+                          'host': 'dummy'})
         try:
             if clone_works:
                 self.volume.create_volume(self.context,

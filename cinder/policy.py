@@ -17,10 +17,10 @@
 
 """Policy Engine For Cinder"""
 
-from cinder.common import policy
 from cinder import exception
 from cinder import flags
 from cinder.openstack.common import cfg
+from cinder.openstack.common import policy
 from cinder import utils
 
 
@@ -30,8 +30,7 @@ policy_opts = [
                help=_('JSON file representing policy')),
     cfg.StrOpt('policy_default_rule',
                default='default',
-               help=_('Rule checked when requested rule is not found')),
-    ]
+               help=_('Rule checked when requested rule is not found')), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(policy_opts)
@@ -76,7 +75,7 @@ def enforce(context, action, target):
            for object creation this should be a dictionary representing the
            location of the object e.g. ``{'project_id': context.project_id}``
 
-       :raises cinder.exception.PolicyNotAllowed: if verification fails.
+       :raises cinder.exception.PolicyNotAuthorized: if verification fails.
 
     """
     init()
@@ -84,7 +83,23 @@ def enforce(context, action, target):
     match_list = ('rule:%s' % action,)
     credentials = context.to_dict()
 
-    try:
-        policy.enforce(match_list, target, credentials)
-    except policy.NotAuthorized:
-        raise exception.PolicyNotAuthorized(action=action)
+    policy.enforce(match_list, target, credentials,
+                   exception.PolicyNotAuthorized, action=action)
+
+
+def check_is_admin(roles):
+    """Whether or not roles contains 'admin' role according to policy setting.
+
+    """
+    init()
+
+    action = 'context_is_admin'
+    match_list = ('rule:%s' % action,)
+    # include project_id on target to avoid KeyError if context_is_admin
+    # policy definition is missing, and default admin_or_owner rule
+    # attempts to apply.  Since our credentials dict does not include a
+    # project_id, this target can never match as a generic rule.
+    target = {'project_id': ''}
+    credentials = {'roles': roles}
+
+    return policy.enforce(match_list, target, credentials)

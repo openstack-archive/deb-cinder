@@ -24,16 +24,16 @@ inline callbacks.
 """
 
 import functools
-import uuid
 import unittest
+import uuid
 
 import mox
 import nose.plugins.skip
 import stubout
 
 from cinder import flags
-from cinder.openstack.common import log as logging
 from cinder.openstack.common import cfg
+from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import service
 from cinder import tests
@@ -46,8 +46,7 @@ test_opts = [
                help='File name of clean sqlite db'),
     cfg.BoolOpt('fake_tests',
                 default=True,
-                help='should we use everything for testing'),
-    ]
+                help='should we use everything for testing'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(test_opts)
@@ -138,6 +137,7 @@ class TestCase(unittest.TestCase):
         self.stubs = stubout.StubOutForTesting()
         self.injected = []
         self._services = []
+        FLAGS.set_override('fatal_exception_format_errors', True)
 
     def tearDown(self):
         """Runs after each test method to tear down test environment."""

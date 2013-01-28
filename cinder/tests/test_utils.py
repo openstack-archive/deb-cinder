@@ -19,8 +19,10 @@ import datetime
 import hashlib
 import os
 import os.path
+import paramiko
 import StringIO
 import tempfile
+import uuid
 
 import mox
 
@@ -348,8 +350,9 @@ class GenericUtilsTestCase(test.TestCase):
             self.assertEqual(reloaded_data, fake_contents)
             self.reload_called = True
 
-        data = utils.read_cached_file("/this/is/a/fake", cache_data,
-                                                reload_func=test_reload)
+        data = utils.read_cached_file("/this/is/a/fake",
+                                      cache_data,
+                                      reload_func=test_reload)
         self.assertEqual(data, fake_contents)
         self.assertTrue(self.reload_called)
 
@@ -435,31 +438,6 @@ class GenericUtilsTestCase(test.TestCase):
         self.assertEquals(h1, h2)
 
 
-class IsUUIDLikeTestCase(test.TestCase):
-    def assertUUIDLike(self, val, expected):
-        result = utils.is_uuid_like(val)
-        self.assertEqual(result, expected)
-
-    def test_good_uuid(self):
-        val = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        self.assertUUIDLike(val, True)
-
-    def test_integer_passed(self):
-        val = 1
-        self.assertUUIDLike(val, False)
-
-    def test_non_uuid_string_passed(self):
-        val = 'foo-fooo'
-        self.assertUUIDLike(val, False)
-
-    def test_non_uuid_string_passed2(self):
-        val = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
-        self.assertUUIDLike(val, False)
-
-    def test_gen_valid_uuid(self):
-        self.assertUUIDLike(str(utils.gen_uuid()), True)
-
-
 class MonkeyPatchTestCase(test.TestCase):
     """Unit test for utils.monkey_patch()."""
     def setUp(self):
@@ -468,7 +446,8 @@ class MonkeyPatchTestCase(test.TestCase):
         self.flags(
             monkey_patch=True,
             monkey_patch_modules=[self.example_package + 'example_a' + ':'
-            + self.example_package + 'example_decorator'])
+                                  + self.example_package
+                                  + 'example_decorator'])
 
     def test_monkey_patch(self):
         utils.monkey_patch()
@@ -490,19 +469,19 @@ class MonkeyPatchTestCase(test.TestCase):
         self.assertEqual(ret_b, 8)
         package_a = self.example_package + 'example_a.'
         self.assertTrue(package_a + 'example_function_a'
-            in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
+                        in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
 
         self.assertTrue(package_a + 'ExampleClassA.example_method'
-            in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
+                        in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
         self.assertTrue(package_a + 'ExampleClassA.example_method_add'
-            in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
+                        in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
         package_b = self.example_package + 'example_b.'
         self.assertFalse(package_b + 'example_function_b'
-            in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
+                         in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
         self.assertFalse(package_b + 'ExampleClassB.example_method'
-            in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
+                         in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
         self.assertFalse(package_b + 'ExampleClassB.example_method_add'
-            in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
+                         in cinder.tests.monkey_patch_example.CALLED_FUNCTION)
 
 
 class AuditPeriodTest(test.TestCase):
@@ -524,146 +503,208 @@ class AuditPeriodTest(test.TestCase):
 
     def test_hour(self):
         begin, end = utils.last_completed_audit_period(unit='hour')
-        self.assertEquals(begin, datetime.datetime(
-                                           hour=7,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           hour=8,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin,
+                          datetime.datetime(hour=7,
+                                            day=5,
+                                            month=3,
+                                            year=2012))
+        self.assertEquals(end, datetime.datetime(hour=8,
+                                                 day=5,
+                                                 month=3,
+                                                 year=2012))
 
     def test_hour_with_offset_before_current(self):
         begin, end = utils.last_completed_audit_period(unit='hour@10')
-        self.assertEquals(begin, datetime.datetime(
-                                           minute=10,
-                                           hour=7,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           minute=10,
-                                           hour=8,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(minute=10,
+                                                   hour=7,
+                                                   day=5,
+                                                   month=3,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(minute=10,
+                                                 hour=8,
+                                                 day=5,
+                                                 month=3,
+                                                 year=2012))
 
     def test_hour_with_offset_after_current(self):
         begin, end = utils.last_completed_audit_period(unit='hour@30')
-        self.assertEquals(begin, datetime.datetime(
-                                           minute=30,
-                                           hour=6,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           minute=30,
-                                           hour=7,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(minute=30,
+                                                   hour=6,
+                                                   day=5,
+                                                   month=3,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(minute=30,
+                                                 hour=7,
+                                                 day=5,
+                                                 month=3,
+                                                 year=2012))
 
     def test_day(self):
         begin, end = utils.last_completed_audit_period(unit='day')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=4,
-                                           month=3,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           day=5,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(day=4,
+                                                   month=3,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(day=5,
+                                                 month=3,
+                                                 year=2012))
 
     def test_day_with_offset_before_current(self):
         begin, end = utils.last_completed_audit_period(unit='day@6')
-        self.assertEquals(begin, datetime.datetime(
-                                           hour=6,
-                                           day=4,
-                                           month=3,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           hour=6,
-                                           day=5,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(hour=6,
+                                                   day=4,
+                                                   month=3,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(hour=6,
+                                                 day=5,
+                                                 month=3,
+                                                 year=2012))
 
     def test_day_with_offset_after_current(self):
         begin, end = utils.last_completed_audit_period(unit='day@10')
-        self.assertEquals(begin, datetime.datetime(
-                                           hour=10,
-                                           day=3,
-                                           month=3,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           hour=10,
-                                           day=4,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(hour=10,
+                                                   day=3,
+                                                   month=3,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(hour=10,
+                                                 day=4,
+                                                 month=3,
+                                                 year=2012))
 
     def test_month(self):
         begin, end = utils.last_completed_audit_period(unit='month')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=1,
-                                           month=2,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           day=1,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(day=1,
+                                                   month=2,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(day=1,
+                                                 month=3,
+                                                 year=2012))
 
     def test_month_with_offset_before_current(self):
         begin, end = utils.last_completed_audit_period(unit='month@2')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=2,
-                                           month=2,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           day=2,
-                                           month=3,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(day=2,
+                                                   month=2,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(day=2,
+                                                 month=3,
+                                                 year=2012))
 
     def test_month_with_offset_after_current(self):
         begin, end = utils.last_completed_audit_period(unit='month@15')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=15,
-                                           month=1,
-                                           year=2012))
-        self.assertEquals(end, datetime.datetime(
-                                           day=15,
-                                           month=2,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(day=15,
+                                                   month=1,
+                                                   year=2012))
+        self.assertEquals(end, datetime.datetime(day=15,
+                                                 month=2,
+                                                 year=2012))
 
     def test_year(self):
         begin, end = utils.last_completed_audit_period(unit='year')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=1,
-                                           month=1,
-                                           year=2011))
-        self.assertEquals(end, datetime.datetime(
-                                           day=1,
-                                           month=1,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(day=1,
+                                                   month=1,
+                                                   year=2011))
+        self.assertEquals(end, datetime.datetime(day=1,
+                                                 month=1,
+                                                 year=2012))
 
     def test_year_with_offset_before_current(self):
         begin, end = utils.last_completed_audit_period(unit='year@2')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=1,
-                                           month=2,
-                                           year=2011))
-        self.assertEquals(end, datetime.datetime(
-                                           day=1,
-                                           month=2,
-                                           year=2012))
+        self.assertEquals(begin, datetime.datetime(day=1,
+                                                   month=2,
+                                                   year=2011))
+        self.assertEquals(end, datetime.datetime(day=1,
+                                                 month=2,
+                                                 year=2012))
 
     def test_year_with_offset_after_current(self):
         begin, end = utils.last_completed_audit_period(unit='year@6')
-        self.assertEquals(begin, datetime.datetime(
-                                           day=1,
-                                           month=6,
-                                           year=2010))
-        self.assertEquals(end, datetime.datetime(
-                                           day=1,
-                                           month=6,
-                                           year=2011))
+        self.assertEquals(begin, datetime.datetime(day=1,
+                                                   month=6,
+                                                   year=2010))
+        self.assertEquals(end, datetime.datetime(day=1,
+                                                 month=6,
+                                                 year=2011))
+
+
+class FakeSSHClient(object):
+
+    def __init__(self):
+        self.id = uuid.uuid4()
+        self.transport = FakeTransport()
+
+    def set_missing_host_key_policy(self, policy):
+        pass
+
+    def connect(self, ip, port=22, username=None, password=None,
+                pkey=None, timeout=10):
+        pass
+
+    def get_transport(self):
+        return self.transport
+
+    def close(self):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+
+class FakeSock(object):
+    def settimeout(self, timeout):
+        pass
+
+
+class FakeTransport(object):
+
+    def __init__(self):
+        self.active = True
+        self.sock = FakeSock()
+
+    def set_keepalive(self, timeout):
+        pass
+
+    def is_active(self):
+        return self.active
+
+
+class SSHPoolTestCase(test.TestCase):
+    """Unit test for SSH Connection Pool."""
+
+    def setup(self):
+        self.mox.StubOutWithMock(paramiko, "SSHClient")
+        paramiko.SSHClient().AndReturn(FakeSSHClient())
+        self.mox.ReplayAll()
+
+    def test_single_ssh_connect(self):
+        self.setup()
+        sshpool = utils.SSHPool("127.0.0.1", 22, 10, "test", password="test",
+                                min_size=1, max_size=1)
+        with sshpool.item() as ssh:
+            first_id = ssh.id
+
+        with sshpool.item() as ssh:
+            second_id = ssh.id
+
+        self.assertEqual(first_id, second_id)
+
+    def test_closed_reopend_ssh_connections(self):
+        self.setup()
+        sshpool = utils.SSHPool("127.0.0.1", 22, 10, "test", password="test",
+                                min_size=1, max_size=2)
+        with sshpool.item() as ssh:
+            first_id = ssh.id
+        with sshpool.item() as ssh:
+            second_id = ssh.id
+            # Close the connection and test for a new connection
+            ssh.get_transport().active = False
+
+        self.assertEqual(first_id, second_id)
+
+        # The mox items are not getting setup in a new pool connection,
+        # so had to reset and set again.
+        self.mox.UnsetStubs()
+        self.setup()
+
+        with sshpool.item() as ssh:
+            third_id = ssh.id
+
+        self.assertNotEqual(first_id, third_id)

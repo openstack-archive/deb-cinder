@@ -20,6 +20,7 @@ Helper code for the iSCSI volume driver.
 
 """
 import os
+import re
 
 from cinder import exception
 from cinder import flags
@@ -29,14 +30,16 @@ from cinder import utils
 
 LOG = logging.getLogger(__name__)
 
-iscsi_helper_opt = [
-        cfg.StrOpt('iscsi_helper',
-                    default='tgtadm',
-                    help='iscsi target user-land tool to use'),
-        cfg.StrOpt('volumes_dir',
-                   default='$state_path/volumes',
-                   help='Volume configuration file storage directory'),
-]
+iscsi_helper_opt = [cfg.StrOpt('iscsi_helper',
+                               default='tgtadm',
+                               help='iscsi target user-land tool to use'),
+                    cfg.StrOpt('volumes_dir',
+                               default='$state_path/volumes',
+                               help='Volume configuration file storage '
+                                    'directory'),
+                    cfg.StrOpt('iet_conf',
+                               default='/etc/iet/ietd.conf',
+                               help='IET configuration file'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(iscsi_helper_opt)
@@ -59,7 +62,8 @@ class TargetAdmin(object):
     def _run(self, *args, **kwargs):
         self._execute(self._cmd, *args, run_as_root=True, **kwargs)
 
-    def create_iscsi_target(self, name, tid, lun, path, **kwargs):
+    def create_iscsi_target(self, name, tid, lun, path,
+                            chap_auth=None, **kwargs):
         """Create a iSCSI target and logical unit"""
         raise NotImplementedError()
 
@@ -105,18 +109,27 @@ class TgtAdm(TargetAdmin):
 
         return None
 
-    def create_iscsi_target(self, name, tid, lun, path, **kwargs):
+    def create_iscsi_target(self, name, tid, lun, path,
+                            chap_auth=None, **kwargs):
         # Note(jdg) tid and lun aren't used by TgtAdm but remain for
         # compatibility
 
         utils.ensure_tree(FLAGS.volumes_dir)
 
         vol_id = name.split(':')[1]
-        volume_conf = """
-            <target %s>
-                backing-store %s
-            </target>
-        """ % (name, path)
+        if chap_auth is None:
+            volume_conf = """
+                <target %s>
+                    backing-store %s
+                </target>
+            """ % (name, path)
+        else:
+            volume_conf = """
+                <target %s>
+                    backing-store %s
+                    %s
+                </target>
+            """ % (name, path, chap_auth)
 
         LOG.info(_('Creating volume: %s') % vol_id)
         volumes_dir = FLAGS.volumes_dir
@@ -173,7 +186,7 @@ class TgtAdm(TargetAdmin):
                           run_as_root=True)
         except exception.ProcessExecutionError, e:
             LOG.error(_("Failed to delete iscsi target for volume "
-                        "id:%(volume_id)s.") % locals())
+                        "id:%(vol_id)s.") % locals())
             raise exception.ISCSITargetRemoveFailed(volume_id=vol_id)
 
         os.unlink(volume_path)
@@ -194,15 +207,62 @@ class IetAdm(TargetAdmin):
     def __init__(self, execute=utils.execute):
         super(IetAdm, self).__init__('ietadm', execute)
 
-    def create_iscsi_target(self, name, tid, lun, path, **kwargs):
+    def create_iscsi_target(self, name, tid, lun, path,
+                            chap_auth=None, **kwargs):
         self._new_target(name, tid, **kwargs)
         self._new_logicalunit(tid, lun, path, **kwargs)
+        if chap_auth is not None:
+            (type, username, password) = chap_auth.split()
+            self._new_auth(tid, type, username, password, **kwargs)
+
+        conf_file = FLAGS.iet_conf
+        if os.path.exists(conf_file):
+            try:
+                volume_conf = """
+                        Target %s
+                            %s
+                            Lun 0 Path=%s,Type=fileio
+                """ % (name, chap_auth, path)
+
+                with utils.temporary_chown(conf_file):
+                    f = open(conf_file, 'a+')
+                    f.write(volume_conf)
+                    f.close()
+            except exception.ProcessExecutionError, e:
+                vol_id = name.split(':')[1]
+                LOG.error(_("Failed to create iscsi target for volume "
+                            "id:%(vol_id)s.") % locals())
+                raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
         return tid
 
     def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
         LOG.info(_('Removing volume: %s') % vol_id)
         self._delete_logicalunit(tid, lun, **kwargs)
         self._delete_target(tid, **kwargs)
+        vol_uuid = 'volume-%s' % vol_id
+        conf_file = FLAGS.iet_conf
+        if os.path.exists(conf_file):
+            with utils.temporary_chown(conf_file):
+                try:
+                    iet_conf_text = open(conf_file, 'r+')
+                    full_txt = iet_conf_text.readlines()
+                    new_iet_conf_txt = []
+                    count = 0
+                    for line in full_txt:
+                        if count > 0:
+                            count -= 1
+                            continue
+                        elif re.search(vol_uuid, line):
+                            count = 2
+                            continue
+                        else:
+                            new_iet_conf_txt.append(line)
+
+                    iet_conf_text.seek(0)
+                    iet_conf_text.truncate(0)
+                    iet_conf_text.writelines(new_iet_conf_txt)
+                finally:
+                    iet_conf_text.close()
 
     def _new_target(self, name, tid, **kwargs):
         self._run('--op', 'new',
@@ -233,9 +293,31 @@ class IetAdm(TargetAdmin):
                   '--lun=%d' % lun,
                   **kwargs)
 
+    def _new_auth(self, tid, type, username, password, **kwargs):
+        self._run('--op', 'new',
+                  '--tid=%s' % tid,
+                  '--user',
+                  '--params=%s=%s,Password=%s' % (type, username, password),
+                  **kwargs)
+
+
+class FakeIscsiHelper(object):
+
+    def __init__(self):
+        self.tid = 1
+
+    def set_execute(self, execute):
+        self._execute = execute
+
+    def create_iscsi_target(self, *args, **kwargs):
+        self.tid += 1
+        return self.tid
+
 
 def get_target_admin():
     if FLAGS.iscsi_helper == 'tgtadm':
         return TgtAdm()
+    elif FLAGS.iscsi_helper == 'fake':
+        return FakeIscsiHelper()
     else:
         return IetAdm()

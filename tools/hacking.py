@@ -57,10 +57,10 @@ def import_normalize(line):
     # handle "from x import y as z" to "import x.y as z"
     split_line = line.split()
     if (line.startswith("from ") and "," not in line and
-           split_line[2] == "import" and split_line[3] != "*" and
-           split_line[1] != "__future__" and
-           (len(split_line) == 4 or
-           (len(split_line) == 6 and split_line[4] == "as"))):
+            split_line[2] == "import" and split_line[3] != "*" and
+            split_line[1] != "__future__" and
+            (len(split_line) == 4 or
+                (len(split_line) == 6 and split_line[4] == "as"))):
         return "import %s.%s" % (split_line[1], split_line[3])
     else:
         return line
@@ -88,7 +88,7 @@ def cinder_except_format(logical_line):
     N201
     """
     if logical_line.startswith("except:"):
-        return 6, "CINDER N201: no 'except:' at least use 'except Exception:'"
+        yield 6, "CINDER N201: no 'except:' at least use 'except Exception:'"
 
 
 def cinder_except_format_assert(logical_line):
@@ -99,7 +99,7 @@ def cinder_except_format_assert(logical_line):
     N202
     """
     if logical_line.startswith("self.assertRaises(Exception"):
-        return 1, "CINDER N202: assertRaises Exception too broad"
+        yield 1, "CINDER N202: assertRaises Exception too broad"
 
 
 def cinder_one_import_per_line(logical_line):
@@ -114,10 +114,10 @@ def cinder_one_import_per_line(logical_line):
     """
     pos = logical_line.find(',')
     parts = logical_line.split()
-    if pos > -1 and (parts[0] == "import" or
-       parts[0] == "from" and parts[2] == "import") and \
-       not is_import_exception(parts[1]):
-        return pos, "CINDER N301: one import per line"
+    if (pos > -1 and (parts[0] == "import" or
+                      parts[0] == "from" and parts[2] == "import") and
+            not is_import_exception(parts[1])):
+        yield pos, "CINDER N301: one import per line"
 
 _missingImport = set([])
 
@@ -144,8 +144,11 @@ def cinder_import_module_only(logical_line):
                 if parent:
                     if is_import_exception(parent):
                         return
-                    parent_mod = __import__(parent, globals(), locals(),
-                        [mod], -1)
+                    parent_mod = __import__(parent,
+                                            globals(),
+                                            locals(),
+                                            [mod],
+                                            -1)
                     valid = inspect.ismodule(getattr(parent_mod, mod))
                 else:
                     __import__(mod, globals(), locals(), [], -1)
@@ -154,12 +157,14 @@ def cinder_import_module_only(logical_line):
                     if added:
                         sys.path.pop()
                         added = False
-                        return logical_line.find(mod), ("CINDER N304: No "
-                            "relative  imports. '%s' is a relative import"
-                            % logical_line)
-                    return logical_line.find(mod), ("CINDER N302: import only "
-                        "modules. '%s' does not import a module"
-                        % logical_line)
+                        return (logical_line.find(mod),
+                                ("CINDER N304: No "
+                                 "relative  imports. '%s' is a relative import"
+                                % logical_line))
+                    return (logical_line.find(mod),
+                            ("CINDER N302: import only "
+                             "modules. '%s' does not import a module"
+                            % logical_line))
 
         except (ImportError, NameError) as exc:
             if not added:
@@ -171,7 +176,7 @@ def cinder_import_module_only(logical_line):
                 if name not in _missingImport:
                     if VERBOSE_MISSING_IMPORT:
                         print >> sys.stderr, ("ERROR: import '%s' failed: %s" %
-                            (name, exc))
+                                              (name, exc))
                     _missingImport.add(name)
                 added = False
                 sys.path.pop()
@@ -180,18 +185,21 @@ def cinder_import_module_only(logical_line):
         except AttributeError:
             # Invalid import
             return logical_line.find(mod), ("CINDER N303: Invalid import, "
-                "AttributeError raised")
+                                            "AttributeError raised")
 
     # convert "from x import y" to " import x.y"
     # convert "from x import y as z" to " import x.y"
     import_normalize(logical_line)
     split_line = logical_line.split()
 
-    if (logical_line.startswith("import ") and "," not in logical_line and
+    if (logical_line.startswith("import ") and
+            "," not in logical_line and
             (len(split_line) == 2 or
-            (len(split_line) == 4 and split_line[2] == "as"))):
+                (len(split_line) == 4 and split_line[2] == "as"))):
         mod = split_line[1]
-        return importModuleCheck(mod)
+        rval = importModuleCheck(mod)
+        if rval is not None:
+            yield rval
 
     # TODO(jogo) handle "from x import *"
 
@@ -208,12 +216,12 @@ def cinder_import_alphabetical(physical_line, line_number, lines):
     # handle import x
     # use .lower since capitalization shouldn't dictate order
     split_line = import_normalize(physical_line.strip()).lower().split()
-    split_previous = import_normalize(lines[line_number - 2]
-            ).strip().lower().split()
+    split_previous = import_normalize(
+        lines[line_number - 2]).strip().lower().split()
     # with or without "as y"
     length = [2, 4]
     if (len(split_line) in length and len(split_previous) in length and
-        split_line[0] == "import" and split_previous[0] == "import"):
+            split_line[0] == "import" and split_previous[0] == "import"):
         if split_line[1] < split_previous[1]:
             return (0,
                     "CINDER N306: imports not in alphabetical order (%s, %s)"
@@ -245,7 +253,7 @@ def cinder_docstring_one_line(physical_line):
     pos = max([physical_line.find(i) for i in DOCSTRING_TRIPLE])  # start
     end = max([physical_line[-4:-1] == i for i in DOCSTRING_TRIPLE])  # end
     if (pos != -1 and end and len(physical_line) > pos + 4):
-        if (physical_line[-5] != '.'):
+        if (physical_line[-5] != '.' and physical_line):
             return pos, "CINDER N402: one line docstring needs a period"
 
 
@@ -264,13 +272,13 @@ def cinder_docstring_multiline_end(physical_line):
 
 
 FORMAT_RE = re.compile("%(?:"
-                            "%|"           # Ignore plain percents
-                            "(\(\w+\))?"   # mapping key
-                            "([#0 +-]?"    # flag
-                             "(?:\d+|\*)?"  # width
-                             "(?:\.\d+)?"   # precision
-                             "[hlL]?"       # length mod
-                             "\w))")        # type
+                       "%|"           # Ignore plain percents
+                       "(\(\w+\))?"   # mapping key
+                       "([#0 +-]?"    # flag
+                       "(?:\d+|\*)?"  # width
+                       "(?:\.\d+)?"   # precision
+                       "[hlL]?"       # length mod
+                       "\w))")        # type
 
 
 class LocalizationError(Exception):
@@ -307,30 +315,36 @@ def check_l18n():
                     break
 
             if not format_string:
-                raise LocalizationError(start,
+                raise LocalizationError(
+                    start,
                     "CINDER N701: Empty localization string")
             if token_type != tokenize.OP:
-                raise LocalizationError(start,
+                raise LocalizationError(
+                    start,
                     "CINDER N701: Invalid localization call")
             if text != ")":
                 if text == "%":
-                    raise LocalizationError(start,
+                    raise LocalizationError(
+                        start,
                         "CINDER N702: Formatting operation should be outside"
                         " of localization method call")
                 elif text == "+":
-                    raise LocalizationError(start,
+                    raise LocalizationError(
+                        start,
                         "CINDER N702: Use bare string concatenation instead"
                         " of +")
                 else:
-                    raise LocalizationError(start,
+                    raise LocalizationError(
+                        start,
                         "CINDER N702: Argument to _ must be just a string")
 
             format_specs = FORMAT_RE.findall(format_string)
             positional_specs = [(key, spec) for key, spec in format_specs
-                                            if not key and spec]
+                                if not key and spec]
             # not spec means %%, key means %(smth)s
             if len(positional_specs) > 1:
-                raise LocalizationError(start,
+                raise LocalizationError(
+                    start,
                     "CINDER N703: Multiple positional placeholders")
 
 
@@ -348,7 +362,7 @@ def cinder_localization_strings(logical_line, tokens):
         map(gen.send, tokens)
         gen.close()
     except LocalizationError as e:
-        return e.args
+        yield e.args
 
 #TODO(jogo) Dict and list objects
 
@@ -388,4 +402,4 @@ if __name__ == "__main__":
     finally:
         if len(_missingImport) > 0:
             print >> sys.stderr, ("%i imports missing in this test environment"
-                    % len(_missingImport))
+                                  % len(_missingImport))

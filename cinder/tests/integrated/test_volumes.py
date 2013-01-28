@@ -18,10 +18,11 @@
 import time
 import unittest
 
-from cinder import service
 from cinder.openstack.common import log as logging
-from cinder.tests.integrated import integrated_helpers
+from cinder import service
+from cinder.tests import fake_driver
 from cinder.tests.integrated.api import client
+from cinder.tests.integrated import integrated_helpers
 from cinder.volume import driver
 
 
@@ -31,7 +32,7 @@ LOG = logging.getLogger(__name__)
 class VolumesTest(integrated_helpers._IntegratedTestBase):
     def setUp(self):
         super(VolumesTest, self).setUp()
-        driver.LoggingVolumeDriver.clear_logs()
+        fake_driver.LoggingVolumeDriver.clear_logs()
 
     def _start_api_service(self):
         self.osapi = service.WSGIService("osapi_volume")
@@ -41,8 +42,7 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
 
     def _get_flags(self):
         f = super(VolumesTest, self)._get_flags()
-        f['use_local_volumes'] = False  # Avoids calling local_path
-        f['volume_driver'] = 'cinder.volume.driver.LoggingVolumeDriver'
+        f['volume_driver'] = 'cinder.tests.fake_driver.LoggingVolumeDriver'
         return f
 
     def test_get_volumes_summary(self):
@@ -114,9 +114,9 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         # Should be gone
         self.assertFalse(found_volume)
 
-        LOG.debug("Logs: %s" % driver.LoggingVolumeDriver.all_logs())
+        LOG.debug("Logs: %s" % fake_driver.LoggingVolumeDriver.all_logs())
 
-        create_actions = driver.LoggingVolumeDriver.logs_like(
+        create_actions = fake_driver.LoggingVolumeDriver.logs_like(
                             'create_volume',
                             id=created_volume_id)
         LOG.debug("Create_Actions: %s" % create_actions)
@@ -127,7 +127,7 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         self.assertEquals(create_action['availability_zone'], 'nova')
         self.assertEquals(create_action['size'], 1)
 
-        export_actions = driver.LoggingVolumeDriver.logs_like(
+        export_actions = fake_driver.LoggingVolumeDriver.logs_like(
                             'create_export',
                             id=created_volume_id)
         self.assertEquals(1, len(export_actions))
@@ -135,7 +135,7 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         self.assertEquals(export_action['id'], created_volume_id)
         self.assertEquals(export_action['availability_zone'], 'nova')
 
-        delete_actions = driver.LoggingVolumeDriver.logs_like(
+        delete_actions = fake_driver.LoggingVolumeDriver.logs_like(
                             'delete_volume',
                             id=created_volume_id)
         self.assertEquals(1, len(delete_actions))
@@ -176,6 +176,23 @@ class VolumesTest(integrated_helpers._IntegratedTestBase):
         found_volume = self.api.get_volume(created_volume_id)
         self.assertEqual(created_volume_id, found_volume['id'])
         self.assertEqual(availability_zone, found_volume['availability_zone'])
+
+    def test_create_and_update_volume(self):
+        # Create vol1
+        created_volume = self.api.post_volume({'volume': {
+            'size': 1, 'display_name': 'vol1'}})
+        self.assertEqual(created_volume['display_name'], 'vol1')
+        created_volume_id = created_volume['id']
+
+        # update volume
+        body = {'volume': {'display_name': 'vol-one'}}
+        updated_volume = self.api.put_volume(created_volume_id, body)
+        self.assertEqual(updated_volume['display_name'], 'vol-one')
+
+        # check for update
+        found_volume = self.api.get_volume(created_volume_id)
+        self.assertEqual(created_volume_id, found_volume['id'])
+        self.assertEqual(found_volume['display_name'], 'vol-one')
 
 if __name__ == "__main__":
     unittest.main()

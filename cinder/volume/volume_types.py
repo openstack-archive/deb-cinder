@@ -34,22 +34,23 @@ LOG = logging.getLogger(__name__)
 def create(context, name, extra_specs={}):
     """Creates volume types."""
     try:
-        db.volume_type_create(context,
-                              dict(name=name,
-                                   extra_specs=extra_specs))
+        type_ref = db.volume_type_create(context,
+                                         dict(name=name,
+                                              extra_specs=extra_specs))
     except exception.DBError, e:
         LOG.exception(_('DB error: %s') % e)
         raise exception.VolumeTypeCreateFailed(name=name,
                                                extra_specs=extra_specs)
+    return type_ref
 
 
-def destroy(context, name):
+def destroy(context, id):
     """Marks volume types as deleted."""
-    if name is None:
-        msg = _("name cannot be None")
+    if id is None:
+        msg = _("id cannot be None")
         raise exception.InvalidVolumeType(reason=msg)
     else:
-        db.volume_type_destroy(context, name)
+        db.volume_type_destroy(context, id)
 
 
 def get_all_types(context, inactive=0, search_opts={}):
@@ -109,6 +110,25 @@ def get_volume_type_by_name(context, name):
         raise exception.InvalidVolumeType(reason=msg)
 
     return db.volume_type_get_by_name(context, name)
+
+
+def get_default_volume_type():
+    """Get the default volume type."""
+    name = FLAGS.default_volume_type
+    vol_type = {}
+
+    if name is not None:
+        ctxt = context.get_admin_context()
+        try:
+            vol_type = get_volume_type_by_name(ctxt, name)
+        except exception.VolumeTypeNotFoundByName, e:
+            # Couldn't find volume type with the name in default_volume_type
+            # flag, record this issue and move on
+            #TODO(zhiteng) consider add notification to warn admin
+            LOG.exception(_('Default volume type is not found, '
+                            'please check default_volume_type config: %s'), e)
+
+    return vol_type
 
 
 def is_key_value_present(volume_type_id, key, value, volume_type=None):

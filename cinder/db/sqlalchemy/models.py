@@ -21,11 +21,11 @@
 SQLAlchemy models for cinder data.
 """
 
-from sqlalchemy.orm import relationship, backref, object_mapper
-from sqlalchemy import Column, Integer, String, schema
-from sqlalchemy import ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Text, schema
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import ForeignKey, DateTime, Boolean
+from sqlalchemy.orm import relationship, backref, object_mapper
 
 from cinder.db.sqlalchemy.session import get_session
 
@@ -85,7 +85,7 @@ class CinderBase(object):
         return n, getattr(self, n)
 
     def update(self, values):
-        """Make the model object behave like a dict"""
+        """Make the model object behave like a dict."""
         for k, v in values.iteritems():
             setattr(self, k, v)
 
@@ -155,11 +155,12 @@ class Volume(BASE, CinderBase):
     provider_location = Column(String(255))
     provider_auth = Column(String(255))
 
-    volume_type_id = Column(Integer)
+    volume_type_id = Column(String(36))
+    source_volid = Column(String(36))
 
 
 class VolumeMetadata(BASE, CinderBase):
-    """Represents a metadata key/value pair for a volume"""
+    """Represents a metadata key/value pair for a volume."""
     __tablename__ = 'volume_metadata'
     id = Column(Integer, primary_key=True)
     key = Column(String(255))
@@ -173,9 +174,9 @@ class VolumeMetadata(BASE, CinderBase):
 
 
 class VolumeTypes(BASE, CinderBase):
-    """Represent possible volume_types of volumes offered"""
+    """Represent possible volume_types of volumes offered."""
     __tablename__ = "volume_types"
-    id = Column(Integer, primary_key=True)
+    id = Column(String(36), primary_key=True)
     name = Column(String(255))
 
     volumes = relationship(Volume,
@@ -187,12 +188,12 @@ class VolumeTypes(BASE, CinderBase):
 
 
 class VolumeTypeExtraSpecs(BASE, CinderBase):
-    """Represents additional specs as key/value pairs for a volume_type"""
+    """Represents additional specs as key/value pairs for a volume_type."""
     __tablename__ = 'volume_type_extra_specs'
     id = Column(Integer, primary_key=True)
     key = Column(String(255))
     value = Column(String(255))
-    volume_type_id = Column(Integer,
+    volume_type_id = Column(String(36),
                             ForeignKey('volume_types.id'),
                             nullable=False)
     volume_type = relationship(
@@ -203,6 +204,21 @@ class VolumeTypeExtraSpecs(BASE, CinderBase):
         'VolumeTypeExtraSpecs.volume_type_id == VolumeTypes.id,'
         'VolumeTypeExtraSpecs.deleted == False)'
     )
+
+
+class VolumeGlanceMetadata(BASE, CinderBase):
+    """Glance metadata for a bootable volume."""
+    __tablename__ = 'volume_glance_metadata'
+    id = Column(Integer, primary_key=True, nullable=False)
+    volume_id = Column(String(36), ForeignKey('volumes.id'))
+    snapshot_id = Column(String(36), ForeignKey('snapshots.id'))
+    key = Column(String(255))
+    value = Column(Text)
+    volume = relationship(Volume, backref="volume_glance_metadata",
+                          foreign_keys=volume_id,
+                          primaryjoin='and_('
+                          'VolumeGlanceMetadata.volume_id == Volume.id,'
+                          'VolumeGlanceMetadata.deleted == False)')
 
 
 class Quota(BASE, CinderBase):
@@ -302,7 +318,7 @@ class Snapshot(BASE, CinderBase):
 
 
 class IscsiTarget(BASE, CinderBase):
-    """Represents an iscsi target for a given host"""
+    """Represents an iscsi target for a given host."""
     __tablename__ = 'iscsi_targets'
     __table_args__ = (schema.UniqueConstraint("target_num", "host"),
                       {'mysql_engine': 'InnoDB'})
@@ -378,6 +394,7 @@ def register_models():
               VolumeMetadata,
               VolumeTypeExtraSpecs,
               VolumeTypes,
+              VolumeGlanceMetadata,
               )
     engine = create_engine(FLAGS.sql_connection, echo=False)
     for model in models:

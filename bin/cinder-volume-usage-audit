@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright (c) 2011 Openstack, LLC.
+# Copyright (c) 2011 OpenStack, LLC.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -64,16 +64,17 @@ if __name__ == '__main__':
     flags.parse_args(sys.argv)
     logging.setup("cinder")
     begin, end = utils.last_completed_audit_period()
-    print "Starting volume usage audit"
-    print "Creating usages for %s until %s" % (str(begin), str(end))
+    print _("Starting volume usage audit")
+    msg = _("Creating usages for %(begin_period) until %(end_period)")
+    print (msg % {"begin_period": str(begin), "end_period": str(end)})
     volumes = db.volume_get_active_by_window(admin_context,
                                              begin,
                                              end)
-    print "Found %d volumes" % len(volumes)
+    print _("Found %d volumes") % len(volumes)
     for volume_ref in volumes:
         try:
             cinder.volume.utils.notify_usage_exists(
                     admin_context, volume_ref)
         except Exception, e:
             print traceback.format_exc(e)
-    print "Volume usage audit completed"
+    print _("Volume usage audit completed")

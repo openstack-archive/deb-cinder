@@ -101,9 +101,9 @@
 # osapi_volume_extension=cinder.api.openstack.volume.contrib.standard_extensions
 #### (MultiStrOpt) osapi volume extension to load
 
-# osapi_compute_link_prefix=<None>
+# osapi_volume_base_URL=<None>
 #### (StrOpt) Base URL that will be presented to users in links to the
-####          OpenStack Compute API
+####          OpenStack Volume API
 
 # osapi_max_limit=1000
 #### (IntOpt) the maximum number of items returned in a single response
@@ -135,15 +135,15 @@
 #### (StrOpt) Name of this node.  This can be an opaque identifier.  It is
 ####          not necessarily a hostname, FQDN, or IP address.
 
-# storage_availability_zone=cinder
+# storage_availability_zone=nova
 #### (StrOpt) availability zone of this node
 
-# notification_driver=cinder.openstack.common.notifier.no_op_notifier
-#### (StrOpt) Default driver for sending notifications
+# memcached_servers=<None>
+#### (ListOpt) Memcached servers or None for in process cache.
 
-# instance_usage_audit_period=month
-#### (StrOpt) time period to generate instance usages for.  Time period
-####          must be hour, day, month or year
+# volume_usage_audit_period=month
+#### (StrOpt) time period to generate volume usages for.  Time period must
+####          be hour, day, month or year
 
 # root_helper=sudo
 #### (StrOpt) Deprecated: command to use for running commands as root
@@ -157,9 +157,6 @@
 
 # monkey_patch_modules=
 #### (ListOpt) List of modules/decorators to monkey patch
-
-# reclaim_instance_interval=0
-#### (IntOpt) Interval in seconds for reclaiming deleted instances
 
 # service_down_time=60
 #### (IntOpt) maximum time since last check-in for up service
@@ -262,7 +259,7 @@
 #### (BoolOpt) Services to be added to the available pool on create
 
 # volume_name_template=volume-%s
-#### (StrOpt) Template string to be used to generate instance names
+#### (StrOpt) Template string to be used to generate volume names
 
 # snapshot_name_template=snapshot-%s
 #### (StrOpt) Template string to be used to generate snapshot names
@@ -317,8 +314,7 @@
 
 ######## defined in cinder.openstack.common.notifier.api ########
 
-# notification_driver=cinder.openstack.common.notifier.no_op_notifier
-#### (StrOpt) Default driver for sending notifications
+#### (MultiStrOpt) Driver or drivers to handle sending notifications
 
 # default_notification_level=INFO
 #### (StrOpt) Default notification level for outgoing notifications
@@ -327,10 +323,10 @@
 #### (StrOpt) Default publisher_id for outgoing notifications
 
 
-######## defined in cinder.openstack.common.notifier.list_notifier ########
+######## defined in cinder.openstack.common.notifier.rabbit_notifier ########
 
-# list_notifier_drivers=cinder.openstack.common.notifier.no_op_notifier
-#### (MultiStrOpt) List of drivers to send notifications
+# notification_topics=notifications
+#### (ListOpt) AMQP topic used for openstack notifications
 
 
 ######## defined in cinder.openstack.common.rpc ########
@@ -374,10 +370,13 @@
 #### (StrOpt) SSL certification authority file (valid only if SSL enabled)
 
 # rabbit_host=localhost
-#### (StrOpt) the RabbitMQ host
+#### (StrOpt) The RabbitMQ broker address where a single node is used
 
 # rabbit_port=5672
-#### (IntOpt) the RabbitMQ port
+#### (IntOpt) The RabbitMQ broker port where a single node is used
+
+# rabbit_hosts=$rabbit_host:$rabbit_port
+#### (ListOpt) RabbitMQ HA cluster host:port pairs
 
 # rabbit_use_ssl=false
 #### (BoolOpt) connect over SSL for RabbitMQ
@@ -404,6 +403,10 @@
 
 # rabbit_durable_queues=false
 #### (BoolOpt) use durable queues in RabbitMQ
+
+# rabbit_ha_queues=false
+#### (BoolOpt) use H/A queues in RabbitMQ (x-ha-policy: all).You need to
+####           wipe RabbitMQ database when changing this option.
 
 
 ######## defined in cinder.openstack.common.rpc.impl_qpid ########
@@ -441,7 +444,7 @@
 # qpid_reconnect_interval=0
 #### (IntOpt) Equivalent to setting max and min to the same value
 
-# qpid_heartbeat=5
+# qpid_heartbeat=60
 #### (IntOpt) Seconds between connection keepalive heartbeats
 
 # qpid_protocol=tcp
@@ -463,6 +466,9 @@
 
 # rpc_zmq_port=9501
 #### (IntOpt) ZeroMQ receiver listening port
+
+# rpc_zmq_port_pub=9502
+#### (IntOpt) ZeroMQ fanout publisher port
 
 # rpc_zmq_contexts=1
 #### (IntOpt) Number of ZeroMQ contexts, defaults to 1
@@ -511,6 +517,10 @@
 # volume_group=cinder-volumes
 #### (StrOpt) Name for the VG that will contain exported volumes
 
+# lvm_mirrors=0
+#### (IntOpt) If set, create lvms with multiple mirrors. Note that
+####          this requires lvm_mirrors + 2 pvs with available space
+
 # num_shell_tries=3
 #### (IntOpt) number of times to attempt to run flakey shell commands
 
@@ -528,6 +538,9 @@
 
 # iscsi_port=3260
 #### (IntOpt) The port that the iSCSI daemon is listening on
+
+
+######## defined in cinder.volume.drivers.rbd ########
 
 # rbd_pool=rbd
 #### (StrOpt) the RADOS pool in which rbd volumes are stored
@@ -549,7 +562,7 @@
 #### (StrOpt) iscsi target user-land tool to use
 
 # volumes_dir=$state_path/volumes
-#### (StrOpt) Volume configfuration file storage directory
+#### (StrOpt) Volume configuration file storage directory
 
 
 ######## defined in cinder.volume.manager ########
@@ -557,14 +570,11 @@
 # volume_driver=cinder.volume.driver.ISCSIDriver
 #### (StrOpt) Driver to use for volume creation
 
-# use_local_volumes=true
-#### (BoolOpt) if True, will not discover local volumes
-
 # volume_force_update_capabilities=false
 #### (BoolOpt) if True will force update capabilities on each check
 
 
-######## defined in cinder.volume.netapp ########
+######## defined in cinder.volume.drivers.netapp ########
 
 # netapp_wsdl_url=<None>
 #### (StrOpt) URL of the WSDL file for the DFM server
@@ -593,7 +603,7 @@
 #### (StrOpt) Vfiler to use for provisioning
 
 
-######## defined in cinder.volume.netapp_nfs ########
+######## defined in cinder.volume.drivers.netapp_nfs ########
 
 # synchronous_snapshot_create=0
 #### (IntOpt) Does snapshot creation call returns immediately
@@ -625,7 +635,7 @@
 #### (StrOpt) Vfiler to use for provisioning
 
 
-######## defined in cinder.volume.nexenta.volume ########
+######## defined in cinder.volume.drivers.nexenta.volume ########
 
 # nexenta_host=
 #### (StrOpt) IP address of Nexenta SA
@@ -661,7 +671,7 @@
 #### (BoolOpt) flag to create sparse volumes
 
 
-######## defined in cinder.volume.nfs ########
+######## defined in cinder.volume.drivers.nfs ########
 
 # nfs_shares_config=<None>
 #### (StrOpt) File with the list of available nfs shares
@@ -678,7 +688,7 @@
 ####           volume creation takes a lot of time.
 
 
-######## defined in cinder.volume.san ########
+######## defined in cinder.volume.drivers.san.san ########
 
 # san_thin_provision=true
 #### (BoolOpt) Use thin provisioning for SAN volumes?
@@ -705,11 +715,23 @@
 #### (BoolOpt) Execute commands locally instead of over SSH; use if the
 ####           volume service is running on the SAN device
 
+# ssh_conn_timeout=30
+#### (IntOpt) SSH connection timeout in seconds
+
+# ssh_min_pool_conn=1
+#### (IntOpt) Minimum ssh connections in the pool
+
+# ssh_max_pool_conn=5
+#### (IntOpt) Maximum ssh connections in the pool
+
+
+######## defined in cinder.volume.drivers.san.solaris ########
+
 # san_zfs_volume_base=rpool/
 #### (StrOpt) The ZFS path under which to create zvols for volumes.
 
 
-######## defined in cinder.volume.solidfire ########
+######## defined in cinder.volume.drivers.solidfire ########
 
 # sf_emulate_512=true
 #### (BoolOpt) Set 512 byte emulation on volume creation;
@@ -727,7 +749,7 @@
 #### (BoolOpt) Allow tenants to specify QOS on create
 
 
-######## defined in cinder.volume.storwize_svc ########
+######## defined in cinder.volume.drivers.storwize_svc ########
 
 # storwize_svc_volpool_name=volpool
 #### (StrOpt) Storage system storage pool for volumes
@@ -752,17 +774,17 @@
 #### (BoolOpt) Enable Easy Tier for volumes
 
 # storwize_svc_flashcopy_timeout=120
-#### (StrOpt) Maximum number of seconds to wait for FlashCopy to
-####          beprepared. Maximum value is 600 seconds (10 minutes).
+#### (StrOpt) Maximum number of seconds to wait for FlashCopy to be
+####          prepared. Maximum value is 600 seconds (10 minutes).
 
 
-######## defined in cinder.volume.xiv ########
+######## defined in cinder.volume.drivers.xiv ########
 
 # xiv_proxy=xiv_openstack.nova_proxy.XIVNovaProxy
 #### (StrOpt) Proxy driver
 
 
-######## defined in cinder.volume.zadara ########
+######## defined in cinder.volume.drivers.zadara ########
 
 # zadara_vpsa_ip=<None>
 #### (StrOpt) Management IP of Zadara VPSA
@@ -804,4 +826,34 @@
 #### (BoolOpt) Don't halt on deletion of non-existing volumes
 
 
-# Total option count: 217
+######## defined in cinder.volume.drivers.san.hp.hp_3par_common ########
+
+# hp3par_api_url=<None>
+#### (StrOpt)  3PAR WSAPI Server Url like https://<3par ip>:8080/api/v1
+
+# hp3par_username=<None>
+#### (StrOpt) 3PAR username
+
+# hp3par_password=<None>
+#### (StrOpt) 3PAR password
+
+# hp3par_domain=OpenStack
+#### (StrOpt) The 3par domain to use
+
+# hp3par_cpg=OpenStack
+#### (StrOpt) The CPG to use for volume creation
+
+# hp3par_cpg_snap=<None>
+#### (StrOpt) The CPG to use for snapshots for volumes.
+
+# hp3par_snapshot_retention=<None>
+#### (StrOpt) The time in hours to retain a snapshot
+
+# hp3par_snapshot_expiration=<None>
+#### (StrOpt) The time in ours when a snapshot expires
+
+# hp3par_debug=False
+#### (BoolOpt) Enable REST debugging output
+
+
+# Total option count: 219
