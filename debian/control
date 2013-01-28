@@ -115,7 +115,7 @@ Package: cinder-volume
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends},
- lvm2, tgt
+ lvm2, tgt, adduser
 Description: Openstack block storage as a service - Volume server
  Cinder is a block storage as service system for the Openstack cloud computing
  software suite. It is a direct replacement for nova-volume as a separate
