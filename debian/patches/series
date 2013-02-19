@@ -1,2 +1,3 @@
 install-missing-files.patch
 fix-api-paste.ini-syntax.patch
+CVE-2013-0280_Information-leak-and-Denial-of-Service-using-XML-entities.patch

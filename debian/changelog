@@ -1,3 +1,9 @@
+cinder (2012.2.3-2) unstable; urgency=high
+
+  * CVE-2013-0280: Ignore XML entities (Closes: #).
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 19 Feb 2013 13:50:33 +0800
+
 cinder (2012.2.3-1) experimental; urgency=low
 
   * New upstream release.
