@@ -14,12 +14,13 @@
 
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
+from cinder.volume.drivers import lvm
 
 
 LOG = logging.getLogger(__name__)
 
 
-class FakeISCSIDriver(driver.ISCSIDriver):
+class FakeISCSIDriver(lvm.LVMISCSIDriver):
     """Logs calls instead of executing."""
     def __init__(self, *args, **kwargs):
         super(FakeISCSIDriver, self).__init__(execute=self.fake_execute,
@@ -55,7 +56,11 @@ class LoggingVolumeDriver(driver.VolumeDriver):
         self.log_action('create_volume', volume)
 
     def delete_volume(self, volume):
+        self.clear_volume(volume)
         self.log_action('delete_volume', volume)
+
+    def clear_volume(self, volume):
+        self.log_action('clear_volume', volume)
 
     def local_path(self, volume):
         print "local_path not implemented"

@@ -23,16 +23,15 @@ This driver requires VPSA with API ver.12.06 or higher.
 
 import httplib
 
+from lxml import etree
+from oslo.config import cfg
+
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume import iscsi
-
-from lxml import etree
-
 
 LOG = logging.getLogger("cinder.volume.driver")
 
@@ -51,7 +50,8 @@ zadara_opts = [
                help='User name for the VPSA'),
     cfg.StrOpt('zadara_password',
                default=None,
-               help='Password for the VPSA'),
+               help='Password for the VPSA',
+               secret=True),
 
     cfg.StrOpt('zadara_vpsa_poolname',
                default=None,
@@ -483,7 +483,7 @@ class ZadaraVPSAISCSIDriver(driver.ISCSIDriver):
         """Fetch the image from image_service and write it to the volume."""
         raise NotImplementedError()
 
-    def copy_volume_to_image(self, context, volume, image_service, image_id):
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         raise NotImplementedError()
 

@@ -159,13 +159,13 @@ class HpSanISCSIDriver(SanISCSIDriver):
             volume_attributes["volume." + k] = v
 
         status_node = volume_node.find("status")
-        if not status_node is None:
+        if status_node is not None:
             for k, v in status_node.attrib.items():
                 volume_attributes["status." + k] = v
 
         # We only consider the first permission node
         permission_node = volume_node.find("permission")
-        if not permission_node is None:
+        if permission_node is not None:
             for k, v in status_node.attrib.items():
                 volume_attributes["permission." + k] = v
 
@@ -220,7 +220,11 @@ class HpSanISCSIDriver(SanISCSIDriver):
         cliq_args = {}
         cliq_args['volumeName'] = volume['name']
         cliq_args['prompt'] = 'false'  # Don't confirm
-
+        try:
+            volume_info = self._cliq_get_volume_info(volume['name'])
+        except exception.ProcessExecutionError:
+            LOG.error("Volume did not exist. It will not be deleted")
+            return
         self._cliq_run_xml("deleteVolume", cliq_args)
 
     def local_path(self, volume):

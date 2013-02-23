@@ -21,18 +21,16 @@ The unique thing about a SAN is that we don't expect that we can run the volume
 controller on the SAN hardware.  We expect to access it over SSH or some API.
 """
 
-import paramiko
 import random
 
 from eventlet import greenthread
+from oslo.config import cfg
 
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.driver import ISCSIDriver
-
 
 LOG = logging.getLogger(__name__)
 
@@ -48,7 +46,8 @@ san_opts = [
                help='Username for SAN controller'),
     cfg.StrOpt('san_password',
                default='',
-               help='Password for SAN controller'),
+               help='Password for SAN controller',
+               secret=True),
     cfg.StrOpt('san_private_key',
                default='',
                help='Filename of private key to use for SSH authentication'),
@@ -87,11 +86,13 @@ class SanISCSIDriver(ISCSIDriver):
 
     def __init__(self, *args, **kwargs):
         super(SanISCSIDriver, self).__init__(*args, **kwargs)
-        self.run_local = FLAGS.san_is_local
+        self.configuration.append_config_values(san_opts)
+        self.run_local = self.configuration.san_is_local
         self.sshpool = None
 
     def _build_iscsi_target_name(self, volume):
-        return "%s%s" % (FLAGS.iscsi_target_prefix, volume['name'])
+        return "%s%s" % (self.configuration.iscsi_target_prefix,
+                         volume['name'])
 
     def _execute(self, *cmd, **kwargs):
         if self.run_local:
@@ -103,14 +104,19 @@ class SanISCSIDriver(ISCSIDriver):
 
     def _run_ssh(self, command, check_exit_code=True, attempts=1):
         if not self.sshpool:
-            self.sshpool = utils.SSHPool(FLAGS.san_ip,
-                                         FLAGS.san_ssh_port,
-                                         FLAGS.ssh_conn_timeout,
-                                         FLAGS.san_login,
-                                         password=FLAGS.san_password,
-                                         privatekey=FLAGS.san_private_key,
-                                         min_size=FLAGS.ssh_min_pool_conn,
-                                         max_size=FLAGS.ssh_max_pool_conn)
+            password = self.configuration.san_password
+            privatekey = self.configuration.san_private_key
+            min_size = self.configuration.ssh_min_pool_conn
+            max_size = self.configuration.ssh_max_pool_conn
+            self.sshpool = utils.SSHPool(self.configuration.san_ip,
+                                         self.configuration.san_ssh_port,
+                                         self.configuration.ssh_conn_timeout,
+                                         self.configuration.san_login,
+                                         password=password,
+                                         privatekey=privatekey,
+                                         min_size=min_size,
+                                         max_size=max_size)
+        last_exception = None
         try:
             total_attempts = attempts
             with self.sshpool.item() as ssh:
@@ -123,12 +129,23 @@ class SanISCSIDriver(ISCSIDriver):
                             check_exit_code=check_exit_code)
                     except Exception as e:
                         LOG.error(e)
+                        last_exception = e
                         greenthread.sleep(random.randint(20, 500) / 100.0)
-                raise paramiko.SSHException(_("SSH Command failed after "
-                                              "'%(total_attempts)r' attempts"
-                                              ": '%(command)s'"), locals())
+                try:
+                    raise exception.ProcessExecutionError(
+                            exit_code=last_exception.exit_code,
+                            stdout=last_exception.stdout,
+                            stderr=last_exception.stderr,
+                            cmd=last_exception.cmd)
+                except AttributeError:
+                    raise exception.ProcessExecutionError(
+                            exit_code=-1,
+                            stdout="",
+                            stderr="Error running SSH command",
+                            cmd=command)
+
         except Exception as e:
-            LOG.error(_("Error running ssh command: %s") % command)
+            LOG.error(_("Error running SSH command: %s") % command)
             raise e
 
     def ensure_export(self, context, volume):
@@ -146,21 +163,14 @@ class SanISCSIDriver(ISCSIDriver):
     def check_for_setup_error(self):
         """Returns an error if prerequisites aren't met."""
         if not self.run_local:
-            if not (FLAGS.san_password or FLAGS.san_private_key):
+            if not (self.configuration.san_password or
+                    self.configuration.san_private_key):
                 raise exception.InvalidInput(
                     reason=_('Specify san_password or san_private_key'))
 
         # The san_ip must always be set, because we use it for the target
-        if not FLAGS.san_ip:
+        if not self.configuration.san_ip:
             raise exception.InvalidInput(reason=_("san_ip must be set"))
-
-    def copy_image_to_volume(self, context, volume, image_service, image_id):
-        """Fetch the image from image_service and write it to the volume."""
-        raise NotImplementedError()
-
-    def copy_volume_to_image(self, context, volume, image_service, image_id):
-        """Copy the volume to the specified image."""
-        raise NotImplementedError()
 
     def create_cloned_volume(self, volume, src_vref):
         """Create a cloen of the specified volume."""

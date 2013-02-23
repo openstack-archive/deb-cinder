@@ -37,7 +37,7 @@ class SheepdogDriver(driver.VolumeDriver):
             #  gives short output, but for compatibility reason we won't
             #  use it and just check if 'running' is in the output.
             (out, err) = self._execute('collie', 'cluster', 'info')
-            if not 'running' in out.split():
+            if 'running' not in out.split():
                 exception_message = (_("Sheepdog is not working: %s") % out)
                 raise exception.VolumeBackendAPIException(
                     data=exception_message)
@@ -53,7 +53,7 @@ class SheepdogDriver(driver.VolumeDriver):
         """Creates a sheepdog volume"""
         self._try_execute('qemu-img', 'create',
                           "sheepdog:%s" % volume['name'],
-                          self._sizestr(volume['size']))
+                          '%sG' % volume['size'])
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a sheepdog volume from a snapshot."""

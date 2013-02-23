@@ -15,16 +15,19 @@
 RADOS Block Device Driver
 """
 
+import json
 import os
 import tempfile
 import urllib
 
+from oslo.config import cfg
+
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
+from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder import utils
 from cinder.volume import driver
-
 
 LOG = logging.getLogger(__name__)
 
@@ -47,18 +50,54 @@ rbd_opts = [
 FLAGS = flags.FLAGS
 FLAGS.register_opts(rbd_opts)
 
+VERSION = '1.0'
+
 
 class RBDDriver(driver.VolumeDriver):
     """Implements RADOS block device (RBD) volume commands"""
+    def __init__(self, *args, **kwargs):
+        super(RBDDriver, self).__init__(*args, **kwargs)
+        self.configuration.append_config_values(rbd_opts)
+        self._stats = dict(
+            volume_backend_name='RBD',
+            vendor_name='Open Source',
+            driver_version=VERSION,
+            storage_protocol='ceph',
+            total_capacity_gb='unknown',
+            free_capacity_gb='unknown',
+            reserved_percentage=0)
 
     def check_for_setup_error(self):
         """Returns an error if prerequisites aren't met"""
         (stdout, stderr) = self._execute('rados', 'lspools')
         pools = stdout.split("\n")
-        if not FLAGS.rbd_pool in pools:
+        if self.configuration.rbd_pool not in pools:
             exception_message = (_("rbd has no pool %s") %
-                                 FLAGS.rbd_pool)
+                                 self.configuration.rbd_pool)
             raise exception.VolumeBackendAPIException(data=exception_message)
+
+    def _update_volume_stats(self):
+        stats = dict(
+            total_capacity_gb='unknown',
+            free_capacity_gb='unknown')
+        try:
+            stdout, _err = self._execute('rados', 'df', '--format', 'json')
+            new_stats = json.loads(stdout)
+            total = int(new_stats['total_space']) / 1024 ** 2
+            free = int(new_stats['total_avail']) / 1024 ** 2
+            stats['total_capacity_gb'] = total
+            stats['free_capacity_gb'] = free
+        except exception.ProcessExecutionError:
+            # just log and return unknown capacities
+            LOG.exception(_('error refreshing volume stats'))
+        self._stats.update(stats)
+
+    def get_volume_stats(self, refresh=False):
+        """Return the current state of the volume service. If 'refresh' is
+           True, run the update first."""
+        if refresh:
+            self._update_volume_stats()
+        return self._stats
 
     def _supports_layering(self):
         stdout, _ = self._execute('rbd', '--help')
@@ -74,7 +113,7 @@ class RBDDriver(driver.VolumeDriver):
         else:
             size = int(volume['size']) * 1024
         args = ['rbd', 'create',
-                '--pool', FLAGS.rbd_pool,
+                '--pool', self.configuration.rbd_pool,
                 '--size', size,
                 volume['name']]
         if self._supports_layering():
@@ -86,19 +125,19 @@ class RBDDriver(driver.VolumeDriver):
                           '--pool', src_pool,
                           '--image', src_image,
                           '--snap', src_snap,
-                          '--dest-pool', FLAGS.rbd_pool,
+                          '--dest-pool', self.configuration.rbd_pool,
                           '--dest', volume['name'])
 
     def _resize(self, volume):
         size = int(volume['size']) * 1024
         self._try_execute('rbd', 'resize',
-                          '--pool', FLAGS.rbd_pool,
+                          '--pool', self.configuration.rbd_pool,
                           '--image', volume['name'],
                           '--size', size)
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot."""
-        self._clone(volume, FLAGS.rbd_pool,
+        self._clone(volume, self.configuration.rbd_pool,
                     snapshot['volume_name'], snapshot['name'])
         if int(volume['size']):
             self._resize(volume)
@@ -106,23 +145,23 @@ class RBDDriver(driver.VolumeDriver):
     def delete_volume(self, volume):
         """Deletes a logical volume."""
         stdout, _ = self._execute('rbd', 'snap', 'ls',
-                                  '--pool', FLAGS.rbd_pool,
+                                  '--pool', self.configuration.rbd_pool,
                                   volume['name'])
         if stdout.count('\n') > 1:
             raise exception.VolumeIsBusy(volume_name=volume['name'])
         self._try_execute('rbd', 'rm',
-                          '--pool', FLAGS.rbd_pool,
+                          '--pool', self.configuration.rbd_pool,
                           volume['name'])
 
     def create_snapshot(self, snapshot):
         """Creates an rbd snapshot"""
         self._try_execute('rbd', 'snap', 'create',
-                          '--pool', FLAGS.rbd_pool,
+                          '--pool', self.configuration.rbd_pool,
                           '--snap', snapshot['name'],
                           snapshot['volume_name'])
         if self._supports_layering():
             self._try_execute('rbd', 'snap', 'protect',
-                              '--pool', FLAGS.rbd_pool,
+                              '--pool', self.configuration.rbd_pool,
                               '--snap', snapshot['name'],
                               snapshot['volume_name'])
 
@@ -131,13 +170,13 @@ class RBDDriver(driver.VolumeDriver):
         if self._supports_layering():
             try:
                 self._try_execute('rbd', 'snap', 'unprotect',
-                                  '--pool', FLAGS.rbd_pool,
+                                  '--pool', self.configuration.rbd_pool,
                                   '--snap', snapshot['name'],
                                   snapshot['volume_name'])
             except exception.ProcessExecutionError:
                 raise exception.SnapshotIsBusy(snapshot_name=snapshot['name'])
         self._try_execute('rbd', 'snap', 'rm',
-                          '--pool', FLAGS.rbd_pool,
+                          '--pool', self.configuration.rbd_pool,
                           '--snap', snapshot['name'],
                           snapshot['volume_name'])
 
@@ -145,7 +184,7 @@ class RBDDriver(driver.VolumeDriver):
         """Returns the path of the rbd volume."""
         # This is the same as the remote path
         # since qemu accesses it directly.
-        return "rbd:%s/%s" % (FLAGS.rbd_pool, volume['name'])
+        return "rbd:%s/%s" % (self.configuration.rbd_pool, volume['name'])
 
     def ensure_export(self, context, volume):
         """Synchronously recreates an export for a logical volume."""
@@ -163,11 +202,13 @@ class RBDDriver(driver.VolumeDriver):
         return {
             'driver_volume_type': 'rbd',
             'data': {
-                'name': '%s/%s' % (FLAGS.rbd_pool, volume['name']),
-                'auth_enabled': FLAGS.rbd_secret_uuid is not None,
-                'auth_username': FLAGS.rbd_user,
+                'name': '%s/%s' % (self.configuration.rbd_pool,
+                                   volume['name']),
+                'auth_enabled': (self.configuration.rbd_secret_uuid
+                                 is not None),
+                'auth_username': self.configuration.rbd_user,
                 'secret_type': 'ceph',
-                'secret_uuid': FLAGS.rbd_secret_uuid, }
+                'secret_uuid': self.configuration.rbd_secret_uuid, }
         }
 
     def terminate_connection(self, volume, connector, **kwargs):
@@ -222,19 +263,44 @@ class RBDDriver(driver.VolumeDriver):
         self._resize(volume)
         return True
 
+    def _ensure_tmp_exists(self):
+        tmp_dir = self.configuration.volume_tmp_dir
+        if tmp_dir and not os.path.exists(tmp_dir):
+            os.makedirs(tmp_dir)
+
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         # TODO(jdurgin): replace with librbd
         # this is a temporary hack, since rewriting this driver
         # to use librbd would take too long
-        if FLAGS.volume_tmp_dir and not os.path.exists(FLAGS.volume_tmp_dir):
-            os.makedirs(FLAGS.volume_tmp_dir)
+        self._ensure_tmp_exists()
+        tmp_dir = self.configuration.volume_tmp_dir
 
-        with tempfile.NamedTemporaryFile(dir=FLAGS.volume_tmp_dir) as tmp:
-            image_service.download(context, image_id, tmp)
+        with tempfile.NamedTemporaryFile(dir=tmp_dir) as tmp:
+            image_utils.fetch_to_raw(context, image_service, image_id,
+                                     tmp.name)
             # import creates the image, so we must remove it first
             self._try_execute('rbd', 'rm',
-                              '--pool', FLAGS.rbd_pool,
+                              '--pool', self.configuration.rbd_pool,
                               volume['name'])
-            self._try_execute('rbd', 'import',
-                              '--pool', FLAGS.rbd_pool,
-                              tmp.name, volume['name'])
+
+            args = ['rbd', 'import',
+                    '--pool', self.configuration.rbd_pool,
+                    tmp.name, volume['name']]
+            if self._supports_layering():
+                args += ['--new-format']
+            self._try_execute(*args)
+        self._resize(volume)
+
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
+        self._ensure_tmp_exists()
+
+        tmp_dir = self.configuration.volume_tmp_dir or '/tmp'
+        tmp_file = os.path.join(tmp_dir,
+                                volume['name'] + '-' + image_meta['id'])
+        with utils.remove_path_on_error(tmp_file):
+            self._try_execute('rbd', 'export',
+                              '--pool', self.configuration.rbd_pool,
+                              volume['name'], tmp_file)
+            image_utils.upload_volume(context, image_service,
+                                      image_meta, tmp_file)
+        os.unlink(tmp_file)

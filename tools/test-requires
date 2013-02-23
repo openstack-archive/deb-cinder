@@ -2,7 +2,8 @@
 distribute>=0.6.28
 
 coverage
-mox==0.5.3
+mock
+mox>=0.5.3
 nose
 nosexcover
 openstack.nose_plugin
@@ -11,4 +12,5 @@ pep8==1.3.3
 pylint==0.25.2
 sphinx>=1.1.2
 MySQL-python
+psycopg2
 hp3parclient>=1.0.0

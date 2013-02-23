@@ -24,10 +24,10 @@ SHOULD include dedicated exception logging.
 
 """
 
+from oslo.config import cfg
 import webob.exc
 
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
@@ -132,10 +132,6 @@ class CinderException(Exception):
                     message = self.message
 
         super(CinderException, self).__init__(message)
-
-
-class DeprecatedConfig(CinderException):
-    message = _("Fatal call to deprecated config") + " %(msg)s"
 
 
 class GlanceConnectionFailed(CinderException):
@@ -253,6 +249,27 @@ class VolumeNotFoundForInstance(VolumeNotFound):
 class VolumeMetadataNotFound(NotFound):
     message = _("Volume %(volume_id)s has no metadata with "
                 "key %(metadata_key)s.")
+
+
+class InvalidVolumeMetadata(Invalid):
+    message = _("Invalid metadata") + ": %(reason)s"
+
+
+class InvalidVolumeMetadataSize(Invalid):
+    message = _("Invalid metadata size") + ": %(reason)s"
+
+
+class SnapshotMetadataNotFound(NotFound):
+    message = _("Snapshot %(snapshot_id)s has no metadata with "
+                "key %(metadata_key)s.")
+
+
+class InvalidSnapshotMetadata(Invalid):
+    message = _("Invalid metadata") + ": %(reason)s"
+
+
+class InvalidSnapshotMetadataSize(Invalid):
+    message = _("Invalid metadata size") + ": %(reason)s"
 
 
 class VolumeTypeNotFound(NotFound):
@@ -514,6 +531,30 @@ class NfsNoSuitableShareFound(NotFound):
     message = _("There is no share which can host %(volume_size)sG")
 
 
+class GlusterfsException(CinderException):
+    message = _("Unknown Gluster exception")
+
+
+class GlusterfsNoSharesMounted(NotFound):
+    message = _("No mounted Gluster shares found")
+
+
+class GlusterfsNoSuitableShareFound(NotFound):
+    message = _("There is no share which can host %(volume_size)sG")
+
+
 class GlanceMetadataExists(Invalid):
     message = _("Glance metadata cannot be updated, key %(key)s"
                 " exists for volume id %(volume_id)s")
+
+
+class ImageCopyFailure(Invalid):
+    message = _("Failed to copy image to volume")
+
+
+class BackupNotFound(NotFound):
+    message = _("Backup %(backup_id)s could not be found.")
+
+
+class InvalidBackup(Invalid):
+    message = _("Invalid backup: %(reason)s")

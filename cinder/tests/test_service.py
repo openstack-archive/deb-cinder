@@ -21,17 +21,16 @@ Unit Tests for remote procedure calls using queue
 """
 
 import mox
+from oslo.config import cfg
 
 from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import flags
 from cinder import manager
-from cinder.openstack.common import cfg
 from cinder import service
 from cinder import test
 from cinder import wsgi
-
 
 test_service_opts = [
     cfg.StrOpt("fake_manager",
@@ -49,6 +48,11 @@ flags.FLAGS.register_opts(test_service_opts)
 
 class FakeManager(manager.Manager):
     """Fake manager for tests"""
+    def __init__(self, host=None,
+                 db_driver=None, service_name=None):
+        super(FakeManager, self).__init__(host=host,
+                                          db_driver=db_driver)
+
     def test_method(self):
         return 'manager'
 

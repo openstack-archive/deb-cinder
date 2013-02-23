@@ -22,9 +22,10 @@ Helper code for the iSCSI volume driver.
 import os
 import re
 
+from oslo.config import cfg
+
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 from cinder import utils
 
@@ -39,10 +40,19 @@ iscsi_helper_opt = [cfg.StrOpt('iscsi_helper',
                                     'directory'),
                     cfg.StrOpt('iet_conf',
                                default='/etc/iet/ietd.conf',
-                               help='IET configuration file'), ]
+                               help='IET configuration file'),
+                    cfg.StrOpt('lio_initiator_iqns',
+                               default='',
+                               help=('Comma-separatd list of initiator IQNs '
+                                     'allowed to connect to the '
+                                     'iSCSI target. (From Nova compute nodes.)'
+                                     )
+                               )
+                    ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(iscsi_helper_opt)
+FLAGS.import_opt('volume_name_template', 'cinder.db')
 
 
 class TargetAdmin(object):
@@ -172,7 +182,7 @@ class TgtAdm(TargetAdmin):
 
     def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
         LOG.info(_('Removing volume: %s') % vol_id)
-        vol_uuid_file = 'volume-%s' % vol_id
+        vol_uuid_file = FLAGS.volume_name_template % vol_id
         volume_path = os.path.join(FLAGS.volumes_dir, vol_uuid_file)
         if os.path.isfile(volume_path):
             iqn = '%s%s' % (FLAGS.iscsi_target_prefix,
@@ -239,7 +249,7 @@ class IetAdm(TargetAdmin):
         LOG.info(_('Removing volume: %s') % vol_id)
         self._delete_logicalunit(tid, lun, **kwargs)
         self._delete_target(tid, **kwargs)
-        vol_uuid = 'volume-%s' % vol_id
+        vol_uuid_file = FLAGS.volume_name_template % vol_id
         conf_file = FLAGS.iet_conf
         if os.path.exists(conf_file):
             with utils.temporary_chown(conf_file):
@@ -252,7 +262,7 @@ class IetAdm(TargetAdmin):
                         if count > 0:
                             count -= 1
                             continue
-                        elif re.search(vol_uuid, line):
+                        elif re.search(vol_uuid_file, line):
                             count = 2
                             continue
                         else:
@@ -314,10 +324,105 @@ class FakeIscsiHelper(object):
         return self.tid
 
 
+class LioAdm(TargetAdmin):
+    """iSCSI target administration for LIO using python-rtslib."""
+    def __init__(self, execute=utils.execute):
+        super(LioAdm, self).__init__('cinder-rtstool', execute)
+
+        try:
+            self._execute('cinder-rtstool', 'verify')
+        except (OSError, exception.ProcessExecutionError):
+            LOG.error(_('cinder-rtstool is not installed correctly'))
+            raise
+
+    def _get_target(self, iqn):
+        (out, err) = self._execute('cinder-rtstool',
+                                   'get-targets',
+                                   run_as_root=True)
+        lines = out.split('\n')
+        for line in lines:
+            if iqn in line:
+                return line
+
+        return None
+
+    def create_iscsi_target(self, name, tid, lun, path,
+                            chap_auth=None, **kwargs):
+        # tid and lun are not used
+
+        vol_id = name.split(':')[1]
+
+        LOG.info(_('Creating volume: %s') % vol_id)
+
+        # cinder-rtstool requires chap_auth, but unit tests don't provide it
+        chap_auth_userid = 'test_id'
+        chap_auth_password = 'test_pass'
+
+        if chap_auth != None:
+            (chap_auth_userid, chap_auth_password) = chap_auth.split(' ')[1:]
+
+        extra_args = []
+        if FLAGS.lio_initiator_iqns:
+            extra_args.append(FLAGS.lio_initiator_iqns)
+
+        try:
+            command_args = ['cinder-rtstool',
+                            'create',
+                            path,
+                            name,
+                            chap_auth_userid,
+                            chap_auth_password]
+            if extra_args != []:
+                command_args += extra_args
+            self._execute(*command_args, run_as_root=True)
+        except exception.ProcessExecutionError as e:
+                LOG.error(_("Failed to create iscsi target for volume "
+                            "id:%(vol_id)s.") % locals())
+                LOG.error("%s" % str(e))
+
+                raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
+
+        iqn = '%s%s' % (FLAGS.iscsi_target_prefix, vol_id)
+        tid = self._get_target(iqn)
+        if tid is None:
+            LOG.error(_("Failed to create iscsi target for volume "
+                        "id:%(vol_id)s.") % locals())
+            raise exception.NotFound()
+
+        return tid
+
+    def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
+        LOG.info(_('Removing volume: %s') % vol_id)
+        vol_uuid_name = 'volume-%s' % vol_id
+        iqn = '%s%s' % (FLAGS.iscsi_target_prefix, vol_uuid_name)
+
+        try:
+            self._execute('cinder-rtstool',
+                          'delete',
+                          iqn,
+                          run_as_root=True)
+        except exception.ProcessExecutionError as e:
+            LOG.error(_("Failed to remove iscsi target for volume "
+                        "id:%(vol_id)s.") % locals())
+            LOG.error("%s" % str(e))
+            raise exception.ISCSITargetRemoveFailed(volume_id=vol_id)
+
+    def show_target(self, tid, iqn=None, **kwargs):
+        if iqn is None:
+            raise exception.InvalidParameterValue(
+                err=_('valid iqn needed for show_target'))
+
+        tid = self._get_target(iqn)
+        if tid is None:
+            raise exception.NotFound()
+
+
 def get_target_admin():
     if FLAGS.iscsi_helper == 'tgtadm':
         return TgtAdm()
     elif FLAGS.iscsi_helper == 'fake':
         return FakeIscsiHelper()
+    elif FLAGS.iscsi_helper == 'lioadm':
+        return LioAdm()
     else:
         return IetAdm()

@@ -22,15 +22,14 @@ Handles all requests relating to volumes.
 
 import functools
 
+from oslo.config import cfg
+
 from cinder.db import base
-from cinder.db.sqlalchemy import models
 from cinder import exception
 from cinder import flags
 from cinder.image import glance
-from cinder.openstack.common import cfg
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import rpc
 from cinder.openstack.common import timeutils
 import cinder.policy
 from cinder import quota
@@ -181,6 +180,7 @@ class API(base.Base):
         else:
             volume_type_id = volume_type.get('id')
 
+        self._check_metadata_properties(context, metadata)
         options = {'size': size,
                    'user_id': context.user_id,
                    'project_id': context.project_id,
@@ -241,8 +241,12 @@ class API(base.Base):
             self.volume_rpcapi.create_volume(context,
                                              volume_ref,
                                              volume_ref['host'],
-                                             snapshot_id,
-                                             image_id)
+                                             request_spec=request_spec,
+                                             filter_properties=
+                                             filter_properties,
+                                             allow_reschedule=False,
+                                             snapshot_id=snapshot_id,
+                                             image_id=image_id)
         elif source_volid:
             source_volume_ref = self.db.volume_get(context,
                                                    source_volid)
@@ -254,18 +258,22 @@ class API(base.Base):
             self.volume_rpcapi.create_volume(context,
                                              volume_ref,
                                              volume_ref['host'],
-                                             snapshot_id,
-                                             image_id,
-                                             source_volid)
+                                             request_spec=request_spec,
+                                             filter_properties=
+                                             filter_properties,
+                                             allow_reschedule=False,
+                                             snapshot_id=snapshot_id,
+                                             image_id=image_id,
+                                             source_volid=source_volid)
         else:
-            self.scheduler_rpcapi.create_volume(
-                context,
-                FLAGS.volume_topic,
-                volume_id,
-                snapshot_id,
-                image_id,
-                request_spec=request_spec,
-                filter_properties=filter_properties)
+            self.scheduler_rpcapi.create_volume(context,
+                                                FLAGS.volume_topic,
+                                                volume_id,
+                                                snapshot_id,
+                                                image_id,
+                                                request_spec=request_spec,
+                                                filter_properties=
+                                                filter_properties)
 
     @wrap_check_policy
     def delete(self, context, volume, force=False):
@@ -285,7 +293,8 @@ class API(base.Base):
             if reservations:
                 QUOTAS.commit(context, reservations)
             return
-        if not force and volume['status'] not in ["available", "error"]:
+        if not force and volume['status'] not in ["available", "error",
+                                                  "error_restoring"]:
             msg = _("Volume status must be available or error")
             raise exception.InvalidVolume(reason=msg)
 
@@ -306,8 +315,16 @@ class API(base.Base):
 
     def get(self, context, volume_id):
         rv = self.db.volume_get(context, volume_id)
+        glance_meta = rv.get('volume_glance_metadata', None)
         volume = dict(rv.iteritems())
         check_policy(context, 'get', volume)
+
+        # NOTE(jdg): As per bug 1115629 iteritems doesn't pick
+        # up the glance_meta dependency, add it explicitly if
+        # it exists in the rv
+        if glance_meta:
+            volume['volume_glance_metadata'] = glance_meta
+
         return volume
 
     def get_all(self, context, marker=None, limit=None, sort_key='created_at',
@@ -416,7 +433,15 @@ class API(base.Base):
 
     @wrap_check_policy
     def reserve_volume(self, context, volume):
-        self.update(context, volume, {"status": "attaching"})
+        #NOTE(jdg): check for Race condition bug 1096983
+        #explicitly get updated ref and check
+        volume = self.db.volume_get(context, volume['id'])
+        if volume['status'] == 'available':
+            self.update(context, volume, {"status": "attaching"})
+        else:
+            msg = _("Volume status must be available to reserve")
+            LOG.error(msg)
+            raise exception.InvalidVolume(reason=msg)
 
     @wrap_check_policy
     def unreserve_volume(self, context, volume):
@@ -457,14 +482,16 @@ class API(base.Base):
                                                        connector,
                                                        force)
 
-    def _create_snapshot(self, context, volume, name, description,
-                         force=False):
+    def _create_snapshot(self, context,
+                         volume, name, description,
+                         force=False, metadata=None):
         check_policy(context, 'create_snapshot', volume)
 
         if ((not force) and (volume['status'] != "available")):
             msg = _("must be available")
             raise exception.InvalidVolume(reason=msg)
 
+        self._check_metadata_properties(context, metadata)
         options = {'volume_id': volume['id'],
                    'user_id': context.user_id,
                    'project_id': context.project_id,
@@ -472,20 +499,25 @@ class API(base.Base):
                    'progress': '0%',
                    'volume_size': volume['size'],
                    'display_name': name,
-                   'display_description': description}
+                   'display_description': description,
+                   'metadata': metadata}
 
         snapshot = self.db.snapshot_create(context, options)
         self.volume_rpcapi.create_snapshot(context, volume, snapshot)
 
         return snapshot
 
-    def create_snapshot(self, context, volume, name, description):
+    def create_snapshot(self, context,
+                        volume, name,
+                        description, metadata=None):
         return self._create_snapshot(context, volume, name, description,
-                                     False)
+                                     False, metadata)
 
-    def create_snapshot_force(self, context, volume, name, description):
+    def create_snapshot_force(self, context,
+                              volume, name,
+                              description, metadata=None):
         return self._create_snapshot(context, volume, name, description,
-                                     True)
+                                     True, metadata)
 
     @wrap_check_policy
     def delete_snapshot(self, context, snapshot, force=False):
@@ -512,6 +544,24 @@ class API(base.Base):
         """Delete the given metadata item from a volume."""
         self.db.volume_metadata_delete(context, volume['id'], key)
 
+    def _check_metadata_properties(self, context, metadata=None):
+        if not metadata:
+            metadata = {}
+
+        for k, v in metadata.iteritems():
+            if len(k) == 0:
+                msg = _("Metadata property key blank")
+                LOG.warn(msg)
+                raise exception.InvalidVolumeMetadata(reason=msg)
+            if len(k) > 255:
+                msg = _("Metadata property key greater than 255 characters")
+                LOG.warn(msg)
+                raise exception.InvalidVolumeMetadataSize(reason=msg)
+            if len(v) > 255:
+                msg = _("Metadata property value greater than 255 characters")
+                LOG.warn(msg)
+                raise exception.InvalidVolumeMetadataSize(reason=msg)
+
     @wrap_check_policy
     def update_volume_metadata(self, context, volume, metadata, delete=False):
         """Updates or creates volume metadata.
@@ -520,13 +570,19 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
+        orig_meta = self.get_volume_metadata(context, volume)
         if delete:
             _metadata = metadata
         else:
-            _metadata = self.get_volume_metadata(context, volume['id'])
+            _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
+        self._check_metadata_properties(context, _metadata)
+
         self.db.volume_metadata_update(context, volume['id'], _metadata, True)
+
+        # TODO(jdg): Implement an RPC call for drivers that may use this info
+
         return _metadata
 
     def get_volume_metadata_value(self, volume, key):
@@ -537,6 +593,45 @@ class API(base.Base):
                 if i['key'] == key:
                     return i['value']
         return None
+
+    def get_snapshot_metadata(self, context, snapshot):
+        """Get all metadata associated with a snapshot."""
+        rv = self.db.snapshot_metadata_get(context, snapshot['id'])
+        return dict(rv.iteritems())
+
+    def delete_snapshot_metadata(self, context, snapshot, key):
+        """Delete the given metadata item from a snapshot."""
+        self.db.snapshot_metadata_delete(context, snapshot['id'], key)
+
+    def update_snapshot_metadata(self, context,
+                                 snapshot, metadata,
+                                 delete=False):
+        """Updates or creates snapshot metadata.
+
+        If delete is True, metadata items that are not specified in the
+        `metadata` argument will be deleted.
+
+        """
+        orig_meta = self.get_snapshot_metadata(context, snapshot)
+        if delete:
+            _metadata = metadata
+        else:
+            _metadata = orig_meta.copy()
+            _metadata.update(metadata)
+
+        self._check_metadata_properties(context, _metadata)
+
+        self.db.snapshot_metadata_update(context,
+                                         snapshot['id'],
+                                         _metadata,
+                                         True)
+
+        # TODO(jdg): Implement an RPC call for drivers that may use this info
+
+        return _metadata
+
+    def get_snapshot_metadata_value(self, snapshot, key):
+        pass
 
     @wrap_check_policy
     def get_volume_image_metadata(self, context, volume):
@@ -563,7 +658,7 @@ class API(base.Base):
         self.update(context, volume, {'status': 'uploading'})
         self.volume_rpcapi.copy_volume_to_image(context,
                                                 volume,
-                                                recv_metadata['id'])
+                                                recv_metadata)
 
         response = {"id": volume['id'],
                     "updated_at": volume['updated_at'],

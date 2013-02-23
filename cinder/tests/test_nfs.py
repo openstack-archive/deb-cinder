@@ -30,6 +30,7 @@ from cinder import exception
 from cinder.exception import ProcessExecutionError
 from cinder import test
 
+from cinder.volume import configuration as conf
 from cinder.volume.drivers import nfs
 
 
@@ -41,6 +42,97 @@ class DumbVolume(object):
 
     def __getitem__(self, item):
         return self.fields[item]
+
+
+class RemoteFsDriverTestCase(test.TestCase):
+    TEST_EXPORT = '1.2.3.4/export1'
+    TEST_FILE_NAME = 'test.txt'
+
+    def setUp(self):
+        self._driver = nfs.RemoteFsDriver()
+        self._mox = mox_lib.Mox()
+        pass
+
+    def tearDown(self):
+        self._mox.UnsetStubs()
+
+    def test_create_sparsed_file(self):
+        (mox, drv) = self._mox, self._driver
+
+        mox.StubOutWithMock(drv, '_execute')
+        drv._execute('truncate', '-s', '1G', '/path', run_as_root=True).\
+            AndReturn("")
+
+        mox.ReplayAll()
+
+        drv._create_sparsed_file('/path', 1)
+
+        mox.VerifyAll()
+
+    def test_create_regular_file(self):
+        (mox, drv) = self._mox, self._driver
+
+        mox.StubOutWithMock(drv, '_execute')
+        drv._execute('dd', 'if=/dev/zero', 'of=/path', 'bs=1M', 'count=1024',
+                     run_as_root=True)
+
+        mox.ReplayAll()
+
+        drv._create_regular_file('/path', 1)
+
+        mox.VerifyAll()
+
+    def test_set_rw_permissions_for_all(self):
+        (mox, drv) = self._mox, self._driver
+
+        mox.StubOutWithMock(drv, '_execute')
+        drv._execute('chmod', 'ugo+rw', '/path', run_as_root=True)
+
+        mox.ReplayAll()
+
+        drv._set_rw_permissions_for_all('/path')
+
+        mox.VerifyAll()
+
+    def test_path_exists_should_return_true(self):
+        """_path_exists should return True if stat returns 0."""
+        mox = self._mox
+        drv = self._driver
+
+        mox.StubOutWithMock(drv, '_execute')
+        drv._execute('stat', self.TEST_FILE_NAME, run_as_root=True)
+
+        mox.ReplayAll()
+
+        self.assertTrue(drv._path_exists(self.TEST_FILE_NAME))
+
+        mox.VerifyAll()
+
+    def test_path_exists_should_return_false(self):
+        """_path_exists should return True if stat doesn't return 0."""
+        mox = self._mox
+        drv = self._driver
+
+        mox.StubOutWithMock(drv, '_execute')
+        drv._execute(
+            'stat',
+            self.TEST_FILE_NAME, run_as_root=True).\
+            AndRaise(ProcessExecutionError(
+                stderr="stat: cannot stat `test.txt': No such file "
+                       "or directory"))
+
+        mox.ReplayAll()
+
+        self.assertFalse(drv._path_exists(self.TEST_FILE_NAME))
+
+        mox.VerifyAll()
+
+    def test_get_hash_str(self):
+        """_get_hash_str should calculation correct value."""
+        drv = self._driver
+
+        self.assertEqual('4d664fd43b6ff86d80a4ea969c07b3b9',
+                         drv._get_hash_str(self.TEST_EXPORT))
 
 
 class NfsDriverTestCase(test.TestCase):
@@ -57,9 +149,15 @@ class NfsDriverTestCase(test.TestCase):
     ONE_GB_IN_BYTES = 1024 * 1024 * 1024
 
     def setUp(self):
-        self._driver = nfs.NfsDriver()
         self._mox = mox_lib.Mox()
         self.stubs = stubout.StubOutForTesting()
+        self.configuration = mox_lib.MockObject(conf.Configuration)
+        self.configuration.append_config_values(mox_lib.IgnoreArg())
+        self.configuration.nfs_shares_config = None
+        self.configuration.nfs_mount_point_base = '$state_path/mnt'
+        self.configuration.nfs_disk_util = 'df'
+        self.configuration.nfs_sparsed_volumes = True
+        self._driver = nfs.NfsDriver(configuration=self.configuration)
 
     def tearDown(self):
         self._mox.UnsetStubs()
@@ -105,7 +203,7 @@ class NfsDriverTestCase(test.TestCase):
 
     def test_local_path(self):
         """local_path common use case."""
-        nfs.FLAGS.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
+        self.configuration.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
         drv = self._driver
 
         volume = DumbVolume()
@@ -227,7 +325,7 @@ class NfsDriverTestCase(test.TestCase):
         """_get_mount_point_for_share should calculate correct value."""
         drv = self._driver
 
-        nfs.FLAGS.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
+        self.configuration.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
 
         self.assertEqual('/mnt/test/2f4f60214cf43c595666dd815f0360a4',
                          drv._get_mount_point_for_share(self.TEST_NFS_EXPORT1))
@@ -242,7 +340,7 @@ class NfsDriverTestCase(test.TestCase):
         df_data = 'nfs-host:/export 2620544 996864 %d 41%% /mnt' % df_avail
         df_output = df_head + df_data
 
-        setattr(nfs.FLAGS, 'nfs_disk_util', 'df')
+        self.configuration.nfs_disk_util = 'df'
 
         mox.StubOutWithMock(drv, '_get_mount_point_for_share')
         drv._get_mount_point_for_share(self.TEST_NFS_EXPORT1).\
@@ -259,14 +357,11 @@ class NfsDriverTestCase(test.TestCase):
 
         mox.VerifyAll()
 
-        delattr(nfs.FLAGS, 'nfs_disk_util')
-
     def test_get_available_capacity_with_du(self):
         """_get_available_capacity should calculate correct value."""
         mox = self._mox
         drv = self._driver
-
-        setattr(nfs.FLAGS, 'nfs_disk_util', 'du')
+        self.configuration.nfs_disk_util = 'du'
 
         df_total_size = 2620544
         df_used_size = 996864
@@ -300,13 +395,11 @@ class NfsDriverTestCase(test.TestCase):
 
         mox.VerifyAll()
 
-        delattr(nfs.FLAGS, 'nfs_disk_util')
-
     def test_load_shares_config(self):
         mox = self._mox
         drv = self._driver
 
-        nfs.FLAGS.nfs_shares_config = self.TEST_SHARES_CONFIG_FILE
+        self.configuration.nfs_shares_config = self.TEST_SHARES_CONFIG_FILE
 
         mox.StubOutWithMock(__builtin__, 'open')
         config_data = []
@@ -390,7 +483,7 @@ class NfsDriverTestCase(test.TestCase):
         """do_setup should throw error if nfs client is not installed."""
         mox = self._mox
         drv = self._driver
-
+        self.configuration.nfs_shares_config = self.TEST_SHARES_CONFIG_FILE
         nfs.FLAGS.nfs_shares_config = self.TEST_SHARES_CONFIG_FILE
 
         mox.StubOutWithMock(os.path, 'exists')
@@ -487,6 +580,7 @@ class NfsDriverTestCase(test.TestCase):
     def test_create_nonsparsed_volume(self):
         mox = self._mox
         drv = self._driver
+        self.configuration.nfs_sparsed_volumes = False
         volume = self._simple_volume()
 
         setattr(nfs.FLAGS, 'nfs_sparsed_volumes', False)

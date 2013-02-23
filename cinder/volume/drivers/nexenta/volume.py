@@ -22,9 +22,10 @@
 .. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
 """
 
+from oslo.config import cfg
+
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
 from cinder.volume.drivers import nexenta
@@ -48,7 +49,8 @@ nexenta_opts = [
                help='User name to connect to Nexenta SA'),
     cfg.StrOpt('nexenta_password',
                default='nexenta',
-               help='Password to connect to Nexenta SA'),
+               help='Password to connect to Nexenta SA',
+               secret=True),
     cfg.IntOpt('nexenta_iscsi_target_portal_port',
                default=3260,
                help='Nexenta target portal port'),
@@ -74,8 +76,8 @@ FLAGS.register_opts(nexenta_opts)
 class NexentaDriver(driver.ISCSIDriver):  # pylint: disable=R0921
     """Executes volume driver commands on Nexenta Appliance."""
 
-    def __init__(self):
-        super(NexentaDriver, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(NexentaDriver, self).__init__(*args, **kwargs)
 
     def do_setup(self, context):
         protocol = FLAGS.nexenta_rest_protocol
@@ -234,9 +236,9 @@ class NexentaDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             else:
                 LOG.info(_('Ignored LUN mapping entry addition error "%s"'
                            ' while ensuring export'), exc)
-        return '%s:%s,1 %s' % (FLAGS.nexenta_host,
-                               FLAGS.nexenta_iscsi_target_portal_port,
-                               target_name)
+        return '%s:%s,1 %s 0' % (FLAGS.nexenta_host,
+                                 FLAGS.nexenta_iscsi_target_portal_port,
+                                 target_name)
 
     def create_export(self, _ctx, volume):
         """Create new export for zvol.
@@ -284,7 +286,7 @@ class NexentaDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         """Fetch the image from image_service and write it to the volume."""
         raise NotImplementedError()
 
-    def copy_volume_to_image(self, context, volume, image_service, image_id):
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         raise NotImplementedError()
 

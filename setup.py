@@ -19,9 +19,10 @@
 import setuptools
 
 from cinder.openstack.common import setup as common_setup
-from cinder import version
 
 requires = common_setup.parse_requirements()
+depend_links = common_setup.parse_dependency_links()
+project = 'cinder'
 
 filters = [
     "AvailabilityZoneFilter = "
@@ -34,6 +35,8 @@ filters = [
     "cinder.scheduler.filters.capacity_filter:CapacityFilter",
     "JsonFilter = "
     "cinder.openstack.common.scheduler.filters.json_filter:JsonFilter",
+    "RetryFilter = "
+    "cinder.scheduler.filters.retry_filter:RetryFilter",
 ]
 
 weights = [
@@ -41,8 +44,8 @@ weights = [
 ]
 
 setuptools.setup(
-    name='cinder',
-    version=version.canonical_version_string(),
+    name=project,
+    version=common_setup.get_version(project, '2013.1'),
     description='block storage service',
     author='OpenStack',
     author_email='cinder@lists.launchpad.net',
@@ -60,6 +63,7 @@ setuptools.setup(
     cmdclass=common_setup.get_cmdclass(),
     packages=setuptools.find_packages(exclude=['bin', 'smoketests']),
     install_requires=requires,
+    dependency_links=depend_links,
     entry_points={
         'cinder.scheduler.filters': filters,
         'cinder.scheduler.weights': weights,
@@ -72,6 +76,7 @@ setuptools.setup(
              'bin/cinder-clear-rabbit-queues',
              'bin/cinder-manage',
              'bin/cinder-rootwrap',
+             'bin/cinder-rtstool',
              'bin/cinder-scheduler',
              'bin/cinder-volume',
              'bin/cinder-volume-usage-audit'],

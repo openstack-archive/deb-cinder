@@ -43,11 +43,11 @@ these objects be simple dictionaries.
 
 """
 
+from oslo.config import cfg
+
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder import utils
-
 
 db_opts = [
     cfg.StrOpt('db_backend',
@@ -61,7 +61,10 @@ db_opts = [
                help='Template string to be used to generate volume names'),
     cfg.StrOpt('snapshot_name_template',
                default='snapshot-%s',
-               help='Template string to be used to generate snapshot names'), ]
+               help='Template string to be used to generate snapshot names'),
+    cfg.StrOpt('backup_name_template',
+               default='backup-%s',
+               help='Template string to be used to generate backup names'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(db_opts)
@@ -317,6 +320,24 @@ def snapshot_data_get_for_project(context, project_id, session=None):
 ####################
 
 
+def snapshot_metadata_get(context, snapshot_id):
+    """Get all metadata for a snapshot."""
+    return IMPL.snapshot_metadata_get(context, snapshot_id)
+
+
+def snapshot_metadata_delete(context, snapshot_id, key):
+    """Delete the given metadata item."""
+    IMPL.snapshot_metadata_delete(context, snapshot_id, key)
+
+
+def snapshot_metadata_update(context, snapshot_id, metadata, delete):
+    """Update metadata if it exists, otherwise create it."""
+    IMPL.snapshot_metadata_update(context, snapshot_id, metadata, delete)
+
+
+####################
+
+
 def volume_metadata_get(context, volume_id):
     """Get all metadata for a volume."""
     return IMPL.volume_metadata_get(context, volume_id)
@@ -440,6 +461,19 @@ def volume_glance_metadata_delete_by_snapshot(context, snapshot_id):
     """Delete the glance metadata for a snapshot."""
     return IMPL.volume_glance_metadata_delete_by_snapshot(context, snapshot_id)
 
+
+def volume_glance_metadata_copy_from_volume_to_volume(context,
+                                                      src_volume_id,
+                                                      volume_id):
+    """
+    Update the Glance metadata for a volume by copying all of the key:value
+    pairs from the originating volume. This is so that a volume created from
+    the volume (clone) will retain the original metadata.
+    """
+    return IMPL.volume_glance_metadata_copy_from_volume_to_volume(
+        context,
+        src_volume_id,
+        volume_id)
 
 ###################
 
@@ -657,9 +691,51 @@ def reservation_rollback(context, reservations):
 
 def quota_destroy_all_by_project(context, project_id):
     """Destroy all quotas associated with a given project."""
-    return IMPL.quota_get_all_by_project(context, project_id)
+    return IMPL.quota_destroy_all_by_project(context, project_id)
 
 
 def reservation_expire(context):
     """Roll back any expired reservations."""
     return IMPL.reservation_expire(context)
+
+
+###################
+
+
+def backup_get(context, backup_id):
+    """Get a backup or raise if it does not exist."""
+    return IMPL.backup_get(context, backup_id)
+
+
+def backup_get_all(context):
+    """Get all backups."""
+    return IMPL.backup_get_all(context)
+
+
+def backup_get_all_by_host(context, host):
+    """Get all backups belonging to a host."""
+    return IMPL.backup_get_all_by_host(context, host)
+
+
+def backup_create(context, values):
+    """Create a backup from the values dictionary."""
+    return IMPL.backup_create(context, values)
+
+
+def backup_get_all_by_project(context, project_id):
+    """Get all backups belonging to a project."""
+    return IMPL.backup_get_all_by_project(context, project_id)
+
+
+def backup_update(context, backup_id, values):
+    """
+    Set the given properties on a backup and update it.
+
+    Raises NotFound if backup does not exist.
+    """
+    return IMPL.backup_update(context, backup_id, values)
+
+
+def backup_destroy(context, backup_id):
+    """Destroy the backup or raise if it does not exist."""
+    return IMPL.backup_destroy(context, backup_id)

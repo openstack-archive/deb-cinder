@@ -16,10 +16,32 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from cinder.db import api as db_api
+from cinder import exception
+from cinder.openstack.common import cfg
+from cinder.volume import configuration as conf
+from cinder.volume import driver as parent_driver
 from cinder.volume.drivers.xenapi import lib
 from cinder.volume.drivers.xenapi import sm as driver
+from cinder.volume.drivers.xenapi import tools
+import contextlib
+import mock
 import mox
+import StringIO
 import unittest
+
+
+class MockContext(object):
+    def __init__(ctxt, auth_token):
+        ctxt.auth_token = auth_token
+
+
+def get_configured_driver(server='ignore_server', path='ignore_path'):
+    configuration = mox.MockObject(conf.Configuration)
+    configuration.xenapi_nfs_server = server
+    configuration.xenapi_nfs_serverpath = path
+    configuration.append_config_values(mox.IgnoreArg())
+    return driver.XenAPINFSDriver(configuration=configuration)
 
 
 class DriverTestCase(unittest.TestCase):
@@ -33,15 +55,18 @@ class DriverTestCase(unittest.TestCase):
         self.assert_flag('xenapi_connection_password')
         self.assert_flag('xenapi_nfs_server')
         self.assert_flag('xenapi_nfs_serverpath')
+        self.assert_flag('xenapi_sr_base_path')
 
     def test_do_setup(self):
         mock = mox.Mox()
         mock.StubOutWithMock(driver, 'xenapi_lib')
-        mock.StubOutWithMock(driver, 'FLAGS')
+        mock.StubOutWithMock(driver, 'xenapi_opts')
 
-        driver.FLAGS.xenapi_connection_url = 'url'
-        driver.FLAGS.xenapi_connection_username = 'user'
-        driver.FLAGS.xenapi_connection_password = 'pass'
+        configuration = mox.MockObject(conf.Configuration)
+        configuration.xenapi_connection_url = 'url'
+        configuration.xenapi_connection_username = 'user'
+        configuration.xenapi_connection_password = 'pass'
+        configuration.append_config_values(mox.IgnoreArg())
 
         session_factory = object()
         nfsops = object()
@@ -52,7 +77,7 @@ class DriverTestCase(unittest.TestCase):
         driver.xenapi_lib.NFSBasedVolumeOperations(
             session_factory).AndReturn(nfsops)
 
-        drv = driver.XenAPINFSDriver()
+        drv = driver.XenAPINFSDriver(configuration=configuration)
 
         mock.ReplayAll()
         drv.do_setup('context')
@@ -63,12 +88,8 @@ class DriverTestCase(unittest.TestCase):
     def test_create_volume(self):
         mock = mox.Mox()
 
-        mock.StubOutWithMock(driver, 'FLAGS')
-        driver.FLAGS.xenapi_nfs_server = 'server'
-        driver.FLAGS.xenapi_nfs_serverpath = 'path'
-
         ops = mock.CreateMock(lib.NFSBasedVolumeOperations)
-        drv = driver.XenAPINFSDriver()
+        drv = get_configured_driver('server', 'path')
         drv.nfs_ops = ops
 
         volume_details = dict(
@@ -88,12 +109,8 @@ class DriverTestCase(unittest.TestCase):
     def test_delete_volume(self):
         mock = mox.Mox()
 
-        mock.StubOutWithMock(driver, 'FLAGS')
-        driver.FLAGS.xenapi_nfs_server = 'server'
-        driver.FLAGS.xenapi_nfs_serverpath = 'path'
-
         ops = mock.CreateMock(lib.NFSBasedVolumeOperations)
-        drv = driver.XenAPINFSDriver()
+        drv = get_configured_driver('server', 'path')
         drv.nfs_ops = ops
 
         ops.delete_volume('server', 'path', 'sr_uuid', 'vdi_uuid')
@@ -104,21 +121,19 @@ class DriverTestCase(unittest.TestCase):
         mock.VerifyAll()
 
     def test_create_export_does_not_raise_exception(self):
-        drv = driver.XenAPINFSDriver()
+        configuration = conf.Configuration([])
+        drv = driver.XenAPINFSDriver(configuration=configuration)
         drv.create_export('context', 'volume')
 
     def test_remove_export_does_not_raise_exception(self):
-        drv = driver.XenAPINFSDriver()
+        configuration = conf.Configuration([])
+        drv = driver.XenAPINFSDriver(configuration=configuration)
         drv.remove_export('context', 'volume')
 
     def test_initialize_connection(self):
         mock = mox.Mox()
 
-        mock.StubOutWithMock(driver, 'FLAGS')
-        driver.FLAGS.xenapi_nfs_server = 'server'
-        driver.FLAGS.xenapi_nfs_serverpath = 'path'
-
-        drv = driver.XenAPINFSDriver()
+        drv = get_configured_driver('server', 'path')
 
         mock.ReplayAll()
         result = drv.initialize_connection(
@@ -150,11 +165,7 @@ class DriverTestCase(unittest.TestCase):
     def test_initialize_connection_null_values(self):
         mock = mox.Mox()
 
-        mock.StubOutWithMock(driver, 'FLAGS')
-        driver.FLAGS.xenapi_nfs_server = 'server'
-        driver.FLAGS.xenapi_nfs_serverpath = 'path'
-
-        drv = driver.XenAPINFSDriver()
+        drv = get_configured_driver('server', 'path')
 
         mock.ReplayAll()
         result = drv.initialize_connection(
@@ -182,3 +193,231 @@ class DriverTestCase(unittest.TestCase):
             ),
             result
         )
+
+    def _setup_mock_driver(self, server, serverpath, sr_base_path="_srbp"):
+        mock = mox.Mox()
+
+        drv = get_configured_driver(server, serverpath)
+        ops = mock.CreateMock(lib.NFSBasedVolumeOperations)
+        db = mock.CreateMock(db_api)
+        drv.nfs_ops = ops
+        drv.db = db
+
+        mock.StubOutWithMock(driver, 'FLAGS')
+        driver.FLAGS.xenapi_nfs_server = server
+        driver.FLAGS.xenapi_nfs_serverpath = serverpath
+        driver.FLAGS.xenapi_sr_base_path = sr_base_path
+
+        return mock, drv
+
+    def test_create_snapshot(self):
+        mock, drv = self._setup_mock_driver('server', 'serverpath')
+
+        snapshot = dict(
+            volume_id="volume-id",
+            display_name="snapshot-name",
+            display_description="snapshot-desc",
+            volume=dict(provider_location="sr-uuid/vdi-uuid"))
+
+        drv.nfs_ops.copy_volume(
+            "server", "serverpath", "sr-uuid", "vdi-uuid",
+            "snapshot-name", "snapshot-desc"
+        ).AndReturn(dict(sr_uuid="copied-sr", vdi_uuid="copied-vdi"))
+
+        mock.ReplayAll()
+        result = drv.create_snapshot(snapshot)
+        mock.VerifyAll()
+        self.assertEquals(
+            dict(provider_location="copied-sr/copied-vdi"),
+            result)
+
+    def test_create_volume_from_snapshot(self):
+        mock, drv = self._setup_mock_driver('server', 'serverpath')
+
+        snapshot = dict(
+            provider_location='src-sr-uuid/src-vdi-uuid')
+        volume = dict(
+            display_name='tgt-name', name_description='tgt-desc')
+
+        drv.nfs_ops.copy_volume(
+            "server", "serverpath", "src-sr-uuid", "src-vdi-uuid",
+            "tgt-name", "tgt-desc"
+        ).AndReturn(dict(sr_uuid="copied-sr", vdi_uuid="copied-vdi"))
+
+        mock.ReplayAll()
+        result = drv.create_volume_from_snapshot(volume, snapshot)
+        mock.VerifyAll()
+
+        self.assertEquals(
+            dict(provider_location='copied-sr/copied-vdi'), result)
+
+    def test_delete_snapshot(self):
+        mock, drv = self._setup_mock_driver('server', 'serverpath')
+
+        snapshot = dict(
+            provider_location='src-sr-uuid/src-vdi-uuid')
+
+        drv.nfs_ops.delete_volume(
+            "server", "serverpath", "src-sr-uuid", "src-vdi-uuid")
+
+        mock.ReplayAll()
+        drv.delete_snapshot(snapshot)
+        mock.VerifyAll()
+
+    def test_copy_image_to_volume_xenserver_case(self):
+        mock, drv = self._setup_mock_driver(
+            'server', 'serverpath', '/var/run/sr-mount')
+
+        mock.StubOutWithMock(drv, '_use_glance_plugin_to_copy_image_to_volume')
+        mock.StubOutWithMock(driver, 'is_xenserver_image')
+        context = MockContext('token')
+
+        driver.is_xenserver_image(
+            context, 'image_service', 'image_id').AndReturn(True)
+        drv._use_glance_plugin_to_copy_image_to_volume(
+            context, 'volume', 'image_service', 'image_id').AndReturn('result')
+        mock.ReplayAll()
+        result = drv.copy_image_to_volume(
+            context, "volume", "image_service", "image_id")
+        self.assertEquals('result', result)
+        mock.VerifyAll()
+
+    def test_copy_image_to_volume_non_xenserver_case(self):
+        mock, drv = self._setup_mock_driver(
+            'server', 'serverpath', '/var/run/sr-mount')
+
+        mock.StubOutWithMock(drv, '_use_image_utils_to_pipe_bytes_to_volume')
+        mock.StubOutWithMock(driver, 'is_xenserver_image')
+        context = MockContext('token')
+
+        driver.is_xenserver_image(
+            context, 'image_service', 'image_id').AndReturn(False)
+        drv._use_image_utils_to_pipe_bytes_to_volume(
+            context, 'volume', 'image_service', 'image_id').AndReturn(True)
+        mock.ReplayAll()
+        drv.copy_image_to_volume(
+            context, "volume", "image_service", "image_id")
+        mock.VerifyAll()
+
+    def test_use_image_utils_to_pipe_bytes_to_volume(self):
+        mock, drv = self._setup_mock_driver(
+            'server', 'serverpath', '/var/run/sr-mount')
+
+        volume = dict(provider_location='sr-uuid/vdi-uuid')
+        context = MockContext('token')
+
+        mock.StubOutWithMock(driver.image_utils, 'fetch_to_raw')
+
+        @contextlib.contextmanager
+        def simple_context(value):
+            yield value
+
+        drv.nfs_ops.volume_attached_here(
+            'server', 'serverpath', 'sr-uuid', 'vdi-uuid', False).AndReturn(
+                simple_context('device'))
+
+        driver.image_utils.fetch_to_raw(
+            context, 'image_service', 'image_id', 'device')
+
+        mock.ReplayAll()
+        drv._use_image_utils_to_pipe_bytes_to_volume(
+            context, volume, "image_service", "image_id")
+        mock.VerifyAll()
+
+    def test_use_glance_plugin_to_copy_image_to_volume_success(self):
+        mock, drv = self._setup_mock_driver(
+            'server', 'serverpath', '/var/run/sr-mount')
+
+        volume = dict(
+            provider_location='sr-uuid/vdi-uuid',
+            size=2)
+
+        mock.StubOutWithMock(driver.glance, 'get_api_servers')
+
+        driver.glance.get_api_servers().AndReturn((x for x in ['glancesrv']))
+
+        drv.nfs_ops.use_glance_plugin_to_overwrite_volume(
+            'server', 'serverpath', 'sr-uuid', 'vdi-uuid', 'glancesrv',
+            'image_id', 'token', '/var/run/sr-mount').AndReturn(True)
+
+        drv.nfs_ops.resize_volume(
+            'server', 'serverpath', 'sr-uuid', 'vdi-uuid', 2)
+
+        mock.ReplayAll()
+        drv._use_glance_plugin_to_copy_image_to_volume(
+            MockContext('token'), volume, "ignore", "image_id")
+        mock.VerifyAll()
+
+    def test_use_glance_plugin_to_copy_image_to_volume_fail(self):
+        mock, drv = self._setup_mock_driver(
+            'server', 'serverpath', '/var/run/sr-mount')
+
+        volume = dict(
+            provider_location='sr-uuid/vdi-uuid',
+            size=2)
+
+        mock.StubOutWithMock(driver.glance, 'get_api_servers')
+
+        driver.glance.get_api_servers().AndReturn((x for x in ['glancesrv']))
+
+        drv.nfs_ops.use_glance_plugin_to_overwrite_volume(
+            'server', 'serverpath', 'sr-uuid', 'vdi-uuid', 'glancesrv',
+            'image_id', 'token', '/var/run/sr-mount').AndReturn(False)
+
+        mock.ReplayAll()
+
+        self.assertRaises(
+            exception.ImageCopyFailure,
+            lambda: drv._use_glance_plugin_to_copy_image_to_volume(
+                MockContext('token'), volume, "ignore", "image_id"))
+
+        mock.VerifyAll()
+
+    def test_get_volume_stats_reports_required_keys(self):
+        drv = get_configured_driver()
+
+        stats = drv.get_volume_stats()
+
+        required_metrics = [
+            'volume_backend_name', 'vendor_name', 'driver_version',
+            'storage_protocol', 'total_capacity_gb', 'free_capacity_gb',
+            'reserved_percentage'
+        ]
+
+        for metric in required_metrics:
+            self.assertTrue(metric in stats)
+
+    def test_get_volume_stats_reports_unknown_cap(self):
+        drv = get_configured_driver()
+
+        stats = drv.get_volume_stats()
+
+        self.assertEquals('unknown', stats['free_capacity_gb'])
+
+    def test_reported_driver_type(self):
+        drv = get_configured_driver()
+
+        stats = drv.get_volume_stats()
+
+        self.assertEquals('xensm', stats['storage_protocol'])
+
+
+class ToolsTest(unittest.TestCase):
+    @mock.patch('cinder.volume.drivers.xenapi.tools._stripped_first_line_of')
+    def test_get_this_vm_uuid(self, mock_read_first_line):
+        mock_read_first_line.return_value = 'someuuid'
+        self.assertEquals('someuuid', tools.get_this_vm_uuid())
+        mock_read_first_line.assert_called_once_with('/sys/hypervisor/uuid')
+
+    def test_stripped_first_line_of(self):
+        mock_context_manager = mock.Mock()
+        mock_context_manager.__enter__ = mock.Mock(
+            return_value=StringIO.StringIO('  blah  \n second line \n'))
+        mock_context_manager.__exit__ = mock.Mock(return_value=False)
+        mock_open = mock.Mock(return_value=mock_context_manager)
+
+        with mock.patch('__builtin__.open', mock_open):
+            self.assertEquals(
+                'blah', tools._stripped_first_line_of('/somefile'))
+
+        mock_open.assert_called_once_with('/somefile', 'rb')

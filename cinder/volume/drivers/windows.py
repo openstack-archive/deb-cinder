@@ -23,9 +23,10 @@ This driver requires ISCSI target role installed
 import os
 import sys
 
+from oslo.config import cfg
+
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
 
@@ -50,8 +51,8 @@ FLAGS.register_opts(windows_opts)
 class WindowsDriver(driver.ISCSIDriver):
     """Executes volume driver commands on Windows Storage server."""
 
-    def __init__(self):
-        super(WindowsDriver, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(WindowsDriver, self).__init__(*args, **kwargs)
 
     def do_setup(self, context):
         """Setup the Windows Volume driver.
@@ -239,6 +240,6 @@ class WindowsDriver(driver.ISCSIDriver):
         """Fetch the image from image_service and write it to the volume."""
         raise NotImplementedError()
 
-    def copy_volume_to_image(self, context, volume, image_service, image_id):
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         raise NotImplementedError()

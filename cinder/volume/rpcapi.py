@@ -35,28 +35,36 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
         1.0 - Initial version.
         1.1 - Adds clone volume option to create_volume.
         1.2 - Add publish_service_capabilities() method.
+        1.3 - Pass all image metadata (not just ID) in copy_volume_to_image
+        1.4 - Add request_spec, filter_properties and
+              allow_reschedule arguments to create_volume().
     '''
 
     BASE_RPC_API_VERSION = '1.0'
 
-    def __init__(self):
+    def __init__(self, topic=None):
         super(VolumeAPI, self).__init__(
-            topic=FLAGS.volume_topic,
+            topic=topic or FLAGS.volume_topic,
             default_version=self.BASE_RPC_API_VERSION)
 
     def create_volume(self, ctxt, volume, host,
+                      request_spec, filter_properties,
+                      allow_reschedule=True,
                       snapshot_id=None, image_id=None,
                       source_volid=None):
         self.cast(ctxt,
                   self.make_msg('create_volume',
                                 volume_id=volume['id'],
+                                request_spec=request_spec,
+                                filter_properties=filter_properties,
+                                allow_reschedule=allow_reschedule,
                                 snapshot_id=snapshot_id,
                                 image_id=image_id,
                                 source_volid=source_volid),
                   topic=rpc.queue_get_for(ctxt,
                                           self.topic,
                                           host),
-                  version='1.1')
+                  version='1.4')
 
     def delete_volume(self, ctxt, volume):
         self.cast(ctxt,
@@ -91,13 +99,14 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
                                                  self.topic,
                                                  volume['host']))
 
-    def copy_volume_to_image(self, ctxt, volume, image_id):
+    def copy_volume_to_image(self, ctxt, volume, image_meta):
         self.cast(ctxt, self.make_msg('copy_volume_to_image',
                                       volume_id=volume['id'],
-                                      image_id=image_id),
+                                      image_meta=image_meta),
                   topic=rpc.queue_get_for(ctxt,
                                           self.topic,
-                                          volume['host']))
+                                          volume['host']),
+                  version='1.3')
 
     def initialize_connection(self, ctxt, volume, connector):
         return self.call(ctxt, self.make_msg('initialize_connection',

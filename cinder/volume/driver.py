@@ -20,34 +20,28 @@ Drivers for volumes.
 
 """
 
-import math
 import os
-import re
+import socket
 import time
+
+from oslo.config import cfg
 
 from cinder import exception
 from cinder import flags
 from cinder.image import image_utils
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
 from cinder import utils
-from cinder.volume import iscsi
-
+from cinder.volume.configuration import Configuration
 
 LOG = logging.getLogger(__name__)
 
 volume_opts = [
-    cfg.StrOpt('volume_group',
-               default='cinder-volumes',
-               help='Name for the VG that will contain exported volumes'),
-    cfg.IntOpt('lvm_mirrors',
-               default=0,
-               help='If set, create lvms with multiple mirrors. Note that '
-                    'this requires lvm_mirrors + 2 pvs with available space'),
     cfg.IntOpt('num_shell_tries',
                default=3,
                help='number of times to attempt to run flakey shell commands'),
+    cfg.IntOpt('reserved_percentage',
+               default=0,
+               help='The percentage of backend capacity is reserved'),
     cfg.IntOpt('num_iscsi_scan_tries',
                default=3,
                help='number of times to rescan iSCSI target to find volume'),
@@ -59,17 +53,17 @@ volume_opts = [
                help='prefix for iscsi volumes'),
     cfg.StrOpt('iscsi_ip_address',
                default='$my_ip',
-               help='use this ip for iscsi'),
+               help='The port that the iSCSI daemon is listening on'),
     cfg.IntOpt('iscsi_port',
                default=3260,
                help='The port that the iSCSI daemon is listening on'),
-    cfg.IntOpt('reserved_percentage',
-               default=0,
-               help='The percentage of backend capacity is reserved'),
-]
+    cfg.StrOpt('volume_backend_name',
+               default=None,
+               help='The backend name for a given driver implementation'), ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(volume_opts)
+FLAGS.import_opt('iscsi_helper', 'cinder.volume.iscsi')
 
 
 class VolumeDriver(object):
@@ -77,6 +71,9 @@ class VolumeDriver(object):
     def __init__(self, execute=utils.execute, *args, **kwargs):
         # NOTE(vish): db is set by Manager
         self.db = None
+        self.configuration = kwargs.get('configuration', None)
+        if self.configuration:
+            self.configuration.append_config_values(volume_opts)
         self.set_execute(execute)
         self._stats = {}
 
@@ -94,163 +91,45 @@ class VolumeDriver(object):
                 return True
             except exception.ProcessExecutionError:
                 tries = tries + 1
-                if tries >= FLAGS.num_shell_tries:
+                if tries >= self.configuration.num_shell_tries:
                     raise
                 LOG.exception(_("Recovering from a failed execute.  "
                                 "Try number %s"), tries)
                 time.sleep(tries ** 2)
 
     def check_for_setup_error(self):
-        """Returns an error if prerequisites aren't met"""
-        out, err = self._execute('vgs', '--noheadings', '-o', 'name',
-                                 run_as_root=True)
-        volume_groups = out.split()
-        if not FLAGS.volume_group in volume_groups:
-            exception_message = (_("volume group %s doesn't exist")
-                                 % FLAGS.volume_group)
-            raise exception.VolumeBackendAPIException(data=exception_message)
-
-    def _create_volume(self, volume_name, sizestr):
-        cmd = ['lvcreate', '-L', sizestr, '-n', volume_name,
-               FLAGS.volume_group]
-        if FLAGS.lvm_mirrors:
-            cmd += ['-m', FLAGS.lvm_mirrors, '--nosync']
-            terras = int(sizestr[:-1]) / 1024.0
-            if terras >= 1.5:
-                rsize = int(2 ** math.ceil(math.log(terras) / math.log(2)))
-                # NOTE(vish): Next power of two for region size. See:
-                #             http://red.ht/U2BPOD
-                cmd += ['-R', str(rsize)]
-
-        self._try_execute(*cmd, run_as_root=True)
-
-    def _copy_volume(self, srcstr, deststr, size_in_g):
-        # Use O_DIRECT to avoid thrashing the system buffer cache
-        direct_flags = ('iflag=direct', 'oflag=direct')
-
-        # Check whether O_DIRECT is supported
-        try:
-            self._execute('dd', 'count=0', 'if=%s' % srcstr, 'of=%s' % deststr,
-                          *direct_flags, run_as_root=True)
-        except exception.ProcessExecutionError:
-            direct_flags = ()
-
-        # Perform the copy
-        self._execute('dd', 'if=%s' % srcstr, 'of=%s' % deststr,
-                      'count=%d' % (size_in_g * 1024), 'bs=1M',
-                      *direct_flags, run_as_root=True)
-
-    def _volume_not_present(self, volume_name):
-        path_name = '%s/%s' % (FLAGS.volume_group, volume_name)
-        try:
-            self._try_execute('lvdisplay', path_name, run_as_root=True)
-        except Exception as e:
-            # If the volume isn't present
-            return True
-        return False
-
-    def _delete_volume(self, volume, size_in_g):
-        """Deletes a logical volume."""
-        # zero out old volumes to prevent data leaking between users
-        # TODO(ja): reclaiming space should be done lazy and low priority
-        dev_path = self.local_path(volume)
-        if FLAGS.secure_delete and os.path.exists(dev_path):
-            LOG.info(_("Performing secure delete on volume: %s")
-                     % volume['id'])
-            self._copy_volume('/dev/zero', dev_path, size_in_g)
-
-        self._try_execute('lvremove', '-f', "%s/%s" %
-                          (FLAGS.volume_group,
-                           self._escape_snapshot(volume['name'])),
-                          run_as_root=True)
-
-    def _sizestr(self, size_in_g):
-        if int(size_in_g) == 0:
-            return '100M'
-        return '%sG' % size_in_g
-
-    # Linux LVM reserves name that starts with snapshot, so that
-    # such volume name can't be created. Mangle it.
-    def _escape_snapshot(self, snapshot_name):
-        if not snapshot_name.startswith('snapshot'):
-            return snapshot_name
-        return '_' + snapshot_name
+        raise NotImplementedError()
 
     def create_volume(self, volume):
-        """Creates a logical volume. Can optionally return a Dictionary of
+        """Creates a volume. Can optionally return a Dictionary of
         changes to the volume object to be persisted."""
-        self._create_volume(volume['name'], self._sizestr(volume['size']))
+        raise NotImplementedError()
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot."""
-        self._create_volume(volume['name'], self._sizestr(volume['size']))
-        self._copy_volume(self.local_path(snapshot), self.local_path(volume),
-                          snapshot['volume_size'])
+        raise NotImplementedError()
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
-        LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
-        volume_name = FLAGS.volume_name_template % src_vref['id']
-        temp_snapshot = {'volume_name': volume_name,
-                         'size': src_vref['size'],
-                         'volume_size': src_vref['size'],
-                         'name': 'clone-snap-%s' % src_vref['id']}
-        self.create_snapshot(temp_snapshot)
-        self._create_volume(volume['name'], self._sizestr(volume['size']))
-        try:
-            self._copy_volume(self.local_path(temp_snapshot),
-                              self.local_path(volume),
-                              src_vref['size'])
-        finally:
-            self.delete_snapshot(temp_snapshot)
+        raise NotImplementedError()
 
     def delete_volume(self, volume):
-        """Deletes a logical volume."""
-        if self._volume_not_present(volume['name']):
-            # If the volume isn't present, then don't attempt to delete
-            return True
-
-        # TODO(yamahata): lvm can't delete origin volume only without
-        # deleting derived snapshots. Can we do something fancy?
-        out, err = self._execute('lvdisplay', '--noheading',
-                                 '-C', '-o', 'Attr',
-                                 '%s/%s' % (FLAGS.volume_group,
-                                            volume['name']),
-                                 run_as_root=True)
-        # fake_execute returns None resulting unit test error
-        if out:
-            out = out.strip()
-            if (out[0] == 'o') or (out[0] == 'O'):
-                raise exception.VolumeIsBusy(volume_name=volume['name'])
-
-        self._delete_volume(volume, volume['size'])
+        """Deletes a volume."""
+        raise NotImplementedError()
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
-        orig_lv_name = "%s/%s" % (FLAGS.volume_group, snapshot['volume_name'])
-        self._try_execute('lvcreate', '-L',
-                          self._sizestr(snapshot['volume_size']),
-                          '--name', self._escape_snapshot(snapshot['name']),
-                          '--snapshot', orig_lv_name, run_as_root=True)
+        raise NotImplementedError()
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
-        if self._volume_not_present(self._escape_snapshot(snapshot['name'])):
-            # If the snapshot isn't present, then don't attempt to delete
-            return True
-
-        # TODO(yamahata): zeroing out the whole snapshot triggers COW.
-        # it's quite slow.
-        self._delete_volume(snapshot, snapshot['volume_size'])
+        raise NotImplementedError()
 
     def local_path(self, volume):
-        # NOTE(vish): stops deprecation warning
-        escaped_group = FLAGS.volume_group.replace('-', '--')
-        escaped_name = self._escape_snapshot(volume['name']).replace('-', '--')
-        return "/dev/mapper/%s-%s" % (escaped_group, escaped_name)
+        raise NotImplementedError()
 
     def ensure_export(self, context, volume):
-        """Synchronously recreates an export for a logical volume."""
+        """Synchronously recreates an export for a volume."""
         raise NotImplementedError()
 
     def create_export(self, context, volume):
@@ -259,7 +138,7 @@ class VolumeDriver(object):
         raise NotImplementedError()
 
     def remove_export(self, context, volume):
-        """Removes an export for a logical volume."""
+        """Removes an export for a volume."""
         raise NotImplementedError()
 
     def initialize_connection(self, volume, connector):
@@ -291,7 +170,7 @@ class VolumeDriver(object):
         """Fetch the image from image_service and write it to the volume."""
         raise NotImplementedError()
 
-    def copy_volume_to_image(self, context, volume, image_service, image_id):
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         raise NotImplementedError()
 
@@ -305,6 +184,14 @@ class VolumeDriver(object):
         Returns a boolean indicating whether cloning occurred
         """
         return False
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume."""
+        raise NotImplementedError()
+
+    def restore_backup(self, context, backup, volume, backup_service):
+        """Restore an existing backup to a new or existing volume."""
+        raise NotImplementedError()
 
 
 class ISCSIDriver(VolumeDriver):
@@ -324,184 +211,7 @@ class ISCSIDriver(VolumeDriver):
     """
 
     def __init__(self, *args, **kwargs):
-        self.tgtadm = iscsi.get_target_admin()
         super(ISCSIDriver, self).__init__(*args, **kwargs)
-
-    def set_execute(self, execute):
-        super(ISCSIDriver, self).set_execute(execute)
-        self.tgtadm.set_execute(execute)
-
-    def ensure_export(self, context, volume):
-        """Synchronously recreates an export for a logical volume."""
-        # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
-        # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
-        if not isinstance(self.tgtadm, iscsi.TgtAdm):
-            try:
-                iscsi_target = self.db.volume_get_iscsi_target_num(
-                    context,
-                    volume['id'])
-            except exception.NotFound:
-                LOG.info(_("Skipping ensure_export. No iscsi_target "
-                           "provisioned for volume: %s"), volume['id'])
-                return
-        else:
-            iscsi_target = 1  # dummy value when using TgtAdm
-
-        # Check for https://bugs.launchpad.net/cinder/+bug/1065702
-        old_name = None
-        volume_name = volume['name']
-        if (volume['provider_location'] is not None and
-                volume['name'] not in volume['provider_location']):
-
-            msg = _('Detected inconsistency in provider_location id')
-            LOG.debug(msg)
-            old_name = self._fix_id_migration(context, volume)
-            if 'in-use' in volume['status']:
-                volume_name = old_name
-                old_name = None
-
-        iscsi_name = "%s%s" % (FLAGS.iscsi_target_prefix, volume_name)
-        volume_path = "/dev/%s/%s" % (FLAGS.volume_group, volume_name)
-
-        # NOTE(jdg): For TgtAdm case iscsi_name is the ONLY param we need
-        # should clean this all up at some point in the future
-        self.tgtadm.create_iscsi_target(iscsi_name, iscsi_target,
-                                        0, volume_path,
-                                        check_exit_code=False,
-                                        old_name=old_name)
-
-    def _fix_id_migration(self, context, volume):
-        """Fix provider_location and dev files to address bug 1065702.
-
-        For volumes that the provider_location has NOT been updated
-        and are not currently in-use we'll create a new iscsi target
-        and remove the persist file.
-
-        If the volume is in-use, we'll just stick with the old name
-        and when detach is called we'll feed back into ensure_export
-        again if necessary and fix things up then.
-
-        Details at: https://bugs.launchpad.net/cinder/+bug/1065702
-        """
-
-        model_update = {}
-        pattern = re.compile(r":|\s")
-        fields = pattern.split(volume['provider_location'])
-        old_name = fields[3]
-
-        volume['provider_location'] = \
-            volume['provider_location'].replace(old_name, volume['name'])
-        model_update['provider_location'] = volume['provider_location']
-
-        self.db.volume_update(context, volume['id'], model_update)
-
-        start = os.getcwd()
-        os.chdir('/dev/%s' % FLAGS.volume_group)
-
-        try:
-            (out, err) = self._execute('readlink', old_name)
-        except exception.ProcessExecutionError:
-            link_path = '/dev/%s/%s' % (FLAGS.volume_group, old_name)
-            LOG.debug(_('Symbolic link %s not found') % link_path)
-            os.chdir(start)
-            return
-
-        rel_path = out.rstrip()
-        self._execute('ln',
-                      '-s',
-                      rel_path, volume['name'],
-                      run_as_root=True)
-        os.chdir(start)
-        return old_name
-
-    def _ensure_iscsi_targets(self, context, host):
-        """Ensure that target ids have been created in datastore."""
-        # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
-        # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
-        if not isinstance(self.tgtadm, iscsi.TgtAdm):
-            host_iscsi_targets = self.db.iscsi_target_count_by_host(context,
-                                                                    host)
-            if host_iscsi_targets >= FLAGS.iscsi_num_targets:
-                return
-
-            # NOTE(vish): Target ids start at 1, not 0.
-            for target_num in xrange(1, FLAGS.iscsi_num_targets + 1):
-                target = {'host': host, 'target_num': target_num}
-                self.db.iscsi_target_create_safe(context, target)
-
-    def create_export(self, context, volume):
-        """Creates an export for a logical volume."""
-
-        iscsi_name = "%s%s" % (FLAGS.iscsi_target_prefix, volume['name'])
-        volume_path = "/dev/%s/%s" % (FLAGS.volume_group, volume['name'])
-        model_update = {}
-
-        # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
-        if not isinstance(self.tgtadm, iscsi.TgtAdm):
-            lun = 0
-            self._ensure_iscsi_targets(context, volume['host'])
-            iscsi_target = self.db.volume_allocate_iscsi_target(context,
-                                                                volume['id'],
-                                                                volume['host'])
-        else:
-            lun = 1  # For tgtadm the controller is lun 0, dev starts at lun 1
-            iscsi_target = 0  # NOTE(jdg): Not used by tgtadm
-
-        # Use the same method to generate the username and the password.
-        chap_username = utils.generate_username()
-        chap_password = utils.generate_password()
-        chap_auth = _iscsi_authentication('IncomingUser', chap_username,
-                                          chap_password)
-        # NOTE(jdg): For TgtAdm case iscsi_name is the ONLY param we need
-        # should clean this all up at some point in the future
-        tid = self.tgtadm.create_iscsi_target(iscsi_name,
-                                              iscsi_target,
-                                              0,
-                                              volume_path,
-                                              chap_auth)
-        model_update['provider_location'] = _iscsi_location(
-            FLAGS.iscsi_ip_address, tid, iscsi_name, lun)
-        model_update['provider_auth'] = _iscsi_authentication(
-            'CHAP', chap_username, chap_password)
-        return model_update
-
-    def remove_export(self, context, volume):
-        """Removes an export for a logical volume."""
-        # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
-        # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
-        if not isinstance(self.tgtadm, iscsi.TgtAdm):
-            try:
-                iscsi_target = self.db.volume_get_iscsi_target_num(
-                    context,
-                    volume['id'])
-            except exception.NotFound:
-                LOG.info(_("Skipping remove_export. No iscsi_target "
-                           "provisioned for volume: %s"), volume['id'])
-                return
-        else:
-            iscsi_target = 0
-
-        try:
-
-            # NOTE: provider_location may be unset if the volume hasn't
-            # been exported
-            location = volume['provider_location'].split(' ')
-            iqn = location[1]
-
-            # ietadm show will exit with an error
-            # this export has already been removed
-            self.tgtadm.show_target(iscsi_target, iqn=iqn)
-
-        except Exception as e:
-            LOG.info(_("Skipping remove_export. No iscsi_target "
-                       "is presently exported for volume: %s"), volume['id'])
-            return
-
-        self.tgtadm.remove_iscsi_target(iscsi_target, 0, volume['id'])
 
     def _do_iscsi_discovery(self, volume):
         #TODO(justinsb): Deprecate discovery and use stored info
@@ -514,7 +224,8 @@ class ISCSIDriver(VolumeDriver):
                                     '-t', 'sendtargets', '-p', volume['host'],
                                     run_as_root=True)
         for target in out.splitlines():
-            if FLAGS.iscsi_ip_address in target and volume_name in target:
+            if (self.configuration.iscsi_ip_address in target
+                and volume_name in target):
                 return target
         return None
 
@@ -566,7 +277,7 @@ class ISCSIDriver(VolumeDriver):
         try:
             properties['target_lun'] = int(results[2])
         except (IndexError, ValueError):
-            if FLAGS.iscsi_helper == 'tgtadm':
+            if self.configuration.iscsi_helper == 'tgtadm':
                 properties['target_lun'] = 1
             else:
                 properties['target_lun'] = 0
@@ -583,19 +294,22 @@ class ISCSIDriver(VolumeDriver):
 
         return properties
 
-    def _run_iscsiadm(self, iscsi_properties, iscsi_command):
+    def _run_iscsiadm(self, iscsi_properties, iscsi_command, **kwargs):
+        check_exit_code = kwargs.pop('check_exit_code', 0)
         (out, err) = self._execute('iscsiadm', '-m', 'node', '-T',
                                    iscsi_properties['target_iqn'],
                                    '-p', iscsi_properties['target_portal'],
-                                   *iscsi_command, run_as_root=True)
+                                   *iscsi_command, run_as_root=True,
+                                   check_exit_code=check_exit_code)
         LOG.debug("iscsiadm %s: stdout=%s stderr=%s" %
                   (iscsi_command, out, err))
         return (out, err)
 
-    def _iscsiadm_update(self, iscsi_properties, property_key, property_value):
+    def _iscsiadm_update(self, iscsi_properties, property_key, property_value,
+                         **kwargs):
         iscsi_command = ('--op', 'update', '-n', property_key,
                          '-v', property_value)
-        return self._run_iscsiadm(iscsi_properties, iscsi_command)
+        return self._run_iscsiadm(iscsi_properties, iscsi_command, **kwargs)
 
     def initialize_connection(self, volume, connector):
         """Initializes the connection and returns connection info.
@@ -625,6 +339,113 @@ class ISCSIDriver(VolumeDriver):
     def terminate_connection(self, volume, connector, **kwargs):
         pass
 
+    def _get_iscsi_initiator(self):
+        """Get iscsi initiator name for this machine"""
+        # NOTE openiscsi stores initiator name in a file that
+        #      needs root permission to read.
+        contents = utils.read_file_as_root('/etc/iscsi/initiatorname.iscsi')
+        for l in contents.split('\n'):
+            if l.startswith('InitiatorName='):
+                return l[l.index('=') + 1:].strip()
+
+    def copy_image_to_volume(self, context, volume, image_service, image_id):
+        """Fetch the image from image_service and write it to the volume."""
+        LOG.debug(_('copy_image_to_volume %s.') % volume['name'])
+        connector = {'initiator': self._get_iscsi_initiator(),
+                     'host': socket.gethostname()}
+
+        iscsi_properties, volume_path = self._attach_volume(
+            context, volume, connector)
+
+        try:
+            image_utils.fetch_to_raw(context,
+                                     image_service,
+                                     image_id,
+                                     volume_path)
+        finally:
+            self.terminate_connection(volume, connector)
+
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
+        """Copy the volume to the specified image."""
+        LOG.debug(_('copy_volume_to_image %s.') % volume['name'])
+        connector = {'initiator': self._get_iscsi_initiator(),
+                     'host': socket.gethostname()}
+
+        iscsi_properties, volume_path = self._attach_volume(
+            context, volume, connector)
+
+        try:
+            image_utils.upload_volume(context,
+                                      image_service,
+                                      image_meta,
+                                      volume_path)
+        finally:
+            self.terminate_connection(volume, connector)
+
+    def _attach_volume(self, context, volume, connector):
+        """Attach the volume."""
+        iscsi_properties = None
+        host_device = None
+        init_conn = self.initialize_connection(volume, connector)
+        iscsi_properties = init_conn['data']
+
+        # code "inspired by" nova/virt/libvirt/volume.py
+        try:
+            self._run_iscsiadm(iscsi_properties, ())
+        except exception.ProcessExecutionError as exc:
+            # iscsiadm returns 21 for "No records found" after version 2.0-871
+            if exc.exit_code in [21, 255]:
+                self._run_iscsiadm(iscsi_properties, ('--op', 'new'))
+            else:
+                raise
+
+        if iscsi_properties.get('auth_method'):
+            self._iscsiadm_update(iscsi_properties,
+                                  "node.session.auth.authmethod",
+                                  iscsi_properties['auth_method'])
+            self._iscsiadm_update(iscsi_properties,
+                                  "node.session.auth.username",
+                                  iscsi_properties['auth_username'])
+            self._iscsiadm_update(iscsi_properties,
+                                  "node.session.auth.password",
+                                  iscsi_properties['auth_password'])
+
+        # NOTE(vish): If we have another lun on the same target, we may
+        #             have a duplicate login
+        self._run_iscsiadm(iscsi_properties, ("--login",),
+                           check_exit_code=[0, 255])
+
+        self._iscsiadm_update(iscsi_properties, "node.startup", "automatic")
+
+        host_device = ("/dev/disk/by-path/ip-%s-iscsi-%s-lun-%s" %
+                       (iscsi_properties['target_portal'],
+                        iscsi_properties['target_iqn'],
+                        iscsi_properties.get('target_lun', 0)))
+
+        tries = 0
+        while not os.path.exists(host_device):
+            if tries >= self.configuration.num_iscsi_scan_tries:
+                raise exception.CinderException(
+                    _("iSCSI device not found at %s") % (host_device))
+
+            LOG.warn(_("ISCSI volume not yet found at: %(host_device)s. "
+                     "Will rescan & retry.  Try number: %(tries)s") %
+                     locals())
+
+            # The rescan isn't documented as being necessary(?), but it helps
+            self._run_iscsiadm(iscsi_properties, ("--rescan"))
+
+            tries = tries + 1
+            if not os.path.exists(host_device):
+                time.sleep(tries ** 2)
+
+        if tries != 0:
+            LOG.debug(_("Found iSCSI node %(host_device)s "
+                      "(after %(tries)s rescans)") %
+                      locals())
+
+        return iscsi_properties, host_device
+
     def get_volume_stats(self, refresh=False):
         """Get volume status.
 
@@ -639,48 +460,17 @@ class ISCSIDriver(VolumeDriver):
 
         LOG.debug(_("Updating volume status"))
         data = {}
-
-        # Note(zhiteng): These information are driver/backend specific,
-        # each driver may define these values in its own config options
-        # or fetch from driver specific configuration file.
-        data["volume_backend_name"] = 'LVM_iSCSI'
+        backend_name = self.configuration.safe_get('volume_backend_name')
+        data["volume_backend_name"] = backend_name or 'Generic_iSCSI'
         data["vendor_name"] = 'Open Source'
         data["driver_version"] = '1.0'
         data["storage_protocol"] = 'iSCSI'
 
-        data['total_capacity_gb'] = 0
-        data['free_capacity_gb'] = 0
-        data['reserved_percentage'] = FLAGS.reserved_percentage
+        data['total_capacity_gb'] = 'infinite'
+        data['free_capacity_gb'] = 'infinite'
+        data['reserved_percentage'] = 100
         data['QoS_support'] = False
-
-        try:
-            out, err = self._execute('vgs', '--noheadings', '--nosuffix',
-                                     '--unit=G', '-o', 'name,size,free',
-                                     FLAGS.volume_group, run_as_root=True)
-        except exception.ProcessExecutionError as exc:
-            LOG.error(_("Error retrieving volume status: "), exc.stderr)
-            out = False
-
-        if out:
-            volume = out.split()
-            data['total_capacity_gb'] = float(volume[1])
-            data['free_capacity_gb'] = float(volume[2])
-
         self._stats = data
-
-    def copy_image_to_volume(self, context, volume, image_service, image_id):
-        """Fetch the image from image_service and write it to the volume."""
-        image_utils.fetch_to_raw(context,
-                                 image_service,
-                                 image_id,
-                                 self.local_path(volume))
-
-    def copy_volume_to_image(self, context, volume, image_service, image_id):
-        """Copy the volume to the specified image."""
-        volume_path = self.local_path(volume)
-        with utils.temporary_chown(volume_path):
-            with utils.file_open(volume_path) as volume_file:
-                image_service.update(context, image_id, {}, volume_file)
 
 
 class FakeISCSIDriver(ISCSIDriver):
@@ -709,9 +499,45 @@ class FakeISCSIDriver(ISCSIDriver):
         return (None, None)
 
 
-def _iscsi_location(ip, target, iqn, lun=None):
-    return "%s:%s,%s %s %s" % (ip, FLAGS.iscsi_port, target, iqn, lun)
+class FibreChannelDriver(VolumeDriver):
+    """Executes commands relating to Fibre Channel volumes."""
+    def __init__(self, *args, **kwargs):
+        super(FibreChannelDriver, self).__init__(*args, **kwargs)
 
+    def initialize_connection(self, volume, connector):
+        """Initializes the connection and returns connection info.
 
-def _iscsi_authentication(chap, name, password):
-    return "%s %s %s" % (chap, name, password)
+        The  driver returns a driver_volume_type of 'fibre_channel'.
+        The target_wwn can be a single entry or a list of wwns that
+        correspond to the list of remote wwn(s) that will export the volume.
+        Example return values:
+
+            {
+                'driver_volume_type': 'fibre_channel'
+                'data': {
+                    'target_discovered': True,
+                    'target_lun': 1,
+                    'target_wwn': '1234567890123',
+                }
+            }
+
+            or
+
+             {
+                'driver_volume_type': 'fibre_channel'
+                'data': {
+                    'target_discovered': True,
+                    'target_lun': 1,
+                    'target_wwn': ['1234567890123', '0987654321321'],
+                }
+            }
+
+        """
+        msg = _("Driver must implement initialize_connection")
+        raise NotImplementedError(msg)
+
+    def copy_image_to_volume(self, context, volume, image_service, image_id):
+        raise NotImplementedError()
+
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
+        raise NotImplementedError()

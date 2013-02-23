@@ -16,7 +16,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from cinder.volume.drivers.xenapi import tools
 import contextlib
+import os
+import pickle
 
 
 class XenAPIException(Exception):
@@ -31,6 +34,55 @@ class OperationsBase(object):
 
     def call_xenapi(self, method, *args):
         return self.session.call_xenapi(method, *args)
+
+
+class VMOperations(OperationsBase):
+    def get_by_uuid(self, vm_uuid):
+        return self.call_xenapi('VM.get_by_uuid', vm_uuid)
+
+    def get_vbds(self, vm_uuid):
+        return self.call_xenapi('VM.get_VBDs', vm_uuid)
+
+
+class VBDOperations(OperationsBase):
+    def create(self, vm_ref, vdi_ref, userdevice, bootable, mode, type,
+               empty, other_config):
+        vbd_rec = dict(
+            VM=vm_ref,
+            VDI=vdi_ref,
+            userdevice=str(userdevice),
+            bootable=bootable,
+            mode=mode,
+            type=type,
+            empty=empty,
+            other_config=other_config,
+            qos_algorithm_type='',
+            qos_algorithm_params=dict()
+        )
+        return self.call_xenapi('VBD.create', vbd_rec)
+
+    def destroy(self, vbd_ref):
+        self.call_xenapi('VBD.destroy', vbd_ref)
+
+    def get_device(self, vbd_ref):
+        return self.call_xenapi('VBD.get_device', vbd_ref)
+
+    def plug(self, vbd_ref):
+        return self.call_xenapi('VBD.plug', vbd_ref)
+
+    def unplug(self, vbd_ref):
+        return self.call_xenapi('VBD.unplug', vbd_ref)
+
+    def get_vdi(self, vbd_ref):
+        return self.call_xenapi('VBD.get_VDI', vbd_ref)
+
+
+class PoolOperations(OperationsBase):
+    def get_all(self):
+        return self.call_xenapi('pool.get_all')
+
+    def get_default_SR(self, pool_ref):
+        return self.call_xenapi('pool.get_default_SR', pool_ref)
 
 
 class PbdOperations(OperationsBase):
@@ -135,6 +187,12 @@ class VdiOperations(OperationsBase):
     def destroy(self, vdi_ref):
         self.call_xenapi('VDI.destroy', vdi_ref)
 
+    def copy(self, vdi_ref, sr_ref):
+        return self.call_xenapi('VDI.copy', vdi_ref, sr_ref)
+
+    def resize(self, vdi_ref, size):
+        return self.call_xenapi('VDI.resize', vdi_ref, str(size))
+
 
 class HostOperations(OperationsBase):
     def get_record(self, host_ref):
@@ -153,15 +211,28 @@ class XenAPISession(object):
         self.SR = SrOperations(self)
         self.VDI = VdiOperations(self)
         self.host = HostOperations(self)
+        self.pool = PoolOperations(self)
+        self.VBD = VBDOperations(self)
+        self.VM = VMOperations(self)
 
     def close(self):
         return self.call_xenapi('logout')
 
-    def call_xenapi(self, method, *args):
+    @contextlib.contextmanager
+    def exception_converter(self):
         try:
-            return self._session.xenapi_request(method, args)
+            yield None
         except self._exception_to_convert as e:
             raise XenAPIException(e)
+
+    def call_xenapi(self, method, *args):
+        with self.exception_converter():
+            return self._session.xenapi_request(method, args)
+
+    def call_plugin(self, host_ref, plugin, function, args):
+        with self.exception_converter():
+            return self._session.xenapi.host.call_plugin(
+                host_ref, plugin, function, args)
 
     def get_pool(self):
         return self.call_xenapi('session.get_pool', self.handle)
@@ -255,6 +326,9 @@ class NFSOperationsMixIn(CompoundOperations):
         vdi_ref = self.VDI.get_by_uuid(vdi_uuid)
         return dict(sr_ref=sr_ref, vdi_ref=vdi_ref)
 
+    def copy_vdi_to_sr(self, vdi_ref, sr_ref):
+        return self.VDI.copy(vdi_ref, sr_ref)
+
 
 class ContextAwareSession(XenAPISession):
     def __enter__(self):
@@ -286,9 +360,57 @@ class SessionFactory(object):
         return connect(self.url, self.user, self.password)
 
 
+class XapiPluginProxy(object):
+    def __init__(self, session_factory, plugin_name):
+        self._session_factory = session_factory
+        self._plugin_name = plugin_name
+
+    def call(self, function, *plugin_args, **plugin_kwargs):
+        plugin_params = dict(args=plugin_args, kwargs=plugin_kwargs)
+        args = dict(params=pickle.dumps(plugin_params))
+
+        with self._session_factory.get_session() as session:
+            host_ref = session.get_this_host()
+            result = session.call_plugin(
+                host_ref, self._plugin_name, function, args)
+
+        return pickle.loads(result)
+
+
+class GlancePluginProxy(XapiPluginProxy):
+    def __init__(self, session_factory):
+        super(GlancePluginProxy, self).__init__(session_factory, 'glance')
+
+    def download_vhd(self, image_id, glance_host, glance_port, glance_use_ssl,
+                     uuid_stack, sr_path, auth_token):
+        return self.call(
+            'download_vhd',
+            image_id=image_id,
+            glance_host=glance_host,
+            glance_port=glance_port,
+            glance_use_ssl=glance_use_ssl,
+            uuid_stack=uuid_stack,
+            sr_path=sr_path,
+            auth_token=auth_token)
+
+    def upload_vhd(self, vdi_uuids, image_id, glance_host, glance_port,
+                   glance_use_ssl, sr_path, auth_token, properties):
+        return self.call(
+            'upload_vhd',
+            vdi_uuids=vdi_uuids,
+            image_id=image_id,
+            glance_host=glance_host,
+            glance_port=glance_port,
+            glance_use_ssl=glance_use_ssl,
+            sr_path=sr_path,
+            auth_token=auth_token,
+            properties=properties)
+
+
 class NFSBasedVolumeOperations(object):
     def __init__(self, session_factory):
         self._session_factory = session_factory
+        self.glance_plugin = GlancePluginProxy(session_factory)
 
     def create_volume(self, server, serverpath, size,
                       name=None, description=None):
@@ -326,3 +448,95 @@ class NFSBasedVolumeOperations(object):
             vdi_rec = session.VDI.get_record(vdi_ref)
             sr_ref = vdi_rec['SR']
             session.unplug_pbds_and_forget_sr(sr_ref)
+
+    def copy_volume(self, server, serverpath, sr_uuid, vdi_uuid,
+                    name=None, description=None):
+        with self._session_factory.get_session() as session:
+            src_refs = session.connect_volume(
+                server, serverpath, sr_uuid, vdi_uuid)
+            try:
+                host_ref = session.get_this_host()
+
+                with session.new_sr_on_nfs(host_ref, server, serverpath,
+                                           name, description) as target_sr_ref:
+                    target_vdi_ref = session.copy_vdi_to_sr(
+                        src_refs['vdi_ref'], target_sr_ref)
+
+                    dst_refs = dict(
+                        sr_uuid=session.SR.get_uuid(target_sr_ref),
+                        vdi_uuid=session.VDI.get_uuid(target_vdi_ref)
+                    )
+
+            finally:
+                session.unplug_pbds_and_forget_sr(src_refs['sr_ref'])
+
+            return dst_refs
+
+    def resize_volume(self, server, serverpath, sr_uuid, vdi_uuid,
+                      size_in_gigabytes):
+        self.connect_volume(server, serverpath, sr_uuid, vdi_uuid)
+
+        try:
+            with self._session_factory.get_session() as session:
+                vdi_ref = session.VDI.get_by_uuid(vdi_uuid)
+                session.VDI.resize(vdi_ref, to_bytes(size_in_gigabytes))
+        finally:
+            self.disconnect_volume(vdi_uuid)
+
+    def use_glance_plugin_to_overwrite_volume(self, server, serverpath,
+                                              sr_uuid, vdi_uuid, glance_server,
+                                              image_id, auth_token,
+                                              sr_base_path):
+        self.connect_volume(server, serverpath, sr_uuid, vdi_uuid)
+
+        uuid_stack = [vdi_uuid]
+        glance_host, glance_port, glance_use_ssl = glance_server
+
+        try:
+            result = self.glance_plugin.download_vhd(
+                image_id, glance_host, glance_port, glance_use_ssl, uuid_stack,
+                os.path.join(sr_base_path, sr_uuid), auth_token)
+        finally:
+            self.disconnect_volume(vdi_uuid)
+
+        if len(result) != 1 or result['root']['uuid'] != vdi_uuid:
+            return False
+
+        return True
+
+    def use_glance_plugin_to_upload_volume(self, server, serverpath,
+                                           sr_uuid, vdi_uuid, glance_server,
+                                           image_id, auth_token, sr_base_path):
+        self.connect_volume(server, serverpath, sr_uuid, vdi_uuid)
+
+        vdi_uuids = [vdi_uuid]
+        glance_host, glance_port, glance_use_ssl = glance_server
+
+        try:
+            result = self.glance_plugin.upload_vhd(
+                vdi_uuids, image_id, glance_host, glance_port, glance_use_ssl,
+                os.path.join(sr_base_path, sr_uuid), auth_token, dict())
+        finally:
+            self.disconnect_volume(vdi_uuid)
+
+    @contextlib.contextmanager
+    def volume_attached_here(self, server, serverpath, sr_uuid, vdi_uuid,
+                             readonly=True):
+        self.connect_volume(server, serverpath, sr_uuid, vdi_uuid)
+
+        with self._session_factory.get_session() as session:
+            vm_uuid = tools.get_this_vm_uuid()
+            vm_ref = session.VM.get_by_uuid(vm_uuid)
+            vdi_ref = session.VDI.get_by_uuid(vdi_uuid)
+            vbd_ref = session.VBD.create(
+                vm_ref, vdi_ref, userdevice='autodetect', bootable=False,
+                mode='RO' if readonly else 'RW', type='disk', empty=False,
+                other_config=dict())
+            session.VBD.plug(vbd_ref)
+            device = session.VBD.get_device(vbd_ref)
+            try:
+                yield "/dev/" + device
+            finally:
+                session.VBD.unplug(vbd_ref)
+                session.VBD.destroy(vbd_ref)
+                self.disconnect_volume(vdi_uuid)

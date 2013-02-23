@@ -95,9 +95,10 @@ class VolumeTypeExtraSpecsController(wsgi.Controller):
         context = req.environ['cinder.context']
         authorize(context)
         if not body:
-            raise webob.exc.HTTPUnprocessableEntity()
+            expl = _('Request body empty')
+            raise webob.exc.HTTPBadRequest(explanation=expl)
         self._check_type(context, type_id)
-        if not id in body:
+        if id not in body:
             expl = _('Request body and URI mismatch')
             raise webob.exc.HTTPBadRequest(explanation=expl)
         if len(body) > 1:

@@ -50,12 +50,21 @@ def _translate_snapshot_summary_view(context, snapshot):
 
     d['id'] = snapshot['id']
     d['created_at'] = snapshot['created_at']
-    d['display_name'] = snapshot['display_name']
-    d['display_description'] = snapshot['display_description']
+    d['name'] = snapshot['display_name']
+    d['description'] = snapshot['display_description']
     d['volume_id'] = snapshot['volume_id']
     d['status'] = snapshot['status']
     d['size'] = snapshot['volume_size']
 
+    if snapshot.get('snapshot_metadata'):
+        metadata = snapshot.get('snapshot_metadata')
+        d['metadata'] = dict((item['key'], item['value']) for item in metadata)
+    # avoid circular ref when vol is a Volume instance
+    elif snapshot.get('metadata') and isinstance(snapshot.get('metadata'),
+                                                 dict):
+        d['metadata'] = snapshot['metadata']
+    else:
+        d['metadata'] = {}
     return d
 
 
@@ -64,9 +73,10 @@ def make_snapshot(elem):
     elem.set('status')
     elem.set('size')
     elem.set('created_at')
-    elem.set('display_name')
-    elem.set('display_description')
+    elem.set('name')
+    elem.set('description')
     elem.set('volume_id')
+    elem.append(common.MetadataTemplate())
 
 
 class SnapshotTemplate(xmlutil.TemplateBuilder):
@@ -134,9 +144,14 @@ class SnapshotsController(wsgi.Controller):
 
         search_opts = {}
         search_opts.update(req.GET)
-        allowed_search_options = ('status', 'volume_id', 'display_name')
+        allowed_search_options = ('status', 'volume_id', 'name')
         volumes.remove_invalid_options(context, search_opts,
                                        allowed_search_options)
+
+        # NOTE(thingee): v2 API allows name instead of display_name
+        if 'name' in search_opts:
+            search_opts['display_name'] = search_opts['name']
+            del search_opts['name']
 
         snapshots = self.volume_api.get_all_snapshots(context,
                                                       search_opts=search_opts)
@@ -144,20 +159,29 @@ class SnapshotsController(wsgi.Controller):
         res = [entity_maker(context, snapshot) for snapshot in limited_list]
         return {'snapshots': res}
 
+    @wsgi.response(202)
     @wsgi.serializers(xml=SnapshotTemplate)
     def create(self, req, body):
         """Creates a new snapshot."""
+        kwargs = {}
         context = req.environ['cinder.context']
 
         if not self.is_valid_body(body, 'snapshot'):
             raise exc.HTTPUnprocessableEntity()
 
         snapshot = body['snapshot']
+        kwargs['metadata'] = snapshot.get('metadata', None)
+
         volume_id = snapshot['volume_id']
         volume = self.volume_api.get(context, volume_id)
         force = snapshot.get('force', False)
         msg = _("Create snapshot from volume %s")
         LOG.audit(msg, volume_id, context=context)
+
+        # NOTE(thingee): v2 API allows name instead of display_name
+        if 'name' in snapshot:
+            snapshot['display_name'] = snapshot.get('name')
+            del snapshot['name']
 
         if not utils.is_valid_boolstr(force):
             msg = _("Invalid value '%s' for force. ") % force
@@ -168,13 +192,15 @@ class SnapshotsController(wsgi.Controller):
                 context,
                 volume,
                 snapshot.get('display_name'),
-                snapshot.get('display_description'))
+                snapshot.get('description'),
+                **kwargs)
         else:
             new_snapshot = self.volume_api.create_snapshot(
                 context,
                 volume,
                 snapshot.get('display_name'),
-                snapshot.get('display_description'))
+                snapshot.get('description'),
+                **kwargs)
 
         retval = _translate_snapshot_detail_view(context, new_snapshot)
 
@@ -188,20 +214,32 @@ class SnapshotsController(wsgi.Controller):
         if not body:
             raise exc.HTTPUnprocessableEntity()
 
-        if not 'snapshot' in body:
+        if 'snapshot' not in body:
             raise exc.HTTPUnprocessableEntity()
 
         snapshot = body['snapshot']
         update_dict = {}
 
         valid_update_keys = (
-            'display_name',
+            'name',
+            'description',
             'display_description',
         )
+
+        # NOTE(thingee): v2 API allows description instead of
+        # display_description
+        if 'description' in snapshot:
+            snapshot['display_description'] = snapshot['description']
+            del snapshot['description']
 
         for key in valid_update_keys:
             if key in snapshot:
                 update_dict[key] = snapshot[key]
+
+        # NOTE(thingee): v2 API allows name instead of display_name
+        if 'name' in update_dict:
+            update_dict['display_name'] = update_dict['name']
+            del update_dict['name']
 
         try:
             snapshot = self.volume_api.get_snapshot(context, id)

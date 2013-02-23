@@ -16,17 +16,21 @@
 #    under the License.
 
 import contextlib
+import mox
 import os
 import tempfile
 
 from cinder import db
 from cinder import exception
+from cinder.image import image_utils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import test
 from cinder.tests.image import fake as fake_image
 from cinder.tests.test_volume import DriverTestCase
+from cinder.volume import configuration as conf
 from cinder.volume.drivers.rbd import RBDDriver
+from cinder.volume.drivers.rbd import VERSION as DRIVER_VERSION
 
 LOG = logging.getLogger(__name__)
 
@@ -35,15 +39,57 @@ class FakeImageService:
     def download(self, context, image_id, path):
         pass
 
+RADOS_DF_OUT = """
+{
+   "total_space" : "958931232",
+   "total_used" : "123906196",
+   "total_objects" : "4221",
+   "total_avail" : "787024012",
+   "pools" : [
+      {
+         "name" : "volumes",
+         "categories" : [
+            {
+               "write_bytes" : "226833",
+               "size_kb" : "17038386",
+               "read_bytes" : "221865",
+               "num_objects" : "4186",
+               "name" : "",
+               "size_bytes" : "17447306589",
+               "write_kb" : "20302730",
+               "num_object_copies" : "8372",
+               "read_kb" : "30",
+               "num_objects_unfound" : "0",
+               "num_object_clones" : "9",
+               "num_objects_missing_on_primary" : "0",
+               "num_objects_degraded" : "0"
+            }
+         ],
+         "id" : "4"
+      }
+   ]
+}
+"""
+
 
 class RBDTestCase(test.TestCase):
 
     def setUp(self):
         super(RBDTestCase, self).setUp()
 
-        def fake_execute(*args):
-            pass
-        self.driver = RBDDriver(execute=fake_execute)
+        def fake_execute(*args, **kwargs):
+            return '', ''
+        self._mox = mox.Mox()
+        configuration = mox.MockObject(conf.Configuration)
+        configuration.volume_tmp_dir = None
+        configuration.rbd_pool = 'rbd'
+        configuration.rbd_secret_uuid = None
+        configuration.rbd_user = None
+        configuration.append_config_values(mox.IgnoreArg())
+
+        self.driver = RBDDriver(execute=fake_execute,
+                                configuration=configuration)
+        self._mox.ReplayAll()
 
     def test_good_locations(self):
         locations = ['rbd://fsid/pool/image/snap',
@@ -91,7 +137,9 @@ class RBDTestCase(test.TestCase):
             yield FakeTmp('test')
         self.stubs.Set(tempfile, 'NamedTemporaryFile', fake_temp_file)
         self.stubs.Set(os.path, 'exists', lambda x: True)
-        self.driver.copy_image_to_volume(None, {'name': 'test'},
+        self.stubs.Set(image_utils, 'fetch_to_raw', lambda w, x, y, z: None)
+        self.driver.copy_image_to_volume(None, {'name': 'test',
+                                                'size': 1},
                                          FakeImageService(), None)
 
     def test_copy_image_no_volume_tmp(self):
@@ -102,18 +150,39 @@ class RBDTestCase(test.TestCase):
         self.flags(volume_tmp_dir='/var/run/cinder/tmp')
         self._copy_image()
 
+    def test_update_volume_stats(self):
+        def fake_stats(*args):
+            return RADOS_DF_OUT, ''
+        self.stubs.Set(self.driver, '_execute', fake_stats)
+        expected = dict(
+            volume_backend_name='RBD',
+            vendor_name='Open Source',
+            driver_version=DRIVER_VERSION,
+            storage_protocol='ceph',
+            total_capacity_gb=914,
+            free_capacity_gb=750,
+            reserved_percentage=0)
+        actual = self.driver.get_volume_stats(True)
+        self.assertDictMatch(expected, actual)
 
-class FakeRBDDriver(RBDDriver):
-
-    def _clone(self):
-        pass
-
-    def _resize(self):
-        pass
+    def test_update_volume_stats_error(self):
+        def fake_exc(*args):
+            raise exception.ProcessExecutionError()
+        self.stubs.Set(self.driver, '_execute', fake_exc)
+        expected = dict(
+            volume_backend_name='RBD',
+            vendor_name='Open Source',
+            driver_version=DRIVER_VERSION,
+            storage_protocol='ceph',
+            total_capacity_gb='unknown',
+            free_capacity_gb='unknown',
+            reserved_percentage=0)
+        actual = self.driver.get_volume_stats(True)
+        self.assertDictMatch(expected, actual)
 
 
 class ManagedRBDTestCase(DriverTestCase):
-    driver_name = "cinder.tests.test_rbd.FakeRBDDriver"
+    driver_name = "cinder.volume.drivers.rbd.RBDDriver"
 
     def setUp(self):
         super(ManagedRBDTestCase, self).setUp()
@@ -124,7 +193,7 @@ class ManagedRBDTestCase(DriverTestCase):
         """Try to clone a volume from an image, and check the status
         afterwards"""
         def fake_clone_image(volume, image_location):
-            pass
+            return True
 
         def fake_clone_error(volume, image_location):
             raise exception.CinderException()

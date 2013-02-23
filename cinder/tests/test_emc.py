@@ -16,13 +16,26 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import mox
+import os
+import shutil
+import tempfile
+from xml.dom.minidom import Document
+
+from cinder import exception
+from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder import test
-from cinder.volume.drivers.emc import EMCISCSIDriver
+from cinder.volume import configuration as conf
+from cinder.volume.drivers.emc.emc_smis_common import EMCSMISCommon
+from cinder.volume.drivers.emc.emc_smis_iscsi import EMCSMISISCSIDriver
 
+CINDER_EMC_CONFIG_FILE = '/etc/cinder/cinder_emc_config.xml'
 LOG = logging.getLogger(__name__)
 
+config_file_name = 'cinder_emc_config.xml'
 storage_system = 'CLARiiON+APM00123456789'
+storage_system_vmax = 'SYMMETRIX+000195900551'
 lunmaskctrl_id = 'CLARiiON+APM00123456789+00aa11bb22cc33dd44ff55gg66hh77ii88jj'
 initiator1 = 'iqn.1993-08.org.debian:01:1a2b3c4d5f6g'
 stconf_service_creationclass = 'Clar_StorageConfigurationService'
@@ -43,6 +56,15 @@ test_volume = {'name': 'vol1',
                'display_name': 'vol1',
                'display_description': 'test volume',
                'volume_type_id': None}
+test_failed_volume = {'name': 'failed_vol',
+                      'size': 1,
+                      'volume_name': 'failed_vol',
+                      'id': '4',
+                      'provider_auth': None,
+                      'project_id': 'project',
+                      'display_name': 'failed_vol',
+                      'display_description': 'test failed volume',
+                      'volume_type_id': None}
 test_snapshot = {'name': 'snapshot1',
                  'size': 1,
                  'id': '4444',
@@ -58,9 +80,73 @@ test_clone = {'name': 'clone1',
               'display_name': 'clone1',
               'display_description': 'volume created from snapshot',
               'volume_type_id': None}
+test_clone3 = {'name': 'clone3',
+               'size': 1,
+               'volume_name': 'vol1',
+               'id': '3',
+               'provider_auth': None,
+               'project_id': 'project',
+               'display_name': 'clone3',
+               'display_description': 'cloned volume',
+               'volume_type_id': None}
+test_snapshot_vmax = {'name': 'snapshot_vmax',
+                      'size': 1,
+                      'id': '4445',
+                      'volume_name': 'vol1',
+                      'volume_size': 1,
+                      'project_id': 'project'}
+failed_snapshot_replica = {'name': 'failed_snapshot_replica',
+                           'size': 1,
+                           'volume_name': 'vol1',
+                           'id': '5',
+                           'provider_auth': None,
+                           'project_id': 'project',
+                           'display_name': 'vol1',
+                           'display_description': 'failed snapshot replica',
+                           'volume_type_id': None}
+failed_snapshot_sync = {'name': 'failed_snapshot_sync',
+                        'size': 1,
+                        'volume_name': 'vol1',
+                        'id': '6',
+                        'provider_auth': None,
+                        'project_id': 'project',
+                        'display_name': 'failed_snapshot_sync',
+                        'display_description': 'failed snapshot sync',
+                        'volume_type_id': None}
+failed_clone_replica = {'name': 'failed_clone_replica',
+                        'size': 1,
+                        'volume_name': 'vol1',
+                        'id': '7',
+                        'provider_auth': None,
+                        'project_id': 'project',
+                        'display_name': 'vol1',
+                        'display_description': 'failed clone replica',
+                        'volume_type_id': None}
+failed_clone_sync = {'name': 'failed_clone_sync',
+                     'size': 1,
+                     'volume_name': 'vol1',
+                     'id': '8',
+                     'provider_auth': None,
+                     'project_id': 'project',
+                     'display_name': 'vol1',
+                     'display_description': 'failed clone sync',
+                     'volume_type_id': None}
+failed_delete_vol = {'name': 'failed_delete_vol',
+                     'size': 1,
+                     'volume_name': 'failed_delete_vol',
+                     'id': '99999',
+                     'provider_auth': None,
+                     'project_id': 'project',
+                     'display_name': 'failed delete vol',
+                     'display_description': 'failed delete volume',
+                     'volume_type_id': None}
 
 
 class EMC_StorageVolume(dict):
+    pass
+
+
+class SE_ConcreteJob(dict):
     pass
 
 
@@ -74,8 +160,43 @@ class FakeEcomConnection():
                      LUNames=None, InitiatorPortIDs=None, DeviceAccesses=None,
                      ProtocolControllers=None,
                      MaskingGroup=None, Members=None):
+
         rc = 0L
-        job = {'status': 'success'}
+        myjob = SE_ConcreteJob()
+        myjob.classname = 'SE_ConcreteJob'
+        myjob['InstanceID'] = '9999'
+        myjob['status'] = 'success'
+        if ElementName == 'failed_vol' and \
+                MethodName == 'CreateOrModifyElementFromStoragePool':
+            rc = 10L
+            myjob['status'] = 'failure'
+        elif ElementName == 'failed_snapshot_replica' and \
+                MethodName == 'CreateElementReplica':
+            rc = 10L
+            myjob['status'] = 'failure'
+        elif Synchronization and \
+                Synchronization['SyncedElement']['ElementName'] \
+                == 'failed_snapshot_sync' and \
+                MethodName == 'ModifyReplicaSynchronization':
+            rc = 10L
+            myjob['status'] = 'failure'
+        elif ElementName == 'failed_clone_replica' and \
+                MethodName == 'CreateElementReplica':
+            rc = 10L
+            myjob['status'] = 'failure'
+        elif Synchronization and \
+                Synchronization['SyncedElement']['ElementName'] \
+                == 'failed_clone_sync' and \
+                MethodName == 'ModifyReplicaSynchronization':
+            rc = 10L
+            myjob['status'] = 'failure'
+        elif TheElements and \
+                TheElements[0]['DeviceID'] == '99999' and \
+                MethodName == 'EMCReturnToStoragePool':
+            rc = 10L
+            myjob['status'] = 'failure'
+
+        job = {'Job': myjob}
         return rc, job
 
     def EnumerateInstanceNames(self, name):
@@ -104,8 +225,21 @@ class FakeEcomConnection():
             result = self._default_enum()
         return result
 
+    def EnumerateInstances(self, name):
+        result = None
+        if name == 'EMC_VirtualProvisioningPool':
+            result = self._enum_pool_details()
+        elif name == 'EMC_UnifiedStoragePool':
+            result = self._enum_pool_details()
+        else:
+            result = self._default_enum()
+        return result
+
     def GetInstance(self, objectpath, LocalOnly=False):
-        name = objectpath['CreationClassName']
+        try:
+            name = objectpath['CreationClassName']
+        except KeyError:
+            name = objectpath.classname
         result = None
         if name == 'Clar_StorageVolume':
             result = self._getinstance_storagevolume(objectpath)
@@ -113,6 +247,8 @@ class FakeEcomConnection():
             result = self._getinstance_unit(objectpath)
         elif name == 'Clar_LunMaskingSCSIProtocolController':
             result = self._getinstance_lunmask()
+        elif name == 'SE_ConcreteJob':
+            result = self._getinstance_job(objectpath)
         else:
             result = self._default_getinstance(objectpath)
         return result
@@ -221,6 +357,19 @@ class FakeEcomConnection():
 
         return unit
 
+    def _getinstance_job(self, jobpath):
+        jobinstance = {}
+        jobinstance['InstanceID'] = '9999'
+        if jobpath['status'] == 'failure':
+            jobinstance['JobState'] = 10
+            jobinstance['ErrorCode'] = 99
+            jobinstance['ErrorDescription'] = 'Failure'
+        else:
+            jobinstance['JobState'] = 7
+            jobinstance['ErrorCode'] = 0
+            jobinstance['ErrorDescription'] = ''
+        return jobinstance
+
     def _default_getinstance(self, objectpath):
         return objectpath
 
@@ -256,6 +405,16 @@ class FakeEcomConnection():
         pools.append(pool)
         return pools
 
+    def _enum_pool_details(self):
+        pools = []
+        pool = {}
+        pool['InstanceID'] = storage_system + '+U+' + storage_type
+        pool['CreationClassName'] = 'Clar_UnifiedStoragePool'
+        pool['TotalManagedSpace'] = 12345678
+        pool['RemainingManagedSpace'] = 123456
+        pools.append(pool)
+        return pools
+
     def _enum_storagevolumes(self):
         vols = []
         vol = EMC_StorageVolume()
@@ -282,19 +441,118 @@ class FakeEcomConnection():
         clone_vol.path = {'DeviceID': clone_vol['DeviceID']}
         vols.append(clone_vol)
 
+        clone_vol3 = EMC_StorageVolume()
+        clone_vol3['CreationClassName'] = 'Clar_StorageVolume'
+        clone_vol3['ElementName'] = test_clone3['name']
+        clone_vol3['DeviceID'] = test_clone3['id']
+        clone_vol3['SystemName'] = storage_system
+        clone_vol3.path = {'DeviceID': clone_vol3['DeviceID']}
+        vols.append(clone_vol3)
+
+        snap_vol_vmax = EMC_StorageVolume()
+        snap_vol_vmax['CreationClassName'] = 'Symm_StorageVolume'
+        snap_vol_vmax['ElementName'] = test_snapshot_vmax['name']
+        snap_vol_vmax['DeviceID'] = test_snapshot_vmax['id']
+        snap_vol_vmax['SystemName'] = storage_system_vmax
+        snap_vol_vmax.path = {'DeviceID': snap_vol_vmax['DeviceID']}
+        vols.append(snap_vol_vmax)
+
+        failed_snap_replica = EMC_StorageVolume()
+        failed_snap_replica['CreationClassName'] = 'Clar_StorageVolume'
+        failed_snap_replica['ElementName'] = failed_snapshot_replica['name']
+        failed_snap_replica['DeviceID'] = failed_snapshot_replica['id']
+        failed_snap_replica['SystemName'] = storage_system
+        failed_snap_replica.path = {
+            'DeviceID': failed_snap_replica['DeviceID']}
+        vols.append(failed_snap_replica)
+
+        failed_snap_sync = EMC_StorageVolume()
+        failed_snap_sync['CreationClassName'] = 'Clar_StorageVolume'
+        failed_snap_sync['ElementName'] = failed_snapshot_sync['name']
+        failed_snap_sync['DeviceID'] = failed_snapshot_sync['id']
+        failed_snap_sync['SystemName'] = storage_system
+        failed_snap_sync.path = {
+            'DeviceID': failed_snap_sync['DeviceID']}
+        vols.append(failed_snap_sync)
+
+        failed_clone_rep = EMC_StorageVolume()
+        failed_clone_rep['CreationClassName'] = 'Clar_StorageVolume'
+        failed_clone_rep['ElementName'] = failed_clone_replica['name']
+        failed_clone_rep['DeviceID'] = failed_clone_replica['id']
+        failed_clone_rep['SystemName'] = storage_system
+        failed_clone_rep.path = {
+            'DeviceID': failed_clone_rep['DeviceID']}
+        vols.append(failed_clone_rep)
+
+        failed_clone_s = EMC_StorageVolume()
+        failed_clone_s['CreationClassName'] = 'Clar_StorageVolume'
+        failed_clone_s['ElementName'] = failed_clone_sync['name']
+        failed_clone_s['DeviceID'] = failed_clone_sync['id']
+        failed_clone_s['SystemName'] = storage_system
+        failed_clone_s.path = {
+            'DeviceID': failed_clone_s['DeviceID']}
+        vols.append(failed_clone_s)
+
+        failed_delete_vol = EMC_StorageVolume()
+        failed_delete_vol['CreationClassName'] = 'Clar_StorageVolume'
+        failed_delete_vol['ElementName'] = 'failed_delete_vol'
+        failed_delete_vol['DeviceID'] = '99999'
+        failed_delete_vol['SystemName'] = storage_system
+        failed_delete_vol.path = {'DeviceID': failed_delete_vol['DeviceID']}
+        vols.append(failed_delete_vol)
+
         return vols
 
     def _enum_syncsvsvs(self):
         syncs = []
-        sync = {}
 
         vols = self._enum_storagevolumes()
+
         objpath1 = vols[0]
         objpath2 = vols[1]
+        sync = {}
         sync['SyncedElement'] = objpath2
         sync['SystemElement'] = objpath1
         sync['CreationClassName'] = 'SE_StorageSynchronized_SV_SV'
         syncs.append(sync)
+
+        objpath1 = vols[1]
+        objpath2 = vols[2]
+        sync2 = {}
+        sync2['SyncedElement'] = objpath2
+        sync2['SystemElement'] = objpath1
+        sync2['CreationClassName'] = 'SE_StorageSynchronized_SV_SV'
+        syncs.append(sync2)
+
+        objpath1 = vols[0]
+        objpath2 = vols[3]
+        sync3 = {}
+        sync3['SyncedElement'] = objpath2
+        sync3['SystemElement'] = objpath1
+        sync3['CreationClassName'] = 'SE_StorageSynchronized_SV_SV'
+        syncs.append(sync3)
+
+        objpath1 = vols[1]
+        for vol in vols:
+            if vol['ElementName'] == 'failed_snapshot_sync':
+                objpath2 = vol
+                break
+        sync4 = {}
+        sync4['SyncedElement'] = objpath2
+        sync4['SystemElement'] = objpath1
+        sync4['CreationClassName'] = 'SE_StorageSynchronized_SV_SV'
+        syncs.append(sync4)
+
+        objpath1 = vols[0]
+        for vol in vols:
+            if vol['ElementName'] == 'failed_clone_sync':
+                objpath2 = vol
+                break
+        sync5 = {}
+        sync5['SyncedElement'] = objpath2
+        sync5['SystemElement'] = objpath1
+        sync5['CreationClassName'] = 'SE_StorageSynchronized_SV_SV'
+        syncs.append(sync5)
 
         return syncs
 
@@ -318,18 +576,59 @@ class FakeEcomConnection():
         return names
 
 
-class EMCISCSIDriverTestCase(test.TestCase):
+class EMCSMISISCSIDriverTestCase(test.TestCase):
 
     def setUp(self):
-        super(EMCISCSIDriverTestCase, self).setUp()
-        driver = EMCISCSIDriver()
-        self.driver = driver
-        self.stubs.Set(EMCISCSIDriver, '_get_iscsi_properties',
+        self.tempdir = tempfile.mkdtemp()
+        super(EMCSMISISCSIDriverTestCase, self).setUp()
+        self.config_file_path = None
+        self.create_fake_config_file()
+
+        configuration = mox.MockObject(conf.Configuration)
+        configuration.cinder_emc_config_file = self.config_file_path
+        configuration.append_config_values(mox.IgnoreArg())
+
+        self.stubs.Set(EMCSMISISCSIDriver, '_get_iscsi_properties',
                        self.fake_get_iscsi_properties)
-        self.stubs.Set(EMCISCSIDriver, '_get_ecom_connection',
+        self.stubs.Set(EMCSMISCommon, '_get_ecom_connection',
                        self.fake_ecom_connection)
-        self.stubs.Set(EMCISCSIDriver, '_get_storage_type',
-                       self.fake_storage_type)
+        driver = EMCSMISISCSIDriver(configuration=configuration)
+        self.driver = driver
+
+    def create_fake_config_file(self):
+        doc = Document()
+        emc = doc.createElement("EMC")
+        doc.appendChild(emc)
+
+        storagetype = doc.createElement("StorageType")
+        storagetypetext = doc.createTextNode("gold")
+        emc.appendChild(storagetype)
+        storagetype.appendChild(storagetypetext)
+
+        ecomserverip = doc.createElement("EcomServerIp")
+        ecomserveriptext = doc.createTextNode("1.1.1.1")
+        emc.appendChild(ecomserverip)
+        ecomserverip.appendChild(ecomserveriptext)
+
+        ecomserverport = doc.createElement("EcomServerPort")
+        ecomserverporttext = doc.createTextNode("10")
+        emc.appendChild(ecomserverport)
+        ecomserverport.appendChild(ecomserverporttext)
+
+        ecomusername = doc.createElement("EcomUserName")
+        ecomusernametext = doc.createTextNode("user")
+        emc.appendChild(ecomusername)
+        ecomusername.appendChild(ecomusernametext)
+
+        ecompassword = doc.createElement("EcomPassword")
+        ecompasswordtext = doc.createTextNode("pass")
+        emc.appendChild(ecompassword)
+        ecompassword.appendChild(ecompasswordtext)
+
+        self.config_file_path = self.tempdir + '/' + config_file_name
+        f = open(self.config_file_path, 'w')
+        doc.writexml(f)
+        f.close()
 
     def fake_ecom_connection(self):
         conn = FakeEcomConnection()
@@ -353,8 +652,8 @@ class EMCISCSIDriverTestCase(test.TestCase):
         LOG.info(_("Fake ISCSI properties: %s") % (properties))
         return properties
 
-    def fake_storage_type(self, filename=None):
-        return storage_type
+    def test_get_volume_stats(self):
+        self.driver.get_volume_stats(True)
 
     def test_create_destroy(self):
         self.driver.create_volume(test_volume)
@@ -365,7 +664,10 @@ class EMCISCSIDriverTestCase(test.TestCase):
         self.driver.create_snapshot(test_snapshot)
         self.driver.create_volume_from_snapshot(
             test_clone, test_snapshot)
+        self.driver.create_cloned_volume(
+            test_clone3, test_volume)
         self.driver.delete_volume(test_clone)
+        self.driver.delete_volume(test_clone3)
         self.driver.delete_snapshot(test_snapshot)
         self.driver.delete_volume(test_volume)
 
@@ -379,3 +681,76 @@ class EMCISCSIDriverTestCase(test.TestCase):
         self.driver.terminate_connection(test_volume, connector)
         self.driver.remove_export(None, test_volume)
         self.driver.delete_volume(test_volume)
+
+    def test_create_volume_failed(self):
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_volume,
+                          test_failed_volume)
+
+    def test_create_volume_snapshot_unsupported(self):
+        self.driver.create_volume(test_volume)
+        self.driver.create_snapshot(test_snapshot_vmax)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_volume_from_snapshot,
+                          test_clone,
+                          test_snapshot_vmax)
+        self.driver.delete_snapshot(test_snapshot_vmax)
+        self.driver.delete_volume(test_volume)
+
+    def test_create_volume_snapshot_replica_failed(self):
+        self.driver.create_volume(test_volume)
+        self.driver.create_snapshot(test_snapshot)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_volume_from_snapshot,
+                          failed_snapshot_replica,
+                          test_snapshot)
+        self.driver.delete_snapshot(test_snapshot)
+        self.driver.delete_volume(test_volume)
+
+    def test_create_volume_snapshot_sync_failed(self):
+        self.driver.create_volume(test_volume)
+        self.driver.create_snapshot(test_snapshot)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_volume_from_snapshot,
+                          failed_snapshot_sync,
+                          test_snapshot)
+        self.driver.delete_snapshot(test_snapshot)
+        self.driver.delete_volume(test_volume)
+
+    def test_create_volume_clone_replica_failed(self):
+        self.driver.create_volume(test_volume)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_cloned_volume,
+                          failed_clone_replica,
+                          test_volume)
+        self.driver.delete_volume(test_volume)
+
+    def test_create_volume_clone_sync_failed(self):
+        self.driver.create_volume(test_volume)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_cloned_volume,
+                          failed_clone_sync,
+                          test_volume)
+        self.driver.delete_volume(test_volume)
+
+    def test_delete_volume_notfound(self):
+        notfound_delete_vol = {}
+        notfound_delete_vol['name'] = 'notfound_delete_vol'
+        notfound_delete_vol['id'] = '10'
+        self.driver.delete_volume(notfound_delete_vol)
+
+    def test_delete_volume_failed(self):
+        self.driver.create_volume(failed_delete_vol)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.delete_volume,
+                          failed_delete_vol)
+
+    def _cleanup(self):
+        bExists = os.path.exists(self.config_file_path)
+        if bExists:
+            os.remove(self.config_file_path)
+        shutil.rmtree(self.tempdir)
+
+    def tearDown(self):
+        self._cleanup()
+        super(EMCSMISISCSIDriverTestCase, self).tearDown()

@@ -30,17 +30,14 @@ import os
 import socket
 import sys
 
-from cinder.openstack.common import cfg
-
+from oslo.config import cfg
 
 FLAGS = cfg.CONF
 
 
 def parse_args(argv, default_config_files=None):
-    FLAGS.disable_interspersed_args()
-    return argv[:1] + FLAGS(argv[1:],
-                            project='cinder',
-                            default_config_files=default_config_files)
+    FLAGS(argv[1:], project='cinder',
+          default_config_files=default_config_files)
 
 
 class UnrecognizedFlag(Exception):
@@ -133,6 +130,9 @@ global_opts = [
     cfg.StrOpt('volume_topic',
                default='cinder-volume',
                help='the topic volume nodes listen on'),
+    cfg.StrOpt('backup_topic',
+               default='cinder-backup',
+               help='the topic volume backup nodes listen on'),
     cfg.BoolOpt('enable_v1_api',
                 default=True,
                 help=_("Deploy v1 of the Cinder API. ")),
@@ -147,13 +147,8 @@ global_opts = [
                 help='Specify list of extensions to load when using osapi_'
                      'volume_extension option with cinder.api.contrib.'
                      'select_extensions'),
-    # NOTE(thingee): default contrib for old and new location for compatibility
     cfg.MultiStrOpt('osapi_volume_extension',
-                    default=[
-                        'cinder.api.openstack.volume.contrib.'
-                        'standard_extensions',
-                        'cinder.api.contrib.standard_extensions',
-                    ],
+                    default=['cinder.api.contrib.standard_extensions'],
                     help='osapi volume extension to load'),
     cfg.StrOpt('osapi_volume_base_URL',
                default=None,
@@ -183,6 +178,9 @@ global_opts = [
     cfg.StrOpt('volume_manager',
                default='cinder.volume.manager.VolumeManager',
                help='full class name for the Manager for volume'),
+    cfg.StrOpt('backup_manager',
+               default='cinder.backup.manager.BackupManager',
+               help='full class name for the Manager for volume backup'),
     cfg.StrOpt('scheduler_manager',
                default='cinder.scheduler.manager.SchedulerManager',
                help='full class name for the Manager for scheduler'),
@@ -223,6 +221,9 @@ global_opts = [
     cfg.StrOpt('volume_api_class',
                default='cinder.volume.api.API',
                help='The full class name of the volume API class to use'),
+    cfg.StrOpt('backup_api_class',
+               default='cinder.backup.api.API',
+               help='The full class name of the volume backup API class'),
     cfg.StrOpt('auth_strategy',
                default='noauth',
                help='The strategy to use for auth. Supports noauth, keystone, '
@@ -230,8 +231,10 @@ global_opts = [
     cfg.StrOpt('control_exchange',
                default='cinder',
                help='AMQP exchange to connect to if using RabbitMQ or Qpid'),
-    cfg.BoolOpt('secure_delete',
-                default=True,
-                help='Whether to perform secure delete'), ]
+    cfg.ListOpt('enabled_backends',
+                default=None,
+                help='A list of backend names to use. These backend names '
+                     'should be backed by a unique [CONFIG] group '
+                     'with its options'), ]
 
 FLAGS.register_opts(global_opts)

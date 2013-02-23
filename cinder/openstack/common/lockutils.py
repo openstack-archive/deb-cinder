@@ -25,12 +25,11 @@ import time
 import weakref
 
 from eventlet import semaphore
+from oslo.config import cfg
 
-from cinder.openstack.common import cfg
 from cinder.openstack.common import fileutils
 from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-
 
 LOG = logging.getLogger(__name__)
 
@@ -220,6 +219,11 @@ def synchronized(name, lock_file_prefix, external=False, lock_path=None):
                                        'method': f.__name__})
                             retval = f(*args, **kwargs)
                     finally:
+                        LOG.debug(_('Released file lock "%(lock)s" at %(path)s'
+                                    ' for method "%(method)s"...'),
+                                  {'lock': name,
+                                   'path': lock_file_path,
+                                   'method': f.__name__})
                         # NOTE(vish): This removes the tempdir if we needed
                         #             to create one. This is used to cleanup
                         #             the locks left behind by unit tests.

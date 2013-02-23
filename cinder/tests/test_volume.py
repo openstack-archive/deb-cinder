@@ -41,6 +41,8 @@ from cinder import quota
 from cinder import test
 from cinder.tests import fake_flags
 from cinder.tests.image import fake as fake_image
+from cinder.volume import configuration as conf
+from cinder.volume import driver
 from cinder.volume import iscsi
 
 QUOTAS = quota.QUOTAS
@@ -140,6 +142,21 @@ class VolumeTestCase(test.TestCase):
                           db.volume_get,
                           self.context,
                           volume_id)
+
+    def test_create_volume_with_invalid_metadata(self):
+        """Test volume create with too much metadata fails."""
+        volume_api = cinder.volume.api.API()
+        test_meta = {'fake_key': 'fake_value' * 256}
+        self.assertRaises(exception.InvalidVolumeMetadataSize,
+                          volume_api.create,
+                          self.context,
+                          1,
+                          'name',
+                          'description',
+                          None,
+                          None,
+                          None,
+                          test_meta)
 
     def test_create_volume_with_volume_type(self):
         """Test volume creation with default volume type."""
@@ -492,7 +509,8 @@ class VolumeTestCase(test.TestCase):
         def fake_local_path(volume):
             return dst_path
 
-        def fake_copy_image_to_volume(context, volume, image_id):
+        def fake_copy_image_to_volume(context, volume,
+                                      image_service, image_id):
             pass
 
         def fake_fetch_to_raw(context, image_service, image_id, vol_path):
@@ -529,11 +547,6 @@ class VolumeTestCase(test.TestCase):
             db.volume_destroy(self.context, volume_id)
             os.unlink(dst_path)
 
-    def test_create_volume_from_image_status_downloading(self):
-        """Verify that before copying image to volume, it is in downloading
-        state."""
-        self._create_volume_from_image('downloading', True)
-
     def test_create_volume_from_image_status_available(self):
         """Verify that before copying image to volume, it is in available
         state."""
@@ -561,7 +574,7 @@ class VolumeTestCase(test.TestCase):
         self.assertRaises(exception.ImageNotFound,
                           self.volume.create_volume,
                           self.context,
-                          volume_id,
+                          volume_id, None, None, None,
                           None,
                           image_id)
         volume = db.volume_get(self.context, volume_id)
@@ -579,7 +592,11 @@ class VolumeTestCase(test.TestCase):
 
         self.stubs.Set(self.volume.driver, 'local_path', fake_local_path)
 
-        image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
+        image_meta = {
+            'id': '70a599e0-31e7-49b7-b260-868f441e862b',
+            'container_format': 'bare',
+            'disk_format': 'raw'}
+
         # creating volume testdata
         volume_id = 1
         db.volume_create(self.context,
@@ -595,7 +612,7 @@ class VolumeTestCase(test.TestCase):
             # start test
             self.volume.copy_volume_to_image(self.context,
                                              volume_id,
-                                             image_id)
+                                             image_meta)
 
             volume = db.volume_get(self.context, volume_id)
             self.assertEqual(volume['status'], 'available')
@@ -613,8 +630,10 @@ class VolumeTestCase(test.TestCase):
 
         self.stubs.Set(self.volume.driver, 'local_path', fake_local_path)
 
-        #image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
-        image_id = 'a440c04b-79fa-479c-bed1-0b816eaec379'
+        image_meta = {
+            'id': 'a440c04b-79fa-479c-bed1-0b816eaec379',
+            'container_format': 'bare',
+            'disk_format': 'raw'}
         # creating volume testdata
         volume_id = 1
         db.volume_create(
@@ -631,7 +650,7 @@ class VolumeTestCase(test.TestCase):
             # start test
             self.volume.copy_volume_to_image(self.context,
                                              volume_id,
-                                             image_id)
+                                             image_meta)
 
             volume = db.volume_get(self.context, volume_id)
             self.assertEqual(volume['status'], 'in-use')
@@ -649,7 +668,10 @@ class VolumeTestCase(test.TestCase):
 
         self.stubs.Set(self.volume.driver, 'local_path', fake_local_path)
 
-        image_id = 'aaaaaaaa-0000-0000-0000-000000000000'
+        image_meta = {
+            'id': 'aaaaaaaa-0000-0000-0000-000000000000',
+            'container_format': 'bare',
+            'disk_format': 'raw'}
         # creating volume testdata
         volume_id = 1
         db.volume_create(self.context,
@@ -666,7 +688,7 @@ class VolumeTestCase(test.TestCase):
                               self.volume.copy_volume_to_image,
                               self.context,
                               volume_id,
-                              image_id)
+                              image_meta)
 
             volume = db.volume_get(self.context, volume_id)
             self.assertEqual(volume['status'], 'available')
@@ -683,7 +705,9 @@ class VolumeTestCase(test.TestCase):
                 pass
 
             def show(self, context, image_id):
-                return {'size': 2 * 1024 * 1024 * 1024}
+                return {'size': 2 * 1024 * 1024 * 1024,
+                        'disk_format': 'raw',
+                        'container_format': 'bare'}
 
         image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
 
@@ -707,7 +731,9 @@ class VolumeTestCase(test.TestCase):
                 pass
 
             def show(self, context, image_id):
-                return {'size': 2 * 1024 * 1024 * 1024 + 1}
+                return {'size': 2 * 1024 * 1024 * 1024 + 1,
+                        'disk_format': 'raw',
+                        'container_format': 'bare'}
 
         image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
 
@@ -873,7 +899,7 @@ class DriverTestCase(test.TestCase):
 
 class VolumeDriverTestCase(DriverTestCase):
     """Test case for VolumeDriver"""
-    driver_name = "cinder.volume.driver.VolumeDriver"
+    driver_name = "cinder.volume.drivers.lvm.LVMVolumeDriver"
 
     def test_delete_busy_volume(self):
         """Test deleting a busy volume."""
@@ -895,7 +921,7 @@ class VolumeDriverTestCase(DriverTestCase):
 
 class ISCSITestCase(DriverTestCase):
     """Test Case for ISCSIDriver"""
-    driver_name = "cinder.volume.driver.ISCSIDriver"
+    driver_name = "cinder.volume.drivers.lvm.LVMISCSIDriver"
 
     def _attach_volume(self):
         """Attach volumes to an instance. """
@@ -915,6 +941,40 @@ class ISCSITestCase(DriverTestCase):
             volume_id_list.append(vol_ref['id'])
 
         return volume_id_list
+
+    def test_do_iscsi_discovery(self):
+        configuration = mox.MockObject(conf.Configuration)
+        configuration.iscsi_ip_address = '0.0.0.0'
+        configuration.append_config_values(mox.IgnoreArg())
+
+        iscsi_driver = driver.ISCSIDriver(configuration=configuration)
+        iscsi_driver._execute = lambda *a, **kw: \
+            ("%s dummy" % FLAGS.iscsi_ip_address, '')
+        volume = {"name": "dummy",
+                  "host": "0.0.0.0"}
+        iscsi_driver._do_iscsi_discovery(volume)
+
+    def test_get_iscsi_properties(self):
+        volume = {"provider_location": '',
+                  "id": "0",
+                  "provider_auth": "a b c"}
+        iscsi_driver = driver.ISCSIDriver()
+        iscsi_driver._do_iscsi_discovery = lambda v: "0.0.0.0:0000,0 iqn:iqn 0"
+        result = iscsi_driver._get_iscsi_properties(volume)
+        self.assertEquals(result["target_portal"], "0.0.0.0:0000")
+        self.assertEquals(result["target_iqn"], "iqn:iqn")
+        self.assertEquals(result["target_lun"], 0)
+
+
+class FibreChannelTestCase(DriverTestCase):
+    """Test Case for FibreChannelDriver"""
+    driver_name = "cinder.volume.driver.FibreChannelDriver"
+
+    def test_initialize_connection(self):
+        self.driver = driver.FibreChannelDriver()
+        self.driver.do_setup(None)
+        self.assertRaises(NotImplementedError,
+                          self.driver.initialize_connection, {}, {})
 
 
 class VolumePolicyTestCase(test.TestCase):

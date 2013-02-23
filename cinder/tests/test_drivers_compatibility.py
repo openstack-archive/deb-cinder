@@ -16,6 +16,7 @@ from cinder import context
 from cinder import flags
 from cinder.openstack.common import importutils
 from cinder import test
+from cinder.volume.drivers.solidfire import SolidFire
 
 FLAGS = flags.FLAGS
 
@@ -25,9 +26,10 @@ NEXENTA_MODULE = "cinder.volume.drivers.nexenta.volume.NexentaDriver"
 SAN_MODULE = "cinder.volume.drivers.san.san.SanISCSIDriver"
 SOLARIS_MODULE = "cinder.volume.drivers.san.solaris.SolarisISCSIDriver"
 LEFTHAND_MODULE = "cinder.volume.drivers.san.hp_lefthand.HpSanISCSIDriver"
-NETAPP_MODULE = "cinder.volume.drivers.netapp.NetAppISCSIDriver"
-NETAPP_CMODE_MODULE = "cinder.volume.drivers.netapp.NetAppCmodeISCSIDriver"
-NETAPP_NFS_MODULE = "cinder.volume.drivers.netapp_nfs.NetAppNFSDriver"
+NETAPP_MODULE = "cinder.volume.drivers.netapp.iscsi.NetAppISCSIDriver"
+NETAPP_CMODE_MODULE =\
+    "cinder.volume.drivers.netapp.iscsi.NetAppCmodeISCSIDriver"
+NETAPP_NFS_MODULE = "cinder.volume.drivers.netapp.nfs.NetAppNFSDriver"
 NFS_MODULE = "cinder.volume.drivers.nfs.NfsDriver"
 SOLIDFIRE_MODULE = "cinder.volume.drivers.solidfire.SolidFire"
 STORWIZE_SVC_MODULE = "cinder.volume.drivers.storwize_svc.StorwizeSVCDriver"
@@ -39,6 +41,9 @@ ZADARA_MODULE = "cinder.volume.drivers.zadara.ZadaraVPSAISCSIDriver"
 class VolumeDriverCompatibility(test.TestCase):
     """Test backwards compatibility for volume drivers."""
 
+    def fake_update_cluster_status(self):
+        return
+
     def setUp(self):
         super(VolumeDriverCompatibility, self).setUp()
         self.manager = importutils.import_object(FLAGS.volume_manager)
@@ -48,6 +53,10 @@ class VolumeDriverCompatibility(test.TestCase):
         super(VolumeDriverCompatibility, self).tearDown()
 
     def _load_driver(self, driver):
+        if 'SolidFire' in driver:
+            # SolidFire driver does update_cluster stat on init
+            self.stubs.Set(SolidFire, '_update_cluster_status',
+                           self.fake_update_cluster_status)
         self.manager.__init__(volume_driver=driver)
 
     def _driver_module_name(self):

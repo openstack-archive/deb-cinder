@@ -19,16 +19,16 @@ Manage hosts in the current zone.
 
 import UserDict
 
+from oslo.config import cfg
+
 from cinder import db
 from cinder import exception
 from cinder import flags
-from cinder.openstack.common import cfg
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.scheduler import filters
 from cinder.openstack.common.scheduler import weights
 from cinder.openstack.common import timeutils
 from cinder import utils
-
 
 host_manager_opts = [
     cfg.ListOpt('scheduler_default_filters',
@@ -116,10 +116,10 @@ class HostState(object):
 
     def update_from_volume_capability(self, capability):
         """Update information about a host from its volume_node info."""
-        if self.updated and self.updated > capability['timestamp']:
-            return
-
         if capability:
+            if self.updated and self.updated > capability['timestamp']:
+                return
+
             self.volume_backend = capability.get('volume_backend_name', None)
             self.vendor_name = capability.get('vendor_name', None)
             self.driver_version = capability.get('driver_version', None)
@@ -135,7 +135,14 @@ class HostState(object):
     def consume_from_volume(self, volume):
         """Incrementally update host state from an volume"""
         volume_gb = volume['size']
-        self.free_capacity_gb -= volume_gb
+        if self.free_capacity_gb == 'infinite':
+            # There's virtually infinite space on back-end
+            pass
+        elif self.free_capacity_gb == 'unknown':
+            # Unable to determine the actual free space on back-end
+            pass
+        else:
+            self.free_capacity_gb -= volume_gb
         self.updated = timeutils.utcnow()
 
     def __repr__(self):

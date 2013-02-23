@@ -16,12 +16,11 @@
 """The hosts admin extension."""
 
 import webob.exc
-from xml.dom import minidom
 from xml.parsers import expat
 
-from cinder.api.openstack import extensions
+from cinder.api import extensions
 from cinder.api.openstack import wsgi
-from cinder.api.openstack import xmlutil
+from cinder.api import xmlutil
 from cinder import db
 from cinder import exception
 from cinder import flags
@@ -79,7 +78,7 @@ class HostShowTemplate(xmlutil.TemplateBuilder):
 class HostDeserializer(wsgi.XMLDeserializer):
     def default(self, string):
         try:
-            node = minidom.parseString(string)
+            node = utils.safe_minidom_parse_string(string)
         except expat.ExpatError:
             msg = _("cannot understand XML")
             raise exception.MalformedRequestBody(reason=msg)
@@ -206,7 +205,7 @@ class HostController(object):
         try:
             host_ref = db.service_get_by_host_and_topic(context,
                                                         host,
-                                                        'cinder-volume')
+                                                        FLAGS.volume_topic)
         except exception.ServiceNotFound:
             raise webob.exc.HTTPNotFound(explanation=_("Host not found"))
 

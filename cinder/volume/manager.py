@@ -30,19 +30,24 @@ intact.
                   :class:`manager.Manager` (default:
                   :class:`cinder.volume.manager.Manager`).
 :volume_driver:  Used by :class:`Manager`.  Defaults to
-                 :class:`cinder.volume.driver.ISCSIDriver`.
+                 :class:`cinder.volume.drivers.lvm.LVMISCSIDriver`.
 :volume_group:  Name of the group that will contain exported volumes (default:
                 `cinder-volumes`)
 :num_shell_tries:  Number of times to attempt to run commands (default: 3)
 
 """
 
+
+import sys
+import traceback
+
+from oslo.config import cfg
+
 from cinder import context
 from cinder import exception
 from cinder import flags
 from cinder.image import glance
 from cinder import manager
-from cinder.openstack.common import cfg
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import lockutils
@@ -50,8 +55,9 @@ from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
 from cinder import quota
+from cinder.volume.configuration import Configuration
 from cinder.volume import utils as volume_utils
-
+from cinder.volume import volume_types
 
 LOG = logging.getLogger(__name__)
 
@@ -59,7 +65,7 @@ QUOTAS = quota.QUOTAS
 
 volume_manager_opts = [
     cfg.StrOpt('volume_driver',
-               default='cinder.volume.driver.ISCSIDriver',
+               default='cinder.volume.drivers.lvm.LVMISCSIDriver',
                help='Driver to use for volume creation'),
 ]
 
@@ -79,11 +85,11 @@ MAPPING = {
     'cinder.volume.san.HpSanISCSIDriver':
     'cinder.volume.drivers.san.hp_lefthand.HpSanISCSIDriver',
     'cinder.volume.netapp.NetAppISCSIDriver':
-    'cinder.volume.drivers.netapp.NetAppISCSIDriver',
+    'cinder.volume.drivers.netapp.iscsi.NetAppISCSIDriver',
     'cinder.volume.netapp.NetAppCmodeISCSIDriver':
-    'cinder.volume.drivers.netapp.NetAppCmodeISCSIDriver',
+    'cinder.volume.drivers.netapp.iscsi.NetAppCmodeISCSIDriver',
     'cinder.volume.netapp_nfs.NetAppNFSDriver':
-    'cinder.volume.drivers.netapp_nfs.NetAppNFSDriver',
+    'cinder.volume.drivers.netapp.nfs.NetAppNFSDriver',
     'cinder.volume.nfs.NfsDriver':
     'cinder.volume.drivers.nfs.NfsDriver',
     'cinder.volume.solidfire.SolidFire':
@@ -95,24 +101,33 @@ MAPPING = {
     'cinder.volume.xiv.XIVDriver':
     'cinder.volume.drivers.xiv.XIVDriver',
     'cinder.volume.zadara.ZadaraVPSAISCSIDriver':
-    'cinder.volume.drivers.zadara.ZadaraVPSAISCSIDriver'}
+    'cinder.volume.drivers.zadara.ZadaraVPSAISCSIDriver',
+    'cinder.volume.driver.ISCSIDriver':
+    'cinder.volume.drivers.lvm.LVMISCSIDriver'}
 
 
 class VolumeManager(manager.SchedulerDependentManager):
     """Manages attachable block storage devices."""
 
-    RPC_API_VERSION = '1.2'
+    RPC_API_VERSION = '1.4'
 
-    def __init__(self, volume_driver=None, *args, **kwargs):
+    def __init__(self, volume_driver=None, service_name=None,
+                 *args, **kwargs):
         """Load the driver from the one specified in args, or from flags."""
+        self.configuration = Configuration(volume_manager_opts,
+                                           config_group=service_name)
         if not volume_driver:
-            volume_driver = FLAGS.volume_driver
+            # Get from configuration, which will get the default
+            # if its not using the multi backend
+            volume_driver = self.configuration.volume_driver
         if volume_driver in MAPPING:
             LOG.warn(_("Driver path %s is deprecated, update your "
                        "configuration to the new path."), volume_driver)
-            self.driver = importutils.import_object(MAPPING[volume_driver])
-        else:
-            self.driver = importutils.import_object(volume_driver)
+            volume_driver = MAPPING[volume_driver]
+        self.driver = importutils.import_object(
+                                        volume_driver,
+                                        configuration=self.configuration)
+        # update_service_capabilities needs service_name to be volume
         super(VolumeManager, self).__init__(service_name='volume',
                                             *args, **kwargs)
         # NOTE(vish): Implementation specific db handling is done
@@ -144,10 +159,45 @@ class VolumeManager(manager.SchedulerDependentManager):
         # collect and publish service capabilities
         self.publish_service_capabilities(ctxt)
 
-    def create_volume(self, context, volume_id, snapshot_id=None,
-                      image_id=None, source_volid=None):
+    def _create_volume(self, context, volume_ref, snapshot_ref,
+                       srcvol_ref, image_service, image_id, image_location):
+        cloned = None
+        model_update = False
+
+        if all(x is None for x in(snapshot_ref, image_id, srcvol_ref)):
+            model_update = self.driver.create_volume(volume_ref)
+        elif snapshot_ref is not None:
+            model_update = self.driver.create_volume_from_snapshot(
+                volume_ref,
+                snapshot_ref)
+        elif srcvol_ref is not None:
+            model_update = self.driver.create_cloned_volume(volume_ref,
+                                                            srcvol_ref)
+        else:
+            # create the volume from an image
+            cloned = self.driver.clone_image(volume_ref, image_location)
+            if not cloned:
+                model_update = self.driver.create_volume(volume_ref)
+
+                updates = dict(model_update or dict(), status='downloading')
+                volume_ref = self.db.volume_update(context,
+                                                   volume_ref['id'],
+                                                   updates)
+
+                self._copy_image_to_volume(context,
+                                           volume_ref,
+                                           image_service,
+                                           image_id)
+
+        return model_update, cloned
+
+    def create_volume(self, context, volume_id, request_spec=None,
+                      filter_properties=None, allow_reschedule=True,
+                      snapshot_id=None, image_id=None, source_volid=None):
         """Creates and exports the volume."""
         context = context.elevated()
+        if filter_properties is None:
+            filter_properties = {}
         volume_ref = self.db.volume_get(context, volume_id)
         self._notify_about_volume_usage(context, volume_ref, "create.start")
         LOG.info(_("volume %s: creating"), volume_ref['name'])
@@ -165,31 +215,52 @@ class VolumeManager(manager.SchedulerDependentManager):
             vol_size = volume_ref['size']
             LOG.debug(_("volume %(vol_name)s: creating lv of"
                         " size %(vol_size)sG") % locals())
-            if all(x is None for x in(snapshot_id, image_id, source_volid)):
-                model_update = self.driver.create_volume(volume_ref)
-            elif snapshot_id is not None:
+            snapshot_ref = None
+            sourcevol_ref = None
+            image_service = None
+            image_location = None
+            image_meta = None
+
+            if snapshot_id is not None:
                 snapshot_ref = self.db.snapshot_get(context, snapshot_id)
-                model_update = self.driver.create_volume_from_snapshot(
-                    volume_ref,
-                    snapshot_ref)
             elif source_volid is not None:
-                src_vref = self.db.volume_get(context, source_volid)
-                model_update = self.driver.create_cloned_volume(volume_ref,
-                                                                src_vref)
-            else:
+                sourcevol_ref = self.db.volume_get(context, source_volid)
+            elif image_id is not None:
                 # create the volume from an image
                 image_service, image_id = \
                     glance.get_remote_image_service(context,
                                                     image_id)
                 image_location = image_service.get_location(context, image_id)
                 image_meta = image_service.show(context, image_id)
-                cloned = self.driver.clone_image(volume_ref, image_location)
-                if not cloned:
-                    model_update = self.driver.create_volume(volume_ref)
-                    status = 'downloading'
+
+            try:
+                model_update, cloned = self._create_volume(context,
+                                                           volume_ref,
+                                                           snapshot_ref,
+                                                           sourcevol_ref,
+                                                           image_service,
+                                                           image_id,
+                                                           image_location)
+            except Exception:
+                # restore source volume status before reschedule
+                if sourcevol_ref is not None:
+                    self.db.volume_update(context, sourcevol_ref['id'],
+                                          {'status': sourcevol_ref['status']})
+                exc_info = sys.exc_info()
+                # try to re-schedule volume:
+                self._reschedule_or_reraise(context, volume_id, exc_info,
+                                            snapshot_id, image_id,
+                                            request_spec, filter_properties,
+                                            allow_reschedule)
 
             if model_update:
-                self.db.volume_update(context, volume_ref['id'], model_update)
+                volume_ref = self.db.volume_update(
+                    context, volume_ref['id'], model_update)
+            if sourcevol_ref is not None:
+                self.db.volume_glance_metadata_copy_from_volume_to_volume(
+                    context,
+                    source_volid,
+                    volume_id)
 
             LOG.debug(_("volume %s: creating export"), volume_ref['name'])
             model_update = self.driver.create_export(context, volume_ref)
@@ -206,13 +277,6 @@ class VolumeManager(manager.SchedulerDependentManager):
             self.db.volume_glance_metadata_copy_to_volume(context,
                                                           volume_ref['id'],
                                                           snapshot_id)
-
-        now = timeutils.utcnow()
-        self.db.volume_update(context,
-                              volume_ref['id'], {'status': status,
-                                                 'launched_at': now})
-        LOG.debug(_("volume %s: created successfully"), volume_ref['name'])
-        self._reset_stats()
 
         if image_id and not cloned:
             if image_meta:
@@ -232,10 +296,90 @@ class VolumeManager(manager.SchedulerDependentManager):
                                                           volume_ref['id'],
                                                           key, value)
 
-            #copy the image onto the volume.
-            self._copy_image_to_volume(context, volume_ref, image_id)
+        now = timeutils.utcnow()
+        self.db.volume_update(context,
+                              volume_ref['id'], {'status': status,
+                                                 'launched_at': now})
+        LOG.debug(_("volume %s: created successfully"), volume_ref['name'])
+        self._reset_stats()
+
         self._notify_about_volume_usage(context, volume_ref, "create.end")
         return volume_ref['id']
+
+    def _log_original_error(self, exc_info, volume_id):
+        type_, value, tb = exc_info
+        LOG.error(_('Error: %s') %
+                  traceback.format_exception(type_, value, tb),
+                  volume_id=volume_id)
+
+    def _reschedule_or_reraise(self, context, volume_id, exc_info,
+                               snapshot_id, image_id, request_spec,
+                               filter_properties, allow_reschedule):
+        """Try to re-schedule the create or re-raise the original error to
+        error out the volume.
+        """
+        if not allow_reschedule:
+            raise exc_info[0], exc_info[1], exc_info[2]
+
+        rescheduled = False
+
+        try:
+            method_args = (FLAGS.volume_topic, volume_id, snapshot_id,
+                           image_id, request_spec, filter_properties)
+
+            rescheduled = self._reschedule(context, request_spec,
+                                           filter_properties, volume_id,
+                                           self.scheduler_rpcapi.create_volume,
+                                           method_args,
+                                           exc_info)
+
+        except Exception:
+            rescheduled = False
+            LOG.exception(_("Error trying to reschedule %(volume_id)s"),
+                          volume_id=volume_id)
+
+        if rescheduled:
+            # log the original build error
+            self._log_original_error(exc_info, volume_id)
+        else:
+            # not re-scheduling
+            raise exc_info[0], exc_info[1], exc_info[2]
+
+    def _reschedule(self, context, request_spec, filter_properties,
+                    volume_id, scheduler_method, method_args,
+                    exc_info=None):
+        """Attempt to re-schedule a volume operation."""
+
+        retry = filter_properties.get('retry', None)
+        if not retry:
+            # no retry information, do not reschedule.
+            LOG.debug(_("Retry info not present, will not reschedule"),
+                      volume_id=volume_id)
+            return
+
+        if not request_spec:
+            LOG.debug(_("No request spec, will not reschedule"),
+                      volume_id=volume_id)
+            return
+
+        request_spec['volume_id'] = [volume_id]
+
+        LOG.debug(_("Re-scheduling %(method)s: attempt %(num)d") %
+                  {'method': scheduler_method.func_name,
+                   'num': retry['num_attempts']}, volume_id=volume_id)
+
+        # reset the volume state:
+        now = timeutils.utcnow()
+        self.db.volume_update(context, volume_id,
+                              {'status': 'creating',
+                               'scheduled_at': now})
+
+        if exc_info:
+            # stringify to avoid circular ref problem in json serialization:
+            retry['exc'] = traceback.format_exception(*exc_info)
+
+        scheduler_method(context, *method_args)
+        return True
 
     def delete_volume(self, context, volume_id):
         """Deletes and unexports volume."""
@@ -401,34 +545,30 @@ class VolumeManager(manager.SchedulerDependentManager):
                 volume_ref['name'] not in volume_ref['provider_location']):
             self.driver.ensure_export(context, volume_ref)
 
-    def _copy_image_to_volume(self, context, volume, image_id):
+    def _copy_image_to_volume(self, context, volume, image_service, image_id):
         """Downloads Glance image to the specified volume. """
         volume_id = volume['id']
-        payload = {'volume_id': volume_id, 'image_id': image_id}
-        try:
-            image_service, image_id = glance.get_remote_image_service(context,
-                                                                      image_id)
-            self.driver.copy_image_to_volume(context, volume, image_service,
-                                             image_id)
-            LOG.debug(_("Downloaded image %(image_id)s to %(volume_id)s "
-                        "successfully") % locals())
-            self.db.volume_update(context, volume_id,
-                                  {'status': 'available'})
-        except Exception, error:
-            with excutils.save_and_reraise_exception():
-                payload['message'] = unicode(error)
-                self.db.volume_update(context, volume_id, {'status': 'error'})
+        self.driver.copy_image_to_volume(context, volume,
+                                         image_service,
+                                         image_id)
+        LOG.debug(_("Downloaded image %(image_id)s to %(volume_id)s "
+                    "successfully") % locals())
 
-    def copy_volume_to_image(self, context, volume_id, image_id):
-        """Uploads the specified volume to Glance."""
-        payload = {'volume_id': volume_id, 'image_id': image_id}
+    def copy_volume_to_image(self, context, volume_id, image_meta):
+        """Uploads the specified volume to Glance.
+
+        image_meta is a dictionary containing the following keys:
+        'id', 'container_format', 'disk_format'
+
+        """
+        payload = {'volume_id': volume_id, 'image_id': image_meta['id']}
         try:
             volume = self.db.volume_get(context, volume_id)
             self.driver.ensure_export(context.elevated(), volume)
-            image_service, image_id = glance.get_remote_image_service(context,
-                                                                      image_id)
+            image_service, image_id = \
+                glance.get_remote_image_service(context, image_meta['id'])
             self.driver.copy_volume_to_image(context, volume, image_service,
-                                             image_id)
+                                             image_meta)
             LOG.debug(_("Uploaded volume %(volume_id)s to "
                         "image (%(image_id)s) successfully") % locals())
         except Exception, error:

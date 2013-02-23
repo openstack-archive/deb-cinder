@@ -21,18 +21,18 @@
 Scheduler Service
 """
 
+from oslo.config import cfg
+
 from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import flags
 from cinder import manager
-from cinder.openstack.common import cfg
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier
 from cinder.volume import rpcapi as volume_rpcapi
-
 
 LOG = logging.getLogger(__name__)
 
@@ -50,7 +50,8 @@ class SchedulerManager(manager.Manager):
 
     RPC_API_VERSION = '1.2'
 
-    def __init__(self, scheduler_driver=None, *args, **kwargs):
+    def __init__(self, scheduler_driver=None, service_name=None,
+                 *args, **kwargs):
         if not scheduler_driver:
             scheduler_driver = FLAGS.scheduler_driver
         self.driver = importutils.import_object(scheduler_driver)

@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-#    Copyright (c) 2012 Hewlett-Packard, Inc.
+#    (c) Copyright 2012-2013 Hewlett-Packard Development Company, L.P.
 #    All Rights Reserved.
 #
 #    Copyright 2012 OpenStack LLC
@@ -18,9 +18,11 @@
 #    under the License.
 #
 """
-Volume driver for HP 3PAR Storage array
-This driver requires 3.1.2 firmware on
-the 3Par array
+Volume driver for HP 3PAR Storage array. This driver requires 3.1.2 firmware
+on the 3PAR array. Set the following in the cinder.conf file to enable the
+3PAR iSCSI Driver along with the required flags:
+
+volume_driver=cinder.volume.drivers.san.hp.hp_3par_iscsi.HP3PARISCSIDriver
 """
 
 from hp3parclient import client
@@ -33,13 +35,19 @@ from cinder.openstack.common import log as logging
 import cinder.volume.driver
 from cinder.volume.drivers.san.hp.hp_3par_common import HP3PARCommon
 
+VERSION = 1.0
 LOG = logging.getLogger(__name__)
 
 FLAGS = flags.FLAGS
 
 
 class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
+    """OpenStack iSCSI driver to enable 3PAR storage array.
 
+    Version history:
+        1.0 - Initial driver
+
+    """
     def __init__(self, *args, **kwargs):
         super(HP3PARISCSIDriver, self).__init__(*args, **kwargs)
         self.client = None
@@ -59,6 +67,12 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
     def _create_client(self):
         return client.HP3ParClient(FLAGS.hp3par_api_url)
 
+    def get_volume_stats(self, refresh):
+        stats = self.common.get_volume_stats(refresh, self.client)
+        stats['storage_protocol'] = 'iSCSI'
+        stats['volume_backend_name'] = 'HP3PARISCSIDriver'
+        return stats
+
     def do_setup(self, context):
         self.common = self._init_common()
         self._check_flags()
@@ -77,11 +91,20 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
 
         # make sure the CPG exists
         try:
-            self.client.getCPG(FLAGS.hp3par_cpg)
+            cpg = self.client.getCPG(FLAGS.hp3par_cpg)
         except hpexceptions.HTTPNotFound as ex:
             err = _("CPG (%s) doesn't exist on array") % FLAGS.hp3par_cpg
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
+
+        if 'domain' not in cpg and cpg['domain'] != FLAGS.hp3par_domain:
+            err = "CPG's domain '%s' and config option hp3par_domain '%s' \
+must be the same" % (cpg['domain'], FLAGS.hp3par_domain)
+            LOG.error(err)
+            raise exception.InvalidInput(reason=err)
+
+        # make sure ssh works.
+        self._iscsi_discover_target_iqn(FLAGS.iscsi_ip_address)
 
     def check_for_setup_error(self):
         """Returns an error if prerequisites aren't met."""
@@ -89,15 +112,24 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
 
     @lockutils.synchronized('3par-vol', 'cinder-', True)
     def create_volume(self, volume):
-        """ Create a new volume """
-        self.common.create_volume(volume, self.client, FLAGS)
+        """ Create a new volume. """
+        metadata = self.common.create_volume(volume, self.client, FLAGS)
 
         return {'provider_location': "%s:%s" %
-                (FLAGS.iscsi_ip_address, FLAGS.iscsi_port)}
+                (FLAGS.iscsi_ip_address, FLAGS.iscsi_port),
+                'metadata': metadata}
+
+    def create_cloned_volume(self, volume, src_vref):
+        """ Clone an existing volume. """
+        new_vol = self.common.create_cloned_volume(volume, src_vref,
+                                                   self.client, FLAGS)
+        return {'provider_location': "%s:%s" %
+                (FLAGS.iscsi_ip_address, FLAGS.iscsi_port),
+                'metadata': new_vol}
 
     @lockutils.synchronized('3par-vol', 'cinder-', True)
     def delete_volume(self, volume):
-        """ Delete a volume """
+        """ Delete a volume. """
         self.common.delete_volume(volume, self.client)
 
     @lockutils.synchronized('3par-vol', 'cinder-', True)
@@ -186,9 +218,9 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
 
         return iqn
 
-    def _create_3par_iscsi_host(self, hostname, iscsi_iqn, domain):
-        cmd = 'createhost -iscsi -persona 1 -domain %s %s %s' % \
-              (domain, hostname, iscsi_iqn)
+    def _create_3par_iscsi_host(self, hostname, iscsi_iqn, domain, persona_id):
+        cmd = 'createhost -iscsi -persona %s -domain %s %s %s' % \
+              (persona_id, domain, hostname, iscsi_iqn)
         self.common._cli_run(cmd, None)
 
     def _modify_3par_iscsi_host(self, hostname, iscsi_iqn):
@@ -199,7 +231,7 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
     def _create_host(self, volume, connector):
         """
         This is a 3PAR host entry for exporting volumes
-        via active VLUNs
+        via active VLUNs.
         """
         # make sure we don't have the host already
         host = None
@@ -210,9 +242,11 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
                 self._modify_3par_iscsi_host(hostname, connector['initiator'])
                 host = self.common._get_3par_host(hostname)
         except hpexceptions.HTTPNotFound:
+            # get persona from the volume type extra specs
+            persona_id = self.common.get_persona_type(volume)
             # host doesn't exist, we have to create it
             self._create_3par_iscsi_host(hostname, connector['initiator'],
-                                         FLAGS.hp3par_domain)
+                                         FLAGS.hp3par_domain, persona_id)
             host = self.common._get_3par_host(hostname)
 
         return host

@@ -112,10 +112,13 @@ class VolumeRpcAPITestCase(test.TestCase):
                               rpc_method='cast',
                               volume=self.fake_volume,
                               host='fake_host1',
+                              request_spec='fake_request_spec',
+                              filter_properties='fake_properties',
+                              allow_reschedule=True,
                               snapshot_id='fake_snapshot_id',
                               image_id='fake_image_id',
                               source_volid='fake_src_id',
-                              version='1.1')
+                              version='1.4')
 
     def test_delete_volume(self):
         self._test_volume_api('delete_volume',
@@ -150,7 +153,10 @@ class VolumeRpcAPITestCase(test.TestCase):
         self._test_volume_api('copy_volume_to_image',
                               rpc_method='cast',
                               volume=self.fake_volume,
-                              image_id='fake_image_id')
+                              image_meta={'id': 'fake_image_id',
+                                          'container_format': 'fake_type',
+                                          'disk_format': 'fake_type'},
+                              version='1.3')
 
     def test_initialize_connection(self):
         self._test_volume_api('initialize_connection',
