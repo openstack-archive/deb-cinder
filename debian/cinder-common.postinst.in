@@ -19,7 +19,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_write_admin_creds ${CINDER_API} cinder filter:authtoken
 	db_get cinder/volume_group
 	if [ -n "${RET}" ] ; then
-		pkgos_edit_config volume_group ${RET} ${CINDER_CONF} DEFAULT
+		pkgos_inifile set ${CINDER_CONF} DEFAULT volume_group ${RET}
 	fi
 
 	db_stop

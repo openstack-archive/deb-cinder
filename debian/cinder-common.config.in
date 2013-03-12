@@ -10,7 +10,7 @@ CINDER_API=/etc/cinder/api-paste.ini
 #PKGOS-INCLUDE#
 
 manage_cinder_enable () {
-	pkgos_read_config -sh ${CINDER_COM_DEF} CINDER_ENABLE cinder/start_services
+	pkgos_read_config ${CINDER_COM_DEF} NO_SECTION CINDER_ENABLE cinder/start_services
 	CINDER_ENABLE=${RET}
 	if ! [ "${CINDER_ENABLE}" = "false" ] ; then
 		CINDER_ENABLE=true
@@ -24,11 +24,11 @@ CINDER_ENABLE=${CINDER_ENABLE}" >${CINDER_COM_DEF}
 }
 
 pkgos_var_user_group cinder
-pkgos_dbc_read_conf -pkg cinder-common ${CINDER_CONF} cinder DEFAULT sql_connection $@
+pkgos_dbc_read_conf -pkg cinder-common ${CINDER_CONF} DEFAULT sql_connection cinder $@
 pkgos_read_admin_creds ${CINDER_API} cinder filter:authtoken
 manage_cinder_enable
 
-pkgos_get_config ${CINDER_CONF} volume_group DEFAULT
+pkgos_inifile get ${CINDER_CONF} DEFAULT volume_group
 if [ -n "${RET}" ] ; then
 	db_set cinder/volume_group "${RET}"
 else
