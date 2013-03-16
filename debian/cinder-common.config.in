@@ -19,13 +19,14 @@ manage_cinder_enable () {
 	echo "# defaults file for cinder daemons
 
 # start cinder daemons from init.d script?
-#  only allowed values are \"true\" and \"false\"
+# only allowed values are \"true\" and \"false\",
+# any change to this file will be reset on upgrades.
 CINDER_ENABLE=${CINDER_ENABLE}" >${CINDER_COM_DEF}	
 }
 
 pkgos_var_user_group cinder
 pkgos_dbc_read_conf -pkg cinder-common ${CINDER_CONF} DEFAULT sql_connection cinder $@
-pkgos_read_admin_creds ${CINDER_API} cinder filter:authtoken
+pkgos_read_admin_creds ${CINDER_API} filter:authtoken cinder
 manage_cinder_enable
 
 pkgos_inifile get ${CINDER_CONF} DEFAULT volume_group
