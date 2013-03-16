@@ -30,7 +30,7 @@ pkgos_read_admin_creds ${CINDER_API} filter:authtoken cinder
 manage_cinder_enable
 
 pkgos_inifile get ${CINDER_CONF} DEFAULT volume_group
-if [ -n "${RET}" ] ; then
+if [ -n "${RET}" ] && [ ! "${RET}" = "NOT_FOUND" ] ; then
 	db_set cinder/volume_group "${RET}"
 else
 	db_get cinder/volume_group
