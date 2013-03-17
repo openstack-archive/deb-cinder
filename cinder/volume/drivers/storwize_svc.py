@@ -49,9 +49,9 @@ from oslo.config import cfg
 
 from cinder import context
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import strutils
 from cinder import utils
 from cinder.volume.drivers.san import san
 from cinder.volume import volume_types
@@ -90,15 +90,12 @@ storwize_svc_opts = [
                help='Maximum number of seconds to wait for FlashCopy to be '
                     'prepared. Maximum value is 600 seconds (10 minutes).'),
     cfg.StrOpt('storwize_svc_connection_protocol',
-               default='iscsi',
-               help='Connection protocol (iscsi/fc)'),
+               default='iSCSI',
+               help='Connection protocol (iSCSI/FC)'),
     cfg.BoolOpt('storwize_svc_multipath_enabled',
                 default=False,
                 help='Connect with multipath (currently FC-only)'),
 ]
-
-FLAGS = flags.FLAGS
-FLAGS.register_opts(storwize_svc_opts)
 
 
 class StorwizeSVCDriver(san.SanISCSIDriver):
@@ -117,9 +114,9 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
 
     def __init__(self, *args, **kwargs):
         super(StorwizeSVCDriver, self).__init__(*args, **kwargs)
+        self.configuration.append_config_values(storwize_svc_opts)
         self._storage_nodes = {}
         self._enabled_protocols = set()
-        self._supported_protocols = ['iscsi', 'fc']
         self._compression_enabled = False
         self._context = None
 
@@ -190,11 +187,11 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         out, err = self._run_ssh(ssh_cmd)
         self._assert_ssh_return(len(out.strip()), 'do_setup',
                                 ssh_cmd, out, err)
-        search_text = '!%s!' % FLAGS.storwize_svc_volpool_name
+        search_text = '!%s!' % self.configuration.storwize_svc_volpool_name
         if search_text not in out:
             raise exception.InvalidInput(
                 reason=(_('pool %s doesn\'t exist')
-                        % FLAGS.storwize_svc_volpool_name))
+                        % self.configuration.storwize_svc_volpool_name))
 
         # Check if compression is supported
         ssh_cmd = 'lslicense -delim !'
@@ -251,11 +248,11 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         for k, node in self._storage_nodes.iteritems():
             if ((len(node['ipv4']) or len(node['ipv6']))
                     and len(node['iscsi_name'])):
-                node['enabled_protocols'].append('iscsi')
-                self._enabled_protocols.add('iscsi')
+                node['enabled_protocols'].append('iSCSI')
+                self._enabled_protocols.add('iSCSI')
             if len(node['WWPN']):
-                node['enabled_protocols'].append('fc')
-                self._enabled_protocols.add('fc')
+                node['enabled_protocols'].append('FC')
+                self._enabled_protocols.add('FC')
             if not len(node['enabled_protocols']):
                 to_delete.append(k)
 
@@ -269,15 +266,22 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         LOG.debug(_('leave: do_setup'))
 
     def _build_default_opts(self):
-        opts = {'rsize': FLAGS.storwize_svc_vol_rsize,
-                'warning': FLAGS.storwize_svc_vol_warning,
-                'autoexpand': FLAGS.storwize_svc_vol_autoexpand,
-                'grainsize': FLAGS.storwize_svc_vol_grainsize,
-                'compression': FLAGS.storwize_svc_vol_compression,
-                'easytier': FLAGS.storwize_svc_vol_easytier,
-                'protocol': FLAGS.storwize_svc_connection_protocol,
-                'multipath': FLAGS.storwize_svc_multipath_enabled}
-        return opts
+        # Ignore capitalization
+        protocol = self.configuration.storwize_svc_connection_protocol
+        if protocol.lower() == 'fc':
+            protocol = 'FC'
+        elif protocol.lower() == 'iscsi':
+            protocol = 'iSCSI'
+
+        opt = {'rsize': self.configuration.storwize_svc_vol_rsize,
+               'warning': self.configuration.storwize_svc_vol_warning,
+               'autoexpand': self.configuration.storwize_svc_vol_autoexpand,
+               'grainsize': self.configuration.storwize_svc_vol_grainsize,
+               'compression': self.configuration.storwize_svc_vol_compression,
+               'easytier': self.configuration.storwize_svc_vol_easytier,
+               'protocol': protocol,
+               'multipath': self.configuration.storwize_svc_multipath_enabled}
+        return opt
 
     def check_for_setup_error(self):
         """Ensure that the flags are set properly."""
@@ -286,18 +290,19 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         required_flags = ['san_ip', 'san_ssh_port', 'san_login',
                           'storwize_svc_volpool_name']
         for flag in required_flags:
-            if not getattr(FLAGS, flag, None):
+            if not self.configuration.safe_get(flag):
                 raise exception.InvalidInput(reason=_('%s is not set') % flag)
 
         # Ensure that either password or keyfile were set
-        if not (FLAGS.san_password or FLAGS.san_private_key):
+        if not (self.configuration.san_password or
+                self.configuration.san_private_key):
             raise exception.InvalidInput(
                 reason=_('Password or SSH private key is required for '
                          'authentication: set either san_password or '
                          'san_private_key option'))
 
         # Check that flashcopy_timeout is not more than 10 minutes
-        flashcopy_timeout = FLAGS.storwize_svc_flashcopy_timeout
+        flashcopy_timeout = self.configuration.storwize_svc_flashcopy_timeout
         if not (flashcopy_timeout > 0 and flashcopy_timeout <= 600):
             raise exception.InvalidInput(
                 reason=_('Illegal value %d specified for '
@@ -414,6 +419,57 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         host_name = str(host_name)
         return host_name[:55]
 
+    def _find_host_from_wwpn(self, connector):
+        for wwpn in connector['wwpns']:
+            ssh_cmd = 'lsfabric -wwpn %s -delim !' % wwpn
+            out, err = self._run_ssh(ssh_cmd)
+
+            if not len(out.strip()):
+                # This WWPN is not in use
+                continue
+
+            host_lines = out.strip().split('\n')
+            header = host_lines.pop(0).split('!')
+            self._assert_ssh_return('remote_wwpn' in header and
+                                    'name' in header,
+                                    '_find_host_from_wwpn',
+                                    ssh_cmd, out, err)
+            rmt_wwpn_idx = header.index('remote_wwpn')
+            name_idx = header.index('name')
+
+            wwpns = map(lambda x: x.split('!')[rmt_wwpn_idx], host_lines)
+
+            if wwpn in wwpns:
+                # All the wwpns will be the mapping for the same
+                # host from this WWPN-based query. Just pick
+                # the name from first line.
+                hostname = host_lines[0].split('!')[name_idx]
+                return hostname
+
+        # Didn't find a host
+        return None
+
+    def _find_host_exhaustive(self, connector, hosts):
+        for host in hosts:
+            ssh_cmd = 'lshost -delim ! %s' % host
+            out, err = self._run_ssh(ssh_cmd)
+            self._assert_ssh_return(len(out.strip()),
+                                    '_find_host_exhaustive',
+                                    ssh_cmd, out, err)
+            for attr_line in out.split('\n'):
+                # If '!' not found, return the string and two empty strings
+                attr_name, foo, attr_val = attr_line.partition('!')
+                if (attr_name == 'iscsi_name' and
+                    'initiator' in connector and
+                    attr_val == connector['initiator']):
+                        return host
+                elif (attr_name == 'WWPN' and
+                      'wwpns' in connector and
+                      attr_val.lower() in
+                      map(str.lower, map(str, connector['wwpns']))):
+                        return host
+        return None
+
     def _get_host_from_connector(self, connector):
         """List the hosts defined in the storage.
 
@@ -432,46 +488,24 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         if not len(out.strip()):
             return None
 
-        host_lines = out.strip().split('\n')
-        self._assert_ssh_return(len(host_lines), '_get_host_from_connector',
-                                ssh_cmd, out, err)
-        header = host_lines.pop(0).split('!')
-        self._assert_ssh_return('name' in header, '_get_host_from_connector',
-                                ssh_cmd, out, err)
-        name_index = header.index('name')
-
-        hosts = map(lambda x: x.split('!')[name_index], host_lines)
+        # If we have FC information, we have a faster lookup option
         hostname = None
+        if 'wwpns' in connector:
+            hostname = self._find_host_from_wwpn(connector)
 
-        # For each host with the prefix, check connection details to verify
-        for host in hosts:
-            if not host.startswith(prefix):
-                continue
-            ssh_cmd = 'lshost -delim ! %s' % host
-            out, err = self._run_ssh(ssh_cmd)
-            self._assert_ssh_return(len(out.strip()),
+        # If we don't have a hostname yet, try the long way
+        if not hostname:
+            host_lines = out.strip().split('\n')
+            self._assert_ssh_return(len(host_lines),
                                     '_get_host_from_connector',
                                     ssh_cmd, out, err)
-            for attr_line in out.split('\n'):
-                # If '!' not found, return the string and two empty strings
-                attr_name, foo, attr_val = attr_line.partition('!')
-                found = False
-                if ('initiator' in connector and
-                    attr_name == 'iscsi_name' and
-                    attr_val == connector['initiator']):
-                        found = True
-                elif ('wwpns' in connector and
-                      attr_name == 'WWPN' and
-                      attr_val.lower() in
-                      map(str.lower, map(str, connector['wwpns']))):
-                        found = True
-
-                if found:
-                    hostname = host
-                    break
-
-            if hostname is not None:
-                break
+            header = host_lines.pop(0).split('!')
+            self._assert_ssh_return('name' in header,
+                                    '_get_host_from_connector',
+                                    ssh_cmd, out, err)
+            name_index = header.index('name')
+            hosts = map(lambda x: x.split('!')[name_index], host_lines)
+            hostname = self._find_host_exhaustive(connector, hosts)
 
         LOG.debug(_('leave: _get_host_from_connector: host %s') % hostname)
 
@@ -639,7 +673,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
                 host_name is not None,
                 _('_create_host failed to return the host name.'))
 
-        if vol_opts['protocol'] == 'iscsi':
+        if vol_opts['protocol'] == 'iSCSI':
             chap_secret = self._get_chap_secret_for_host(host_name)
             if chap_secret is None:
                 chap_secret = self._add_chapsecret_to_host(host_name)
@@ -689,7 +723,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
             properties['target_discovered'] = False
             properties['target_lun'] = lun_id
             properties['volume_id'] = volume['id']
-            if vol_opts['protocol'] == 'iscsi':
+            if vol_opts['protocol'] == 'iSCSI':
                 type_str = 'iscsi'
                 # We take the first IP address for now. Ideally, OpenStack will
                 # support iSCSI multipath for improved performance.
@@ -807,14 +841,45 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
             ctxt = context.get_admin_context()
             volume_type = volume_types.get_volume_type(ctxt, type_id)
             specs = volume_type.get('extra_specs')
-            for key, value in specs.iteritems():
+            for k, value in specs.iteritems():
+                # Get the scope, if using scope format
+                key_split = k.split(':')
+                if len(key_split) == 1:
+                    scope = None
+                    key = key_split[0]
+                else:
+                    scope = key_split[0]
+                    key = key_split[1]
+
+                # We generally do not look at capabilities in the driver, but
+                # protocol is a special case where the user asks for a given
+                # protocol and we want both the scheduler and the driver to act
+                # on the value.
+                if scope == 'capabilities' and key == 'storage_protocol':
+                    scope = None
+                    key = 'protocol'
+                    words = value.split()
+                    self._driver_assert(words and
+                                        len(words) == 2 and
+                                        words[0] == '<in>',
+                                        _('protocol must be specified as '
+                                          '\'<in> iSCSI\' or \'<in> FC\''))
+                    del words[0]
+                    value = words[0]
+
+                # Anything keys that the driver should look at should have the
+                # 'drivers' scope.
+                if scope and scope != "drivers":
+                    continue
+
                 if key in opts:
                     this_type = type(opts[key]).__name__
                     if this_type == 'int':
                         value = int(value)
                     elif this_type == 'bool':
-                        value = False if value == "0" else True
+                        value = strutils.bool_from_string(value)
                     opts[key] = value
+
         self._check_vdisk_opts(opts)
         return opts
 
@@ -846,7 +911,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
                    '-iogrp 0 -size %(size)s -unit '
                    '%(unit)s %(easytier)s %(ssh_cmd_se_opt)s'
                    % {'name': name,
-                   'mdiskgrp': FLAGS.storwize_svc_volpool_name,
+                   'mdiskgrp': self.configuration.storwize_svc_volpool_name,
                    'size': size, 'unit': units, 'easytier': easytier,
                    'ssh_cmd_se_opt': ssh_cmd_se_opt})
         out, err = self._run_ssh(ssh_cmd)
@@ -939,36 +1004,36 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         mapping_ready = False
         wait_time = 5
         # Allow waiting of up to timeout (set as parameter)
-        max_retries = (FLAGS.storwize_svc_flashcopy_timeout / wait_time) + 1
+        timeout = self.configuration.storwize_svc_flashcopy_timeout
+        max_retries = (timeout / wait_time) + 1
         for try_number in range(1, max_retries):
-            mapping_attributes = self._get_flashcopy_mapping_attributes(
-                fc_map_id)
-            if (mapping_attributes is None or
-                    'status' not in mapping_attributes):
+            mapping_attrs = self._get_flashcopy_mapping_attributes(fc_map_id)
+            if (mapping_attrs is None or
+                    'status' not in mapping_attrs):
                 break
-            if mapping_attributes['status'] == 'prepared':
+            if mapping_attrs['status'] == 'prepared':
                 mapping_ready = True
                 break
-            elif mapping_attributes['status'] == 'stopped':
+            elif mapping_attrs['status'] == 'stopped':
                 self._call_prepare_fc_map(fc_map_id, source, target)
-            elif mapping_attributes['status'] != 'preparing':
+            elif mapping_attrs['status'] != 'preparing':
                 # Unexpected mapping status
                 exception_msg = (_('Unexecpted mapping status %(status)s '
                                    'for mapping %(id)s. Attributes: '
                                    '%(attr)s')
-                                 % {'status': mapping_attributes['status'],
+                                 % {'status': mapping_attrs['status'],
                                     'id': fc_map_id,
-                                    'attr': mapping_attributes})
+                                    'attr': mapping_attrs})
                 raise exception.VolumeBackendAPIException(data=exception_msg)
             # Need to wait for mapping to be prepared, wait a few seconds
             time.sleep(wait_time)
 
         if not mapping_ready:
             exception_msg = (_('Mapping %(id)s prepare failed to complete '
-                               'within the alloted %(to)d seconds timeout. '
+                               'within the allotted %(to)d seconds timeout. '
                                'Terminating.')
                              % {'id': fc_map_id,
-                                'to': FLAGS.storwize_svc_flashcopy_timeout})
+                                'to': timeout})
             LOG.error(_('_prepare_fc_map: Failed to start FlashCopy '
                         'from %(source)s to %(target)s with '
                         'exception %(ex)s')
@@ -1223,7 +1288,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         opts = self._get_vdisk_params(volume['volume_type_id'])
-        if opts['protocol'] == 'iscsi':
+        if opts['protocol'] == 'iSCSI':
             # Implemented in base iSCSI class
             return super(StorwizeSVCDriver, self).copy_image_to_volume(
                     context, volume, image_service, image_id)
@@ -1232,7 +1297,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         opts = self._get_vdisk_params(volume['volume_type_id'])
-        if opts['protocol'] == 'iscsi':
+        if opts['protocol'] == 'iSCSI':
             # Implemented in base iSCSI class
             return super(StorwizeSVCDriver, self).copy_volume_to_image(
                     context, volume, image_service, image_meta)
@@ -1246,8 +1311,9 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
     def get_volume_stats(self, refresh=False):
         """Get volume status.
 
-        If 'refresh' is True, run update the stats first."""
-        if refresh:
+        If we haven't gotten stats yet or 'refresh' is True,
+        run update the stats first."""
+        if not self._stats or refresh:
             self._update_volume_status()
 
         return self._stats
@@ -1258,18 +1324,16 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         LOG.debug(_("Updating volume status"))
         data = {}
 
-        data['volume_backend_name'] = 'IBM_STORWIZE_SVC'  # To be overwritten
         data['vendor_name'] = 'IBM'
         data['driver_version'] = '1.1'
-        data['storage_protocol'] = 'iSCSI'
-        data['storage_protocols'] = self._enabled_protocols
+        data['storage_protocol'] = list(self._enabled_protocols)
 
-        data['total_capacity_gb'] = 0
-        data['free_capacity_gb'] = 0
+        data['total_capacity_gb'] = 0  # To be overwritten
+        data['free_capacity_gb'] = 0   # To be overwritten
         data['reserved_percentage'] = 0
         data['QoS_support'] = False
 
-        pool = FLAGS.storwize_svc_volpool_name
+        pool = self.configuration.storwize_svc_volpool_name
         #Get storage system name
         ssh_cmd = 'lssystem -delim !'
         attributes = self._execute_command_and_parse_attributes(ssh_cmd)
@@ -1278,7 +1342,10 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
                                    'Could not get system name'))
             raise exception.VolumeBackendAPIException(data=exception_message)
 
-        data['volume_backend_name'] = '%s_%s' % (attributes['name'], pool)
+        backend_name = self.configuration.safe_get('volume_backend_name')
+        if not backend_name:
+            backend_name = '%s_%s' % (attributes['name'], pool)
+        data['volume_backend_name'] = backend_name
 
         ssh_cmd = 'lsmdiskgrp -bytes -delim ! %s' % pool
         attributes = self._execute_command_and_parse_attributes(ssh_cmd)
@@ -1292,6 +1359,8 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
                                     (1024 ** 3))
         data['free_capacity_gb'] = (float(attributes['free_capacity']) /
                                     (1024 ** 3))
+        data['easytier_support'] = attributes['easy_tier'] in ['on', 'auto']
+        data['compression_support'] = self._compression_enabled
 
         self._stats = data
 
@@ -1358,7 +1427,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
                    'enabled': ','.join(self._enabled_protocols)})
 
         # Check that multipath is only enabled for fc
-        if opts['protocol'] != 'fc' and opts['multipath']:
+        if opts['protocol'] != 'FC' and opts['multipath']:
             raise exception.InvalidInput(
                 reason=_('Multipath is currently only supported for FC '
                          'connections and not iSCSI.  (This is a Nova '

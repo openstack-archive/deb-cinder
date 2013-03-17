@@ -277,7 +277,10 @@ class ISCSIDriver(VolumeDriver):
         try:
             properties['target_lun'] = int(results[2])
         except (IndexError, ValueError):
-            if self.configuration.iscsi_helper == 'tgtadm':
+            if (self.configuration.volume_driver in
+                    ['cinder.volume.drivers.lvm.LVMISCSIDriver',
+                     'cinder.volume.drivers.lvm.ThinLVMVolumeDriver'] and
+                    self.configuration.iscsi_helper == 'tgtadm'):
                 properties['target_lun'] = 1
             else:
                 properties['target_lun'] = 0
@@ -329,6 +332,9 @@ class ISCSIDriver(VolumeDriver):
             }
 
         """
+
+        if self.configuration.iscsi_helper == 'lioadm':
+            self.tgtadm.initialize_connection(volume, connector)
 
         iscsi_properties = self._get_iscsi_properties(volume)
         return {
@@ -433,7 +439,7 @@ class ISCSIDriver(VolumeDriver):
                      locals())
 
             # The rescan isn't documented as being necessary(?), but it helps
-            self._run_iscsiadm(iscsi_properties, ("--rescan"))
+            self._run_iscsiadm(iscsi_properties, ("--rescan",))
 
             tries = tries + 1
             if not os.path.exists(host_device):

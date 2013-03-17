@@ -21,14 +21,18 @@ Tests for NetApp volume driver
 
 import BaseHTTPServer
 import httplib
+import shutil
 import StringIO
+import tempfile
 
 from lxml import etree
 
 from cinder.exception import VolumeBackendAPIException
 from cinder.openstack.common import log as logging
 from cinder import test
+from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp import iscsi
+from cinder.volume.drivers.netapp.iscsi import netapp_opts
 
 
 LOG = logging.getLogger("cinder.volume.driver")
@@ -594,6 +598,12 @@ iter_count = 0
 iter_table = {}
 
 
+def create_configuration():
+    configuration = conf.Configuration(None)
+    configuration.append_config_values(netapp_opts)
+    return configuration
+
+
 class FakeDfmServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     """HTTP handler that fakes enough stuff to allow the driver to run."""
 
@@ -975,7 +985,9 @@ class NetAppDriverTestCase(test.TestCase):
 
     def setUp(self):
         super(NetAppDriverTestCase, self).setUp()
-        driver = iscsi.NetAppISCSIDriver()
+        self.tempdir = tempfile.mkdtemp()
+        self.flags(lock_path=self.tempdir)
+        driver = iscsi.NetAppISCSIDriver(configuration=create_configuration())
         self.stubs.Set(httplib, 'HTTPConnection', FakeHTTPConnection)
         driver._create_client(wsdl_url='http://localhost:8088/dfm.wsdl',
                               login='root', password='password',
@@ -984,6 +996,10 @@ class NetAppDriverTestCase(test.TestCase):
         driver._set_storage_service_prefix(self.STORAGE_SERVICE_PREFIX)
         driver._set_vfiler('')
         self.driver = driver
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir)
+        super(NetAppDriverTestCase, self).tearDown()
 
     def test_connect(self):
         self.driver.check_for_setup_error()
@@ -1395,7 +1411,8 @@ class NetAppCmodeISCSIDriverTestCase(test.TestCase):
         self._custom_setup()
 
     def _custom_setup(self):
-        driver = iscsi.NetAppCmodeISCSIDriver()
+        driver = iscsi.NetAppCmodeISCSIDriver(
+            configuration=create_configuration())
         self.stubs.Set(httplib, 'HTTPConnection', FakeCmodeHTTPConnection)
         driver._create_client(wsdl_url='http://localhost:8080/ntap_cloud.wsdl',
                               login='root', password='password',
@@ -1841,7 +1858,8 @@ class NetAppDirectCmodeISCSIDriverTestCase(NetAppCmodeISCSIDriverTestCase):
         super(NetAppDirectCmodeISCSIDriverTestCase, self).setUp()
 
     def _custom_setup(self):
-        driver = iscsi.NetAppDirectCmodeISCSIDriver()
+        driver = iscsi.NetAppDirectCmodeISCSIDriver(
+            configuration=create_configuration())
         self.stubs.Set(httplib, 'HTTPConnection',
                        FakeDirectCmodeHTTPConnection)
         driver._create_client(transport_type='http',
@@ -2272,7 +2290,8 @@ class NetAppDirect7modeISCSIDriverTestCase_NV(
         super(NetAppDirect7modeISCSIDriverTestCase_NV, self).setUp()
 
     def _custom_setup(self):
-        driver = iscsi.NetAppDirect7modeISCSIDriver()
+        driver = iscsi.NetAppDirect7modeISCSIDriver(
+            configuration=create_configuration())
         self.stubs.Set(httplib,
                        'HTTPConnection', FakeDirect7modeHTTPConnection)
         driver._create_client(transport_type='http',
@@ -2280,11 +2299,31 @@ class NetAppDirect7modeISCSIDriverTestCase_NV(
                               hostname='127.0.0.1',
                               port='80')
         driver.vfiler = None
+        driver.volume_list = None
         self.driver = driver
+
+    def test_create_on_select_vol(self):
+        self.driver.volume_list = ['vol0', 'vol1']
+        self.driver.create_volume(self.volume)
+        self.driver.delete_volume(self.volume)
+        self.driver.volume_list = []
+
+    def test_create_fail_on_select_vol(self):
+        self.driver.volume_list = ['vol2', 'vol3']
+        success = False
+        try:
+            self.driver.create_volume(self.volume)
+        except VolumeBackendAPIException:
+            success = True
+            pass
+        finally:
+            self.driver.volume_list = []
+        if not success:
+            raise AssertionError('Failed creating on selected volumes')
 
 
 class NetAppDirect7modeISCSIDriverTestCase_WV(
-        NetAppDirectCmodeISCSIDriverTestCase):
+        NetAppDirect7modeISCSIDriverTestCase_NV):
     """Test case for NetAppISCSIDriver
        With vfiler
     """
@@ -2292,7 +2331,8 @@ class NetAppDirect7modeISCSIDriverTestCase_WV(
         super(NetAppDirect7modeISCSIDriverTestCase_WV, self).setUp()
 
     def _custom_setup(self):
-        driver = iscsi.NetAppDirect7modeISCSIDriver()
+        driver = iscsi.NetAppDirect7modeISCSIDriver(
+            configuration=create_configuration())
         self.stubs.Set(httplib, 'HTTPConnection',
                        FakeDirect7modeHTTPConnection)
         driver._create_client(transport_type='http',
@@ -2301,4 +2341,5 @@ class NetAppDirect7modeISCSIDriverTestCase_WV(
                               port='80')
         driver.vfiler = 'vfiler'
         driver.client.set_api_version(1, 7)
+        driver.volume_list = None
         self.driver = driver

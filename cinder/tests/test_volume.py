@@ -293,6 +293,7 @@ class VolumeTestCase(test.TestCase):
                           self.context,
                           volume_id)
 
+    @test.skip_test
     def test_preattach_status_volume(self):
         """Ensure volume goes into pre-attaching state"""
         instance_uuid = '12345678-1234-5678-1234-567812345678'
@@ -964,6 +965,21 @@ class ISCSITestCase(DriverTestCase):
         self.assertEquals(result["target_portal"], "0.0.0.0:0000")
         self.assertEquals(result["target_iqn"], "iqn:iqn")
         self.assertEquals(result["target_lun"], 0)
+
+    def test_get_volume_stats(self):
+        def _emulate_vgs_execute(_command, *_args, **_kwargs):
+            out = "  test1-volumes  5,52  0,52"
+            out += " test2-volumes  5.52  0.52"
+            return out, None
+
+        self.volume.driver.set_execute(_emulate_vgs_execute)
+
+        self.volume.driver._update_volume_status()
+
+        stats = self.volume.driver._stats
+
+        self.assertEquals(stats['total_capacity_gb'], float('5.52'))
+        self.assertEquals(stats['free_capacity_gb'], float('0.52'))
 
 
 class FibreChannelTestCase(DriverTestCase):

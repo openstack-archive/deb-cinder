@@ -307,6 +307,10 @@ class ISCSITargetCreateFailed(CinderException):
     message = _("Failed to create iscsi target for volume %(volume_id)s.")
 
 
+class ISCSITargetAttachFailed(CinderException):
+    message = _("Failed to attach iSCSI target for volume %(volume_id)s.")
+
+
 class ISCSITargetRemoveFailed(CinderException):
     message = _("Failed to remove iscsi target for volume %(volume_id)s.")
 
@@ -446,19 +450,28 @@ class QuotaError(CinderException):
 
 
 class VolumeSizeExceedsAvailableQuota(QuotaError):
-    message = _("Requested volume exceeds allowed volume size quota")
+    message = _("Requested volume or snapshot exceeds "
+                "allowed Gigabytes quota")
 
 
 class VolumeSizeExceedsQuota(QuotaError):
-    message = _("Maximum volume size exceeded")
+    message = _("Maximum volume/snapshot size exceeded")
 
 
 class VolumeLimitExceeded(QuotaError):
     message = _("Maximum number of volumes allowed (%(allowed)d) exceeded")
 
 
+class SnapshotLimitExceeded(QuotaError):
+    message = _("Maximum number of snapshots allowed (%(allowed)d) exceeded")
+
+
 class DuplicateSfVolumeNames(Duplicate):
     message = _("Detected more than one volume with name %(vol_name)s")
+
+
+class Duplicate3PARHost(CinderException):
+    message = _("3PAR Host already exists: %(err)s.  %(info)s")
 
 
 class VolumeTypeCreateFailed(CinderException):
@@ -558,3 +571,7 @@ class BackupNotFound(NotFound):
 
 class InvalidBackup(Invalid):
     message = _("Invalid backup: %(reason)s")
+
+
+class SwiftConnectionFailed(CinderException):
+    message = _("Connection to swift failed") + ": %(reason)s"

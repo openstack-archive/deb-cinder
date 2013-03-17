@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -eu
+set -u
 
 function usage {
   echo "Usage: $0 [OPTION]..."
@@ -66,6 +66,10 @@ recreate_db=1
 patch_migrate=1
 update=0
 
+export NOSE_WITH_OPENSTACK=true
+export NOSE_OPENSTACK_COLOR=true
+export NOSE_OPENSTACK_SHOW_ELAPSED=true
+
 for arg in "$@"; do
   process_option $arg
 done
@@ -86,17 +90,8 @@ function run_tests {
   # Cleanup *pyc
   ${wrapper} find . -type f -name "*.pyc" -delete
   # Just run the test suites in current environment
-  ${wrapper} $NOSETESTS 2> run_tests.log
-  # If we get some short import error right away, print the error log directly
+  ${wrapper} $NOSETESTS
   RESULT=$?
-  if [ "$RESULT" -ne "0" ];
-  then
-    ERRSIZE=`wc -l run_tests.log | awk '{print \$1}'`
-    if [ "$ERRSIZE" -lt "40" ];
-    then
-        cat run_tests.log
-    fi
-  fi
   return $RESULT
 }
 
@@ -124,7 +119,7 @@ function run_pep8 {
 }
 
 
-NOSETESTS="python cinder/testing/runner.py $noseopts $noseargs"
+NOSETESTS="nosetests $noseopts $noseargs"
 
 if [ $never_venv -eq 0 ]
 then
@@ -171,6 +166,7 @@ if [ $recreate_db -eq 1 ]; then
 fi
 
 run_tests
+RET=$?
 
 # NOTE(sirp): we only want to run pep8 when we're running the full-test suite,
 # not when we're running tests individually. To handle this, we need to
@@ -187,3 +183,5 @@ if [ $coverage -eq 1 ]; then
     # Don't compute coverage for common code, which is tested elsewhere
     ${wrapper} coverage html --include='cinder/*' --omit='cinder/openstack/common/*' -d covhtml -i
 fi
+
+exit $RET
