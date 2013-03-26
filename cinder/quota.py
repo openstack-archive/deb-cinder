@@ -738,9 +738,9 @@ def _sync_volumes(context, project_id, session):
 
 def _sync_snapshots(context, project_id, session):
     return dict(zip(('snapshots', 'gigabytes'),
-                db.volume_data_get_for_project(context,
-                                               project_id,
-                                               session=session)))
+                db.snapshot_data_get_for_project(context,
+                                                 project_id,
+                                                 session=session)))
 
 
 QUOTAS = QuotaEngine()
@@ -749,7 +749,8 @@ QUOTAS = QuotaEngine()
 resources = [
     ReservableResource('volumes', _sync_volumes, 'quota_volumes'),
     ReservableResource('snapshots', _sync_snapshots, 'quota_snapshots'),
-    ReservableResource('gigabytes', _sync_volumes, 'quota_gigabytes'), ]
+    ReservableResource('gigabytes', _sync_volumes, 'quota_gigabytes'),
+    ReservableResource('gigabytes', _sync_snapshots, 'quota_gigabytes'), ]
 
 
 QUOTAS.register_resources(resources)
