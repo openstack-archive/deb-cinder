@@ -71,6 +71,15 @@ class QuotaIntegrationTestCase(test.TestCase):
         vol['status'] = 'available'
         return db.volume_create(self.context, vol)
 
+    def _create_snapshot(self, volume):
+        snapshot = {}
+        snapshot['user_id'] = self.user_id
+        snapshot['project_id'] = self.project_id
+        snapshot['volume_id'] = volume['id']
+        snapshot['volume_size'] = volume['size']
+        snapshot['status'] = 'available'
+        return db.snapshot_create(self.context, snapshot)
+
     def test_too_many_volumes(self):
         volume_ids = []
         for i in range(FLAGS.quota_volumes):
@@ -91,6 +100,47 @@ class QuotaIntegrationTestCase(test.TestCase):
                           self.context, 10, '', '', None)
         for volume_id in volume_ids:
             db.volume_destroy(self.context, volume_id)
+
+    def test_too_many_combined_gigabytes(self):
+        vol_ref = self._create_volume(size=10)
+        snap_ref = self._create_snapshot(vol_ref)
+        self.assertRaises(exception.QuotaError,
+                          volume.API().create_snapshot,
+                          self.context, vol_ref, '', '')
+        usages = db.quota_usage_get_all_by_project(self.context,
+                                                   self.project_id)
+        self.assertEqual(usages['gigabytes']['in_use'], 20)
+        db.snapshot_destroy(self.context, snap_ref['id'])
+        db.volume_destroy(self.context, vol_ref['id'])
+
+    def test_no_snapshot_gb_quota_flag(self):
+        self.flags(quota_volumes=2,
+                   quota_snapshots=2,
+                   quota_gigabytes=20,
+                   no_snapshot_gb_quota=True)
+        vol_ref = self._create_volume(size=10)
+        snap_ref = self._create_snapshot(vol_ref)
+        snap_ref2 = volume.API().create_snapshot(self.context,
+                                                 vol_ref, '', '')
+
+        # Make sure no reservation was created for snapshot gigabytes.
+        reservations = db.reservation_get_all_by_project(self.context,
+                                                         self.project_id)
+        self.assertEqual(reservations.get('gigabytes'), None)
+
+        # Make sure the snapshot volume_size isn't included in usage.
+        vol_type = db.volume_type_create(self.context,
+                                         dict(name=FLAGS.default_volume_type))
+        vol_ref2 = volume.API().create(self.context, 10, '', '')
+        usages = db.quota_usage_get_all_by_project(self.context,
+                                                   self.project_id)
+        self.assertEqual(usages['gigabytes']['in_use'], 20)
+
+        db.snapshot_destroy(self.context, snap_ref['id'])
+        db.snapshot_destroy(self.context, snap_ref2['id'])
+        db.volume_destroy(self.context, vol_ref['id'])
+        db.volume_destroy(self.context, vol_ref2['id'])
+        db.volume_type_destroy(self.context, vol_type['id'])
 
 
 class FakeContext(object):
@@ -143,18 +193,21 @@ class FakeDriver(object):
                             project_id, quota_class, defaults, usages))
         return resources
 
-    def limit_check(self, context, resources, values):
-        self.called.append(('limit_check', context, resources, values))
+    def limit_check(self, context, resources, values, project_id=None):
+        self.called.append(('limit_check', context, resources,
+                            values, project_id))
 
-    def reserve(self, context, resources, deltas, expire=None):
-        self.called.append(('reserve', context, resources, deltas, expire))
+    def reserve(self, context, resources, deltas, expire=None,
+                project_id=None):
+        self.called.append(('reserve', context, resources, deltas,
+                            expire, project_id))
         return self.reservations
 
-    def commit(self, context, reservations):
-        self.called.append(('commit', context, reservations))
+    def commit(self, context, reservations, project_id=None):
+        self.called.append(('commit', context, reservations, project_id))
 
-    def rollback(self, context, reservations):
-        self.called.append(('rollback', context, reservations))
+    def rollback(self, context, reservations, project_id=None):
+        self.called.append(('rollback', context, reservations, project_id))
 
     def destroy_all_by_project(self, context, project_id):
         self.called.append(('destroy_all_by_project', context, project_id))
@@ -468,7 +521,8 @@ class QuotaEngineTestCase(test.TestCase):
                  test_resource1=4,
                  test_resource2=3,
                  test_resource3=2,
-                 test_resource4=1,)), ])
+                 test_resource4=1,),
+             None), ])
 
     def test_reserve(self):
         context = FakeContext(None, None)
@@ -483,6 +537,9 @@ class QuotaEngineTestCase(test.TestCase):
         result2 = quota_obj.reserve(context, expire=3600,
                                     test_resource1=1, test_resource2=2,
                                     test_resource3=3, test_resource4=4)
+        result3 = quota_obj.reserve(context, project_id='fake_project',
+                                    test_resource1=1, test_resource2=2,
+                                    test_resource3=3, test_resource4=4)
 
         self.assertEqual(driver.called, [
             ('reserve',
@@ -493,6 +550,7 @@ class QuotaEngineTestCase(test.TestCase):
                  test_resource2=3,
                  test_resource3=2,
                  test_resource4=1, ),
+             None,
              None),
             ('reserve',
              context,
@@ -502,12 +560,27 @@ class QuotaEngineTestCase(test.TestCase):
                  test_resource2=2,
                  test_resource3=3,
                  test_resource4=4, ),
-             3600), ])
+             3600,
+             None),
+            ('reserve',
+             context,
+             quota_obj._resources,
+             dict(
+                 test_resource1=1,
+                 test_resource2=2,
+                 test_resource3=3,
+                 test_resource4=4, ),
+             None,
+             'fake_project'), ])
         self.assertEqual(result1, ['resv-01',
                                    'resv-02',
                                    'resv-03',
                                    'resv-04', ])
         self.assertEqual(result2, ['resv-01',
+                                   'resv-02',
+                                   'resv-03',
+                                   'resv-04', ])
+        self.assertEqual(result3, ['resv-01',
                                    'resv-02',
                                    'resv-03',
                                    'resv-04', ])
@@ -523,7 +596,8 @@ class QuotaEngineTestCase(test.TestCase):
                            context,
                            ['resv-01',
                             'resv-02',
-                            'resv-03']), ])
+                            'resv-03'],
+                           None), ])
 
     def test_rollback(self):
         context = FakeContext(None, None)
@@ -536,7 +610,8 @@ class QuotaEngineTestCase(test.TestCase):
                            context,
                            ['resv-01',
                             'resv-02',
-                            'resv-03']), ])
+                            'resv-03'],
+                           None), ])
 
     def test_destroy_all_by_project(self):
         context = FakeContext(None, None)
@@ -788,7 +863,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def _stub_quota_reserve(self):
         def fake_quota_reserve(context, resources, quotas, deltas, expire,
-                               until_refresh, max_age):
+                               until_refresh, max_age, project_id=None):
             self.calls.append(('quota_reserve', expire, until_refresh,
                                max_age))
             return ['resv-1', 'resv-2', 'resv-3']
@@ -946,7 +1021,7 @@ class QuotaReserveSqlAlchemyTestCase(test.TestCase):
         def fake_get_session():
             return FakeSession()
 
-        def fake_get_quota_usages(context, session):
+        def fake_get_quota_usages(context, session, project_id):
             return self.usages.copy()
 
         def fake_quota_usage_create(context, project_id, resource, in_use,
