@@ -1,3 +1,2 @@
 version=3
-opts="uversionmangle=s/%7E/~/" https://launchpad.net/cinder/+download https://launchpad.net/cinder/.*/.*/.*/cinder-(.*)\.tar\.gz
-http://tarballs.openstack.org/cinder/ cinder-(\d.*).tar.gz
+https://github.com/openstack/nova/tags .*/(\d[\d\.]+)\.tar\.gz

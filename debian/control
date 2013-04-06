@@ -30,6 +30,7 @@ Build-Depends-Indep: pep8 (>= 1.3.3),
  python-lockfile,
  python-lxml,
  python-migrate,
+ python-mock,
  python-mox,
  python-mysqldb,
  python-netaddr,
@@ -49,10 +50,10 @@ Build-Depends-Indep: pep8 (>= 1.3.3),
  python-suds,
  python-swiftclient,
  python-webob (>= 1.2.3),
-Standards-Version: 3.9.3
-Homepage: http://cinder.openstack.org/
+Standards-Version: 3.9.4
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/cinder.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/cinder.git
+Homepage: http://cinder.openstack.org/
 
 Package: python-cinder
 Section: python
@@ -63,14 +64,14 @@ Depends: ${python:Depends},
  python-anyjson,
  python-argparse,
  python-babel,
- python-cheetah, 
- python-daemon,  
+ python-cheetah,
+ python-daemon,
  python-eventlet (>= 0.9.17),
  python-glanceclient (>= 1:0.5.0),
  python-greenlet,
  python-iso8601,
  python-keystoneclient (>= 1:0.2.0),
- python-kombu,  
+ python-kombu,
  python-lockfile,
  python-lxml,
  python-migrate,
@@ -80,13 +81,11 @@ Depends: ${python:Depends},
  python-paramiko,
  python-paste,
  python-pastedeploy,
- python-migrate,
- python-netaddr,
- python-rtslib,
  python-routes,
- python-suds,
+ python-rtslib,
  python-sqlalchemy,
  python-stevedore (>= 0.7),
+ python-suds,
  python-swiftclient,
  python-webob (>= 1.2.3),
  ${misc:Depends}
@@ -102,7 +101,13 @@ Description: Openstack block storage as a service - Python libraries
 Package: cinder-common
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: python-cinder (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, adduser, debconf, dbconfig-common
+Depends:
+ adduser,
+ python-cinder (= ${binary:Version}),
+ debconf,
+ dbconfig-common,
+ ${misc:Depends},
+ ${python:Depends}
 Provides: ${python:Provides}
 Description: Openstack block storage as a service - common files
  Cinder is a block storage as service system for the Openstack cloud computing
@@ -130,8 +135,15 @@ Description: Openstack block storage as a service - API server
 Package: cinder-volume
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends},
- lvm2, tgt, adduser
+Depends:
+ adduser,
+ ${ostack-lsb-base},
+ cinder-common (= ${binary:Version}),
+ lvm2,
+ tgt,
+ ${misc:Depends},
+ ${python:Depends}
+Suggests: ceph-common
 Description: Openstack block storage as a service - Volume server
  Cinder is a block storage as service system for the Openstack cloud computing
  software suite. It is a direct replacement for nova-volume as a separate
@@ -153,3 +165,16 @@ Description: Openstack block storage as a service - Scheduler server
  running on Nova.
  .
  This package contains the Scheduler server.
+
+Package: cinder-backup
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
+Depends: adduser, ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${misc:Depends}, ${python:Depends}
+Description: Openstack block storage as a service - Backup server
+ Cinder is a block storage as service system for the Openstack cloud computing
+ software suite. It is a direct replacement for nova-volume as a separate
+ project. Cinder users LVM partitions of your volume servers in order to
+ provide iSCSI permanent block storage devices for your virtual machines
+ running on Nova.
+ .
+ This package contains the Cinder backup service.

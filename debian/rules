@@ -9,7 +9,7 @@ export OSLO_PACKAGE_VERSION=$(VERSION)
 
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 override_dh_auto_test:
-	./run_tests.sh -N -P || true
+	PYTHONPATH=$(CURDIR) bash run_tests.sh -N -P || true
 endif
 
 override_dh_clean:
@@ -18,7 +18,7 @@ override_dh_clean:
 	rm -rf setuptools_git-*-py*.egg/
 
 override_dh_install:
-	dh_install
+	dh_install --fail-missing -Xbin/cinder-all
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
 override_dh_fixperms:
