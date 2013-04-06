@@ -1,5 +1,6 @@
-cinder (2012.2.3-2) unstable; urgency=high
+cinder (2012.2.3-1) unstable; urgency=high
 
+  * New upstream release.
   * CVE-2013-1664 & CVE-2013-1665: Ignore XML entities (Closes: #700950).
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 19 Feb 2013 13:50:33 +0800
