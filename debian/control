@@ -89,14 +89,14 @@ Depends: ${python:Depends},
  python-swiftclient,
  python-webob (>= 1.2.3),
  ${misc:Depends}
-Description: Openstack block storage as a service - Python libraries
+Description: OpenStack block storage system - Python libraries
  Cinder is a block storage as service system for the Openstack cloud computing
- software suite. It is a direct replacement for nova-volume as a separate
- project. Cinder users LVM partitions of your volume servers in order to
+ suite. It is a direct replacement for nova-volume as a separate project.
+ Cinder use LVM partitions of your volume servers in order to
  provide iSCSI permanent block storage devices for your virtual machines
  running on Nova.
  .
- This package contains the Python libraries that are parts of cinder.
+ This package contains the Python libraries that are parts of Cinder.
 
 Package: cinder-common
 Architecture: all
@@ -109,10 +109,10 @@ Depends:
  ${misc:Depends},
  ${python:Depends}
 Provides: ${python:Provides}
-Description: Openstack block storage as a service - common files
+Description: OpenStack block storage system - common files
  Cinder is a block storage as service system for the Openstack cloud computing
- software suite. It is a direct replacement for nova-volume as a separate
- project. Cinder users LVM partitions of your volume servers in order to
+ suite. It is a direct replacement for nova-volume as a separate project.
+ Cinder use LVM partitions of your volume servers in order to
  provide iSCSI permanent block storage devices for your virtual machines
  running on Nova.
  .
@@ -123,10 +123,10 @@ Package: cinder-api
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser, ${ostack-lsb-base}, debconf, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, python-keystoneclient
-Description: Openstack block storage as a service - API server
+Description: OpenStack block storage system - API server
  Cinder is a block storage as service system for the Openstack cloud computing
- software suite. It is a direct replacement for nova-volume as a separate
- project. Cinder users LVM partitions of your volume servers in order to
+ suite. It is a direct replacement for nova-volume as a separate project.
+ Cinder use LVM partitions of your volume servers in order to
  provide iSCSI permanent block storage devices for your virtual machines
  running on Nova.
  .
@@ -144,10 +144,10 @@ Depends:
  ${misc:Depends},
  ${python:Depends}
 Suggests: ceph-common
-Description: Openstack block storage as a service - Volume server
+Description: OpenStack block storage system - Volume server
  Cinder is a block storage as service system for the Openstack cloud computing
- software suite. It is a direct replacement for nova-volume as a separate
- project. Cinder users LVM partitions of your volume servers in order to
+ suite. It is a direct replacement for nova-volume as a separate project.
+ Cinder use LVM partitions of your volume servers in order to
  provide iSCSI permanent block storage devices for your virtual machines
  running on Nova.
  .
@@ -157,10 +157,10 @@ Package: cinder-scheduler
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
-Description: Openstack block storage as a service - Scheduler server
+Description: OpenStack block storage system - Scheduler server
  Cinder is a block storage as service system for the Openstack cloud computing
- software suite. It is a direct replacement for nova-volume as a separate
- project. Cinder users LVM partitions of your volume servers in order to
+ suite. It is a direct replacement for nova-volume as a separate project.
+ Cinder use LVM partitions of your volume servers in order to
  provide iSCSI permanent block storage devices for your virtual machines
  running on Nova.
  .
@@ -170,10 +170,10 @@ Package: cinder-backup
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser, ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${misc:Depends}, ${python:Depends}
-Description: Openstack block storage as a service - Backup server
+Description: OpenStack block storage system - Backup server
  Cinder is a block storage as service system for the Openstack cloud computing
- software suite. It is a direct replacement for nova-volume as a separate
- project. Cinder users LVM partitions of your volume servers in order to
+ suite. It is a direct replacement for nova-volume as a separate project.
+ Cinder use LVM partitions of your volume servers in order to
  provide iSCSI permanent block storage devices for your virtual machines
  running on Nova.
  .
