@@ -14,7 +14,6 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_var_user_group cinder
 	pkgos_write_new_conf cinder cinder.conf
 	pkgos_write_new_conf cinder api-paste.ini
-	chown root:root /etc/cinder/rootwrap.d/volume.filters
 	pkgos_dbc_postinst ${CINDER_CONF} DEFAULT sql_connection cinder $@
 	pkgos_write_admin_creds ${CINDER_API} filter:authtoken cinder
 	db_get cinder/volume_group
