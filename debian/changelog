@@ -1,3 +1,10 @@
+cinder (2013.1-2) experimental; urgency=low
+
+  * Fixed /etc/sudoers.d/cinder-common
+  * Reviewed package descriptions by the debian-l10n-english team.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 11 Apr 2013 22:30:47 +0800
+
 cinder (2013.1-1) experimental; urgency=low
 
   * New upstream release.
