@@ -144,6 +144,7 @@ Depends:
  cinder-common (= ${binary:Version}),
  lvm2,
  tgt,
+ qemu-utils,
  ${misc:Depends},
  ${python:Depends}
 Suggests: ceph-common
