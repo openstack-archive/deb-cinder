@@ -260,6 +260,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                                             snapshot_id, image_id,
                                             request_spec, filter_properties,
                                             allow_reschedule)
+                return
 
             if model_update:
                 volume_ref = self.db.volume_update(
@@ -368,7 +369,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             LOG.debug(_("No request spec, will not reschedule"))
             return
 
-        request_spec['volume_id'] = [volume_id]
+        request_spec['volume_id'] = volume_id
 
         LOG.debug(_("volume %(volume_id)s: re-scheduling %(method)s "
                     "attempt %(num)d") %
@@ -504,7 +505,7 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         # Get reservations
         try:
-            if CONF.no_snapshot_gb_quota:
+            if FLAGS.no_snapshot_gb_quota:
                 reservations = QUOTAS.reserve(context,
                                               project_id=project_id,
                                               snapshots=-1)
