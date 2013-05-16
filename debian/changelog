@@ -1,5 +1,6 @@
-cinder (2013.1-2) experimental; urgency=low
+cinder (2013.1-2) unstable; urgency=low
 
+  * Uploading to unstable.
   * Fixed /etc/sudoers.d/cinder-common
   * Reviewed package descriptions by the debian-l10n-english team.
 
