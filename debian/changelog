@@ -1,3 +1,9 @@
+cinder (2013.1.1-2) unstable; urgency=low
+
+  * Added if [ -r /usr/share/dbconfig-common/dpkg/prerm ] in the prerm.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 23 May 2013 00:08:47 +0800
+
 cinder (2013.1.1-1) unstable; urgency=low
 
   * Uploading to unstable.

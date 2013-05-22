@@ -6,8 +6,10 @@ set -e
 
 db_get cinder/configure_db || true
 if [ "$RET" = "true" ]; then
-    . /usr/share/dbconfig-common/dpkg/prerm
-    dbc_go cinder-common $@
+	if [ -r /usr/share/dbconfig-common/dpkg/prerm ] ; then
+		. /usr/share/dbconfig-common/dpkg/prerm
+		dbc_go cinder-common $@
+	fi
 fi
 
 #DEBHELPER#
