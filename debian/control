@@ -8,48 +8,48 @@ Uploaders: Loic Dachary (OuoU) <loic@debian.org>,
            Ghe Rivero <ghe.rivero@stackops.com>,
            Mehdi Abaakouk <sileht@sileht.net>
 Build-Depends: debhelper (>= 8.0.0),
- po-debconf,
- python-all (>= 2.6.6-3~),
- openstack-pkg-tools
+               openstack-pkg-tools,
+               po-debconf,
+               python-all (>= 2.6.6-3~)
 Build-Depends-Indep: pep8 (>= 1.3.3),
- pylint,
- python-amqplib,
- python-anyjson,
- python-argparse,
- python-babel,
- python-cheetah,
- python-coverage,
- python-daemon,
- python-eventlet (>= 0.9.17),
- python-glanceclient (>= 1:0.5.0),
- python-greenlet,
- python-hp3parclient,
- python-iso8601,
- python-keystoneclient (>= 1:0.2.0),
- python-kombu,
- python-lockfile,
- python-lxml,
- python-migrate,
- python-mock,
- python-mox,
- python-mysqldb,
- python-netaddr,
- python-nose,
- python-oslo.config,
- python-paramiko,
- python-paste,
- python-pastedeploy,
- python-psycopg2,
- python-routes,
- python-rtslib,
- python-setuptools,
- python-setuptools-git,
- python-sphinx,
- python-sqlalchemy,
- python-stevedore (>= 0.7),
- python-suds,
- python-swiftclient,
- python-webob (>= 1.2.3),
+                     pylint,
+                     python-amqplib,
+                     python-anyjson,
+                     python-argparse,
+                     python-babel,
+                     python-cheetah,
+                     python-coverage,
+                     python-daemon,
+                     python-eventlet (>= 0.9.17),
+                     python-glanceclient (>= 1:0.5.0),
+                     python-greenlet,
+                     python-hp3parclient,
+                     python-iso8601,
+                     python-keystoneclient (>= 1:0.2.0),
+                     python-kombu,
+                     python-lockfile,
+                     python-lxml,
+                     python-migrate,
+                     python-mock,
+                     python-mox,
+                     python-mysqldb,
+                     python-netaddr,
+                     python-nose,
+                     python-oslo.config,
+                     python-paramiko,
+                     python-paste,
+                     python-pastedeploy,
+                     python-psycopg2,
+                     python-routes,
+                     python-rtslib,
+                     python-setuptools,
+                     python-setuptools-git,
+                     python-sphinx,
+                     python-sqlalchemy,
+                     python-stevedore (>= 0.7),
+                     python-suds,
+                     python-swiftclient,
+                     python-webob (>= 1.2.3)
 Standards-Version: 3.9.4
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/cinder.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/cinder.git
@@ -59,36 +59,36 @@ Package: python-cinder
 Section: python
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: ${python:Depends},
- python-amqplib,
- python-anyjson,
- python-argparse,
- python-babel,
- python-cheetah,
- python-daemon,
- python-eventlet (>= 0.9.17),
- python-glanceclient (>= 1:0.5.0),
- python-greenlet,
- python-iso8601,
- python-keystoneclient (>= 1:0.2.0),
- python-kombu,
- python-lockfile,
- python-lxml,
- python-migrate,
- python-mysqldb,
- python-netaddr,
- python-oslo.config,
- python-paramiko,
- python-paste,
- python-pastedeploy,
- python-routes,
- python-rtslib,
- python-sqlalchemy,
- python-stevedore (>= 0.7),
- python-suds,
- python-swiftclient,
- python-webob (>= 1.2.3),
- ${misc:Depends}
+Depends: python-amqplib,
+         python-anyjson,
+         python-argparse,
+         python-babel,
+         python-cheetah,
+         python-daemon,
+         python-eventlet (>= 0.9.17),
+         python-glanceclient (>= 1:0.5.0),
+         python-greenlet,
+         python-iso8601,
+         python-keystoneclient (>= 1:0.2.0),
+         python-kombu,
+         python-lockfile,
+         python-lxml,
+         python-migrate,
+         python-mysqldb,
+         python-netaddr,
+         python-oslo.config,
+         python-paramiko,
+         python-paste,
+         python-pastedeploy,
+         python-routes,
+         python-rtslib,
+         python-sqlalchemy,
+         python-stevedore (>= 0.7),
+         python-suds,
+         python-swiftclient,
+         python-webob (>= 1.2.3),
+         ${misc:Depends},
+         ${python:Depends}
 Description: OpenStack block storage system - Python libraries
  Cinder is a block storage as service system for the Openstack cloud computing
  suite. It re-implements the features of nova-volume, which it directly
@@ -102,13 +102,12 @@ Description: OpenStack block storage system - Python libraries
 Package: cinder-common
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends:
- adduser,
- python-cinder (= ${binary:Version}),
- debconf,
- dbconfig-common,
- ${misc:Depends},
- ${python:Depends}
+Depends: adduser,
+         dbconfig-common,
+         debconf,
+         python-cinder (= ${binary:Version}),
+         ${misc:Depends},
+         ${python:Depends}
 Provides: ${python:Provides}
 Description: OpenStack block storage system - common files
  Cinder is a block storage as service system for the Openstack cloud computing
@@ -124,7 +123,13 @@ Description: OpenStack block storage system - common files
 Package: cinder-api
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: adduser, ${ostack-lsb-base}, debconf, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}, python-keystoneclient
+Depends: adduser,
+         cinder-common (= ${binary:Version}),
+         debconf,
+         python-keystoneclient,
+         ${misc:Depends},
+         ${ostack-lsb-base},
+         ${python:Depends}
 Description: OpenStack block storage system - API server
  Cinder is a block storage as service system for the Openstack cloud computing
  suite. It re-implements the features of nova-volume, which it directly
@@ -138,15 +143,14 @@ Description: OpenStack block storage system - API server
 Package: cinder-volume
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends:
- adduser,
- ${ostack-lsb-base},
- cinder-common (= ${binary:Version}),
- lvm2,
- tgt,
- qemu-utils,
- ${misc:Depends},
- ${python:Depends}
+Depends: adduser,
+         cinder-common (= ${binary:Version}),
+         lvm2,
+         qemu-utils,
+         tgt,
+         ${misc:Depends},
+         ${ostack-lsb-base},
+         ${python:Depends}
 Suggests: ceph-common
 Description: OpenStack block storage system - Volume server
  Cinder is a block storage as service system for the Openstack cloud computing
@@ -161,7 +165,10 @@ Description: OpenStack block storage system - Volume server
 Package: cinder-scheduler
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Depends: cinder-common (= ${binary:Version}),
+         ${misc:Depends},
+         ${ostack-lsb-base},
+         ${python:Depends}
 Description: OpenStack block storage system - Scheduler server
  Cinder is a block storage as service system for the Openstack cloud computing
  suite. It re-implements the features of nova-volume, which it directly
@@ -175,7 +182,11 @@ Description: OpenStack block storage system - Scheduler server
 Package: cinder-backup
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
-Depends: adduser, ${ostack-lsb-base}, cinder-common (= ${binary:Version}), ${misc:Depends}, ${python:Depends}
+Depends: adduser,
+         cinder-common (= ${binary:Version}),
+         ${misc:Depends},
+         ${ostack-lsb-base},
+         ${python:Depends}
 Description: OpenStack block storage system - Backup server
  Cinder is a block storage as service system for the Openstack cloud computing
  suite. It re-implements the features of nova-volume, which it directly
