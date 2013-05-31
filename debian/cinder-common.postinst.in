@@ -12,6 +12,13 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/dbconfig-common/dpkg/postinst
 
 	pkgos_var_user_group cinder
+
+	# we need few folders with cinder:cinder rights.
+	mkdir -p /var/lib/cinder/cache
+	mkdir -p /var/lib/cinder/volumes
+	chown cinder:cinder /var/lib/cinder/cache
+	chown cinder:cinder /var/lib/cinder/volumes
+
 	pkgos_write_new_conf cinder cinder.conf
 	pkgos_write_new_conf cinder api-paste.ini
 	pkgos_dbc_postinst ${CINDER_CONF} DEFAULT sql_connection cinder $@

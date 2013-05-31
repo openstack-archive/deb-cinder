@@ -2,6 +2,8 @@ cinder (2013.1.1-2) unstable; urgency=low
 
   * Added if [ -r /usr/share/dbconfig-common/dpkg/prerm ] in the prerm.
   * Ran wrap-and-sort to clean stuff.
+  * Added creation and chown of /var/lib/cinder/{cache,volumes} after the
+    removal of the -R flag when doing the chown in openstack-pkg-tools.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 23 May 2013 00:08:47 +0800
 
