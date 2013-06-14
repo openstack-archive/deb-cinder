@@ -1,3 +1,9 @@
+cinder (2013.1.2-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 14 Jun 2013 22:55:23 +0800
+
 cinder (2013.1.1-2) unstable; urgency=low
 
   * Added if [ -r /usr/share/dbconfig-common/dpkg/prerm ] in the prerm.
