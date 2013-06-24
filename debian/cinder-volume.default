@@ -1,0 +1,5 @@
+# This controls the values to export for Ceph
+# If it's not defined, then nothing will happen.
+# If it is, then export CEPH_ARGS will use the content
+# of the below variable.
+CEPH_ARGS_EXPORT="--id nova"
