@@ -29,6 +29,13 @@ DEFAULTS_FILE=/etc/default/cinder-common
 # Exit if the package is not installed
 [ -x $DAEMON ] || exit 0
 
+if [ -r /etc/default/cinder-volume ] ; then
+	. /etc/default/cinder-volume
+fi
+if [ -n "${CEPH_ARGS_EXPORT}" ] ; then
+	export CEPH_ARGS=${CEPH_ARGS_EXPORT}
+fi
+
 mkdir -p ${LOCK_DIR}
 chown ${CINDER_USER} ${LOCK_DIR}
 

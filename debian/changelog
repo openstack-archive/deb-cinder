@@ -1,6 +1,8 @@
 cinder (2013.1.2-2) UNRELEASED; urgency=low
 
   * Starts Cinder after postgresql, mysql, keystone, rabbitmq-server and ntp.
+  * Added cinder-volume CEPH_ARGS export using what is configured in
+    /etc/default/cinder-volume.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 22 Jun 2013 16:27:46 +0800
 
