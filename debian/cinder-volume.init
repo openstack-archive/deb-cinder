@@ -32,9 +32,6 @@ DEFAULTS_FILE=/etc/default/cinder-common
 if [ -r /etc/default/cinder-volume ] ; then
 	. /etc/default/cinder-volume
 fi
-if [ -n "${CEPH_ARGS_EXPORT}" ] ; then
-	export CEPH_ARGS=${CEPH_ARGS_EXPORT}
-fi
 
 mkdir -p ${LOCK_DIR}
 chown ${CINDER_USER} ${LOCK_DIR}
@@ -58,9 +55,15 @@ do_start()
 {
 	start-stop-daemon --start --quiet --background --chuid ${CINDER_USER}:cinder --make-pidfile --pidfile $PIDFILE --startas $DAEMON --test > /dev/null \
 		|| return 1
-	start-stop-daemon --start --quiet --background --chuid ${CINDER_USER}:cinder --make-pidfile --pidfile $PIDFILE --startas $DAEMON -- \
-		$DAEMON_ARGS \
-		|| return 2
+	if [ -n "${CEPH_ARGS_EXPORT}" ] ; then
+		CEPH_ARGS="${CEPH_ARGS_EXPORT}" start-stop-daemon --start --quiet --background --chuid ${CINDER_USER}:cinder --make-pidfile --pidfile $PIDFILE --startas $DAEMON -- \
+			$DAEMON_ARGS \
+			|| return 2
+	else
+		start-stop-daemon --start --quiet --background --chuid ${CINDER_USER}:cinder --make-pidfile --pidfile $PIDFILE --startas $DAEMON -- \
+			$DAEMON_ARGS \
+			|| return 2
+	fi
 }
 
 do_stop()
