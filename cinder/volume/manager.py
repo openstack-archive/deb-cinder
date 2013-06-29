@@ -503,11 +503,6 @@ class VolumeManager(manager.SchedulerDependentManager):
         else:
             project_id = context.project_id
 
-        if context.project_id != snapshot_ref['project_id']:
-            project_id = snapshot_ref['project_id']
-        else:
-            project_id = context.project_id
-
         try:
             LOG.debug(_("snapshot %s: deleting"), snapshot_ref['name'])
             self.driver.delete_snapshot(snapshot_ref)

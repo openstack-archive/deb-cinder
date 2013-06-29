@@ -664,28 +664,3 @@ class NfsDriverTestCase(test.TestCase):
         self.assertEqual(drv._stats['free_capacity_gb'], 5.0)
 
         mox.VerifyAll()
-
-    def test_get_volume_stats(self):
-        """get_volume_stats must fill the correct values"""
-        mox = self._mox
-        drv = self._driver
-
-        drv._mounted_shares = [self.TEST_NFS_EXPORT1, self.TEST_NFS_EXPORT2]
-
-        mox.StubOutWithMock(drv, '_ensure_shares_mounted')
-        mox.StubOutWithMock(drv, '_get_available_capacity')
-
-        drv._ensure_shares_mounted()
-
-        drv._get_available_capacity(self.TEST_NFS_EXPORT1).\
-            AndReturn((2 * self.ONE_GB_IN_BYTES, 10 * self.ONE_GB_IN_BYTES))
-        drv._get_available_capacity(self.TEST_NFS_EXPORT2).\
-            AndReturn((3 * self.ONE_GB_IN_BYTES, 20 * self.ONE_GB_IN_BYTES))
-
-        mox.ReplayAll()
-
-        drv.get_volume_stats()
-        self.assertEqual(drv._stats['total_capacity_gb'], 30.0)
-        self.assertEqual(drv._stats['free_capacity_gb'], 5.0)
-
-        mox.VerifyAll()

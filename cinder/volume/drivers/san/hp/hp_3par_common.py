@@ -450,38 +450,6 @@ exit
 
         self.stats = stats
 
-    def _update_volume_stats(self, client):
-
-        # storage_protocol and volume_backend_name are
-        # set in the child classes
-        stats = {'driver_version': '1.0',
-                 'free_capacity_gb': 'unknown',
-                 'reserved_percentage': 0,
-                 'storage_protocol': None,
-                 'total_capacity_gb': 'unknown',
-                 'vendor_name': 'Hewlett-Packard',
-                 'volume_backend_name': None}
-
-        try:
-            cpg = client.getCPG(self.config.hp3par_cpg)
-            if 'limitMiB' not in cpg['SDGrowth']:
-                total_capacity = 'infinite'
-                free_capacity = 'infinite'
-            else:
-                total_capacity = int(cpg['SDGrowth']['limitMiB'] * const)
-                free_capacity = int((cpg['SDGrowth']['limitMiB'] -
-                                    cpg['UsrUsage']['usedMiB']) * const)
-
-            stats['total_capacity_gb'] = total_capacity
-            stats['free_capacity_gb'] = free_capacity
-        except hpexceptions.HTTPNotFound:
-            err = (_("CPG (%s) doesn't exist on array")
-                   % self.config.hp3par_cpg)
-            LOG.error(err)
-            raise exception.InvalidInput(reason=err)
-
-        self.stats = stats
-
     def create_vlun(self, volume, host, client):
         """
         In order to export a volume on a 3PAR box, we have to
