@@ -21,6 +21,7 @@ Tests for NetApp volume driver
 
 import BaseHTTPServer
 import httplib
+import logging as generic_logging
 import shutil
 import StringIO
 import tempfile
@@ -36,6 +37,14 @@ from cinder.volume.drivers.netapp.iscsi import netapp_opts
 
 
 LOG = logging.getLogger("cinder.volume.driver")
+
+#NOTE(rushiagr): A bug in Suds package
+#           (https://fedorahosted.org/suds/ticket/359) causes nasty errors
+#           with tests while using debug-level logging. Unfortunately,
+#           the maintainers of the package stopped tending to any patch
+#           requests almost two years back. So setting the logging level to
+#           INFO here seems the only plausible workaround.
+generic_logging.getLogger('suds.mx.core').setLevel(generic_logging.INFO)
 
 WSDL_HEADER = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <definitions xmlns="http://schemas.xmlsoap.org/wsdl/"
@@ -604,7 +613,14 @@ def create_configuration():
     return configuration
 
 
-class FakeDfmServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class FakeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    """HTTP handler that doesn't spam the log."""
+
+    def log_message(self, format, *args):
+        pass
+
+
+class FakeDfmServerHandler(FakeHTTPRequestHandler):
     """HTTP handler that fakes enough stuff to allow the driver to run."""
 
     def do_GET(s):
@@ -1226,7 +1242,7 @@ CMODE_APIS = ['ProvisionLun', 'DestroyLun', 'CloneLun', 'MapLun', 'UnmapLun',
               'ListLuns', 'GetLunTargetDetails']
 
 
-class FakeCMODEServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class FakeCMODEServerHandler(FakeHTTPRequestHandler):
     """HTTP handler that fakes enough stuff to allow the driver to run"""
 
     def do_GET(s):
@@ -1501,7 +1517,7 @@ RESPONSE_PREFIX_DIRECT = """
 RESPONSE_SUFFIX_DIRECT = """</netapp>"""
 
 
-class FakeDirectCMODEServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class FakeDirectCMODEServerHandler(FakeHTTPRequestHandler):
     """HTTP handler that fakes enough stuff to allow the driver to run"""
 
     def do_GET(s):
@@ -1653,13 +1669,13 @@ class FakeDirectCMODEServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             init_found = True
             query = FakeDirectCMODEServerHandler._get_child_by_name(request,
                                                                     'query')
-            if query:
+            if query is not None:
                 igroup_info = FakeDirectCMODEServerHandler._get_child_by_name(
                     query, 'initiator-group-info')
-                if igroup_info:
+                if igroup_info is not None:
                     inits = FakeDirectCMODEServerHandler._get_child_by_name(
                         igroup_info, 'initiators')
-                    if inits:
+                    if inits is not None:
                         init_info = \
                             FakeDirectCMODEServerHandler._get_child_by_name(
                                 inits, 'initiator-info')
@@ -1900,7 +1916,7 @@ class NetAppDirectCmodeISCSIDriverTestCase(NetAppCmodeISCSIDriverTestCase):
                           self.driver.create_volume, self.vol_fail)
 
 
-class FakeDirect7MODEServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class FakeDirect7MODEServerHandler(FakeHTTPRequestHandler):
     """HTTP handler that fakes enough stuff to allow the driver to run"""
 
     def do_GET(s):

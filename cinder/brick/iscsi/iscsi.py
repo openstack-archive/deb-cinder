@@ -28,6 +28,7 @@ from cinder import exception
 from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder import utils
+from cinder.volume import utils as volume_utils
 
 LOG = logging.getLogger(__name__)
 
@@ -47,6 +48,13 @@ iscsi_helper_opt = [cfg.StrOpt('iscsi_helper',
                                      'allowed to connect to the '
                                      'iSCSI target. (From Nova compute nodes.)'
                                      )
+                               ),
+                    cfg.StrOpt('iscsi_iotype',
+                               default='fileio',
+                               help=('Sets the behavior of the iSCSI target '
+                                     'to either perform blockio or fileio '
+                                     'optionally, auto can be set and Cinder '
+                                     'will autodetect type of backing device')
                                )
                     ]
 
@@ -220,8 +228,18 @@ class IetAdm(TargetAdmin):
     def __init__(self, execute=utils.execute):
         super(IetAdm, self).__init__('ietadm', execute)
 
+    def _iotype(self, path):
+        if FLAGS.iscsi_iotype == 'auto':
+            return 'blockio' if volume_utils.is_block(path) else 'fileio'
+        else:
+            return FLAGS.iscsi_iotype
+
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
+
+        # NOTE (jdg): Address bug: 1175207
+        kwargs.pop('old_name', None)
+
         self._new_target(name, tid, **kwargs)
         self._new_logicalunit(tid, lun, path, **kwargs)
         if chap_auth is not None:
@@ -234,8 +252,8 @@ class IetAdm(TargetAdmin):
                 volume_conf = """
                         Target %s
                             %s
-                            Lun 0 Path=%s,Type=fileio
-                """ % (name, chap_auth, path)
+                            Lun 0 Path=%s,Type=%s
+                """ % (name, chap_auth, path, self._iotype(path))
 
                 with utils.temporary_chown(conf_file):
                     f = open(conf_file, 'a+')
@@ -297,7 +315,7 @@ class IetAdm(TargetAdmin):
         self._run('--op', 'new',
                   '--tid=%s' % tid,
                   '--lun=%d' % lun,
-                  '--params', 'Path=%s,Type=fileio' % path,
+                  '--params', 'Path=%s,Type=%s' % (path, self._iotype(path)),
                   **kwargs)
 
     def _delete_logicalunit(self, tid, lun, **kwargs):
@@ -330,16 +348,16 @@ class FakeIscsiHelper(object):
 class LioAdm(TargetAdmin):
     """iSCSI target administration for LIO using python-rtslib."""
     def __init__(self, execute=utils.execute):
-        super(LioAdm, self).__init__('cinder-rtstool', execute)
+        super(LioAdm, self).__init__('rtstool', execute)
 
         try:
-            self._execute('cinder-rtstool', 'verify')
+            self._execute('rtstool', 'verify')
         except (OSError, exception.ProcessExecutionError):
-            LOG.error(_('cinder-rtstool is not installed correctly'))
+            LOG.error(_('rtstool is not installed correctly'))
             raise
 
     def _get_target(self, iqn):
-        (out, err) = self._execute('cinder-rtstool',
+        (out, err) = self._execute('rtstool',
                                    'get-targets',
                                    run_as_root=True)
         lines = out.split('\n')
@@ -357,7 +375,7 @@ class LioAdm(TargetAdmin):
 
         LOG.info(_('Creating iscsi_target for volume: %s') % vol_id)
 
-        # cinder-rtstool requires chap_auth, but unit tests don't provide it
+        # rtstool requires chap_auth, but unit tests don't provide it
         chap_auth_userid = 'test_id'
         chap_auth_password = 'test_pass'
 
@@ -369,7 +387,7 @@ class LioAdm(TargetAdmin):
             extra_args.append(FLAGS.lio_initiator_iqns)
 
         try:
-            command_args = ['cinder-rtstool',
+            command_args = ['rtstool',
                             'create',
                             path,
                             name,
@@ -400,7 +418,7 @@ class LioAdm(TargetAdmin):
         iqn = '%s%s' % (FLAGS.iscsi_target_prefix, vol_uuid_name)
 
         try:
-            self._execute('cinder-rtstool',
+            self._execute('rtstool',
                           'delete',
                           iqn,
                           run_as_root=True)
@@ -427,7 +445,7 @@ class LioAdm(TargetAdmin):
 
         # Add initiator iqns to target ACL
         try:
-            self._execute('cinder-rtstool', 'add-initiator',
+            self._execute('rtstool', 'add-initiator',
                           volume_iqn,
                           auth_user,
                           auth_pass,

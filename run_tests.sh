@@ -44,7 +44,7 @@ function process_option {
     -c|--coverage) coverage=1;;
     -X|--coverage-xml) coverage_xml=1;;
     -*) noseopts="$noseopts $1";;
-    *) noseargs="$noseargs $1"
+    *) noseargs="--tests ./cinder/tests/$noseargs$1.py"
   esac
 }
 
@@ -110,14 +110,8 @@ srcfiles+=" setup.py"
 
 function run_pep8 {
   echo "Running PEP8 and HACKING compliance check..."
-  # Just run PEP8 in current environment
-  #
-
-  # Until all these issues get fixed, ignore.
-  ignore='--ignore=N4,E125,E126,E711,E712'
-  ${wrapper} python tools/hacking.py ${ignore} ${srcfiles}
+  bash -c "${wrapper} flake8 cinder* bin"
 }
-
 
 NOSETESTS="nosetests $noseopts $noseargs"
 

@@ -19,8 +19,9 @@ import shutil
 import string
 import tempfile
 
+from cinder.brick.iscsi import iscsi
 from cinder import test
-from cinder.volume import iscsi
+from cinder.volume import utils as volume_utils
 
 
 class TargetAdminTestCase(object):
@@ -127,6 +128,55 @@ class IetAdmTestCase(test.TestCase, TargetAdminTestCase):
             'ietadm --op delete --tid=%(tid)s'])
 
 
+class IetAdmBlockIOTestCase(test.TestCase, TargetAdminTestCase):
+
+    def setUp(self):
+        super(IetAdmBlockIOTestCase, self).setUp()
+        TargetAdminTestCase.setUp(self)
+        self.flags(iscsi_helper='ietadm')
+        self.flags(iscsi_iotype='blockio')
+        self.script_template = "\n".join([
+            'ietadm --op new --tid=%(tid)s --params Name=%(target_name)s',
+            'ietadm --op new --tid=%(tid)s --lun=%(lun)s '
+            '--params Path=%(path)s,Type=blockio',
+            'ietadm --op show --tid=%(tid)s',
+            'ietadm --op delete --tid=%(tid)s --lun=%(lun)s',
+            'ietadm --op delete --tid=%(tid)s'])
+
+
+class IetAdmFileIOTestCase(test.TestCase, TargetAdminTestCase):
+
+    def setUp(self):
+        super(IetAdmFileIOTestCase, self).setUp()
+        TargetAdminTestCase.setUp(self)
+        self.flags(iscsi_helper='ietadm')
+        self.flags(iscsi_iotype='fileio')
+        self.script_template = "\n".join([
+            'ietadm --op new --tid=%(tid)s --params Name=%(target_name)s',
+            'ietadm --op new --tid=%(tid)s --lun=%(lun)s '
+            '--params Path=%(path)s,Type=fileio',
+            'ietadm --op show --tid=%(tid)s',
+            'ietadm --op delete --tid=%(tid)s --lun=%(lun)s',
+            'ietadm --op delete --tid=%(tid)s'])
+
+
+class IetAdmAutoIOTestCase(test.TestCase, TargetAdminTestCase):
+
+    def setUp(self):
+        super(IetAdmAutoIOTestCase, self).setUp()
+        TargetAdminTestCase.setUp(self)
+        self.stubs.Set(volume_utils, 'is_block', lambda _: True)
+        self.flags(iscsi_helper='ietadm')
+        self.flags(iscsi_iotype='auto')
+        self.script_template = "\n".join([
+            'ietadm --op new --tid=%(tid)s --params Name=%(target_name)s',
+            'ietadm --op new --tid=%(tid)s --lun=%(lun)s '
+            '--params Path=%(path)s,Type=blockio',
+            'ietadm --op show --tid=%(tid)s',
+            'ietadm --op delete --tid=%(tid)s --lun=%(lun)s',
+            'ietadm --op delete --tid=%(tid)s'])
+
+
 class LioAdmTestCase(test.TestCase, TargetAdminTestCase):
 
     def setUp(self):
@@ -135,6 +185,6 @@ class LioAdmTestCase(test.TestCase, TargetAdminTestCase):
         self.persist_tempdir = tempfile.mkdtemp()
         self.flags(iscsi_helper='lioadm')
         self.script_template = "\n".join([
-            'cinder-rtstool create '
+            'rtstool create '
                 '/foo iqn.2011-09.org.foo.bar:blaa test_id test_pass',
-            'cinder-rtstool delete iqn.2010-10.org.openstack:volume-blaa'])
+            'rtstool delete iqn.2010-10.org.openstack:volume-blaa'])

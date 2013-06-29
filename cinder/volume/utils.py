@@ -16,6 +16,9 @@
 
 """Volume-related Utilities and helpers."""
 
+import os
+import stat
+
 from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier_api
@@ -54,12 +57,14 @@ def notify_usage_exists(context, volume_ref, current_period=False):
                               'exists', extra_usage_info=extra_usage_info)
 
 
-def _usage_from_volume(context, volume_ref, **kw):
-    def null_safe_str(s):
-        return str(s) if s else ''
+def null_safe_str(s):
+    return str(s) if s else ''
 
+
+def _usage_from_volume(context, volume_ref, **kw):
     usage_info = dict(tenant_id=volume_ref['project_id'],
                       user_id=volume_ref['user_id'],
+                      availability_zone=volume_ref['availability_zone'],
                       volume_id=volume_ref['id'],
                       volume_type=volume_ref['volume_type_id'],
                       display_name=volume_ref['display_name'],
@@ -86,3 +91,41 @@ def notify_about_volume_usage(context, volume, event_suffix,
     notifier_api.notify(context, 'volume.%s' % host,
                         'volume.%s' % event_suffix,
                         notifier_api.INFO, usage_info)
+
+
+def _usage_from_snapshot(context, snapshot_ref, **extra_usage_info):
+    usage_info = {
+        'tenant_id': snapshot_ref['project_id'],
+        'user_id': snapshot_ref['user_id'],
+        'availability_zone': snapshot_ref.volume['availability_zone'],
+        'volume_id': snapshot_ref['volume_id'],
+        'volume_size': snapshot_ref['volume_size'],
+        'snapshot_id': snapshot_ref['id'],
+        'display_name': snapshot_ref['display_name'],
+        'created_at': str(snapshot_ref['created_at']),
+        'status': snapshot_ref['status'],
+        'deleted': null_safe_str(snapshot_ref['deleted'])
+    }
+
+    usage_info.update(extra_usage_info)
+    return usage_info
+
+
+def notify_about_snapshot_usage(context, snapshot, event_suffix,
+                                extra_usage_info=None, host=None):
+    if not host:
+        host = FLAGS.host
+
+    if not extra_usage_info:
+        extra_usage_info = {}
+
+    usage_info = _usage_from_snapshot(context, snapshot, **extra_usage_info)
+
+    notifier_api.notify(context, 'snapshot.%s' % host,
+                        'snapshot.%s' % event_suffix,
+                        notifier_api.INFO, usage_info)
+
+
+def is_block(path):
+    mode = os.stat(path).st_mode
+    return stat.S_ISBLK(mode)

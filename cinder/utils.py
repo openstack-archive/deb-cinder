@@ -56,6 +56,7 @@ from cinder import exception
 from cinder import flags
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
+from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 
@@ -64,6 +65,8 @@ LOG = logging.getLogger(__name__)
 ISO_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 PERFECT_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"
 FLAGS = flags.FLAGS
+
+synchronized = lockutils.synchronized_with_prefix('cinder-')
 
 
 def find_config(config_path):
@@ -352,12 +355,11 @@ class SSHPool(pools.Pool):
         return self.channel.get()
 
     def remove(self, ssh):
-        """Close an ssh client and remove it if in free_items."""
+        """Close an ssh client and remove it from free_items."""
         ssh.close()
+        ssh = None
         if ssh in self.free_items:
             self.free_items.pop(ssh)
-        ssh = None
-
         if self.current_size > 0:
             self.current_size -= 1
 
@@ -811,17 +813,6 @@ def check_isinstance(obj, cls):
     raise Exception(_('Expected object of type: %s') % (str(cls)))
     # TODO(justinsb): Can we make this better??
     return cls()  # Ugly PyLint hack
-
-
-def bool_from_str(val):
-    """Convert a string representation of a bool into a bool value"""
-
-    if not val:
-        return False
-    try:
-        return True if int(val) else False
-    except ValueError:
-        return val.lower() == 'true'
 
 
 def is_valid_boolstr(val):

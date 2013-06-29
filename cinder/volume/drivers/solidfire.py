@@ -43,7 +43,11 @@ sf_opts = [
 
     cfg.BoolOpt('sf_allow_tenant_qos',
                 default=False,
-                help='Allow tenants to specify QOS on create'), ]
+                help='Allow tenants to specify QOS on create'),
+
+    cfg.StrOpt('sf_account_prefix',
+               default=socket.gethostname(),
+               help='Create SolidFire accounts with this prefix'), ]
 
 
 class SolidFire(SanISCSIDriver):
@@ -190,7 +194,9 @@ class SolidFire(SanISCSIDriver):
 
     def _get_sf_account_name(self, project_id):
         """Build the SolidFire account name to use."""
-        return ('%s-%s' % (socket.gethostname(), project_id))
+        return '%s%s%s' % (self.configuration.sf_account_prefix,
+                           '-' if self.configuration.sf_account_prefix else '',
+                           project_id)
 
     def _get_sfaccount(self, project_id):
         sf_account_name = self._get_sf_account_name(project_id)
@@ -267,13 +273,14 @@ class SolidFire(SanISCSIDriver):
                     iqn = v['iqn']
                     found_volume = True
                     break
-            time.sleep(2)
+            if not found_volume:
+                time.sleep(2)
             iteration_count += 1
 
         if not found_volume:
             LOG.error(_('Failed to retrieve volume SolidFire-'
                         'ID: %s in get_by_account!') % sf_volume_id)
-            raise exception.VolumeNotFound(volume_id=uuid)
+            raise exception.VolumeNotFound(volume_id=sf_volume_id)
 
         model_update = {}
         # NOTE(john-griffith): SF volumes are always at lun 0
@@ -302,7 +309,7 @@ class SolidFire(SanISCSIDriver):
 
         sf_vol = self._get_sf_volume(src_uuid, params)
         if sf_vol is None:
-            raise exception.VolumeNotFound(volume_id=uuid)
+            raise exception.VolumeNotFound(volume_id=src_uuid)
 
         if src_project_id != v_ref['project_id']:
             sfaccount = self._create_sfaccount(v_ref['project_id'])
@@ -340,7 +347,6 @@ class SolidFire(SanISCSIDriver):
         params['attributes'] = attributes
         data = self._issue_api_request('ModifyVolume', params)
 
-        sf_volume_id = data['result']['volumeID']
         model_update = self._get_model_info(sfaccount, sf_volume_id)
         if model_update is None:
             mesg = _('Failed to get model update from clone')

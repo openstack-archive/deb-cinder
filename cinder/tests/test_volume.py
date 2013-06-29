@@ -27,6 +27,7 @@ import mox
 import shutil
 import tempfile
 
+from cinder.brick.iscsi import iscsi
 from cinder import context
 from cinder import db
 from cinder import exception
@@ -43,7 +44,6 @@ from cinder.tests import fake_flags
 from cinder.tests.image import fake as fake_image
 from cinder.volume import configuration as conf
 from cinder.volume import driver
-from cinder.volume import iscsi
 
 QUOTAS = quota.QUOTAS
 FLAGS = flags.FLAGS
@@ -77,7 +77,7 @@ class VolumeTestCase(test.TestCase):
 
     @staticmethod
     def _create_volume(size=0, snapshot_id=None, image_id=None,
-                       metadata=None):
+                       metadata=None, status="creating"):
         """Create a volume object."""
         vol = {}
         vol['size'] = size
@@ -86,12 +86,21 @@ class VolumeTestCase(test.TestCase):
         vol['user_id'] = 'fake'
         vol['project_id'] = 'fake'
         vol['availability_zone'] = FLAGS.storage_availability_zone
-        vol['status'] = "creating"
+        vol['status'] = status
         vol['attach_status'] = "detached"
         vol['host'] = FLAGS.host
         if metadata is not None:
             vol['metadata'] = metadata
         return db.volume_create(context.get_admin_context(), vol)
+
+    def test_init_host_clears_downloads(self):
+        """Test that init_host will unwedge a volume stuck in downloading."""
+        volume = self._create_volume(status='downloading')
+        volume_id = volume['id']
+        self.volume.init_host()
+        volume = db.volume_get(context.get_admin_context(), volume_id)
+        self.assertEquals(volume['status'], "error")
+        self.volume.delete_volume(self.context, volume_id)
 
     def test_create_delete_volume(self):
         """Test volume can be created and deleted."""
@@ -114,6 +123,38 @@ class VolumeTestCase(test.TestCase):
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
         self.volume.create_volume(self.context, volume_id)
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 2)
+        msg = test_notifier.NOTIFICATIONS[0]
+        self.assertEqual(msg['event_type'], 'volume.create.start')
+        expected = {
+            'status': 'creating',
+            'display_name': None,
+            'availability_zone': 'nova',
+            'tenant_id': 'fake',
+            'created_at': 'DONTCARE',
+            'volume_id': volume_id,
+            'volume_type': None,
+            'snapshot_id': None,
+            'user_id': 'fake',
+            'launched_at': '',
+            'size': 0,
+        }
+        self.assertDictMatch(msg['payload'], expected)
+        msg = test_notifier.NOTIFICATIONS[1]
+        self.assertEqual(msg['event_type'], 'volume.create.end')
+        expected = {
+            'status': 'creating',
+            'display_name': None,
+            'availability_zone': 'nova',
+            'tenant_id': 'fake',
+            'created_at': 'DONTCARE',
+            'volume_id': volume_id,
+            'volume_type': None,
+            'snapshot_id': None,
+            'user_id': 'fake',
+            'launched_at': '',
+            'size': 0,
+        }
+        self.assertDictMatch(msg['payload'], expected)
         self.assertEqual(volume_id, db.volume_get(context.get_admin_context(),
                          volume_id).id)
 
@@ -122,6 +163,38 @@ class VolumeTestCase(test.TestCase):
                             volume_id)
         self.assertEquals(vol['status'], 'deleted')
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 4)
+        msg = test_notifier.NOTIFICATIONS[2]
+        self.assertEqual(msg['event_type'], 'volume.delete.start')
+        expected = {
+            'status': 'available',
+            'display_name': None,
+            'availability_zone': 'nova',
+            'tenant_id': 'fake',
+            'created_at': 'DONTCARE',
+            'volume_id': volume_id,
+            'volume_type': None,
+            'snapshot_id': None,
+            'user_id': 'fake',
+            'launched_at': 'DONTCARE',
+            'size': 0,
+        }
+        self.assertDictMatch(msg['payload'], expected)
+        msg = test_notifier.NOTIFICATIONS[3]
+        self.assertEqual(msg['event_type'], 'volume.delete.end')
+        expected = {
+            'status': 'available',
+            'display_name': None,
+            'availability_zone': 'nova',
+            'tenant_id': 'fake',
+            'created_at': 'DONTCARE',
+            'volume_id': volume_id,
+            'volume_type': None,
+            'snapshot_id': None,
+            'user_id': 'fake',
+            'launched_at': 'DONTCARE',
+            'size': 0,
+        }
+        self.assertDictMatch(msg['payload'], expected)
         self.assertRaises(exception.NotFound,
                           db.volume_get,
                           self.context,
@@ -253,6 +326,33 @@ class VolumeTestCase(test.TestCase):
         self.volume.delete_snapshot(self.context, snapshot_id)
         self.volume.delete_volume(self.context, volume_src['id'])
 
+    def test_create_volume_from_snapshot_fail_bad_size(self):
+        """Test volume can't be created from snapshot with bad volume size."""
+        volume_api = cinder.volume.api.API()
+        snapshot = dict(id=1234,
+                        status='available',
+                        volume_size=10)
+        self.assertRaises(exception.InvalidInput,
+                          volume_api.create,
+                          self.context,
+                          size=1,
+                          name='fake_name',
+                          description='fake_desc',
+                          snapshot=snapshot)
+
+    def test_create_volume_with_invalid_exclusive_options(self):
+        """Test volume create with multiple exclusive options fails."""
+        volume_api = cinder.volume.api.API()
+        self.assertRaises(exception.InvalidInput,
+                          volume_api.create,
+                          self.context,
+                          1,
+                          'name',
+                          'description',
+                          snapshot='fake_id',
+                          image_id='fake_id',
+                          source_volume='fake_id')
+
     def test_too_big_volume(self):
         """Ensure failure if a too large of a volume is requested."""
         # FIXME(vish): validation needs to move into the data layer in
@@ -272,7 +372,8 @@ class VolumeTestCase(test.TestCase):
         volume = self._create_volume()
         volume_id = volume['id']
         self.volume.create_volume(self.context, volume_id)
-        db.volume_attached(self.context, volume_id, instance_uuid, mountpoint)
+        self.volume.attach_volume(self.context, volume_id, instance_uuid,
+                                  mountpoint)
         vol = db.volume_get(context.get_admin_context(), volume_id)
         self.assertEqual(vol['status'], "in-use")
         self.assertEqual(vol['attach_status'], "attached")
@@ -283,7 +384,7 @@ class VolumeTestCase(test.TestCase):
                           self.volume.delete_volume,
                           self.context,
                           volume_id)
-        db.volume_detached(self.context, volume_id)
+        self.volume.detach_volume(self.context, volume_id)
         vol = db.volume_get(self.context, volume_id)
         self.assertEqual(vol['status'], "available")
 
@@ -292,23 +393,6 @@ class VolumeTestCase(test.TestCase):
                           db.volume_get,
                           self.context,
                           volume_id)
-
-    @test.skip_test
-    def test_preattach_status_volume(self):
-        """Ensure volume goes into pre-attaching state"""
-        instance_uuid = '12345678-1234-5678-1234-567812345678'
-        mountpoint = "/dev/sdf"
-        volume = db.volume_create(self.context, {'size': 1,
-                                                 'status': 'available'})
-        volume_id = volume['id']
-
-        volume_api = cinder.volume.api.API()
-        volume_api.attach(self.context, volume, instance_uuid, mountpoint)
-
-        vol = db.volume_get(self.context, volume_id)
-        self.assertEqual(vol['status'], "available")
-        self.assertEqual(vol['attach_status'], None)
-        self.assertEqual(vol['instance_uuid'], None)
 
     def test_concurrent_volumes_get_different_targets(self):
         """Ensure multiple concurrent volumes get different targets."""
@@ -350,14 +434,79 @@ class VolumeTestCase(test.TestCase):
     def test_create_delete_snapshot(self):
         """Test snapshot can be created and deleted."""
         volume = self._create_volume()
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
         self.volume.create_volume(self.context, volume['id'])
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 2)
         snapshot_id = self._create_snapshot(volume['id'])['id']
         self.volume.create_snapshot(self.context, volume['id'], snapshot_id)
         self.assertEqual(snapshot_id,
                          db.snapshot_get(context.get_admin_context(),
                                          snapshot_id).id)
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 4)
+        msg = test_notifier.NOTIFICATIONS[2]
+        self.assertEquals(msg['event_type'], 'snapshot.create.start')
+        expected = {
+            'created_at': 'DONTCARE',
+            'deleted': '',
+            'display_name': None,
+            'snapshot_id': snapshot_id,
+            'status': 'creating',
+            'tenant_id': 'fake',
+            'user_id': 'fake',
+            'volume_id': volume['id'],
+            'volume_size': 0,
+            'availability_zone': 'nova'
+        }
+        self.assertDictMatch(msg['payload'], expected)
+        msg = test_notifier.NOTIFICATIONS[3]
+        self.assertEquals(msg['event_type'], 'snapshot.create.end')
+        expected = {
+            'created_at': 'DONTCARE',
+            'deleted': '',
+            'display_name': None,
+            'snapshot_id': snapshot_id,
+            'status': 'creating',
+            'tenant_id': 'fake',
+            'user_id': 'fake',
+            'volume_id': volume['id'],
+            'volume_size': 0,
+            'availability_zone': 'nova'
+        }
+        self.assertDictMatch(msg['payload'], expected)
 
         self.volume.delete_snapshot(self.context, snapshot_id)
+        self.assertEquals(len(test_notifier.NOTIFICATIONS), 6)
+        msg = test_notifier.NOTIFICATIONS[4]
+        self.assertEquals(msg['event_type'], 'snapshot.delete.start')
+        expected = {
+            'created_at': 'DONTCARE',
+            'deleted': '',
+            'display_name': None,
+            'snapshot_id': snapshot_id,
+            'status': 'available',
+            'tenant_id': 'fake',
+            'user_id': 'fake',
+            'volume_id': volume['id'],
+            'volume_size': 0,
+            'availability_zone': 'nova'
+        }
+        self.assertDictMatch(msg['payload'], expected)
+        msg = test_notifier.NOTIFICATIONS[5]
+        self.assertEquals(msg['event_type'], 'snapshot.delete.end')
+        expected = {
+            'created_at': 'DONTCARE',
+            'deleted': '',
+            'display_name': None,
+            'snapshot_id': snapshot_id,
+            'status': 'available',
+            'tenant_id': 'fake',
+            'user_id': 'fake',
+            'volume_id': volume['id'],
+            'volume_size': 0,
+            'availability_zone': 'nova'
+        }
+        self.assertDictMatch(msg['payload'], expected)
+
         snap = db.snapshot_get(context.get_admin_context(read_deleted='yes'),
                                snapshot_id)
         self.assertEquals(snap['status'], 'deleted')
@@ -446,7 +595,7 @@ class VolumeTestCase(test.TestCase):
         volume_api = cinder.volume.api.API()
 
         snapshot['status'] = 'badstatus'
-        self.assertRaises(exception.InvalidVolume,
+        self.assertRaises(exception.InvalidSnapshot,
                           volume_api.delete_snapshot,
                           self.context,
                           snapshot)
@@ -745,6 +894,27 @@ class VolumeTestCase(test.TestCase):
                           self.context, 2,
                           'name', 'description', image_id=1)
 
+    def test_create_volume_with_mindisk_error(self):
+        """Verify volumes smaller than image minDisk will cause an error."""
+        class _FakeImageService:
+            def __init__(self, db_driver=None, image_service=None):
+                pass
+
+            def show(self, context, image_id):
+                return {'size': 2 * 1024 * 1024 * 1024,
+                        'disk_format': 'raw',
+                        'container_format': 'bare',
+                        'min_disk': 5}
+
+        image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
+
+        volume_api = cinder.volume.api.API(image_service=_FakeImageService())
+
+        self.assertRaises(exception.InvalidInput,
+                          volume_api.create,
+                          self.context, 2,
+                          'name', 'description', image_id=1)
+
     def _do_test_create_volume_with_size(self, size):
         def fake_reserve(context, expire=None, project_id=None, **deltas):
             return ["RESERVATION"]
@@ -798,30 +968,6 @@ class VolumeTestCase(test.TestCase):
                           'name',
                           'description')
 
-    def test_create_volume_usage_notification(self):
-        """Ensure create volume generates appropriate usage notification"""
-        volume = self._create_volume()
-        volume_id = volume['id']
-        self.assertEquals(len(test_notifier.NOTIFICATIONS), 0)
-        self.volume.create_volume(self.context, volume_id)
-        self.assertEquals(len(test_notifier.NOTIFICATIONS), 2)
-        msg = test_notifier.NOTIFICATIONS[0]
-        self.assertEquals(msg['event_type'], 'volume.create.start')
-        msg = test_notifier.NOTIFICATIONS[1]
-        self.assertEquals(msg['priority'], 'INFO')
-        self.assertEquals(msg['event_type'], 'volume.create.end')
-        payload = msg['payload']
-        self.assertEquals(payload['tenant_id'], volume['project_id'])
-        self.assertEquals(payload['user_id'], volume['user_id'])
-        self.assertEquals(payload['volume_id'], volume['id'])
-        self.assertEquals(payload['status'], 'creating')
-        self.assertEquals(payload['size'], volume['size'])
-        self.assertTrue('display_name' in payload)
-        self.assertTrue('snapshot_id' in payload)
-        self.assertTrue('launched_at' in payload)
-        self.assertTrue('created_at' in payload)
-        self.volume.delete_volume(self.context, volume_id)
-
     def test_begin_roll_detaching_volume(self):
         """Test begin_detaching and roll_detaching functions."""
         volume = self._create_volume()
@@ -856,6 +1002,159 @@ class VolumeTestCase(test.TestCase):
         # read changes from db
         snap = db.snapshot_get(context.get_admin_context(), snapshot['id'])
         self.assertEquals(snap['display_name'], 'test update name')
+
+    def test_volume_get_active_by_window(self):
+        # Find all all volumes valid within a timeframe window.
+        try:  # Not in window
+            db.volume_create(
+                self.context,
+                {
+                    'id': 1,
+                    'host': 'devstack',
+                    'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                    'deleted': True, 'status': 'deleted',
+                    'deleted_at': datetime.datetime(1, 2, 1, 1, 1, 1),
+                }
+            )
+        except exception.VolumeNotFound:
+            pass
+
+        try:  # In - deleted in window
+            db.volume_create(
+                self.context,
+                {
+                    'id': 2,
+                    'host': 'devstack',
+                    'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                    'deleted': True, 'status': 'deleted',
+                    'deleted_at': datetime.datetime(1, 3, 10, 1, 1, 1),
+                }
+            )
+        except exception.VolumeNotFound:
+            pass
+
+        try:  # In - deleted after window
+            db.volume_create(
+                self.context,
+                {
+                    'id': 3,
+                    'host': 'devstack',
+                    'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                    'deleted': True, 'status': 'deleted',
+                    'deleted_at': datetime.datetime(1, 5, 1, 1, 1, 1),
+                }
+            )
+        except exception.VolumeNotFound:
+            pass
+
+        # In - created in window
+        db.volume_create(
+            self.context,
+            {
+                'id': 4,
+                'host': 'devstack',
+                'created_at': datetime.datetime(1, 3, 10, 1, 1, 1),
+            }
+        )
+
+        # Not of window.
+        db.volume_create(
+            self.context,
+            {
+                'id': 5,
+                'host': 'devstack',
+                'created_at': datetime.datetime(1, 5, 1, 1, 1, 1),
+            }
+        )
+
+        volumes = db.volume_get_active_by_window(
+            self.context,
+            datetime.datetime(1, 3, 1, 1, 1, 1),
+            datetime.datetime(1, 4, 1, 1, 1, 1))
+        self.assertEqual(len(volumes), 3)
+        self.assertEqual(volumes[0].id, u'2')
+        self.assertEqual(volumes[1].id, u'3')
+        self.assertEqual(volumes[2].id, u'4')
+
+    def test_snapshot_get_active_by_window(self):
+        # Find all all snapshots valid within a timeframe window.
+        vol = db.volume_create(self.context, {'id': 1})
+
+        try:  # Not in window
+            db.snapshot_create(
+                self.context,
+                {
+                    'id': 1,
+                    'host': 'devstack',
+                    'volume_id': 1,
+                    'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                    'deleted': True, 'status': 'deleted',
+                    'deleted_at': datetime.datetime(1, 2, 1, 1, 1, 1),
+                }
+            )
+        except exception.SnapshotNotFound:
+            pass
+
+        try:  # In - deleted in window
+            db.snapshot_create(
+                self.context,
+                {
+                    'id': 2,
+                    'host': 'devstack',
+                    'volume_id': 1,
+                    'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                    'deleted': True, 'status': 'deleted',
+                    'deleted_at': datetime.datetime(1, 3, 10, 1, 1, 1),
+                }
+            )
+        except exception.SnapshotNotFound:
+            pass
+
+        try:  # In - deleted after window
+            db.snapshot_create(
+                self.context,
+                {
+                    'id': 3,
+                    'host': 'devstack',
+                    'volume_id': 1,
+                    'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                    'deleted': True, 'status': 'deleted',
+                    'deleted_at': datetime.datetime(1, 5, 1, 1, 1, 1),
+                }
+            )
+        except exception.SnapshotNotFound:
+            pass
+
+        # In - created in window
+        db.snapshot_create(
+            self.context,
+            {
+                'id': 4,
+                'host': 'devstack',
+                'volume_id': 1,
+                'created_at': datetime.datetime(1, 3, 10, 1, 1, 1),
+            }
+        )
+
+        # Not of window.
+        db.snapshot_create(
+            self.context,
+            {
+                'id': 5,
+                'host': 'devstack',
+                'volume_id': 1,
+                'created_at': datetime.datetime(1, 5, 1, 1, 1, 1),
+            }
+        )
+
+        snapshots = db.snapshot_get_active_by_window(
+            self.context,
+            datetime.datetime(1, 3, 1, 1, 1, 1),
+            datetime.datetime(1, 4, 1, 1, 1, 1))
+        self.assertEqual(len(snapshots), 3)
+        self.assertEqual(snapshots[0].id, u'2')
+        self.assertEqual(snapshots[1].id, u'3')
+        self.assertEqual(snapshots[2].id, u'4')
 
 
 class DriverTestCase(test.TestCase):

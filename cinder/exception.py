@@ -192,10 +192,6 @@ class InvalidVolume(Invalid):
     message = _("Invalid volume") + ": %(reason)s"
 
 
-class InvalidPortRange(Invalid):
-    message = _("Invalid port range %(from_port)s:%(to_port)s. %(msg)s")
-
-
 class InvalidContentType(Invalid):
     message = _("Invalid content type %(content_type)s.")
 
@@ -472,6 +468,10 @@ class DuplicateSfVolumeNames(Duplicate):
 
 class Duplicate3PARHost(CinderException):
     message = _("3PAR Host already exists: %(err)s.  %(info)s")
+
+
+class Invalid3PARDomain(CinderException):
+    message = _("Invalid 3PAR Domain: %(err)s")
 
 
 class VolumeTypeCreateFailed(CinderException):

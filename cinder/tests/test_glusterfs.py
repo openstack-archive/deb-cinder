@@ -49,6 +49,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
     TEST_EXPORT1 = 'glusterfs-host1:/export'
     TEST_EXPORT2 = 'glusterfs-host2:/export'
+    TEST_EXPORT2_OPTIONS = '-o backupvolfile-server=glusterfs-backup1'
     TEST_SIZE_IN_GB = 1
     TEST_MNT_POINT = '/mnt/glusterfs'
     TEST_MNT_POINT_BASE = '/mnt/test'
@@ -58,6 +59,7 @@ class GlusterFsDriverTestCase(test.TestCase):
     ONE_GB_IN_BYTES = 1024 * 1024 * 1024
 
     def setUp(self):
+        super(GlusterFsDriverTestCase, self).setUp()
         self._mox = mox_lib.Mox()
         self._configuration = mox_lib.MockObject(conf.Configuration)
         self._configuration.append_config_values(mox_lib.IgnoreArg())
@@ -71,48 +73,17 @@ class GlusterFsDriverTestCase(test.TestCase):
         self.stubs = stubout.StubOutForTesting()
         self._driver = glusterfs.GlusterfsDriver(
                                     configuration=self._configuration)
+        self._driver.shares = {}
 
     def tearDown(self):
         self._mox.UnsetStubs()
         self.stubs.UnsetAll()
+        super(GlusterFsDriverTestCase, self).tearDown()
 
     def stub_out_not_replaying(self, obj, attr_name):
         attr_to_replace = getattr(obj, attr_name)
         stub = mox_lib.MockObject(attr_to_replace)
         self.stubs.Set(obj, attr_name, stub)
-
-    def test_path_exists_should_return_true(self):
-        """_path_exists should return True if stat returns 0."""
-        mox = self._mox
-        drv = self._driver
-
-        mox.StubOutWithMock(drv, '_execute')
-        drv._execute('stat', self.TEST_FILE_NAME, run_as_root=True)
-
-        mox.ReplayAll()
-
-        self.assertTrue(drv._path_exists(self.TEST_FILE_NAME))
-
-        mox.VerifyAll()
-
-    def test_path_exists_should_return_false(self):
-        """_path_exists should return True if stat doesn't return 0."""
-        mox = self._mox
-        drv = self._driver
-
-        mox.StubOutWithMock(drv, '_execute')
-        drv._execute(
-            'stat',
-            self.TEST_FILE_NAME, run_as_root=True).\
-            AndRaise(ProcessExecutionError(
-                stderr="stat: cannot stat `test.txt': No such file "
-                       "or directory"))
-
-        mox.ReplayAll()
-
-        self.assertFalse(drv._path_exists(self.TEST_FILE_NAME))
-
-        mox.VerifyAll()
 
     def test_local_path(self):
         """local_path common use case."""
@@ -132,10 +103,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_MNT_POINT).AndReturn(True)
-
         mox.StubOutWithMock(drv, '_execute')
+        drv._execute('mkdir', '-p', self.TEST_MNT_POINT)
         drv._execute('mount', '-t', 'glusterfs', self.TEST_EXPORT1,
                      self.TEST_MNT_POINT, run_as_root=True)
 
@@ -152,10 +121,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_MNT_POINT).AndReturn(True)
-
         mox.StubOutWithMock(drv, '_execute')
+        drv._execute('mkdir', '-p', self.TEST_MNT_POINT)
         drv._execute('mount', '-t', 'glusterfs', self.TEST_EXPORT1,
                      self.TEST_MNT_POINT, run_as_root=True).\
             AndRaise(ProcessExecutionError(
@@ -175,10 +142,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_MNT_POINT).AndReturn(True)
-
         mox.StubOutWithMock(drv, '_execute')
+        drv._execute('mkdir', '-p', self.TEST_MNT_POINT)
         drv._execute(
             'mount',
             '-t',
@@ -202,29 +167,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_MNT_POINT).AndReturn(False)
-
         mox.StubOutWithMock(drv, '_execute')
         drv._execute('mkdir', '-p', self.TEST_MNT_POINT)
-        drv._execute(*([IgnoreArg()] * 5), run_as_root=IgnoreArg())
-
-        mox.ReplayAll()
-
-        drv._mount_glusterfs(self.TEST_EXPORT1, self.TEST_MNT_POINT)
-
-        mox.VerifyAll()
-
-    def test_mount_glusterfs_should_not_create_mountpoint_if_already(self):
-        """_mount_glusterfs should not create mountpoint if it already exists.
-        """
-        mox = self._mox
-        drv = self._driver
-
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_MNT_POINT).AndReturn(True)
-
-        mox.StubOutWithMock(drv, '_execute')
         drv._execute(*([IgnoreArg()] * 5), run_as_root=IgnoreArg())
 
         mox.ReplayAll()
@@ -332,19 +276,27 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        glusterfs.FLAGS.glusterfs_shares_config = self.TEST_SHARES_CONFIG_FILE
+        drv.configuration.glusterfs_shares_config = (
+            self.TEST_SHARES_CONFIG_FILE)
 
-        mox.StubOutWithMock(__builtin__, 'open')
+        mox.StubOutWithMock(drv, '_read_config_file')
         config_data = []
         config_data.append(self.TEST_EXPORT1)
         config_data.append('#' + self.TEST_EXPORT2)
+        config_data.append(self.TEST_EXPORT2 + ' ' + self.TEST_EXPORT2_OPTIONS)
         config_data.append('')
-        __builtin__.open(self.TEST_SHARES_CONFIG_FILE).AndReturn(config_data)
+        drv._read_config_file(self.TEST_SHARES_CONFIG_FILE).\
+            AndReturn(config_data)
         mox.ReplayAll()
 
-        shares = drv._load_shares_config()
+        drv._load_shares_config(drv.configuration.glusterfs_shares_config)
 
-        self.assertEqual([self.TEST_EXPORT1], shares)
+        self.assertIn(self.TEST_EXPORT1, drv.shares)
+        self.assertIn(self.TEST_EXPORT2, drv.shares)
+        self.assertEqual(len(drv.shares), 2)
+
+        self.assertEqual(drv.shares[self.TEST_EXPORT2],
+                         self.TEST_EXPORT2_OPTIONS)
 
         mox.VerifyAll()
 
@@ -372,8 +324,12 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        mox.StubOutWithMock(drv, '_load_shares_config')
-        drv._load_shares_config().AndReturn([self.TEST_EXPORT1])
+        mox.StubOutWithMock(drv, '_read_config_file')
+        config_data = []
+        config_data.append(self.TEST_EXPORT1)
+        drv._read_config_file(self.TEST_SHARES_CONFIG_FILE).\
+            AndReturn(config_data)
+
         mox.StubOutWithMock(drv, '_ensure_share_mounted')
         drv._ensure_share_mounted(self.TEST_EXPORT1)
 
@@ -391,8 +347,12 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        mox.StubOutWithMock(drv, '_load_shares_config')
-        drv._load_shares_config().AndReturn([self.TEST_EXPORT1])
+        mox.StubOutWithMock(drv, '_read_config_file')
+        config_data = []
+        config_data.append(self.TEST_EXPORT1)
+        drv._read_config_file(self.TEST_SHARES_CONFIG_FILE).\
+            AndReturn(config_data)
+
         mox.StubOutWithMock(drv, '_ensure_share_mounted')
         drv._ensure_share_mounted(self.TEST_EXPORT1).AndRaise(Exception())
 
@@ -590,9 +550,6 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, 'local_path')
         drv.local_path(volume).AndReturn(self.TEST_LOCAL_PATH)
 
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_LOCAL_PATH).AndReturn(True)
-
         mox.StubOutWithMock(drv, '_execute')
         drv._execute('rm', '-f', self.TEST_LOCAL_PATH, run_as_root=True)
 
@@ -632,31 +589,6 @@ class GlusterFsDriverTestCase(test.TestCase):
         volume = DumbVolume()
         volume['name'] = 'volume-123'
         volume['provider_location'] = None
-
-        mox.StubOutWithMock(drv, '_execute')
-
-        mox.ReplayAll()
-
-        drv.delete_volume(volume)
-
-        mox.VerifyAll()
-
-    def test_delete_should_not_delete_if_there_is_no_file(self):
-        """delete_volume should not try to delete if file missed."""
-        mox = self._mox
-        drv = self._driver
-
-        self.stub_out_not_replaying(drv, '_ensure_share_mounted')
-
-        volume = DumbVolume()
-        volume['name'] = 'volume-123'
-        volume['provider_location'] = self.TEST_EXPORT1
-
-        mox.StubOutWithMock(drv, 'local_path')
-        drv.local_path(volume).AndReturn(self.TEST_LOCAL_PATH)
-
-        mox.StubOutWithMock(drv, '_path_exists')
-        drv._path_exists(self.TEST_LOCAL_PATH).AndReturn(False)
 
         mox.StubOutWithMock(drv, '_execute')
 

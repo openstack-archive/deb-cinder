@@ -98,6 +98,12 @@ class LimiterTest(test.TestCase):
         self.assertEqual(common.limited(self.medium, req), self.medium)
         self.assertEqual(common.limited(self.large, req), self.large[:1000])
 
+    def test_limiter_limit_bad(self):
+        """ Test with a bad limit. """
+        req = webob.Request.blank(u'/?limit=hello')
+        self.assertRaises(
+            webob.exc.HTTPBadRequest, common.limited, self.tiny, req)
+
     def test_limiter_limit_medium(self):
         """ Test limit of 10. """
         req = webob.Request.blank('/?limit=10')
@@ -160,6 +166,12 @@ class PaginationParamsTest(test.TestCase):
     method which takes in a request object and returns 'marker' and 'limit'
     GET params.
     """
+
+    def test_nonnumerical_limit(self):
+        """ Test nonnumerical limit param. """
+        req = webob.Request.blank('/?limit=hello')
+        self.assertRaises(
+            webob.exc.HTTPBadRequest, common.get_pagination_params, req)
 
     def test_no_params(self):
         """ Test no params. """

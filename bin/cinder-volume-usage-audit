@@ -34,7 +34,6 @@
         Jan 1 through Dec 31 of the previous year.
 """
 
-import gettext
 import os
 import sys
 import traceback
@@ -47,7 +46,9 @@ POSSIBLE_TOPDIR = os.path.normpath(os.path.join(os.path.abspath(sys.argv[0]),
 if os.path.exists(os.path.join(POSSIBLE_TOPDIR, 'cinder', '__init__.py')):
     sys.path.insert(0, POSSIBLE_TOPDIR)
 
-gettext.install('cinder', unicode=1)
+from cinder.openstack.common import gettextutils
+gettextutils.install('cinder')
+
 from cinder import context
 from cinder import db
 from cinder import flags
@@ -67,6 +68,12 @@ if __name__ == '__main__':
     print _("Starting volume usage audit")
     msg = _("Creating usages for %(begin_period)s until %(end_period)s")
     print (msg % {"begin_period": str(begin), "end_period": str(end)})
+
+    extra_info = {
+        'audit_period_beginning': str(begin),
+        'audit_period_ending': str(end),
+    }
+
     volumes = db.volume_get_active_by_window(admin_context,
                                              begin,
                                              end)
@@ -77,4 +84,18 @@ if __name__ == '__main__':
                     admin_context, volume_ref)
         except Exception, e:
             print traceback.format_exc(e)
+
+    snapshots = db.snapshot_get_active_by_window(admin_context,
+                                                 begin,
+                                                 end)
+    print _("Found %d snapshots") % len(snapshots)
+    for snapshot_ref in snapshots:
+        try:
+            cinder.volume.utils.notify_about_snapshot_usage(admin_context,
+                                                            snapshot_ref,
+                                                            'exists',
+                                                            extra_info)
+        except Exception, e:
+            print traceback.fromat_exc(e)
+
     print _("Volume usage audit completed")

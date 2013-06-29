@@ -61,7 +61,7 @@ volume_opts = [
 
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
-CONF.import_opt('iscsi_helper', 'cinder.volume.iscsi')
+CONF.import_opt('iscsi_helper', 'cinder.brick.iscsi.iscsi')
 
 
 class VolumeDriver(object):
@@ -190,6 +190,10 @@ class VolumeDriver(object):
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
         raise NotImplementedError()
+
+    def clear_download(self, context, volume):
+        """Clean up after an interrupted image copy."""
+        pass
 
 
 class ISCSIDriver(VolumeDriver):

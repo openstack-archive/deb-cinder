@@ -22,21 +22,20 @@ import os
 from oslo.config import cfg
 
 from cinder import exception
+from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder import units
 from cinder.volume import driver
 
 LOG = logging.getLogger(__name__)
 
 volume_opts = [
     cfg.StrOpt('nfs_shares_config',
-               default=None,
+               default='/etc/cinder/nfs_shares',
                help='File with the list of available nfs shares'),
     cfg.StrOpt('nfs_mount_point_base',
                default='$state_path/mnt',
-               help='Base dir where nfs expected to be mounted'),
-    cfg.StrOpt('nfs_disk_util',
-               default='df',
-               help='Use du or df for free space calculation'),
+               help='Base dir containing mount points for nfs shares'),
     cfg.BoolOpt('nfs_sparsed_volumes',
                 default=True,
                 help=('Create volumes as sparsed files which take no space.'
@@ -46,7 +45,19 @@ volume_opts = [
                default=None,
                help='Mount options passed to the nfs client. See section '
                     'of the nfs man page for details'),
+    cfg.FloatOpt('nfs_used_ratio',
+                 default=0.95,
+                 help=('Percent of ACTUAL usage of the underlying volume '
+                       'before no new volumes can be allocated to the volume '
+                       'destination.')),
+    cfg.FloatOpt('nfs_oversub_ratio',
+                 default=1.0,
+                 help=('This will compare the allocated to available space on '
+                       'the volume destination.  If the ratio exceeds this '
+                       'number, the destination will no longer be valid.'))
 ]
+
+VERSION = '1.1'
 
 
 class RemoteFsDriver(driver.VolumeDriver):
@@ -78,12 +89,9 @@ class RemoteFsDriver(driver.VolumeDriver):
     def _create_regular_file(self, path, size):
         """Creates regular file of given size. Takes a lot of time for large
         files."""
-        KB = 1024
-        MB = KB * 1024
-        GB = MB * 1024
 
         block_size_mb = 1
-        block_count = size * GB / (block_size_mb * MB)
+        block_count = size * units.GiB / (block_size_mb * units.MiB)
 
         self._execute('dd', 'if=/dev/zero', 'of=%s' % path,
                       'bs=%dM' % block_size_mb,
@@ -102,21 +110,57 @@ class RemoteFsDriver(driver.VolumeDriver):
         return os.path.join(self._get_mount_point_for_share(nfs_share),
                             volume['name'])
 
-    def _path_exists(self, path):
-        """Check for existence of given path."""
-        try:
-            self._execute('stat', path, run_as_root=True)
-            return True
-        except exception.ProcessExecutionError as exc:
-            if 'No such file or directory' in exc.stderr:
-                return False
-            else:
-                raise
-
     def _get_hash_str(self, base_str):
         """returns string that represents hash of base_str
         (in a hex format)."""
         return hashlib.md5(base_str).hexdigest()
+
+    def copy_image_to_volume(self, context, volume, image_service, image_id):
+        """Fetch the image from image_service and write it to the volume."""
+        image_utils.fetch_to_raw(context,
+                                 image_service,
+                                 image_id,
+                                 self.local_path(volume))
+
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
+        """Copy the volume to the specified image."""
+        image_utils.upload_volume(context,
+                                  image_service,
+                                  image_meta,
+                                  self.local_path(volume))
+
+    def _read_config_file(self, config_file):
+        # Returns list of lines in file
+        with open(config_file) as f:
+            return f.readlines()
+
+    def _load_shares_config(self, share_file):
+        self.shares = {}
+
+        for share in self._read_config_file(share_file):
+            # A configuration line may be either:
+            #  host:/vol_name
+            # or
+            #  host:/vol_name -o options=123,rw --other
+            if not share.strip():
+                # Skip blank or whitespace-only lines
+                continue
+            if share.startswith('#'):
+                continue
+
+            share_info = share.split(' ', 1)
+            # results in share_info =
+            #  [ 'address:/vol', '-o options=123,rw --other' ]
+
+            share_address = share_info[0].strip()
+            share_opts = share_info[1].strip() if len(share_info) > 1 else None
+
+            self.shares[share_address] = share_opts
+
+        LOG.debug("shares loaded: %s", self.shares)
+
+    def _get_mount_point_for_share(self, path):
+        raise NotImplementedError()
 
 
 class NfsDriver(RemoteFsDriver):
@@ -140,6 +184,21 @@ class NfsDriver(RemoteFsDriver):
             msg = _("NFS config file at %(config)s doesn't exist") % locals()
             LOG.warn(msg)
             raise exception.NfsException(msg)
+        if not self.configuration.nfs_oversub_ratio > 0:
+            msg = _("NFS config 'nfs_oversub_ratio' invalid.  Must be > 0: "
+                    "%s") % self.configuration.nfs_oversub_ratio
+
+            LOG.error(msg)
+            raise exception.NfsException(msg)
+
+        if ((not self.configuration.nfs_used_ratio > 0) and
+                 (self.configuration.nfs_used_ratio <= 1)):
+            msg = _("NFS config 'nfs_used_ratio' invalid.  Must be > 0 "
+                    "and <= 1.0: %s") % self.configuration.nfs_used_ratio
+            LOG.error(msg)
+            raise exception.NfsException(msg)
+
+        self.shares = {}  # address : options
 
         try:
             self._execute('mount.nfs', check_exit_code=False)
@@ -177,13 +236,6 @@ class NfsDriver(RemoteFsDriver):
 
         mounted_path = self.local_path(volume)
 
-        if not self._path_exists(mounted_path):
-            volume = volume['name']
-
-            LOG.warn(_('Trying to delete non-existing volume %(volume)s at '
-                     'path %(mounted_path)s') % locals())
-            return
-
         self._execute('rm', '-f', mounted_path, run_as_root=True)
 
     def ensure_export(self, ctx, volume):
@@ -203,17 +255,19 @@ class NfsDriver(RemoteFsDriver):
         """Allow connection to connector and return connection info."""
         data = {'export': volume['provider_location'],
                 'name': volume['name']}
+        if volume['provider_location'] in self.shares:
+            data['options'] = self.shares[volume['provider_location']]
         return {
             'driver_volume_type': 'nfs',
             'data': data
         }
 
     def terminate_connection(self, volume, connector, **kwargs):
-        """Disallow connection from connector"""
+        """Disallow connection from connector."""
         pass
 
     def _do_create_volume(self, volume):
-        """Create a volume on given nfs_share
+        """Create a volume on given nfs_share.
         :param volume: volume reference
         """
         volume_path = self.local_path(volume)
@@ -227,10 +281,12 @@ class NfsDriver(RemoteFsDriver):
         self._set_rw_permissions_for_all(volume_path)
 
     def _ensure_shares_mounted(self):
-        """Look for NFS shares in the flags and tries to mount them locally"""
+        """Look for NFS shares in the flags and tries to mount them locally."""
         self._mounted_shares = []
 
-        for share in self._load_shares_config():
+        self._load_shares_config(self.configuration.nfs_shares_config)
+
+        for share in self.shares.keys():
             try:
                 self._ensure_share_mounted(share)
                 self._mounted_shares.append(share)
@@ -239,40 +295,81 @@ class NfsDriver(RemoteFsDriver):
 
         LOG.debug('Available shares %s' % str(self._mounted_shares))
 
-    def _load_shares_config(self):
-        return [share.strip() for share in
-                open(self.configuration.nfs_shares_config)
-                if share and not share.startswith('#')]
-
     def _ensure_share_mounted(self, nfs_share):
-        """Mount NFS share
-        :param nfs_share:
-        """
         mount_path = self._get_mount_point_for_share(nfs_share)
         self._mount_nfs(nfs_share, mount_path, ensure=True)
 
-    def _find_share(self, volume_size_for):
-        """Choose NFS share among available ones for given volume size. Current
-        implementation looks for greatest capacity
-        :param volume_size_for: int size in Gb
+    def _find_share(self, volume_size_in_gib):
+        """Choose NFS share among available ones for given volume size.
+
+        First validation step: ratio of actual space (used_space / total_space)
+        is less than 'nfs_used_ratio'.
+
+        Second validation step: apparent space allocated (differs from actual
+        space used when using sparse files) and compares the apparent available
+        space (total_available * nfs_oversub_ratio) to ensure enough space is
+        available for the new volume.
+
+        For instances with more than one share that meets the criteria, the
+        share with the least "allocated" space will be selected.
+
+        :param volume_size_in_gib: int size in GB
         """
 
         if not self._mounted_shares:
             raise exception.NfsNoSharesMounted()
 
-        greatest_size = 0
-        greatest_share = None
+        target_share = None
+        target_share_reserved = 0
+
+        used_ratio = self.configuration.nfs_used_ratio
+        oversub_ratio = self.configuration.nfs_oversub_ratio
+
+        requested_volume_size = volume_size_in_gib * units.GiB
 
         for nfs_share in self._mounted_shares:
-            capacity = self._get_available_capacity(nfs_share)[0]
-            if capacity > greatest_size:
-                greatest_share = nfs_share
-                greatest_size = capacity
+            total_size, total_available, total_allocated = \
+                self._get_capacity_info(nfs_share)
+            used = (total_size - total_available) / total_size
+            if used > used_ratio:
+                # NOTE(morganfainberg): We check the used_ratio first since
+                # with oversubscription it is possible to not have the actual
+                # available space but be within our oversubscription limit
+                # therefore allowing this share to still be selected as a valid
+                # target.
+                LOG.debug(_('%s is above nfs_used_ratio'), nfs_share)
+                continue
+            if oversub_ratio >= 1.0:
+                # NOTE(morganfainberg): If we are setup for oversubscription
+                # we need to calculate the apparent available space instead
+                # of just using the _actual_ available space.
+                if (total_available * oversub_ratio) < requested_volume_size:
+                    LOG.debug(_('%s is above nfs_oversub_ratio'), nfs_share)
+                    continue
+            elif total_available <= requested_volume_size:
+                LOG.debug(_('%s is above nfs_oversub_ratio'), nfs_share)
+                continue
 
-        if volume_size_for * 1024 * 1024 * 1024 > greatest_size:
+            if total_allocated / total_size >= oversub_ratio:
+                LOG.debug(_('%s reserved space is above nfs_oversub_ratio'),
+                          nfs_share)
+                continue
+
+            if target_share is not None:
+                if target_share_reserved > total_allocated:
+                    target_share = nfs_share
+                    target_share_reserved = total_allocated
+            else:
+                target_share = nfs_share
+                target_share_reserved = total_allocated
+
+        if target_share is None:
             raise exception.NfsNoSuitableShareFound(
-                volume_size=volume_size_for)
-        return greatest_share
+                volume_size=volume_size_in_gib)
+
+        LOG.debug(_('Selected %s as target nfs share.'), target_share)
+
+        return target_share
 
     def _get_mount_point_for_share(self, nfs_share):
         """
@@ -281,39 +378,33 @@ class NfsDriver(RemoteFsDriver):
         return os.path.join(self.configuration.nfs_mount_point_base,
                             self._get_hash_str(nfs_share))
 
-    def _get_available_capacity(self, nfs_share):
-        """Calculate available space on the NFS share
+    def _get_capacity_info(self, nfs_share):
+        """Calculate available space on the NFS share.
         :param nfs_share: example 172.18.194.100:/var/nfs
         """
         mount_point = self._get_mount_point_for_share(nfs_share)
 
-        out, _ = self._execute('df', '-P', '-B', '1', mount_point,
-                               run_as_root=True)
-        out = out.splitlines()[1]
+        df, _ = self._execute('df', '-P', '-B', '1', mount_point,
+                              run_as_root=True)
+        df = df.splitlines()[1]
+        total_available = float(df.split()[3])
+        total_size = float(df.split()[1])
 
-        available = 0
-
-        size = int(out.split()[1])
-        if self.configuration.nfs_disk_util == 'df':
-            available = int(out.split()[3])
-        else:
-            out, _ = self._execute('du', '-sb', '--apparent-size',
-                                   '--exclude', '*snapshot*', mount_point,
-                                   run_as_root=True)
-            used = int(out.split()[0])
-            available = size - used
-
-        return available, size
+        du, _ = self._execute('du', '-sb', '--apparent-size', '--exclude',
+                              '*snapshot*', mount_point, run_as_root=True)
+        total_allocated = float(du.split()[0])
+        return total_size, total_available, total_allocated
 
     def _mount_nfs(self, nfs_share, mount_path, ensure=False):
-        """Mount NFS share to mount path"""
-        if not self._path_exists(mount_path):
-            self._execute('mkdir', '-p', mount_path)
+        """Mount NFS share to mount path."""
+        self._execute('mkdir', '-p', mount_path)
 
         # Construct the NFS mount command.
         nfs_cmd = ['mount', '-t', 'nfs']
-        if cfg.CONF.nfs_mount_options is not None:
-            nfs_cmd.extend(['-o', cfg.CONF.nfs_mount_options])
+        if self.configuration.nfs_mount_options is not None:
+            nfs_cmd.extend(['-o', self.configuration.nfs_mount_options])
+        if self.shares.get(nfs_share) is not None:
+            nfs_cmd.extend(self.shares[nfs_share].split())
         nfs_cmd.extend([nfs_share, mount_path])
 
         try:
@@ -336,12 +427,11 @@ class NfsDriver(RemoteFsDriver):
     def _update_volume_status(self):
         """Retrieve status info from volume group."""
 
-        LOG.debug(_("Updating volume status"))
         data = {}
         backend_name = self.configuration.safe_get('volume_backend_name')
         data["volume_backend_name"] = backend_name or 'Generic_NFS'
         data["vendor_name"] = 'Open Source'
-        data["driver_version"] = '1.0'
+        data["driver_version"] = VERSION
         data["storage_protocol"] = 'nfs'
 
         self._ensure_shares_mounted()
@@ -349,12 +439,12 @@ class NfsDriver(RemoteFsDriver):
         global_capacity = 0
         global_free = 0
         for nfs_share in self._mounted_shares:
-            free, capacity = self._get_available_capacity(nfs_share)
+            capacity, free, allocated = self._get_capacity_info(nfs_share)
             global_capacity += capacity
             global_free += free
 
-        data['total_capacity_gb'] = global_capacity / 1024.0 ** 3
-        data['free_capacity_gb'] = global_free / 1024.0 ** 3
+        data['total_capacity_gb'] = global_capacity / float(units.GiB)
+        data['free_capacity_gb'] = global_free / float(units.GiB)
         data['reserved_percentage'] = 0
         data['QoS_support'] = False
         self._stats = data

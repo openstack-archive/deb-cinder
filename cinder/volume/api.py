@@ -87,11 +87,15 @@ class API(base.Base):
 
     def create(self, context, size, name, description, snapshot=None,
                image_id=None, volume_type=None, metadata=None,
-               availability_zone=None, source_volume=None):
+               availability_zone=None, source_volume=None,
+               scheduler_hints=None):
 
-        if ((snapshot is not None) and (source_volume is not None)):
-            msg = (_("May specify either snapshot, "
-                     "or src volume but not both!"))
+        exclusive_options = (snapshot, image_id, source_volume)
+        exclusive_options_set = sum(1 for option in
+                                    exclusive_options if option is not None)
+        if exclusive_options_set > 1:
+            msg = (_("May specify only one of snapshot, imageRef "
+                     "or source volume"))
             raise exception.InvalidInput(reason=msg)
 
         check_policy(context, 'create')
@@ -101,7 +105,10 @@ class API(base.Base):
                 raise exception.InvalidSnapshot(reason=msg)
             if not size:
                 size = snapshot['volume_size']
-
+            elif size < snapshot['volume_size']:
+                msg = _("Volume size cannot be lesser than"
+                        " the Snapshot size")
+                raise exception.InvalidInput(reason=msg)
             snapshot_id = snapshot['id']
         else:
             snapshot_id = None
@@ -143,6 +150,10 @@ class API(base.Base):
             if image_size_in_gb > size:
                 msg = _('Size of specified image is larger than volume size.')
                 raise exception.InvalidInput(reason=msg)
+            # Check image minDisk requirement is met for the particular volume
+            if size < image_meta.get('min_disk', 0):
+                msg = _('Image minDisk size is larger than the volume size.')
+                raise exception.InvalidInput(reason=msg)
 
         try:
             reservations = QUOTAS.reserve(context, volumes=1, gigabytes=size)
@@ -165,7 +176,7 @@ class API(base.Base):
                 raise exception.VolumeSizeExceedsAvailableQuota()
             elif 'volumes' in overs:
                 msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "volume (%(d_consumed)d volumes"
+                        "volume (%(d_consumed)d volumes "
                         "already consumed)")
                 LOG.warn(msg % {'s_pid': context.project_id,
                                 'd_consumed': _consumed('volumes')})
@@ -213,7 +224,10 @@ class API(base.Base):
                         'image_id': image_id,
                         'source_volid': volume['source_volid']}
 
-        filter_properties = {}
+        if scheduler_hints:
+            filter_properties = {'scheduler_hints': scheduler_hints}
+        else:
+            filter_properties = {}
 
         self._cast_create_volume(context, request_spec, filter_properties)
 
@@ -583,7 +597,7 @@ class API(base.Base):
     def delete_snapshot(self, context, snapshot, force=False):
         if not force and snapshot['status'] not in ["available", "error"]:
             msg = _("Volume Snapshot status must be available or error")
-            raise exception.InvalidVolume(reason=msg)
+            raise exception.InvalidSnapshot(reason=msg)
         self.db.snapshot_update(context, snapshot['id'],
                                 {'status': 'deleting'})
         volume = self.db.volume_get(context, snapshot['volume_id'])

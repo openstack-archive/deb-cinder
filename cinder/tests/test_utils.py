@@ -29,6 +29,7 @@ import mox
 import cinder
 from cinder import exception
 from cinder import flags
+from cinder.openstack.common import strutils
 from cinder.openstack.common import timeutils
 from cinder import test
 from cinder import utils
@@ -299,19 +300,6 @@ class GenericUtilsTestCase(test.TestCase):
         hostname = "<}\x1fh\x10e\x08l\x02l\x05o\x12!{>"
         self.assertEqual("hello", utils.sanitize_hostname(hostname))
 
-    def test_bool_from_str(self):
-        self.assertTrue(utils.bool_from_str('1'))
-        self.assertTrue(utils.bool_from_str('2'))
-        self.assertTrue(utils.bool_from_str('-1'))
-        self.assertTrue(utils.bool_from_str('true'))
-        self.assertTrue(utils.bool_from_str('True'))
-        self.assertTrue(utils.bool_from_str('tRuE'))
-        self.assertFalse(utils.bool_from_str('False'))
-        self.assertFalse(utils.bool_from_str('false'))
-        self.assertFalse(utils.bool_from_str('0'))
-        self.assertFalse(utils.bool_from_str(None))
-        self.assertFalse(utils.bool_from_str('junk'))
-
     def test_generate_glance_url(self):
         generated_url = utils.generate_glance_url()
         actual_url = "http://%s:%d" % (FLAGS.glance_host, FLAGS.glance_port)
@@ -428,13 +416,8 @@ class GenericUtilsTestCase(test.TestCase):
 
     def test_safe_parse_xml(self):
 
-        normal_body = ("""
-                 <?xml version="1.0" ?><foo>
-                    <bar>
-                        <v1>hey</v1>
-                        <v2>there</v2>
-                    </bar>
-                </foo>""").strip()
+        normal_body = ('<?xml version="1.0" ?>'
+                       '<foo><bar><v1>hey</v1><v2>there</v2></bar></foo>')
 
         def killer_body():
             return (("""<!DOCTYPE x [
@@ -453,7 +436,9 @@ class GenericUtilsTestCase(test.TestCase):
             }).strip()
 
         dom = utils.safe_minidom_parse_string(normal_body)
-        self.assertEqual(normal_body, str(dom.toxml()))
+        # Some versions of minidom inject extra newlines so we ignore them
+        result = str(dom.toxml()).replace('\n', '')
+        self.assertEqual(normal_body, result)
 
         self.assertRaises(ValueError,
                           utils.safe_minidom_parse_string,
