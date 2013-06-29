@@ -5,3 +5,4 @@ etc/cinder/policy.json			/etc/cinder
 etc/cinder/rootwrap.conf		/etc/cinder
 usr/bin/cinder-manage
 usr/bin/cinder-rootwrap
+usr/bin/cinder-rpc-zmq-receiver
