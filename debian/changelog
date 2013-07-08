@@ -1,8 +1,9 @@
-cinder (2013.1.2-2) UNRELEASED; urgency=low
+cinder (2013.1.2-2) unstable; urgency=low
 
   * Starts Cinder after postgresql, mysql, keystone, rabbitmq-server and ntp.
   * Added cinder-volume CEPH_ARGS export using what is configured in
     /etc/default/cinder-volume.
+  * Rebuilds to use python-sqlalchemy >= 0.8.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 22 Jun 2013 16:27:46 +0800
 
