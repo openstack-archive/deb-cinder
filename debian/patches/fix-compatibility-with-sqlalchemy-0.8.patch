@@ -59,7 +59,7 @@ Last-Update: 2013-07-10
 -                                 unicode_error=None,
 -                                 _warn_on_bytestring=False)),
 +        Column('user_id', String(length=255)),
-+        Column('project_id', String(length=255),
++        Column('project_id', String(length=255)),
 +        Column('host', String(length=255)),
 +        Column('availability_zone', String(length=255)),
 +        Column('display_name', String(length=255)),
@@ -68,7 +68,7 @@ Last-Update: 2013-07-10
 +        Column('status', String(length=255)),
 +        Column('fail_reason', String(length=255)),
 +        Column('service_metadata', String(length=255)),
-+        Column('service', String(length=255),
++        Column('service', String(length=255)),
          Column('size', Integer()),
          Column('object_count', Integer()),
          mysql_engine='InnoDB'
