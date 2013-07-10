@@ -1,3 +1,9 @@
+cinder (2013.1.2-3) unstable; urgency=low
+
+  * Adds a patch to make it work with sqlalchemy >= 0.8.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 10 Jul 2013 15:28:16 +0800
+
 cinder (2013.1.2-2) unstable; urgency=low
 
   * Starts Cinder after postgresql, mysql, keystone, rabbitmq-server and ntp.

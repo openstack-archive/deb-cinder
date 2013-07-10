@@ -1,1 +1,2 @@
 install-missing-files.patch
+fix-compatibility-with-sqlalchemy-0.8.patch
