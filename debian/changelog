@@ -1,6 +1,7 @@
 cinder (2013.1.2-3) unstable; urgency=low
 
   * Adds a patch to make it work with sqlalchemy >= 0.8.
+  * Added build-depends: python-pywbem.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 10 Jul 2013 15:28:16 +0800
 
