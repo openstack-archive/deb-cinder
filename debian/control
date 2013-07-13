@@ -106,6 +106,7 @@ Depends: adduser,
          dbconfig-common,
          debconf,
          python-cinder (= ${binary:Version}),
+         sqlite3,
          ${misc:Depends},
          ${python:Depends}
 Provides: ${python:Provides}
