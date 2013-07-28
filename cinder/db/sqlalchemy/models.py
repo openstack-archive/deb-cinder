@@ -21,83 +21,39 @@
 SQLAlchemy models for cinder data.
 """
 
+
 from sqlalchemy import Column, Integer, String, Text, schema
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import ForeignKey, DateTime, Boolean
-from sqlalchemy.orm import relationship, backref, object_mapper
+from sqlalchemy.orm import relationship, backref
 
-from cinder.db.sqlalchemy.session import get_session
+from oslo.config import cfg
 
-from cinder import exception
-from cinder import flags
+from cinder.openstack.common.db.sqlalchemy import models
 from cinder.openstack.common import timeutils
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 BASE = declarative_base()
 
 
-class CinderBase(object):
+class CinderBase(models.TimestampMixin,
+                 models.ModelBase):
     """Base class for Cinder Models."""
+
     __table_args__ = {'mysql_engine': 'InnoDB'}
-    __table_initialized__ = False
-    created_at = Column(DateTime, default=timeutils.utcnow)
-    updated_at = Column(DateTime, onupdate=timeutils.utcnow)
+
+    # TODO(rpodolyaka): reuse models.SoftDeleteMixin in the next stage
+    #                   of implementing of BP db-cleanup
     deleted_at = Column(DateTime)
     deleted = Column(Boolean, default=False)
     metadata = None
-
-    def save(self, session=None):
-        """Save this object."""
-        if not session:
-            session = get_session()
-        session.add(self)
-        try:
-            session.flush()
-        except IntegrityError, e:
-            if str(e).endswith('is not unique'):
-                raise exception.Duplicate(str(e))
-            else:
-                raise
 
     def delete(self, session=None):
         """Delete this object."""
         self.deleted = True
         self.deleted_at = timeutils.utcnow()
         self.save(session=session)
-
-    def __setitem__(self, key, value):
-        setattr(self, key, value)
-
-    def __getitem__(self, key):
-        return getattr(self, key)
-
-    def get(self, key, default=None):
-        return getattr(self, key, default)
-
-    def __iter__(self):
-        self._i = iter(object_mapper(self).columns)
-        return self
-
-    def next(self):
-        n = self._i.next().name
-        return n, getattr(self, n)
-
-    def update(self, values):
-        """Make the model object behave like a dict."""
-        for k, v in values.iteritems():
-            setattr(self, k, v)
-
-    def iteritems(self):
-        """Make the model object behave like a dict.
-
-        Includes attributes from joins."""
-        local = dict(self)
-        joined = dict([(k, v) for k, v in self.__dict__.iteritems()
-                      if not k[0] == '_'])
-        local.update(joined)
-        return local.iteritems()
 
 
 class Service(BASE, CinderBase):
@@ -128,7 +84,7 @@ class Volume(BASE, CinderBase):
 
     @property
     def name(self):
-        return FLAGS.volume_name_template % self.id
+        return CONF.volume_name_template % self.id
 
     ec2_id = Column(Integer)
     user_id = Column(String(255))
@@ -140,6 +96,7 @@ class Volume(BASE, CinderBase):
     size = Column(Integer)
     availability_zone = Column(String(255))  # TODO(vish): foreign key?
     instance_uuid = Column(String(36))
+    attached_host = Column(String(255))
     mountpoint = Column(String(255))
     attach_time = Column(String(255))  # TODO(vish): datetime
     status = Column(String(255))  # TODO(vish): enum?
@@ -154,9 +111,12 @@ class Volume(BASE, CinderBase):
 
     provider_location = Column(String(255))
     provider_auth = Column(String(255))
+    provider_geometry = Column(String(255))
 
     volume_type_id = Column(String(36))
     source_volid = Column(String(36))
+    deleted = Column(Boolean, default=False)
+    bootable = Column(Boolean, default=False)
 
 
 class VolumeMetadata(BASE, CinderBase):
@@ -291,6 +251,12 @@ class Reservation(BASE, CinderBase):
     delta = Column(Integer)
     expire = Column(DateTime, nullable=False)
 
+    usage = relationship(
+        "QuotaUsage",
+        foreign_keys=usage_id,
+        primaryjoin='and_(Reservation.usage_id == QuotaUsage.id,'
+                    'QuotaUsage.deleted == 0)')
+
 
 class Snapshot(BASE, CinderBase):
     """Represents a block storage device that can be attached to a VM."""
@@ -299,11 +265,11 @@ class Snapshot(BASE, CinderBase):
 
     @property
     def name(self):
-        return FLAGS.snapshot_name_template % self.id
+        return CONF.snapshot_name_template % self.id
 
     @property
     def volume_name(self):
-        return FLAGS.volume_name_template % self.volume_id
+        return CONF.volume_name_template % self.volume_id
 
     user_id = Column(String(255))
     project_id = Column(String(255))
@@ -408,7 +374,7 @@ class Backup(BASE, CinderBase):
 
     @property
     def name(self):
-        return FLAGS.backup_name_template % self.id
+        return CONF.backup_name_template % self.id
 
     user_id = Column(String(255), nullable=False)
     project_id = Column(String(255), nullable=False)
@@ -425,6 +391,22 @@ class Backup(BASE, CinderBase):
     service = Column(String(255))
     size = Column(Integer)
     object_count = Column(Integer)
+
+
+class Transfer(BASE, CinderBase):
+    """Represents a volume transfer request."""
+    __tablename__ = 'transfers'
+    id = Column(String(36), primary_key=True)
+    volume_id = Column(String(36), ForeignKey('volumes.id'))
+    display_name = Column(String(255))
+    salt = Column(String(255))
+    crypt_hash = Column(String(255))
+    expires_at = Column(DateTime)
+    volume = relationship(Volume, backref="transfer",
+                          foreign_keys=volume_id,
+                          primaryjoin='and_('
+                          'Transfer.volume_id == Volume.id,'
+                          'Transfer.deleted == False)')
 
 
 def register_models():
@@ -444,10 +426,11 @@ def register_models():
               Volume,
               VolumeMetadata,
               SnapshotMetadata,
+              Transfer,
               VolumeTypeExtraSpecs,
               VolumeTypes,
               VolumeGlanceMetadata,
               )
-    engine = create_engine(FLAGS.sql_connection, echo=False)
+    engine = create_engine(CONF.database.connection, echo=False)
     for model in models:
         model.metadata.create_all(engine)

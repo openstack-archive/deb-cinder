@@ -19,19 +19,14 @@
 Tests For Scheduler
 """
 
-
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import timeutils
 from cinder.scheduler import driver
 from cinder.scheduler import manager
 from cinder import test
 from cinder import utils
-
-
-FLAGS = flags.FLAGS
 
 
 class SchedulerManagerTestCase(test.TestCase):
@@ -169,7 +164,8 @@ class SchedulerTestCase(test.TestCase):
 
 class SchedulerDriverBaseTestCase(SchedulerTestCase):
     """Test cases for base scheduler driver class methods
-       that can't will fail if the driver is changed"""
+       that can't will fail if the driver is changed.
+    """
 
     def test_unimplemented_schedule(self):
         fake_args = (1, 2, 3)

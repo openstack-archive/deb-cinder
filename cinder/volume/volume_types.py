@@ -21,13 +21,17 @@
 
 """Built-in volume type properties."""
 
+
+from oslo.config import cfg
+
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder import flags
+from cinder.openstack.common.db import exception as db_exc
 from cinder.openstack.common import log as logging
 
-FLAGS = flags.FLAGS
+
+CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
@@ -37,7 +41,7 @@ def create(context, name, extra_specs={}):
         type_ref = db.volume_type_create(context,
                                          dict(name=name,
                                               extra_specs=extra_specs))
-    except exception.DBError, e:
+    except db_exc.DBError as e:
         LOG.exception(_('DB error: %s') % e)
         raise exception.VolumeTypeCreateFailed(name=name,
                                                extra_specs=extra_specs)
@@ -67,7 +71,7 @@ def get_all_types(context, inactive=0, search_opts={}):
         def _check_extra_specs_match(vol_type, searchdict):
             for k, v in searchdict.iteritems():
                 if (k not in vol_type['extra_specs'].keys()
-                    or vol_type['extra_specs'][k] != v):
+                        or vol_type['extra_specs'][k] != v):
                     return False
             return True
 
@@ -114,14 +118,14 @@ def get_volume_type_by_name(context, name):
 
 def get_default_volume_type():
     """Get the default volume type."""
-    name = FLAGS.default_volume_type
+    name = CONF.default_volume_type
     vol_type = {}
 
     if name is not None:
         ctxt = context.get_admin_context()
         try:
             vol_type = get_volume_type_by_name(ctxt, name)
-        except exception.VolumeTypeNotFoundByName, e:
+        except exception.VolumeTypeNotFoundByName as e:
             # Couldn't find volume type with the name in default_volume_type
             # flag, record this issue and move on
             #TODO(zhiteng) consider add notification to warn admin
@@ -139,7 +143,7 @@ def is_key_value_present(volume_type_id, key, value, volume_type=None):
         volume_type = get_volume_type(context.get_admin_context(),
                                       volume_type_id)
     if (volume_type.get('extra_specs') is None or
-        volume_type['extra_specs'].get(key) != value):
+            volume_type['extra_specs'].get(key) != value):
         return False
     else:
         return True

@@ -10,6 +10,7 @@
     "volume:get_volume_metadata": [],
     "volume:get_snapshot": [],
     "volume:get_all_snapshots": [],
+    "volume:extend": [],
 
     "volume_extension:types_manage": [["rule:admin_api"]],
     "volume_extension:types_extra_specs": [["rule:admin_api"]],
@@ -17,8 +18,7 @@
     "volume_extension:volume_image_metadata": [],
 
     "volume_extension:quotas:show": [],
-    "volume_extension:quotas:update_for_project": [["rule:admin_api"]],
-    "volume_extension:quotas:update_for_user": [["rule:admin_or_projectadmin"]],
+    "volume_extension:quotas:update": [["rule:admin_api"]],
     "volume_extension:quota_classes": [],
 
     "volume_extension:volume_admin_actions:reset_status": [["rule:admin_api"]],
@@ -30,5 +30,17 @@
     "volume_extension:volume_tenant_attribute": [["rule:admin_api"]],
     "volume_extension:hosts": [["rule:admin_api"]],
     "volume_extension:services": [["rule:admin_api"]],
-    "volume:services": [["rule:admin_api"]]
+    "volume:services": [["rule:admin_api"]],
+
+    "volume:create_transfer": [],
+    "volume:accept_transfer": [],
+    "volume:delete_transfer": [],
+    "volume:get_all_transfers": [],
+
+    "backup:create" : [],
+    "backup:delete": [],
+    "backup:get": [],
+    "backup:get_all": [],
+    "backup:restore": []
+
 }

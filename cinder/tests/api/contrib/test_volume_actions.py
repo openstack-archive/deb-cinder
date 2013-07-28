@@ -20,7 +20,6 @@ import webob
 
 from cinder.api.contrib import volume_actions
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import jsonutils
 from cinder.openstack.common.rpc import common as rpc_common
 from cinder import test
@@ -28,9 +27,6 @@ from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
 from cinder import volume
 from cinder.volume import api as volume_api
-
-
-FLAGS = flags.FLAGS
 
 
 def fake_volume_api(*args, **kwargs):
@@ -97,9 +93,86 @@ class VolumeActionsTest(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(res.status_int, 202)
 
-    def test_attach(self):
+    def test_attach_to_instance(self):
         body = {'os-attach': {'instance_uuid': 'fake',
                               'mountpoint': '/dev/vdc'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 202)
+
+    def test_attach_to_host(self):
+        body = {'os-attach': {'host_name': 'fake_host',
+                              'mountpoint': '/dev/vdc'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 202)
+
+    def test_attach_with_invalid_arguments(self):
+        # Invalid request to attach volume an invalid target
+        body = {'os-attach': {'mountpoint': '/dev/vdc'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.headers["content-type"] = "application/json"
+        req.body = jsonutils.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 400)
+
+        # Invalid request to attach volume to an instance and a host
+        body = {'os-attach': {'instance_uuid': 'fake',
+                              'host_name': 'fake_host',
+                              'mountpoint': '/dev/vdc'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.headers["content-type"] = "application/json"
+        req.body = jsonutils.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 400)
+
+    def test_begin_detaching(self):
+        def fake_begin_detaching(*args, **kwargs):
+            return {}
+        self.stubs.Set(volume.API, 'begin_detaching',
+                       fake_begin_detaching)
+
+        body = {'os-begin_detaching': {'fake': 'fake'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 202)
+
+    def test_roll_detaching(self):
+        def fake_roll_detaching(*args, **kwargs):
+            return {}
+        self.stubs.Set(volume.API, 'roll_detaching',
+                       fake_roll_detaching)
+
+        body = {'os-roll_detaching': {'fake': 'fake'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 202)
+
+    def test_extend_volume(self):
+        def fake_extend_volume(*args, **kwargs):
+            return {}
+        self.stubs.Set(volume.API, 'extend',
+                       fake_extend_volume)
+
+        body = {'os-extend': {'new_size': 5}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
         req.body = jsonutils.dumps(body)
@@ -238,6 +311,39 @@ class VolumeImageActionsTest(test.TestCase):
         vol = {"container_format": 'bare',
                "disk_format": 'raw',
                "image_name": 'image_name',
+               "force": True}
+        body = {"os-volume_upload_image": vol}
+        req = fakes.HTTPRequest.blank('/v2/tenant1/volumes/%s/action' % id)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller._volume_upload_image,
+                          req,
+                          id,
+                          body)
+
+    def test_volume_upload_image_typeerror(self):
+        body = {"os-volume_upload_image_fake": "fake"}
+        req = fakes.HTTPRequest.blank('/v2/tenant1/volumes/%s/action' % id)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller._volume_upload_image,
+                          req,
+                          id,
+                          body)
+
+    def test_extend_volume_valueerror(self):
+        id = 1
+        body = {'os-extend': {'new_size': 'fake'}}
+        req = fakes.HTTPRequest.blank('/v2/tenant1/volumes/%s/action' % id)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller._extend,
+                          req,
+                          id,
+                          body)
+
+    def test_copy_volume_to_image_notimagename(self):
+        id = 1
+        vol = {"container_format": 'bare',
+               "disk_format": 'raw',
+               "image_name": None,
                "force": True}
         body = {"os-volume_upload_image": vol}
         req = fakes.HTTPRequest.blank('/v2/tenant1/volumes/%s/action' % id)

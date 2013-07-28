@@ -15,6 +15,7 @@
 
 """The backups api."""
 
+
 import webob
 from webob import exc
 from xml.dom import minidom
@@ -26,10 +27,9 @@ from cinder.api.views import backups as backup_views
 from cinder.api import xmlutil
 from cinder import backup as backupAPI
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 
-FLAGS = flags.FLAGS
+
 LOG = logging.getLogger(__name__)
 
 
@@ -199,7 +199,9 @@ class BackupsController(wsgi.Controller):
         description = backup.get('description', None)
 
         LOG.audit(_("Creating backup of volume %(volume_id)s in container"
-                    " %(container)s"), locals(), context=context)
+                    " %(container)s"),
+                  {'volume_id': volume_id, 'container': container},
+                  context=context)
 
         try:
             new_backup = self.backup_api.create(context, name, description,
@@ -208,6 +210,8 @@ class BackupsController(wsgi.Controller):
             raise exc.HTTPBadRequest(explanation=unicode(error))
         except exception.VolumeNotFound as error:
             raise exc.HTTPNotFound(explanation=unicode(error))
+        except exception.ServiceNotFound as error:
+            raise exc.HTTPInternalServerError(explanation=unicode(error))
 
         retval = self._view_builder.summary(req, dict(new_backup.iteritems()))
         return retval
@@ -217,8 +221,8 @@ class BackupsController(wsgi.Controller):
     @wsgi.deserializers(xml=RestoreDeserializer)
     def restore(self, req, id, body):
         """Restore an existing backup to a volume."""
-        backup_id = id
-        LOG.debug(_('Restoring backup %(backup_id)s (%(body)s)') % locals())
+        LOG.debug(_('Restoring backup %(backup_id)s (%(body)s)'),
+                  {'backup_id': id, 'body': body})
         if not self.is_valid_body(body, 'restore'):
             raise exc.HTTPBadRequest()
 
@@ -232,11 +236,12 @@ class BackupsController(wsgi.Controller):
         volume_id = restore.get('volume_id', None)
 
         LOG.audit(_("Restoring backup %(backup_id)s to volume %(volume_id)s"),
-                  locals(), context=context)
+                  {'backup_id': id, 'volume_id': volume_id},
+                  context=context)
 
         try:
             new_restore = self.backup_api.restore(context,
-                                                  backup_id=backup_id,
+                                                  backup_id=id,
                                                   volume_id=volume_id)
         except exception.InvalidInput as error:
             raise exc.HTTPBadRequest(explanation=unicode(error))

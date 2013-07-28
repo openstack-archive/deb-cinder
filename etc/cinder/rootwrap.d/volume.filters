@@ -54,6 +54,21 @@ chmod: CommandFilter, chmod, root
 rm: CommandFilter, rm, root
 lvs: CommandFilter, lvs, root
 
-# cinder/volume/scality.py
-mount: CommandFilter, mount, root
-dd: CommandFilter, dd, root
+# cinder/volumes/drivers/hds/hds.py: 
+hus-cmd: CommandFilter, hus-cmd, root
+
+# cinder/brick/initiator/connector.py:
+ls: CommandFilter, ls, root
+tee: CommandFilter, tee, root
+multipath: CommandFilter, multipath, root
+systool: CommandFilter, systool, root
+
+# cinder/volume/drivers/block_device.py
+blockdev: CommandFilter, blockdev, root
+
+# cinder/volume/drivers/gpfs.py
+mmgetstate: CommandFilter, /usr/lpp/mmfs/bin/mmgetstate, root
+mmclone: CommandFilter, /usr/lpp/mmfs/bin/mmclone, root
+mmlsattr: CommandFilter, /usr/lpp/mmfs/bin/mmlsattr, root
+find: CommandFilter, find, root
+mkfs: CommandFilter, mkfs, root

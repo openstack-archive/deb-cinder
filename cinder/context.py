@@ -43,9 +43,9 @@ class RequestContext(object):
     """
 
     def __init__(self, user_id, project_id, is_admin=None, read_deleted="no",
-                 roles=None, remote_address=None, timestamp=None,
-                 request_id=None, auth_token=None, overwrite=True,
-                 quota_class=None, **kwargs):
+                 roles=None, project_name=None, remote_address=None,
+                 timestamp=None, request_id=None, auth_token=None,
+                 overwrite=True, quota_class=None, **kwargs):
         """
         :param read_deleted: 'no' indicates deleted records are hidden, 'yes'
             indicates deleted records are visible, 'only' indicates that
@@ -64,6 +64,7 @@ class RequestContext(object):
         self.user_id = user_id
         self.project_id = project_id
         self.roles = roles or []
+        self.project_name = project_name
         self.is_admin = is_admin
         if self.is_admin is None:
             self.is_admin = policy.check_is_admin(self.roles)
@@ -105,6 +106,7 @@ class RequestContext(object):
     def to_dict(self):
         return {'user_id': self.user_id,
                 'project_id': self.project_id,
+                'project_name': self.project_name,
                 'is_admin': self.is_admin,
                 'read_deleted': self.read_deleted,
                 'roles': self.roles,
@@ -132,6 +134,9 @@ class RequestContext(object):
             context.read_deleted = read_deleted
 
         return context
+
+    def deepcopy(self):
+        return copy.deepcopy(self)
 
     # NOTE(sirp): the openstack/common version of RequestContext uses
     # tenant/user whereas the Cinder version uses project_id/user_id. We need

@@ -370,7 +370,7 @@ class ParseLimitsTest(BaseLimitTestSuite):
                                             '(PUT, /foo*, /foo.*, 10, hour);'
                                             '(POST, /bar*, /bar.*, 5, second);'
                                             '(Say, /derp*, /derp.*, 1, day)')
-        except ValueError, e:
+        except ValueError as e:
             assert False, str(e)
 
         # Make sure the number of returned limits are correct
@@ -696,7 +696,8 @@ def wire_HTTPConnection_to_WSGI(host, app):
     """
     class HTTPConnectionDecorator(object):
         """Wraps the real HTTPConnection class so that when you instantiate
-        the class you might instead get a fake instance."""
+        the class you might instead get a fake instance.
+        """
 
         def __init__(self, wrapped):
             self.wrapped = wrapped

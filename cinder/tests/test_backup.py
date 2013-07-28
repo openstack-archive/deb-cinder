@@ -19,16 +19,19 @@ Tests for Backup code.
 
 import tempfile
 
+from oslo.config import cfg
+
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import test
 
-FLAGS = flags.FLAGS
+
+CONF = cfg.CONF
+
 LOG = logging.getLogger(__name__)
 
 
@@ -45,7 +48,7 @@ class BackupTestCase(test.TestCase):
         self.flags(connection_type='fake',
                    volumes_dir=vol_tmpdir)
         self.backup_mgr = \
-            importutils.import_object(FLAGS.backup_manager)
+            importutils.import_object(CONF.backup_manager)
         self.backup_mgr.host = 'testhost'
         self.ctxt = context.get_admin_context()
 
@@ -74,7 +77,7 @@ class BackupTestCase(test.TestCase):
         backup['container'] = container
         backup['status'] = status
         backup['fail_reason'] = ''
-        backup['service'] = FLAGS.backup_service
+        backup['service'] = CONF.backup_driver
         backup['size'] = size
         backup['object_count'] = object_count
         return db.backup_create(self.ctxt, backup)['id']
@@ -100,7 +103,8 @@ class BackupTestCase(test.TestCase):
 
     def test_init_host(self):
         """Make sure stuck volumes and backups are reset to correct
-        states when backup_manager.init_host() is called"""
+        states when backup_manager.init_host() is called
+        """
         vol1_id = self._create_volume_db_entry(status='backing-up')
         vol2_id = self._create_volume_db_entry(status='restoring-backup')
         backup1_id = self._create_backup_db_entry(status='creating')
@@ -124,7 +128,8 @@ class BackupTestCase(test.TestCase):
 
     def test_create_backup_with_bad_volume_status(self):
         """Test error handling when creating a backup from a volume
-        with a bad status"""
+        with a bad status
+        """
         vol_id = self._create_volume_db_entry(status='available', size=1)
         backup_id = self._create_backup_db_entry(volume_id=vol_id)
         self.assertRaises(exception.InvalidVolume,
@@ -134,7 +139,8 @@ class BackupTestCase(test.TestCase):
 
     def test_create_backup_with_bad_backup_status(self):
         """Test error handling when creating a backup with a backup
-        with a bad status"""
+        with a bad status
+        """
         vol_id = self._create_volume_db_entry(size=1)
         backup_id = self._create_backup_db_entry(status='available',
                                                  volume_id=vol_id)
@@ -184,7 +190,8 @@ class BackupTestCase(test.TestCase):
 
     def test_restore_backup_with_bad_volume_status(self):
         """Test error handling when restoring a backup to a volume
-        with a bad status"""
+        with a bad status
+        """
         vol_id = self._create_volume_db_entry(status='available', size=1)
         backup_id = self._create_backup_db_entry(volume_id=vol_id)
         self.assertRaises(exception.InvalidVolume,
@@ -197,7 +204,8 @@ class BackupTestCase(test.TestCase):
 
     def test_restore_backup_with_bad_backup_status(self):
         """Test error handling when restoring a backup with a backup
-        with a bad status"""
+        with a bad status
+        """
         vol_id = self._create_volume_db_entry(status='restoring-backup',
                                               size=1)
         backup_id = self._create_backup_db_entry(status='available',
@@ -237,7 +245,8 @@ class BackupTestCase(test.TestCase):
 
     def test_restore_backup_with_bad_service(self):
         """Test error handling when attempting a restore of a backup
-        with a different service to that used to create the backup"""
+        with a different service to that used to create the backup
+        """
         vol_id = self._create_volume_db_entry(status='restoring-backup',
                                               size=1)
         backup_id = self._create_backup_db_entry(status='restoring',
@@ -283,7 +292,8 @@ class BackupTestCase(test.TestCase):
 
     def test_delete_backup_with_bad_backup_status(self):
         """Test error handling when deleting a backup with a backup
-        with a bad status"""
+        with a bad status
+        """
         vol_id = self._create_volume_db_entry(size=1)
         backup_id = self._create_backup_db_entry(status='available',
                                                  volume_id=vol_id)
@@ -309,7 +319,8 @@ class BackupTestCase(test.TestCase):
 
     def test_delete_backup_with_bad_service(self):
         """Test error handling when attempting a delete of a backup
-        with a different service to that used to create the backup"""
+        with a different service to that used to create the backup
+        """
         vol_id = self._create_volume_db_entry(size=1)
         backup_id = self._create_backup_db_entry(status='deleting',
                                                  volume_id=vol_id)
@@ -324,7 +335,8 @@ class BackupTestCase(test.TestCase):
 
     def test_delete_backup_with_no_service(self):
         """Test error handling when attempting a delete of a backup
-        with no service defined for that backup, relates to bug #1162908"""
+        with no service defined for that backup, relates to bug #1162908
+        """
         vol_id = self._create_volume_db_entry(size=1)
         backup_id = self._create_backup_db_entry(status='deleting',
                                                  volume_id=vol_id)
@@ -360,7 +372,8 @@ class BackupTestCase(test.TestCase):
 
     def test_backup_get_all_by_project_with_deleted(self):
         """Test deleted backups don't show up in backup_get_all_by_project.
-           Unless context.read_deleted is 'yes'"""
+           Unless context.read_deleted is 'yes'
+        """
         backups = db.backup_get_all_by_project(self.ctxt, 'fake')
         self.assertEqual(len(backups), 0)
 
@@ -378,7 +391,8 @@ class BackupTestCase(test.TestCase):
 
     def test_backup_get_all_by_host_with_deleted(self):
         """Test deleted backups don't show up in backup_get_all_by_project.
-           Unless context.read_deleted is 'yes'"""
+           Unless context.read_deleted is 'yes'
+        """
         backups = db.backup_get_all_by_host(self.ctxt, 'testhost')
         self.assertEqual(len(backups), 0)
 
@@ -393,3 +407,14 @@ class BackupTestCase(test.TestCase):
         ctxt_read_deleted = context.get_admin_context('yes')
         backups = db.backup_get_all_by_host(ctxt_read_deleted, 'testhost')
         self.assertEqual(len(backups), 2)
+
+    def test_backup_manager_driver_name(self):
+        """"Test mapping between backup services and backup drivers."""
+
+        old_setting = CONF.backup_driver
+        setattr(cfg.CONF, 'backup_driver', "cinder.backup.services.swift")
+        backup_mgr = \
+            importutils.import_object(CONF.backup_manager)
+        self.assertEqual('cinder.backup.drivers.swift',
+                         backup_mgr.driver_name)
+        setattr(cfg.CONF, 'backup_driver', old_setting)

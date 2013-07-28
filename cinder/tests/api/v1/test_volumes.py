@@ -16,6 +16,7 @@
 import datetime
 
 from lxml import etree
+from oslo.config import cfg
 import webob
 
 from cinder.api import extensions
@@ -23,7 +24,6 @@ from cinder.api.v1 import volumes
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder import flags
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
@@ -31,10 +31,11 @@ from cinder.tests.image import fake as fake_image
 from cinder.volume import api as volume_api
 
 
-FLAGS = flags.FLAGS
 NS = '{http://docs.openstack.org/volume/api/v1}'
 
 TEST_SNAPSHOT_UUID = '00000000-0000-0000-0000-000000000001'
+
+CONF = cfg.CONF
 
 
 def stub_snapshot_get(self, context, snapshot_id):
@@ -61,6 +62,8 @@ class VolumeApiTest(test.TestCase):
         self.stubs.Set(db, 'volume_get_all', stubs.stub_volume_get_all)
         self.stubs.Set(db, 'volume_get_all_by_project',
                        stubs.stub_volume_get_all_by_project)
+        self.stubs.Set(db, 'service_get_all_by_topic',
+                       stubs.stub_service_get_all_by_topic)
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
 
@@ -80,9 +83,10 @@ class VolumeApiTest(test.TestCase):
                                'display_name': 'Volume Test Name',
                                'attachments': [{'device': '/',
                                                 'server_id': 'fakeuuid',
+                                                'host_name': None,
                                                 'id': '1',
                                                 'volume_id': '1'}],
-                               'bootable': 'false',
+                               'bootable': False,
                                'volume_type': 'vol_type_name',
                                'snapshot_id': None,
                                'source_volid': None,
@@ -94,7 +98,7 @@ class VolumeApiTest(test.TestCase):
         self.assertEqual(res_dict, expected)
 
     def test_volume_create_with_type(self):
-        vol_type = FLAGS.default_volume_type
+        vol_type = CONF.default_volume_type
         db.volume_type_create(context.get_admin_context(),
                               dict(name=vol_type, extra_specs={}))
         db_vol_type = db.volume_type_get_by_name(context.get_admin_context(),
@@ -123,6 +127,17 @@ class VolumeApiTest(test.TestCase):
                           req,
                           body)
 
+    def test_volume_creation_fails_with_bad_availability_zone(self):
+        vol = {"size": '1',
+               "name": "Volume Test Name",
+               "description": "Volume Test Desc",
+               "availability_zone": "zonen:hostn"}
+        body = {"volume": vol}
+        req = fakes.HTTPRequest.blank('/v2/volumes')
+        self.assertRaises(exception.InvalidInput,
+                          self.controller.create,
+                          req, body)
+
     def test_volume_create_with_image_id(self):
         self.stubs.Set(volume_api.API, "create", stubs.stub_volume_create)
         self.ext_mgr.extensions = {'os-image-create': 'fake'}
@@ -138,9 +153,10 @@ class VolumeApiTest(test.TestCase):
                                'display_name': 'Volume Test Name',
                                'attachments': [{'device': '/',
                                                 'server_id': 'fakeuuid',
+                                                'host_name': None,
                                                 'id': '1',
                                                 'volume_id': '1'}],
-                               'bootable': 'false',
+                               'bootable': False,
                                'volume_type': 'vol_type_name',
                                'image_id': test_id,
                                'snapshot_id': None,
@@ -202,9 +218,10 @@ class VolumeApiTest(test.TestCase):
                 'id': '1',
                 'volume_id': '1',
                 'server_id': 'fakeuuid',
+                'host_name': None,
                 'device': '/',
             }],
-            'bootable': 'false',
+            'bootable': False,
             'volume_type': 'vol_type_name',
             'snapshot_id': None,
             'source_volid': None,
@@ -232,9 +249,10 @@ class VolumeApiTest(test.TestCase):
                 'id': '1',
                 'volume_id': '1',
                 'server_id': 'fakeuuid',
+                'host_name': None,
                 'device': '/',
             }],
-            'bootable': 'false',
+            'bootable': False,
             'volume_type': 'vol_type_name',
             'snapshot_id': None,
             'source_volid': None,
@@ -282,9 +300,10 @@ class VolumeApiTest(test.TestCase):
                                  'display_name': 'displayname',
                                  'attachments': [{'device': '/',
                                                   'server_id': 'fakeuuid',
+                                                  'host_name': None,
                                                   'id': '1',
                                                   'volume_id': '1'}],
-                                 'bootable': 'false',
+                                 'bootable': False,
                                  'volume_type': 'vol_type_name',
                                  'snapshot_id': None,
                                  'source_volid': None,
@@ -306,9 +325,10 @@ class VolumeApiTest(test.TestCase):
                                  'display_name': 'displayname',
                                  'attachments': [{'device': '/',
                                                   'server_id': 'fakeuuid',
+                                                  'host_name': None,
                                                   'id': '1',
                                                   'volume_id': '1'}],
-                                 'bootable': 'false',
+                                 'bootable': False,
                                  'volume_type': 'vol_type_name',
                                  'snapshot_id': None,
                                  'source_volid': None,
@@ -391,9 +411,10 @@ class VolumeApiTest(test.TestCase):
                                'display_name': 'displayname',
                                'attachments': [{'device': '/',
                                                 'server_id': 'fakeuuid',
+                                                'host_name': None,
                                                 'id': '1',
                                                 'volume_id': '1'}],
-                               'bootable': 'false',
+                               'bootable': False,
                                'volume_type': 'vol_type_name',
                                'snapshot_id': None,
                                'source_volid': None,
@@ -417,7 +438,7 @@ class VolumeApiTest(test.TestCase):
                                'availability_zone': 'fakeaz',
                                'display_name': 'displayname',
                                'attachments': [],
-                               'bootable': 'false',
+                               'bootable': False,
                                'volume_type': 'vol_type_name',
                                'snapshot_id': None,
                                'source_volid': None,
@@ -443,9 +464,10 @@ class VolumeApiTest(test.TestCase):
                                'display_name': 'displayname',
                                'attachments': [{'device': '/',
                                                 'server_id': 'fakeuuid',
+                                                'host_name': None,
                                                 'id': '1',
                                                 'volume_id': '1'}],
-                               'bootable': 'true',
+                               'bootable': True,
                                'volume_type': 'vol_type_name',
                                'snapshot_id': None,
                                'source_volid': None,
@@ -731,6 +753,60 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
             },
         }
         self.assertEquals(request['body'], expected)
+
+    def test_imageref(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/volume/api/v1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"
+        imageRef="4a90189d-d702-4c7c-87fc-6608c554d737"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+                "imageRef": "4a90189d-d702-4c7c-87fc-6608c554d737",
+            },
+        }
+        self.assertEquals(expected, request['body'])
+
+    def test_snapshot_id(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/volume/api/v1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"
+        snapshot_id="4a90189d-d702-4c7c-87fc-6608c554d737"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+                "snapshot_id": "4a90189d-d702-4c7c-87fc-6608c554d737",
+            },
+        }
+        self.assertEquals(expected, request['body'])
+
+    def test_source_volid(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/volume/api/v1"
+        size="1"
+        display_name="Volume-xml"
+        display_description="description"
+        source_volid="4a90189d-d702-4c7c-87fc-6608c554d737"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "display_name": "Volume-xml",
+                "display_description": "description",
+                "source_volid": "4a90189d-d702-4c7c-87fc-6608c554d737",
+            },
+        }
+        self.assertEquals(expected, request['body'])
 
 
 class VolumesUnprocessableEntityTestCase(test.TestCase):

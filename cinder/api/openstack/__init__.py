@@ -20,7 +20,6 @@ WSGI middleware for OpenStack API controllers.
 
 import routes
 
-from cinder.api.middleware import fault
 from cinder.api.openstack import wsgi
 from cinder.openstack.common import log as logging
 from cinder import utils
@@ -102,18 +101,20 @@ class APIRouter(base_wsgi.Router):
 
     def _setup_extensions(self, ext_mgr):
         for extension in ext_mgr.get_controller_extensions():
-            ext_name = extension.extension.name
             collection = extension.collection
             controller = extension.controller
 
             if collection not in self.resources:
                 LOG.warning(_('Extension %(ext_name)s: Cannot extend '
-                              'resource %(collection)s: No such resource') %
-                            locals())
+                              'resource %(collection)s: No such resource'),
+                            {'ext_name': extension.extension.name,
+                             'collection': collection})
                 continue
 
             LOG.debug(_('Extension %(ext_name)s extending resource: '
-                        '%(collection)s') % locals())
+                        '%(collection)s'),
+                      {'ext_name': extension.extension.name,
+                       'collection': collection})
 
             resource = self.resources[collection]
             resource.register_actions(controller)
@@ -123,8 +124,11 @@ class APIRouter(base_wsgi.Router):
         raise NotImplementedError
 
 
-class FaultWrapper(fault.FaultWrapper):
+class FaultWrapper(base_wsgi.Middleware):
+
     def __init__(self, application):
         LOG.warn(_('cinder.api.openstack:FaultWrapper is deprecated. Please '
                    'use cinder.api.middleware.fault:FaultWrapper instead.'))
-        super(FaultWrapper, self).__init__(application)
+        # Avoid circular imports from here. Can I just remove this class?
+        from cinder.api.middleware import fault
+        super(FaultWrapper, self).__init__(fault.FaultWrapper(application))

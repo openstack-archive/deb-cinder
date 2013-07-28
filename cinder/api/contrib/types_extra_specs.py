@@ -51,7 +51,7 @@ class VolumeTypeExtraSpecTemplate(xmlutil.TemplateBuilder):
 
 
 class VolumeTypeExtraSpecsController(wsgi.Controller):
-    """ The volume type extra specs API controller for the OpenStack API """
+    """The volume type extra specs API controller for the OpenStack API."""
 
     def _get_extra_specs(self, context, type_id):
         extra_specs = db.volume_type_extra_specs_get(context, type_id)
@@ -68,7 +68,7 @@ class VolumeTypeExtraSpecsController(wsgi.Controller):
 
     @wsgi.serializers(xml=VolumeTypeExtraSpecsTemplate)
     def index(self, req, type_id):
-        """ Returns the list of extra specs for a given volume type """
+        """Returns the list of extra specs for a given volume type."""
         context = req.environ['cinder.context']
         authorize(context)
         self._check_type(context, type_id)
@@ -130,11 +130,16 @@ class VolumeTypeExtraSpecsController(wsgi.Controller):
             raise webob.exc.HTTPNotFound()
 
     def delete(self, req, type_id, id):
-        """ Deletes an existing extra spec """
+        """Deletes an existing extra spec."""
         context = req.environ['cinder.context']
         self._check_type(context, type_id)
         authorize(context)
-        db.volume_type_extra_specs_delete(context, type_id, id)
+
+        try:
+            db.volume_type_extra_specs_delete(context, type_id, id)
+        except exception.VolumeTypeExtraSpecsNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=unicode(error))
+
         notifier_info = dict(type_id=type_id, id=id)
         notifier_api.notify(context, 'volumeTypeExtraSpecs',
                             'volume_type_extra_specs.delete',

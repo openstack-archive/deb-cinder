@@ -36,23 +36,29 @@ hp3par_api_url, hp3par_username, hp3par_password
 for credentials to talk to the REST service on the 3PAR
 array.
 """
+
+
 import base64
 import json
 import paramiko
 import pprint
 from random import randint
+import re
 import time
 import uuid
 
 from eventlet import greenthread
+from hp3parclient import client
 from hp3parclient import exceptions as hpexceptions
 from oslo.config import cfg
 
 from cinder import context
 from cinder import exception
+from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume import volume_types
+
 
 LOG = logging.getLogger(__name__)
 
@@ -68,9 +74,11 @@ hp3par_opts = [
                default='',
                help="3PAR Super user password",
                secret=True),
+    #TODO(kmartin): Remove hp3par_domain during I release.
     cfg.StrOpt('hp3par_domain',
-               default="OpenStack",
-               help="The 3par domain name to use"),
+               default=None,
+               help="This option is DEPRECATED and no longer used. "
+                    "The 3par domain name to use."),
     cfg.StrOpt('hp3par_cpg',
                default="OpenStack",
                help="The CPG to use for volume creation"),
@@ -88,11 +96,18 @@ hp3par_opts = [
                     " and is deleted.  This must be larger than expiration"),
     cfg.BoolOpt('hp3par_debug',
                 default=False,
-                help="Enable HTTP debugging to 3PAR")
+                help="Enable HTTP debugging to 3PAR"),
+    cfg.ListOpt('hp3par_iscsi_ips',
+                default=[],
+                help="List of target iSCSI addresses to use.")
 ]
 
 
-class HP3PARCommon():
+CONF = cfg.CONF
+CONF.register_opts(hp3par_opts)
+
+
+class HP3PARCommon(object):
 
     stats = {}
 
@@ -107,15 +122,76 @@ class HP3PARCommon():
                             '9 - EGENERA',
                             '10 - ONTAP-legacy',
                             '11 - VMware']
+    hp3par_valid_keys = ['cpg', 'snap_cpg', 'provisioning', 'persona']
 
     def __init__(self, config):
         self.sshpool = None
         self.config = config
+        self.hosts_naming_dict = dict()
+        self.client = None
+        if CONF.hp3par_domain is not None:
+            LOG.deprecated(_("hp3par_domain has been deprecated and "
+                             "is no longer used. The domain is automatically "
+                             "looked up based on the CPG."))
 
     def check_flags(self, options, required_flags):
         for flag in required_flags:
             if not getattr(options, flag, None):
                 raise exception.InvalidInput(reason=_('%s is not set') % flag)
+
+    def _create_client(self):
+        return client.HP3ParClient(self.config.hp3par_api_url)
+
+    def client_login(self):
+        try:
+            LOG.debug("Connecting to 3PAR")
+            self.client.login(self.config.hp3par_username,
+                              self.config.hp3par_password)
+        except hpexceptions.HTTPUnauthorized as ex:
+            LOG.warning("Failed to connect to 3PAR (%s) because %s" %
+                       (self.config.hp3par_api_url, str(ex)))
+            msg = _("Login to 3PAR array invalid")
+            raise exception.InvalidInput(reason=msg)
+
+    def client_logout(self):
+        self.client.logout()
+        LOG.debug("Disconnect from 3PAR")
+
+    def do_setup(self, context):
+        self.client = self._create_client()
+        if self.config.hp3par_debug:
+            self.client.debug_rest(True)
+
+        self.client_login()
+
+        try:
+            # make sure the default CPG exists
+            self.validate_cpg(self.config.hp3par_cpg)
+        finally:
+            self.client_logout()
+
+    def validate_cpg(self, cpg_name):
+        try:
+            cpg = self.client.getCPG(cpg_name)
+        except hpexceptions.HTTPNotFound as ex:
+            err = (_("CPG (%s) doesn't exist on array") % cpg_name)
+            LOG.error(err)
+            raise exception.InvalidInput(reason=err)
+
+    def get_domain(self, cpg_name):
+        try:
+            cpg = self.client.getCPG(cpg_name)
+        except hpexceptions.HTTPNotFound:
+            err = (_("CPG (%s) doesn't exist on array.") % cpg_name)
+            LOG.error(err)
+            raise exception.InvalidInput(reason=err)
+
+        domain = cpg['domain']
+        if not domain:
+            err = (_("CPG (%s) must be in a domain") % cpg_name)
+            LOG.error(err)
+            raise exception.InvalidInput(reason=err)
+        return domain
 
     def _get_3par_vol_name(self, volume_id):
         """
@@ -166,7 +242,7 @@ class HP3PARCommon():
         return capacity
 
     def _cli_run(self, verb, cli_args):
-        """ Runs a CLI command over SSH, without doing any result parsing. """
+        """Runs a CLI command over SSH, without doing any result parsing."""
         cli_arg_strings = []
         if cli_args:
             for k, v in cli_args.items():
@@ -254,12 +330,13 @@ exit
                     except Exception as e:
                         LOG.error(e)
                         greenthread.sleep(randint(20, 500) / 100.0)
-                raise paramiko.SSHException(_("SSH Command failed after "
-                                              "'%(total_attempts)r' attempts"
-                                              ": '%(command)s'"), locals())
-        except Exception as e:
-            LOG.error(_("Error running ssh command: %s") % command)
-            raise e
+                msg = (_("SSH Command failed after '%(total_attempts)r' "
+                         "attempts : '%(command)s'") %
+                       {'total_attempts': total_attempts, 'command': command})
+                raise paramiko.SSHException(msg)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_("Error running ssh command: %s") % command)
 
     def _delete_3par_host(self, hostname):
         self._cli_run('removehost %s' % hostname, None)
@@ -384,7 +461,7 @@ exit
         # Protocol,Label,Partner,FailoverState
         out = out[1:len(out) - 2]
 
-        ports = {'FC': [], 'iSCSI': []}
+        ports = {'FC': [], 'iSCSI': {}}
         for line in out:
             tmp = line.split(',')
 
@@ -403,20 +480,37 @@ exit
         for line in out:
             tmp = line.split(',')
 
-            if tmp:
+            if tmp and len(tmp) > 2:
                 if tmp[1] == 'ready':
-                    ports['iSCSI'].append(tmp[2])
+                    ports['iSCSI'][tmp[2]] = {}
+
+        # now get the nsp and iqn
+        result = self._cli_run('showport -iscsiname', None)
+        if result:
+            # first line is header
+            # nsp, ip,iqn
+            result = result[1:]
+            for line in result:
+                info = line.split(",")
+                if info and len(info) > 2:
+                    if info[1] in ports['iSCSI']:
+                        nsp = info[0]
+                        ip_addr = info[1]
+                        iqn = info[2]
+                        ports['iSCSI'][ip_addr] = {'nsp': nsp,
+                                                   'iqn': iqn
+                                                   }
 
         LOG.debug("PORTS = %s" % pprint.pformat(ports))
         return ports
 
-    def get_volume_stats(self, refresh, client):
+    def get_volume_stats(self, refresh):
         if refresh:
-            self._update_volume_stats(client)
+            self._update_volume_stats()
 
         return self.stats
 
-    def _update_volume_stats(self, client):
+    def _update_volume_stats(self):
         # const to convert MiB to GB
         const = 0.0009765625
 
@@ -431,7 +525,7 @@ exit
                  'volume_backend_name': None}
 
         try:
-            cpg = client.getCPG(self.config.hp3par_cpg)
+            cpg = self.client.getCPG(self.config.hp3par_cpg)
             if 'limitMiB' not in cpg['SDGrowth']:
                 total_capacity = 'infinite'
                 free_capacity = 'infinite'
@@ -450,45 +544,52 @@ exit
 
         self.stats = stats
 
-    def create_vlun(self, volume, host, client):
+    def create_vlun(self, volume, host):
         """
         In order to export a volume on a 3PAR box, we have to
         create a VLUN.
         """
         volume_name = self._get_3par_vol_name(volume['id'])
         self._create_3par_vlun(volume_name, host['name'])
-        return client.getVLUN(volume_name)
+        return self.client.getVLUN(volume_name)
 
-    def delete_vlun(self, volume, connector, client):
-        hostname = self._safe_hostname(connector['host'])
-
+    def delete_vlun(self, volume, hostname):
         volume_name = self._get_3par_vol_name(volume['id'])
-        vlun = client.getVLUN(volume_name)
-        client.deleteVLUN(volume_name, vlun['lun'], hostname)
+        vlun = self.client.getVLUN(volume_name)
+        self.client.deleteVLUN(volume_name, vlun['lun'], hostname)
         self._delete_3par_host(hostname)
 
     def _get_volume_type(self, type_id):
         ctxt = context.get_admin_context()
         return volume_types.get_volume_type(ctxt, type_id)
 
-    def _get_volume_type_value(self, volume_type, key, default=None):
-        if volume_type is not None:
-            specs = volume_type.get('extra_specs')
-            if key in specs:
-                return specs[key]
-            else:
-                return default
+    def _get_key_value(self, hp3par_keys, key, default=None):
+        if hp3par_keys is not None and key in hp3par_keys:
+            return hp3par_keys[key]
         else:
             return default
 
-    def get_persona_type(self, volume):
+    def _get_keys_by_volume_type(self, volume_type):
+        hp3par_keys = {}
+        specs = volume_type.get('extra_specs')
+        for key, value in specs.iteritems():
+            if ':' in key:
+                fields = key.split(':')
+                key = fields[1]
+            if key in self.hp3par_valid_keys:
+                hp3par_keys[key] = value
+        return hp3par_keys
+
+    def get_persona_type(self, volume, hp3par_keys=None):
         default_persona = self.valid_persona_values[0]
         type_id = volume.get('volume_type_id', None)
         volume_type = None
         if type_id is not None:
             volume_type = self._get_volume_type(type_id)
-        persona_value = self._get_volume_type_value(volume_type, 'persona',
-                                                    default_persona)
+            if hp3par_keys is None:
+                hp3par_keys = self._get_keys_by_volume_type(volume_type)
+        persona_value = self._get_key_value(hp3par_keys, 'persona',
+                                            default_persona)
         if persona_value not in self.valid_persona_values:
             err = _("Must specify a valid persona %(valid)s, "
                     "value '%(persona)s' is invalid.") % \
@@ -500,7 +601,7 @@ exit
         persona_id = persona_value.split(' ')
         return persona_id[0]
 
-    def create_volume(self, volume, client):
+    def create_volume(self, volume):
         LOG.debug("CREATE VOLUME (%s : %s %s)" %
                   (volume['display_name'], volume['name'],
                    self._get_3par_vol_name(volume['id'])))
@@ -515,18 +616,35 @@ exit
 
             # get the options supported by volume types
             volume_type = None
+            hp3par_keys = {}
             type_id = volume.get('volume_type_id', None)
             if type_id is not None:
                 volume_type = self._get_volume_type(type_id)
+                hp3par_keys = self._get_keys_by_volume_type(volume_type)
 
-            cpg = self._get_volume_type_value(volume_type, 'cpg',
-                                              self.config.hp3par_cpg)
+            cpg = self._get_key_value(hp3par_keys, 'cpg',
+                                      self.config.hp3par_cpg)
+            if cpg is not self.config.hp3par_cpg:
+                # The cpg was specified in a volume type extra spec so it
+                # needs to be validiated that it's in the correct domain.
+                self.validate_cpg(cpg)
+                # Also, look to see if the snap_cpg was specified in volume
+                # type extra spec, if not use the extra spec cpg as the
+                # default.
+                snap_cpg = self._get_key_value(hp3par_keys, 'snap_cpg', cpg)
+            else:
+                # default snap_cpg to hp3par_cpg_snap if it's not specified
+                # in the volume type extra specs.
+                snap_cpg = self.config.hp3par_cpg_snap
+                # if it's still not set or empty then set it to the cpg
+                # specified in the cinder.conf file.
+                if not self.config.hp3par_cpg_snap:
+                    snap_cpg = cpg
 
             # if provisioning is not set use thin
             default_prov = self.valid_prov_values[0]
-            prov_value = self._get_volume_type_value(volume_type,
-                                                     'provisioning',
-                                                     default_prov)
+            prov_value = self._get_key_value(hp3par_keys, 'provisioning',
+                                             default_prov)
             # check for valid provisioning type
             if prov_value not in self.valid_prov_values:
                 err = _("Must specify a valid provisioning type %(valid)s, "
@@ -539,19 +657,10 @@ exit
             if prov_value == "full":
                 ttpv = False
 
-            # default to hp3par_cpg if hp3par_cpg_snap is not set.
-            if self.config.hp3par_cpg_snap == "":
-                snap_default = self.config.hp3par_cpg
-            else:
-                snap_default = self.config.hp3par_cpg_snap
-            snap_cpg = self._get_volume_type_value(volume_type,
-                                                   'snap_cpg',
-                                                   snap_default)
-
             # check for valid persona even if we don't use it until
-            # attach time, this will given end user notice that the
+            # attach time, this will give the end user notice that the
             # persona type is invalid at volume creation time
-            self.get_persona_type(volume)
+            self.get_persona_type(volume, hp3par_keys)
 
             if type_id is not None:
                 comments['volume_type_name'] = volume_type.get('name')
@@ -563,7 +672,7 @@ exit
 
             capacity = self._capacity_from_size(volume['size'])
             volume_name = self._get_3par_vol_name(volume['id'])
-            client.createVolume(volume_name, cpg, capacity, extras)
+            self.client.createVolume(volume_name, cpg, capacity, extras)
 
         except hpexceptions.HTTPConflict:
             raise exception.Duplicate(_("Volume (%s) already exists on array")
@@ -578,7 +687,7 @@ exit
             LOG.error(str(ex))
             raise exception.CinderException(ex.get_description())
 
-        metadata = {'3ParName': volume_name, 'CPG': self.config.hp3par_cpg,
+        metadata = {'3ParName': volume_name, 'CPG': cpg,
                     'snapCPG': extras['snapCPG']}
         return metadata
 
@@ -595,15 +704,32 @@ exit
 
         return status
 
-    @utils.synchronized('3parclone', external=True)
-    def create_cloned_volume(self, volume, src_vref, client):
+    def get_next_word(self, s, search_string):
+        """Return the next word.
+
+           Search 's' for 'search_string', if found
+           return the word preceding 'search_string'
+           from 's'.
+        """
+        word = re.search(search_string.strip(' ') + ' ([^ ]*)', s)
+        return word.groups()[0].strip(' ')
+
+    def get_volume_metadata_value(self, volume, key):
+        metadata = volume.get('volume_metadata')
+        if metadata:
+            for i in volume['volume_metadata']:
+                if i['key'] == key:
+                    return i['value']
+        return None
+
+    def create_cloned_volume(self, volume, src_vref):
 
         try:
             orig_name = self._get_3par_vol_name(volume['source_volid'])
             vol_name = self._get_3par_vol_name(volume['id'])
             # We need to create a new volume first.  Otherwise you
             # can't delete the original
-            new_vol = self.create_volume(volume, client)
+            new_vol = self.create_volume(volume)
 
             # make the 3PAR copy the contents.
             # can't delete the original until the copy is done.
@@ -638,10 +764,10 @@ exit
 
         return None
 
-    def delete_volume(self, volume, client):
+    def delete_volume(self, volume):
         try:
             volume_name = self._get_3par_vol_name(volume['id'])
-            client.deleteVolume(volume_name)
+            self.client.deleteVolume(volume_name)
         except hpexceptions.HTTPNotFound as ex:
             # We'll let this act as if it worked
             # it helps clean up the cinder entries.
@@ -653,7 +779,7 @@ exit
             LOG.error(str(ex))
             raise exception.CinderException(ex.get_description())
 
-    def create_volume_from_snapshot(self, volume, snapshot, client):
+    def create_volume_from_snapshot(self, volume, snapshot):
         """
         Creates a volume from a snapshot.
 
@@ -686,13 +812,13 @@ exit
             optional = {'comment': json.dumps(extra),
                         'readOnly': False}
 
-            client.createSnapshot(vol_name, snap_name, optional)
+            self.client.createSnapshot(vol_name, snap_name, optional)
         except hpexceptions.HTTPForbidden:
             raise exception.NotAuthorized()
         except hpexceptions.HTTPNotFound:
             raise exception.NotFound()
 
-    def create_snapshot(self, snapshot, client):
+    def create_snapshot(self, snapshot):
         LOG.debug("Create Snapshot\n%s" % pprint.pformat(snapshot))
 
         try:
@@ -706,12 +832,12 @@ exit
 
             try:
                 extra['name'] = snapshot['display_name']
-            except AttribteError:
+            except AttributeError:
                 pass
 
             try:
                 extra['description'] = snapshot['display_description']
-            except AttribteError:
+            except AttributeError:
                 pass
 
             optional = {'comment': json.dumps(extra),
@@ -724,19 +850,63 @@ exit
                 optional['retentionHours'] = (
                     self.config.hp3par_snapshot_retention)
 
-            client.createSnapshot(snap_name, vol_name, optional)
+            self.client.createSnapshot(snap_name, vol_name, optional)
         except hpexceptions.HTTPForbidden:
             raise exception.NotAuthorized()
         except hpexceptions.HTTPNotFound:
             raise exception.NotFound()
 
-    def delete_snapshot(self, snapshot, client):
+    def delete_snapshot(self, snapshot):
         LOG.debug("Delete Snapshot\n%s" % pprint.pformat(snapshot))
 
         try:
             snap_name = self._get_3par_snap_name(snapshot['id'])
-            client.deleteVolume(snap_name)
+            self.client.deleteVolume(snap_name)
         except hpexceptions.HTTPForbidden:
             raise exception.NotAuthorized()
         except hpexceptions.HTTPNotFound as ex:
             LOG.error(str(ex))
+
+    def _get_3par_hostname_from_wwn_iqn(self, wwns_iqn):
+        out = self._cli_run('showhost -d', None)
+        # wwns_iqn may be a list of strings or a single
+        # string. So, if necessary, create a list to loop.
+        if not isinstance(wwns_iqn, list):
+            wwn_iqn_list = [wwns_iqn]
+        else:
+            wwn_iqn_list = wwns_iqn
+
+        for wwn_iqn in wwn_iqn_list:
+            for showhost in out:
+                if (wwn_iqn.upper() in showhost.upper()):
+                    return showhost.split(',')[1]
+
+    def terminate_connection(self, volume, hostname, wwn_iqn):
+        """Driver entry point to unattach a volume from an instance."""
+        try:
+            # does 3par know this host by a different name?
+            if hostname in self.hosts_naming_dict:
+                hostname = self.hosts_naming_dict.get(hostname)
+            self.delete_vlun(volume, hostname)
+            return
+        except hpexceptions.HTTPNotFound as e:
+            if 'host does not exist' in e.get_description():
+                # use the wwn to see if we can find the hostname
+                hostname = self._get_3par_hostname_from_wwn_iqn(wwn_iqn)
+                # no 3par host, re-throw
+                if (hostname is None):
+                    raise
+            else:
+            # not a 'host does not exist' HTTPNotFound exception, re-throw
+                raise
+
+        #try again with name retrieved from 3par
+        self.delete_vlun(volume, hostname)
+
+    def parse_create_host_error(self, hostname, out):
+        search_str = "already used by host "
+        if search_str in out[1]:
+            #host exists, return name used by 3par
+            hostname_3par = self.get_next_word(out[1], search_str)
+            self.hosts_naming_dict[hostname] = hostname_3par
+            return hostname_3par

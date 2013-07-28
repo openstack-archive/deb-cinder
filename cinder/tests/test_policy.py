@@ -21,16 +21,18 @@ import os.path
 import StringIO
 import urllib2
 
+from oslo.config import cfg
+
 from cinder import context
 from cinder import exception
-from cinder import flags
 import cinder.openstack.common.policy
 from cinder.openstack.common import policy as common_policy
 from cinder import policy
 from cinder import test
 from cinder import utils
 
-FLAGS = flags.FLAGS
+
+CONF = cfg.CONF
 
 
 class PolicyFileTestCase(test.TestCase):
@@ -82,7 +84,7 @@ class PolicyTestCase(test.TestCase):
             "example:uppercase_admin": [["role:ADMIN"], ["role:sysadmin"]],
         }
         # NOTE(vish): then overload underlying brain
-        common_policy.set_brain(common_policy.HttpBrain(rules))
+        common_policy.set_brain(common_policy.Brain(rules))
         self.context = context.RequestContext('fake', 'fake', roles=['member'])
         self.target = {}
 
@@ -170,8 +172,8 @@ class DefaultPolicyTestCase(test.TestCase):
         self.context = context.RequestContext('fake', 'fake')
 
     def _set_brain(self, default_rule):
-        brain = cinder.openstack.common.policy.HttpBrain(self.rules,
-                                                         default_rule)
+        brain = cinder.openstack.common.policy.Brain(self.rules,
+                                                     default_rule)
         cinder.openstack.common.policy.set_brain(brain)
 
     def tearDown(self):
@@ -209,7 +211,7 @@ class ContextIsAdminPolicyTestCase(test.TestCase):
         rules = {
             'context_is_admin': [["role:administrator"], ["role:johnny-admin"]]
         }
-        brain = common_policy.Brain(rules, FLAGS.policy_default_rule)
+        brain = common_policy.Brain(rules, CONF.policy_default_rule)
         common_policy.set_brain(brain)
         ctx = context.RequestContext('fake', 'fake', roles=['johnny-admin'])
         self.assert_(ctx.is_admin)
@@ -224,7 +226,7 @@ class ContextIsAdminPolicyTestCase(test.TestCase):
             "admin_or_owner": [["role:admin"], ["project_id:%(project_id)s"]],
             "default": [["rule:admin_or_owner"]],
         }
-        brain = common_policy.Brain(rules, FLAGS.policy_default_rule)
+        brain = common_policy.Brain(rules, CONF.policy_default_rule)
         common_policy.set_brain(brain)
         ctx = context.RequestContext('fake', 'fake')
         self.assertFalse(ctx.is_admin)

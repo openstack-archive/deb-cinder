@@ -22,7 +22,6 @@ from cinder.api import common
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import uuidutils
 from cinder import utils
@@ -31,9 +30,6 @@ from cinder.volume import volume_types
 
 
 LOG = logging.getLogger(__name__)
-
-
-FLAGS = flags.FLAGS
 
 
 def _translate_attachment_detail_view(_context, vol):
@@ -57,6 +53,7 @@ def _translate_attachment_summary_view(_context, vol):
 
     d['volume_id'] = volume_id
     d['server_id'] = vol['instance_uuid']
+    d['host_name'] = vol['attached_host']
     if vol.get('mountpoint'):
         d['device'] = vol['mountpoint']
 
@@ -82,6 +79,7 @@ def _translate_volume_summary_view(context, vol, image_id=None):
     d['size'] = vol['size']
     d['availability_zone'] = vol['availability_zone']
     d['created_at'] = vol['created_at']
+    d['bootable'] = vol['bootable']
 
     d['attachments'] = []
     if vol['attach_status'] == 'attached':
@@ -114,17 +112,13 @@ def _translate_volume_summary_view(context, vol, image_id=None):
     else:
         d['metadata'] = {}
 
-    if vol.get('volume_glance_metadata'):
-        d['bootable'] = 'true'
-    else:
-        d['bootable'] = 'false'
-
     return d
 
 
 def make_attachment(elem):
     elem.set('id')
     elem.set('server_id')
+    elem.set('host_name')
     elem.set('volume_id')
     elem.set('device')
 
@@ -183,7 +177,8 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
         volume_node = self.find_first_child_named(node, 'volume')
 
         attributes = ['display_name', 'display_description', 'size',
-                      'volume_type', 'availability_zone']
+                      'volume_type', 'availability_zone', 'imageRef',
+                      'snapshot_id', 'source_volid']
         for attr in attributes:
             if volume_node.getAttribute(attr):
                 volume[attr] = volume_node.getAttribute(attr)
@@ -291,6 +286,7 @@ class VolumeController(wsgi.Controller):
         if not self.is_valid_body(body, 'volume'):
             raise exc.HTTPUnprocessableEntity()
 
+        LOG.debug('Create volume request body: %s', body)
         context = req.environ['cinder.context']
         volume = body['volume']
 
@@ -341,6 +337,7 @@ class VolumeController(wsgi.Controller):
         image_href = None
         image_uuid = None
         if self.ext_mgr.is_loaded('os-image-create'):
+            # NOTE(jdg): misleading name "imageRef" as it's an image-id
             image_href = volume.get('imageRef')
             if image_href:
                 image_uuid = self._image_uuid_from_href(image_href)
@@ -415,7 +412,8 @@ def remove_invalid_options(context, search_options, allowed_search_options):
     unknown_options = [opt for opt in search_options
                        if opt not in allowed_search_options]
     bad_options = ", ".join(unknown_options)
-    log_msg = _("Removing options '%(bad_options)s' from query") % locals()
+    log_msg = _("Removing options '%(bad_options)s'"
+                " from query") % {'bad_options': bad_options}
     LOG.debug(log_msg)
     for opt in unknown_options:
         del search_options[opt]

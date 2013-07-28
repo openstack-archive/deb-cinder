@@ -25,6 +25,8 @@ Some slight modifications, but at some point
 we should look at maybe pushign this up to OSLO
 """
 
+
+import contextlib
 import os
 import re
 import tempfile
@@ -32,9 +34,11 @@ import tempfile
 from oslo.config import cfg
 
 from cinder import exception
-from cinder import flags
+from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import strutils
 from cinder import utils
+
 
 LOG = logging.getLogger(__name__)
 
@@ -42,8 +46,8 @@ image_helper_opt = [cfg.StrOpt('image_conversion_dir',
                     default='/tmp',
                     help='parent dir for tempdir used for image conversion'), ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(image_helper_opt)
+CONF = cfg.CONF
+CONF.register_opts(image_helper_opt)
 
 
 class QemuImgInfo(object):
@@ -92,8 +96,8 @@ class QemuImgInfo(object):
         if real_size:
             details = real_size.group(1)
         try:
-            details = utils.to_bytes(details)
-        except (TypeError, ValueError):
+            details = strutils.to_bytes(details)
+        except TypeError:
             pass
         return details
 
@@ -191,31 +195,59 @@ def convert_image(source, dest, out_format):
     utils.execute(*cmd, run_as_root=True)
 
 
+def resize_image(source, size):
+    """Changes the virtual size of the image."""
+    cmd = ('qemu-img', 'resize', source, '%sG' % size)
+    utils.execute(*cmd, run_as_root=False)
+
+
 def fetch(context, image_service, image_id, path, _user_id, _project_id):
     # TODO(vish): Improve context handling and add owner and auth data
     #             when it is added to glance.  Right now there is no
     #             auth checking in glance, so we assume that access was
     #             checked before we got here.
-    with utils.remove_path_on_error(path):
+    with fileutils.remove_path_on_error(path):
         with open(path, "wb") as image_file:
             image_service.download(context, image_id, image_file)
+
+
+def fetch_verify_image(context, image_service, image_id, dest,
+                       user_id=None, project_id=None):
+    fetch(context, image_service, image_id, dest,
+          None, None)
+
+    with fileutils.remove_path_on_error(dest):
+        data = qemu_img_info(dest)
+        fmt = data.file_format
+        if fmt is None:
+            raise exception.ImageUnacceptable(
+                reason=_("'qemu-img info' parsing failed."),
+                image_id=image_id)
+
+        backing_file = data.backing_file
+        if backing_file is not None:
+            raise exception.ImageUnacceptable(
+                image_id=image_id,
+                reason=_("fmt=%(fmt)s backed by:"
+                         "%(backing_file)s") % locals())
 
 
 def fetch_to_raw(context, image_service,
                  image_id, dest,
                  user_id=None, project_id=None):
-    if (FLAGS.image_conversion_dir and not
-            os.path.exists(FLAGS.image_conversion_dir)):
-        os.makedirs(FLAGS.image_conversion_dir)
+    if (CONF.image_conversion_dir and not
+            os.path.exists(CONF.image_conversion_dir)):
+        os.makedirs(CONF.image_conversion_dir)
 
     # NOTE(avishay): I'm not crazy about creating temp files which may be
     # large and cause disk full errors which would confuse users.
     # Unfortunately it seems that you can't pipe to 'qemu-img convert' because
     # it seeks. Maybe we can think of something for a future version.
-    fd, tmp = tempfile.mkstemp(dir=FLAGS.image_conversion_dir)
-    os.close(fd)
-    with utils.remove_path_on_error(tmp):
+    with temporary_file() as tmp:
         fetch(context, image_service, image_id, tmp, user_id, project_id)
+
+        if is_xenserver_image(context, image_service, image_id):
+            replace_xenserver_image_with_coalesced_vhd(tmp)
 
         data = qemu_img_info(tmp)
         fmt = data.file_format
@@ -229,7 +261,10 @@ def fetch_to_raw(context, image_service,
             raise exception.ImageUnacceptable(
                 image_id=image_id,
                 reason=_("fmt=%(fmt)s backed by:"
-                         "%(backing_file)s") % locals())
+                         "%(backing_file)s") % {
+                             'fmt': fmt,
+                             'backing_file': backing_file,
+                         })
 
         # NOTE(jdg): I'm using qemu-img convert to write
         # to the volume regardless if it *needs* conversion or not
@@ -247,7 +282,6 @@ def fetch_to_raw(context, image_service,
                 image_id=image_id,
                 reason=_("Converted to raw, but format is now %s") %
                 data.file_format)
-        os.unlink(tmp)
 
 
 def upload_volume(context, image_service, image_meta, volume_path):
@@ -256,17 +290,17 @@ def upload_volume(context, image_service, image_meta, volume_path):
         LOG.debug("%s was raw, no need to convert to %s" %
                   (image_id, image_meta['disk_format']))
         with utils.temporary_chown(volume_path):
-            with utils.file_open(volume_path) as image_file:
+            with fileutils.file_open(volume_path) as image_file:
                 image_service.update(context, image_id, {}, image_file)
         return
 
-    if (FLAGS.image_conversion_dir and not
-            os.path.exists(FLAGS.image_conversion_dir)):
-        os.makedirs(FLAGS.image_conversion_dir)
+    if (CONF.image_conversion_dir and not
+            os.path.exists(CONF.image_conversion_dir)):
+        os.makedirs(CONF.image_conversion_dir)
 
-    fd, tmp = tempfile.mkstemp(dir=FLAGS.image_conversion_dir)
+    fd, tmp = tempfile.mkstemp(dir=CONF.image_conversion_dir)
     os.close(fd)
-    with utils.remove_path_on_error(tmp):
+    with fileutils.remove_path_on_error(tmp):
         LOG.debug("%s was raw, converting to %s" %
                   (image_id, image_meta['disk_format']))
         convert_image(volume_path, tmp, image_meta['disk_format'])
@@ -278,6 +312,110 @@ def upload_volume(context, image_service, image_meta, volume_path):
                 reason=_("Converted to %(f1)s, but format is now %(f2)s") %
                 {'f1': image_meta['disk_format'], 'f2': data.file_format})
 
-        with utils.file_open(tmp) as image_file:
+        with fileutils.file_open(tmp) as image_file:
             image_service.update(context, image_id, {}, image_file)
         os.unlink(tmp)
+
+
+def is_xenserver_image(context, image_service, image_id):
+    image_meta = image_service.show(context, image_id)
+    return is_xenserver_format(image_meta)
+
+
+def is_xenserver_format(image_meta):
+    return (
+        image_meta['disk_format'] == 'vhd'
+        and image_meta['container_format'] == 'ovf'
+    )
+
+
+def file_exist(fpath):
+    return os.path.exists(fpath)
+
+
+def set_vhd_parent(vhd_path, parentpath):
+    utils.execute('vhd-util', 'modify', '-n', vhd_path, '-p', parentpath)
+
+
+def extract_targz(archive_name, target):
+    utils.execute('tar', '-xzf', archive_name, '-C', target)
+
+
+def fix_vhd_chain(vhd_chain):
+    for child, parent in zip(vhd_chain[:-1], vhd_chain[1:]):
+        set_vhd_parent(child, parent)
+
+
+def get_vhd_size(vhd_path):
+    out, err = utils.execute('vhd-util', 'query', '-n', vhd_path, '-v')
+    return int(out)
+
+
+def resize_vhd(vhd_path, size, journal):
+    utils.execute(
+        'vhd-util', 'resize', '-n', vhd_path, '-s', '%d' % size, '-j', journal)
+
+
+def coalesce_vhd(vhd_path):
+    utils.execute(
+        'vhd-util', 'coalesce', '-n', vhd_path)
+
+
+def create_temporary_file():
+    fd, tmp = tempfile.mkstemp(dir=CONF.image_conversion_dir)
+    os.close(fd)
+    return tmp
+
+
+def rename_file(src, dst):
+    os.rename(src, dst)
+
+
+@contextlib.contextmanager
+def temporary_file():
+    try:
+        tmp = create_temporary_file()
+        yield tmp
+    finally:
+        os.unlink(tmp)
+
+
+def temporary_dir():
+    return utils.tempdir(dir=CONF.image_conversion_dir)
+
+
+def coalesce_chain(vhd_chain):
+    for child, parent in zip(vhd_chain[:-1], vhd_chain[1:]):
+        with temporary_dir() as directory_for_journal:
+            size = get_vhd_size(child)
+            journal_file = os.path.join(
+                directory_for_journal, 'vhd-util-resize-journal')
+            resize_vhd(parent, size, journal_file)
+            coalesce_vhd(child)
+
+    return vhd_chain[-1]
+
+
+def discover_vhd_chain(directory):
+    counter = 0
+    chain = []
+
+    while True:
+        fpath = os.path.join(directory, '%d.vhd' % counter)
+        if file_exist(fpath):
+            chain.append(fpath)
+        else:
+            break
+        counter += 1
+
+    return chain
+
+
+def replace_xenserver_image_with_coalesced_vhd(image_file):
+    with temporary_dir() as tempdir:
+        extract_targz(image_file, tempdir)
+        chain = discover_vhd_chain(tempdir)
+        fix_vhd_chain(chain)
+        coalesced = coalesce_chain(chain)
+        os.unlink(image_file)
+        rename_file(coalesced, image_file)

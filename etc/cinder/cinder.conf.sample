@@ -67,6 +67,14 @@
 # (boolean value)
 #glance_api_insecure=false
 
+# Whether to attempt to negotiate SSL layer compression
+# when using SSL (https) requests. Set to False to
+# disable SSL layer compression. In some cases disabling
+# this may improve data throughput, eg when high network
+# bandwidth is available and you are using already compressed
+# image formats such as qcow2 .
+#glance_api_ssl_compression=false
+
 # the topic scheduler nodes listen on (string value)
 #scheduler_topic=cinder-scheduler
 
@@ -202,6 +210,11 @@
 # Options defined in cinder.quota
 #
 
+# If True, uses the default quota class for default quota, the
+# quota_* option will be deprecated if the default quota for
+# the related resource is set by default quota class (boolean value)
+#use_default_quota_class=true
+
 # number of volumes allowed per project (integer value)
 #quota_volumes=10
 
@@ -310,15 +323,26 @@
 #
 
 # Service to use for backups. (string value)
-#backup_service=cinder.backup.services.swift
+#backup_driver=cinder.backup.drivers.swift
 
 
 #
-# Options defined in cinder.backup.services.swift
+# Options defined in cinder.backup.drivers.swift
 #
 
 # The URL of the Swift endpoint (string value)
 #backup_swift_url=http://localhost:8080/v1/AUTH_
+
+# The Swift authentication mechanism
+#  - Set to "per_user": uses keystone authentication for every user
+#  - Set to "single_user": uses one user+pw for all backups
+#backup_swift_auth=per_user
+
+# The Swift user name (use only if backup_swift_auth is set to single_user)
+#backup_swift_user=username
+
+# The Swift password (use only if backup_swift_auth is set to single_user)
+#backup_swift_key=his9ZxhZuabG1rqv3vjRqOXf2/iSg4KFUZEp3net
 
 # The default Swift container to use (string value)
 #backup_swift_container=volumebackups
@@ -337,6 +361,29 @@
 # Compression algorithm (None to disable) (string value)
 #backup_compression_algorithm=zlib
 
+
+#
+# Options defined in cinder.backup.services.ceph
+#
+
+# The configration file to use for the backup cluster (string value)
+#backup_ceph_conf=/etc/ceph/ceph.conf
+
+# The Ceph user with permissions to access the backup pool (string value)
+#backup_ceph_user=cinder
+
+# The RADOS pool in which volume backups are stored (string value)
+#backup_ceph_pool=backups
+
+# The RBD stripe unit to use when creating a backup image (integer value)
+#backup_ceph_stripe_unit=0
+
+# The RBD stripe count to use when creating a backup image (integer value)
+#backup_ceph_stripe_count=0
+
+# The chunk size used to break up the data when transferring to Ceph object
+# store.
+#backup_ceph_chunk_size=134217728
 
 #
 # Options defined in cinder.db.api
@@ -808,6 +855,27 @@
 # value)
 #volume_backend_name=<None>
 
+# Do we attach/detach volumes in cinder using multipath
+# for volume to image and image to volume transfers?
+# (boolean value)
+#use_multipath_for_image_xfer=False
+
+
+#
+# Options defined in cinder.volume.drivers.block_device
+#
+
+# List of all available devices (list value)
+#available_devices=
+
+# Size in MiB to wipe at start of old volumes. 0 => all
+# (integer value)
+#volume_clear_size=0
+
+# Method used to wipe old volumes (valid options are: none,
+# zero, shred) (string value)
+#volume_clear=zero
+
 
 #
 # Options defined in cinder.volume.drivers.coraid
@@ -1075,6 +1143,8 @@
 # does not write them directly to the volume (string value)
 #volume_tmp_dir=<None>
 
+# Flatten images created from snapshots (to remove dependency)
+#rbd_flatten_volume_from_snapshot=False
 
 #
 # Options defined in cinder.volume.drivers.san.hp.hp_3par_common
@@ -1090,7 +1160,7 @@
 # 3PAR Super user password (string value)
 #hp3par_password=
 
-# The 3par domain name to use (string value)
+# The 3par domain name to use (string value)-DEPRECATED
 #hp3par_domain=OpenStack
 
 # The CPG to use for volume creation (string value)
@@ -1110,6 +1180,9 @@
 
 # Enable HTTP debugging to 3PAR (boolean value)
 #hp3par_debug=false
+
+#List of target iSCSI addresses to use (list value)
+#hp3par_iscsi_ips=
 
 
 #
@@ -1315,6 +1388,14 @@
 
 
 #
+# options for cinder.volumes.drivers.hds.hds.HUSDriver
+#
+
+# default configuration file location/name is (string) :
+# hds_cinder_config_file=/opt/hds/hus/cinder_hds_conf.xml
+
+
+#
 # Options defined in cinder.volume.iscsi
 #
 
@@ -1344,5 +1425,36 @@
 # Driver to use for volume creation (string value)
 #volume_driver=cinder.volume.drivers.lvm.LVMISCSIDriver
 
+#
+# Options defined in cinder.volume.drivers.gpfs
+#
 
-# Total option count: 299
+# Path to the directory on GPFS mount point where
+# volumes are stored (string value)
+# gpfs_mount_point_base=$state_path/mnt
+
+# Path to GPFS Glance repository as mounted on
+# Nova nodes (string value)
+# gpfs_images_dir=None
+
+# Set this if Glance image repo is on GPFS as well
+# so that the image bits can be transferred efficiently
+# between Glance and Cinder.  Valid values are copy or
+# copy_on_write. copy performs a full copy of the image,
+# copy_on_write efficiently shares unmodified blocks of
+# the image. (string value)
+# gpfs_images_share_mode=None
+
+# A lengthy chain of copy-on-write snapshots or clones
+# could have impact on performance.  This option limits
+# the number of indirections required to reach a specific
+# block. 0 indicates unlimited. (integer value)
+# gpfs_max_clone_depth=0
+
+# Create volumes as sparse files which take no space.
+# If set to False volume is created as regular file.
+# In this case volume creation may take a significantly
+# longer time. (boolean value)
+# gpfs_sparse_volumes=True
+
+# Total option count: 305

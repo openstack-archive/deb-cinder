@@ -27,29 +27,38 @@ continue attempting to launch the rest of the services.
 
 """
 
+
 import eventlet
+
 eventlet.monkey_patch()
 
 import os
 import sys
 
+from oslo.config import cfg
 
-possible_topdir = os.path.normpath(os.path.join(os.path.abspath(
-        sys.argv[0]), os.pardir, os.pardir))
+possible_topdir = os.path.normpath(os.path.join(os.path.abspath(sys.argv[0]),
+                                   os.pardir,
+                                   os.pardir))
 if os.path.exists(os.path.join(possible_topdir, "cinder", "__init__.py")):
     sys.path.insert(0, possible_topdir)
 
 from cinder.openstack.common import gettextutils
 gettextutils.install('cinder')
 
-from cinder import flags
+from cinder.common import config  # Need to register global_opts
 from cinder.openstack.common import log as logging
 from cinder import service
 from cinder import utils
+from cinder import version
+
+
+CONF = cfg.CONF
 
 
 if __name__ == '__main__':
-    flags.parse_args(sys.argv)
+    CONF(sys.argv[1:], project='cinder',
+         version=version.version_string())
     logging.setup("cinder")
     LOG = logging.getLogger('cinder.all')
 

@@ -59,6 +59,9 @@ volume_opts = [
 
 VERSION = '1.1'
 
+CONF = cfg.CONF
+CONF.register_opts(volume_opts)
+
 
 class RemoteFsDriver(driver.VolumeDriver):
     """Common base for drivers that work like NFS."""
@@ -75,7 +78,8 @@ class RemoteFsDriver(driver.VolumeDriver):
 
     def delete_snapshot(self, snapshot):
         """Do nothing for this driver, but allow manager to handle deletion
-           of snapshot in error state."""
+           of snapshot in error state.
+        """
         pass
 
     def ensure_export(self, ctx, volume):
@@ -88,7 +92,8 @@ class RemoteFsDriver(driver.VolumeDriver):
 
     def _create_regular_file(self, path, size):
         """Creates regular file of given size. Takes a lot of time for large
-        files."""
+        files.
+        """
 
         block_size_mb = 1
         block_count = size * units.GiB / (block_size_mb * units.MiB)
@@ -112,7 +117,8 @@ class RemoteFsDriver(driver.VolumeDriver):
 
     def _get_hash_str(self, base_str):
         """returns string that represents hash of base_str
-        (in a hex format)."""
+        (in a hex format).
+        """
         return hashlib.md5(base_str).hexdigest()
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
@@ -121,6 +127,23 @@ class RemoteFsDriver(driver.VolumeDriver):
                                  image_service,
                                  image_id,
                                  self.local_path(volume))
+
+        # NOTE (leseb): Set the virtual size of the image
+        # the raw conversion overwrote the destination file
+        # (which had the correct size)
+        # with the fetched glance image size,
+        # thus the initial 'size' parameter is not honored
+        # this sets the size to the one asked in the first place by the user
+        # and then verify the final virtual size
+        image_utils.resize_image(self.local_path(volume), volume['size'])
+
+        data = image_utils.qemu_img_info(self.local_path(volume))
+        virt_size = data.virtual_size / units.GiB
+        if virt_size != volume['size']:
+            raise exception.ImageUnacceptable(
+                image_id=image_id,
+                reason=(_("Expected volume size was %d") % volume['size'])
+                + (_(" but size is now %d") % virt_size))
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
@@ -152,7 +175,7 @@ class RemoteFsDriver(driver.VolumeDriver):
             # results in share_info =
             #  [ 'address:/vol', '-o options=123,rw --other' ]
 
-            share_address = share_info[0].strip()
+            share_address = share_info[0].strip().decode('unicode_escape')
             share_opts = share_info[1].strip() if len(share_info) > 1 else None
 
             self.shares[share_address] = share_opts
@@ -165,7 +188,8 @@ class RemoteFsDriver(driver.VolumeDriver):
 
 class NfsDriver(RemoteFsDriver):
     """NFS based cinder driver. Creates file on NFS share for using it
-    as block device on hypervisor."""
+    as block device on hypervisor.
+    """
     def __init__(self, *args, **kwargs):
         super(NfsDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
@@ -181,7 +205,8 @@ class NfsDriver(RemoteFsDriver):
             LOG.warn(msg)
             raise exception.NfsException(msg)
         if not os.path.exists(config):
-            msg = _("NFS config file at %(config)s doesn't exist") % locals()
+            msg = (_("NFS config file at %(config)s doesn't exist") %
+                   {'config': config})
             LOG.warn(msg)
             raise exception.NfsException(msg)
         if not self.configuration.nfs_oversub_ratio > 0:
@@ -192,7 +217,7 @@ class NfsDriver(RemoteFsDriver):
             raise exception.NfsException(msg)
 
         if ((not self.configuration.nfs_used_ratio > 0) and
-                 (self.configuration.nfs_used_ratio <= 1)):
+                (self.configuration.nfs_used_ratio <= 1)):
             msg = _("NFS config 'nfs_used_ratio' invalid.  Must be > 0 "
                     "and <= 1.0: %s") % self.configuration.nfs_used_ratio
             LOG.error(msg)
@@ -244,7 +269,8 @@ class NfsDriver(RemoteFsDriver):
 
     def create_export(self, ctx, volume):
         """Exports the volume. Can optionally return a Dictionary of changes
-        to the volume object to be persisted."""
+        to the volume object to be persisted.
+        """
         pass
 
     def remove_export(self, ctx, volume):
@@ -290,7 +316,7 @@ class NfsDriver(RemoteFsDriver):
             try:
                 self._ensure_share_mounted(share)
                 self._mounted_shares.append(share)
-            except Exception, exc:
+            except Exception as exc:
                 LOG.warning(_('Exception during mounting %s') % (exc,))
 
         LOG.debug('Available shares %s' % str(self._mounted_shares))
@@ -330,6 +356,8 @@ class NfsDriver(RemoteFsDriver):
         for nfs_share in self._mounted_shares:
             total_size, total_available, total_allocated = \
                 self._get_capacity_info(nfs_share)
+            apparent_size = max(0, total_size * oversub_ratio)
+            apparent_available = max(0, apparent_size - total_allocated)
             used = (total_size - total_available) / total_size
             if used > used_ratio:
                 # NOTE(morganfainberg): We check the used_ratio first since
@@ -339,17 +367,9 @@ class NfsDriver(RemoteFsDriver):
                 # target.
                 LOG.debug(_('%s is above nfs_used_ratio'), nfs_share)
                 continue
-            if oversub_ratio >= 1.0:
-                # NOTE(morganfainberg): If we are setup for oversubscription
-                # we need to calculate the apparent available space instead
-                # of just using the _actual_ available space.
-                if (total_available * oversub_ratio) < requested_volume_size:
-                    LOG.debug(_('%s is above nfs_oversub_ratio'), nfs_share)
-                    continue
-            elif total_available <= requested_volume_size:
+            if apparent_available <= requested_volume_size:
                 LOG.debug(_('%s is above nfs_oversub_ratio'), nfs_share)
                 continue
-
             if total_allocated / total_size >= oversub_ratio:
                 LOG.debug(_('%s reserved space is above nfs_oversub_ratio'),
                           nfs_share)
@@ -384,11 +404,11 @@ class NfsDriver(RemoteFsDriver):
         """
         mount_point = self._get_mount_point_for_share(nfs_share)
 
-        df, _ = self._execute('df', '-P', '-B', '1', mount_point,
+        df, _ = self._execute('stat', '-f', '-c', '%S %b %a', mount_point,
                               run_as_root=True)
-        df = df.splitlines()[1]
-        total_available = float(df.split()[3])
-        total_size = float(df.split()[1])
+        block_size, blocks_total, blocks_avail = map(float, df.split())
+        total_available = block_size * blocks_avail
+        total_size = block_size * blocks_total
 
         du, _ = self._execute('du', '-sb', '--apparent-size', '--exclude',
                               '*snapshot*', mount_point, run_as_root=True)
@@ -418,7 +438,8 @@ class NfsDriver(RemoteFsDriver):
     def get_volume_stats(self, refresh=False):
         """Get volume status.
 
-        If 'refresh' is True, run update the stats first."""
+        If 'refresh' is True, run update the stats first.
+        """
         if refresh or not self._stats:
             self._update_volume_status()
 

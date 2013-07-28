@@ -17,21 +17,19 @@
 
 
 import datetime
-import random
-import time
 
 import glanceclient.exc
+from glanceclient.v2.client import Client as glanceclient_v2
+from oslo.config import cfg
 
 from cinder import context
 from cinder import exception
-from cinder import flags
 from cinder.image import glance
 from cinder import test
 from cinder.tests.glance import stubs as glance_stubs
-from glanceclient.v2.client import Client as glanceclient_v2
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 
 class NullWriter(object):
@@ -78,8 +76,7 @@ class TestGlanceSerializer(test.TestCase):
 
 
 class TestGlanceImageService(test.TestCase):
-    """
-    Tests the Glance image service.
+    """Tests the Glance image service.
 
     At a high level, the translations involved are:
 
@@ -110,7 +107,7 @@ class TestGlanceImageService(test.TestCase):
         self.stubs.Set(glance.time, 'sleep', lambda s: None)
 
     def _create_image_service(self, client):
-        def _fake_create_glance_client(context, host, port, use_ssl, version):
+        def _fake_create_glance_client(context, netloc, use_ssl, version):
             return client
 
         self.stubs.Set(glance,
@@ -166,7 +163,8 @@ class TestGlanceImageService(test.TestCase):
         self.assertDictMatch(image_metas[0], expected)
 
     def test_create_without_instance_id(self):
-        """
+        """Test Creating images without instance_id.
+
         Ensure we can create an image without having to specify an
         instance_id. Public images are an example of an image not tied to an
         instance.
@@ -538,23 +536,36 @@ class TestGlanceImageService(test.TestCase):
         (service, same_id) = glance.get_remote_image_service(self.context,
                                                              image_url)
         self.assertEquals(same_id, image_id)
-        self.assertEquals(service._client.host,
+        self.assertEquals(service._client.netloc,
                           'something-less-likely')
+        for ipv6_url in ('[::1]', '::1', '[::1]:444'):
+            image_url = 'http://%s/%s' % (ipv6_url, image_id)
+            (service, same_id) = glance.get_remote_image_service(self.context,
+                                                                 image_url)
+            self.assertEquals(same_id, image_id)
+            self.assertEquals(service._client.netloc, ipv6_url)
 
 
 class TestGlanceClientVersion(test.TestCase):
-    """Tests the version of the glance client generated"""
+    """Tests the version of the glance client generated."""
     def setUp(self):
         super(TestGlanceClientVersion, self).setUp()
 
-        def fake_get_image_model(self):
+        def fake_get_model(self):
             return
 
         self.stubs.Set(glanceclient_v2, '_get_image_model',
-                       fake_get_image_model)
+                       fake_get_model)
+
+        try:
+            self.stubs.Set(glanceclient_v2, '_get_member_model',
+                           fake_get_model)
+        except AttributeError:
+            # method requires stubbing only with newer glanceclients.
+            pass
 
     def test_glance_version_by_flag(self):
-        """Test glance version set by flag is honoured"""
+        """Test glance version set by flag is honoured."""
         client_wrapper_v1 = glance.GlanceClientWrapper('fake', 'fake_host',
                                                        9292)
         self.assertEquals(client_wrapper_v1.client.__module__,
@@ -564,7 +575,7 @@ class TestGlanceClientVersion(test.TestCase):
                                                        9292)
         self.assertEquals(client_wrapper_v2.client.__module__,
                           'glanceclient.v2.client')
-        FLAGS.reset()
+        CONF.reset()
 
     def test_glance_version_by_arg(self):
         """Test glance version set by arg to GlanceClientWrapper"""

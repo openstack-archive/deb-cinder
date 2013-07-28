@@ -13,9 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+
 import datetime
 
 from lxml import etree
+from oslo.config import cfg
 import webob
 
 from cinder.api import extensions
@@ -23,7 +25,6 @@ from cinder.api.v2 import volumes
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder import flags
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
@@ -31,7 +32,8 @@ from cinder.tests.image import fake as fake_image
 from cinder.volume import api as volume_api
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
+
 NS = '{http://docs.openstack.org/api/openstack-volume/2.0/content}'
 
 TEST_SNAPSHOT_UUID = '00000000-0000-0000-0000-000000000001'
@@ -65,6 +67,8 @@ class VolumeApiTest(test.TestCase):
                        stubs.stub_volume_get_all_by_project)
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
+        self.stubs.Set(db, 'service_get_all_by_topic',
+                       stubs.stub_service_get_all_by_topic)
         self.maxDiff = None
 
     def test_volume_create(self):
@@ -98,9 +102,10 @@ class VolumeApiTest(test.TestCase):
         self.assertEqual(res_dict, expected)
 
     def test_volume_create_with_type(self):
-        vol_type = db.volume_type_create(context.get_admin_context(),
-                                         dict(name=FLAGS.default_volume_type,
-                                              extra_specs={}))
+        vol_type = db.volume_type_create(
+            context.get_admin_context(),
+            dict(name=CONF.default_volume_type, extra_specs={})
+        )
 
         db_vol_type = db.volume_type_get(context.get_admin_context(),
                                          vol_type.id)
@@ -136,6 +141,17 @@ class VolumeApiTest(test.TestCase):
                           self.controller.create,
                           req,
                           body)
+
+    def test_volume_creation_fails_with_bad_availability_zone(self):
+        vol = {"size": '1',
+               "name": "Volume Test Name",
+               "description": "Volume Test Desc",
+               "availability_zone": "zonen:hostn"}
+        body = {"volume": vol}
+        req = fakes.HTTPRequest.blank('/v2/volumes')
+        self.assertRaises(exception.InvalidInput,
+                          self.controller.create,
+                          req, body)
 
     def test_volume_create_with_image_id(self):
         self.stubs.Set(volume_api.API, "create", stubs.stub_volume_create)
@@ -219,9 +235,11 @@ class VolumeApiTest(test.TestCase):
                         'id': '1',
                         'volume_id': '1',
                         'server_id': 'fakeuuid',
+                        'host_name': None,
                         'device': '/',
                     }
                 ],
+                'user_id': 'fakeuser',
                 'volume_type': 'vol_type_name',
                 'snapshot_id': None,
                 'source_volid': None,
@@ -260,8 +278,10 @@ class VolumeApiTest(test.TestCase):
                 'id': '1',
                 'volume_id': '1',
                 'server_id': 'fakeuuid',
+                'host_name': None,
                 'device': '/',
             }],
+            'user_id': 'fakeuser',
             'volume_type': 'vol_type_name',
             'snapshot_id': None,
             'source_volid': None,
@@ -350,10 +370,12 @@ class VolumeApiTest(test.TestCase):
                         {
                             'device': '/',
                             'server_id': 'fakeuuid',
+                            'host_name': None,
                             'id': '1',
                             'volume_id': '1'
                         }
                     ],
+                    'user_id': 'fakeuser',
                     'volume_type': 'vol_type_name',
                     'snapshot_id': None,
                     'source_volid': None,
@@ -584,10 +606,12 @@ class VolumeApiTest(test.TestCase):
                     {
                         'device': '/',
                         'server_id': 'fakeuuid',
+                        'host_name': None,
                         'id': '1',
                         'volume_id': '1'
                     }
                 ],
+                'user_id': 'fakeuser',
                 'volume_type': 'vol_type_name',
                 'snapshot_id': None,
                 'source_volid': None,
@@ -624,6 +648,7 @@ class VolumeApiTest(test.TestCase):
                 'availability_zone': 'fakeaz',
                 'name': 'displayname',
                 'attachments': [],
+                'user_id': 'fakeuser',
                 'volume_type': 'vol_type_name',
                 'snapshot_id': None,
                 'source_volid': None,
@@ -657,6 +682,16 @@ class VolumeApiTest(test.TestCase):
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
         resp = self.controller.delete(req, 1)
         self.assertEqual(resp.status_int, 202)
+
+    def test_volume_delete_attached(self):
+        def stub_volume_attached(self, context, volume, force=False):
+            raise exception.VolumeAttached(volume_id=volume['id'])
+        self.stubs.Set(volume_api.API, "delete", stub_volume_attached)
+
+        req = fakes.HTTPRequest.blank('/v2/volumes/1')
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.delete,
+                          req, 1)
 
     def test_volume_delete_no_volume(self):
         self.stubs.Set(volume_api.API, "get", stubs.stub_volume_get_notfound)
@@ -953,3 +988,57 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
             },
         }
         self.assertEquals(request['body'], expected)
+
+    def test_imageref(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/api/openstack-volume/2.0/content"
+        size="1"
+        name="Volume-xml"
+        description="description"
+        imageRef="4a90189d-d702-4c7c-87fc-6608c554d737"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "name": "Volume-xml",
+                "description": "description",
+                "imageRef": "4a90189d-d702-4c7c-87fc-6608c554d737",
+            },
+        }
+        self.assertEquals(expected, request['body'])
+
+    def test_snapshot_id(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/api/openstack-volume/2.0/content"
+        size="1"
+        name="Volume-xml"
+        description="description"
+        snapshot_id="4a90189d-d702-4c7c-87fc-6608c554d737"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "name": "Volume-xml",
+                "description": "description",
+                "snapshot_id": "4a90189d-d702-4c7c-87fc-6608c554d737",
+            },
+        }
+        self.assertEquals(expected, request['body'])
+
+    def test_source_volid(self):
+        self_request = """
+<volume xmlns="http://docs.openstack.org/api/openstack-volume/2.0/content"
+        size="1"
+        name="Volume-xml"
+        description="description"
+        source_volid="4a90189d-d702-4c7c-87fc-6608c554d737"></volume>"""
+        request = self.deserializer.deserialize(self_request)
+        expected = {
+            "volume": {
+                "size": "1",
+                "name": "Volume-xml",
+                "description": "description",
+                "source_volid": "4a90189d-d702-4c7c-87fc-6608c554d737",
+            },
+        }
+        self.assertEquals(expected, request['body'])

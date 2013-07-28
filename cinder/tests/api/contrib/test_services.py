@@ -61,9 +61,16 @@ class FakeRequest(object):
         GET = {}
 
 
-class FakeRequestWithSevice(object):
+# NOTE(uni): deprecating service request key, binary takes precedence
+# Still keeping service key here for API compability sake.
+class FakeRequestWithService(object):
         environ = {"cinder.context": context.get_admin_context()}
         GET = {"service": "cinder-volume"}
+
+
+class FakeRequestWithBinary(object):
+        environ = {"cinder.context": context.get_admin_context()}
+        GET = {"binary": "cinder-volume"}
 
 
 class FakeRequestWithHost(object):
@@ -71,12 +78,19 @@ class FakeRequestWithHost(object):
         GET = {"host": "host1"}
 
 
+# NOTE(uni): deprecating service request key, binary takes precedence
+# Still keeping service key here for API compability sake.
 class FakeRequestWithHostService(object):
         environ = {"cinder.context": context.get_admin_context()}
         GET = {"host": "host1", "service": "cinder-volume"}
 
 
-def fake_servcie_get_all(context):
+class FakeRequestWithHostBinary(object):
+        environ = {"cinder.context": context.get_admin_context()}
+        GET = {"host": "host1", "binary": "cinder-volume"}
+
+
+def fake_service_get_all(context):
     return fake_services_list
 
 
@@ -116,7 +130,7 @@ class ServicesTest(test.TestCase):
     def setUp(self):
         super(ServicesTest, self).setUp()
 
-        self.stubs.Set(db, "service_get_all", fake_servcie_get_all)
+        self.stubs.Set(db, "service_get_all", fake_service_get_all)
         self.stubs.Set(timeutils, "utcnow", fake_utcnow)
         self.stubs.Set(db, "service_get_by_args",
                        fake_service_get_by_host_binary)
@@ -143,11 +157,11 @@ class ServicesTest(test.TestCase):
                      'updated_at': datetime(2012, 10, 29, 13, 42, 5)},
                     {'binary': 'cinder-scheduler', 'host': 'host2',
                      'zone': 'cinder',
-                     'status': 'enabled', 'state': 'up',
+                     'status': 'enabled', 'state': 'down',
                      'updated_at': datetime(2012, 9, 19, 6, 55, 34)},
                     {'binary': 'cinder-volume', 'host': 'host2',
                      'zone': 'cinder',
-                     'status': 'disabled', 'state': 'up',
+                     'status': 'disabled', 'state': 'down',
                      'updated_at': datetime(2012, 9, 18, 8, 3, 38)}]}
         self.assertEqual(res_dict, response)
 
@@ -169,7 +183,7 @@ class ServicesTest(test.TestCase):
         self.assertEqual(res_dict, response)
 
     def test_services_list_with_service(self):
-        req = FakeRequestWithSevice()
+        req = FakeRequestWithService()
         res_dict = self.controller.index(req)
 
         response = {'services': [{'binary': 'cinder-volume',
@@ -183,7 +197,27 @@ class ServicesTest(test.TestCase):
                                   'host': 'host2',
                                   'zone': 'cinder',
                                   'status': 'disabled',
+                                  'state': 'down',
+                                  'updated_at': datetime(2012, 9, 18,
+                                                         8, 3, 38)}]}
+        self.assertEqual(res_dict, response)
+
+    def test_services_list_with_binary(self):
+        req = FakeRequestWithBinary()
+        res_dict = self.controller.index(req)
+
+        response = {'services': [{'binary': 'cinder-volume',
+                                  'host': 'host1',
+                                  'zone': 'cinder',
+                                  'status': 'disabled',
                                   'state': 'up',
+                                  'updated_at': datetime(2012, 10, 29,
+                                                         13, 42, 5)},
+                                 {'binary': 'cinder-volume',
+                                  'host': 'host2',
+                                  'zone': 'cinder',
+                                  'status': 'disabled',
+                                  'state': 'down',
                                   'updated_at': datetime(2012, 9, 18,
                                                          8, 3, 38)}]}
         self.assertEqual(res_dict, response)
@@ -201,16 +235,43 @@ class ServicesTest(test.TestCase):
                                                          13, 42, 5)}]}
         self.assertEqual(res_dict, response)
 
-    def test_services_enable(self):
+    def test_services_list_with_host_binary(self):
+        req = FakeRequestWithHostBinary()
+        res_dict = self.controller.index(req)
+
+        response = {'services': [{'binary': 'cinder-volume',
+                                  'host': 'host1',
+                                  'zone': 'cinder',
+                                  'status': 'disabled',
+                                  'state': 'up',
+                                  'updated_at': datetime(2012, 10, 29,
+                                                         13, 42, 5)}]}
+        self.assertEqual(res_dict, response)
+
+    def test_services_enable_with_service_key(self):
         body = {'host': 'host1', 'service': 'cinder-volume'}
         req = fakes.HTTPRequest.blank('/v1/fake/os-services/enable')
         res_dict = self.controller.update(req, "enable", body)
 
-        self.assertEqual(res_dict['disabled'], False)
+        self.assertEqual(res_dict['status'], 'enabled')
 
-    def test_services_disable(self):
+    def test_services_enable_with_binary_key(self):
+        body = {'host': 'host1', 'binary': 'cinder-volume'}
+        req = fakes.HTTPRequest.blank('/v1/fake/os-services/enable')
+        res_dict = self.controller.update(req, "enable", body)
+
+        self.assertEqual(res_dict['status'], 'enabled')
+
+    def test_services_disable_with_service_key(self):
         req = fakes.HTTPRequest.blank('/v1/fake/os-services/disable')
         body = {'host': 'host1', 'service': 'cinder-volume'}
         res_dict = self.controller.update(req, "disable", body)
 
-        self.assertEqual(res_dict['disabled'], True)
+        self.assertEqual(res_dict['status'], 'disabled')
+
+    def test_services_disable_with_binary_key(self):
+        req = fakes.HTTPRequest.blank('/v1/fake/os-services/disable')
+        body = {'host': 'host1', 'binary': 'cinder-volume'}
+        res_dict = self.controller.update(req, "disable", body)
+
+        self.assertEqual(res_dict['status'], 'disabled')

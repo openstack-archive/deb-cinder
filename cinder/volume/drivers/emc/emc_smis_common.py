@@ -29,12 +29,11 @@ from oslo.config import cfg
 from xml.dom.minidom import parseString
 
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 try:
     import pywbem
@@ -62,7 +61,7 @@ class EMCSMISCommon():
                          default=CINDER_EMC_CONFIG_FILE,
                          help='use this file for cinder emc plugin '
                          'config data')
-        FLAGS.register_opt(opt)
+        CONF.register_opt(opt)
         self.protocol = prtcl
         self.configuration = configuration
         self.configuration.append_config_values([opt])
@@ -101,7 +100,7 @@ class EMCSMISCommon():
                      'storage_system': storage_system})
 
         configservice = self._find_storage_configuration_service(
-                            storage_system)
+            storage_system)
         if configservice is None:
             exception_message = (_("Error Create Volume: %(volumename)s. "
                                  "Storage Configuration Service not found for "
@@ -121,10 +120,10 @@ class EMCSMISCommon():
                      'size': volumesize})
 
         rc, job = self.conn.InvokeMethod(
-                    'CreateOrModifyElementFromStoragePool',
-                    configservice, ElementName=volumename, InPool=pool,
-                    ElementType=self._getnum(5, '16'),
-                    Size=self._getnum(volumesize, '64'))
+            'CreateOrModifyElementFromStoragePool',
+            configservice, ElementName=volumename, InPool=pool,
+            ElementType=self._getnum(5, '16'),
+            Size=self._getnum(volumesize, '64'))
 
         LOG.debug(_('Create Volume: %(volumename)s  Return code: %(rc)lu')
                   % {'volumename': volumename,
@@ -206,10 +205,10 @@ class EMCSMISCommon():
 
         # Create a Clone from snapshot
         rc, job = self.conn.InvokeMethod(
-                    'CreateElementReplica', repservice,
-                    ElementName=volumename,
-                    SyncType=self._getnum(8, '16'),
-                    SourceElement=snapshot_instance.path)
+            'CreateElementReplica', repservice,
+            ElementName=volumename,
+            SyncType=self._getnum(8, '16'),
+            SourceElement=snapshot_instance.path)
 
         if rc != 0L:
             rc, errordesc = self._wait_for_job_complete(job)
@@ -248,13 +247,13 @@ class EMCSMISCommon():
                      'sync_name': str(sync_name)})
 
         rc, job = self.conn.InvokeMethod(
-                    'ModifyReplicaSynchronization',
-                    repservice,
-                    Operation=self._getnum(8, '16'),
-                    Synchronization=sync_name)
+            'ModifyReplicaSynchronization',
+            repservice,
+            Operation=self._getnum(8, '16'),
+            Synchronization=sync_name)
 
         LOG.debug(_('Create Volume from Snapshot: Volume: %(volumename)s  '
-                  'Snapshot: %(snapshotname)s  Return code: %(rc)lu')
+                    'Snapshot: %(snapshotname)s  Return code: %(rc)lu')
                   % {'volumename': volumename,
                      'snapshotname': snapshotname,
                      'rc': rc})
@@ -330,10 +329,10 @@ class EMCSMISCommon():
 
         # Create a Clone from source volume
         rc, job = self.conn.InvokeMethod(
-                    'CreateElementReplica', repservice,
-                    ElementName=volumename,
-                    SyncType=self._getnum(8, '16'),
-                    SourceElement=src_instance.path)
+            'CreateElementReplica', repservice,
+            ElementName=volumename,
+            SyncType=self._getnum(8, '16'),
+            SourceElement=src_instance.path)
 
         if rc != 0L:
             rc, errordesc = self._wait_for_job_complete(job)
@@ -372,10 +371,10 @@ class EMCSMISCommon():
                      'sync_name': str(sync_name)})
 
         rc, job = self.conn.InvokeMethod(
-                    'ModifyReplicaSynchronization',
-                    repservice,
-                    Operation=self._getnum(8, '16'),
-                    Synchronization=sync_name)
+            'ModifyReplicaSynchronization',
+            repservice,
+            Operation=self._getnum(8, '16'),
+            Synchronization=sync_name)
 
         LOG.debug(_('Create Cloned Volume: Volume: %(volumename)s  '
                   'Source Volume: %(srcname)s  Return code: %(rc)lu')
@@ -423,8 +422,8 @@ class EMCSMISCommon():
 
         storage_system = vol_instance['SystemName']
 
-        configservice = self._find_storage_configuration_service(
-                        storage_system)
+        configservice =\
+            self._find_storage_configuration_service(storage_system)
         if configservice is None:
             exception_message = (_("Error Delete Volume: %(volumename)s. "
                                  "Storage Configuration Service not found.")
@@ -444,9 +443,10 @@ class EMCSMISCommon():
                      'name': volumename,
                      'vol_instance': str(vol_instance.path)})
 
-        rc, job = self.conn.InvokeMethod(
-                    'EMCReturnToStoragePool',
-                    configservice, TheElements=[vol_instance.path])
+        rc, job =\
+            self.conn.InvokeMethod('EMCReturnToStoragePool',
+                                   configservice,
+                                   TheElements=[vol_instance.path])
 
         if rc != 0L:
             rc, errordesc = self._wait_for_job_complete(job)
@@ -507,11 +507,11 @@ class EMCSMISCommon():
                      'elementname': snapshotname,
                      'sourceelement': str(vol_instance.path)})
 
-        rc, job = self.conn.InvokeMethod(
-                    'CreateElementReplica', repservice,
-                    ElementName=snapshotname,
-                    SyncType=self._getnum(7, '16'),
-                    SourceElement=vol_instance.path)
+        rc, job =\
+            self.conn.InvokeMethod('CreateElementReplica', repservice,
+                                   ElementName=snapshotname,
+                                   SyncType=self._getnum(7, '16'),
+                                   SourceElement=vol_instance.path)
 
         LOG.debug(_('Create Snapshot: Volume: %(volumename)s  '
                   'Snapshot: %(snapshotname)s  Return code: %(rc)lu')
@@ -551,8 +551,8 @@ class EMCSMISCommon():
                   % {'snapshot': snapshotname,
                      'volume': volumename})
 
-        sync_name, storage_system = self._find_storage_sync_sv_sv(
-                                    snapshotname, volumename, False)
+        sync_name, storage_system =\
+            self._find_storage_sync_sv_sv(snapshotname, volumename, False)
         if sync_name is None:
             LOG.error(_('Snapshot: %(snapshot)s: volume: %(volume)s '
                       'not found on the array. No snapshot to delete.')
@@ -579,11 +579,11 @@ class EMCSMISCommon():
                      'service': str(repservice),
                      'sync_name': str(sync_name)})
 
-        rc, job = self.conn.InvokeMethod(
-                    'ModifyReplicaSynchronization',
-                    repservice,
-                    Operation=self._getnum(19, '16'),
-                    Synchronization=sync_name)
+        rc, job =\
+            self.conn.InvokeMethod('ModifyReplicaSynchronization',
+                                   repservice,
+                                   Operation=self._getnum(19, '16'),
+                                   Synchronization=sync_name)
 
         LOG.debug(_('Delete Snapshot: Volume: %(volumename)s  Snapshot: '
                   '%(snapshotname)s  Return code: %(rc)lu')
@@ -652,21 +652,21 @@ class EMCSMISCommon():
                      'initiator': initiators})
 
         if lunmask_ctrl is None:
-            rc, controller = self.conn.InvokeMethod(
-                                'ExposePaths',
-                                configservice, LUNames=[lun_name],
-                                InitiatorPortIDs=initiators,
-                                DeviceAccesses=[self._getnum(2, '16')])
+            rc, controller =\
+                self.conn.InvokeMethod('ExposePaths',
+                                       configservice, LUNames=[lun_name],
+                                       InitiatorPortIDs=initiators,
+                                       DeviceAccesses=[self._getnum(2, '16')])
         else:
             LOG.debug(_('ExposePaths parameter '
                       'LunMaskingSCSIProtocolController: '
                       '%(lunmasking)s')
                       % {'lunmasking': str(lunmask_ctrl)})
-            rc, controller = self.conn.InvokeMethod(
-                                'ExposePaths',
-                                configservice, LUNames=[lun_name],
-                                DeviceAccesses=[self._getnum(2, '16')],
-                                ProtocolControllers=[lunmask_ctrl])
+            rc, controller =\
+                self.conn.InvokeMethod('ExposePaths',
+                                       configservice, LUNames=[lun_name],
+                                       DeviceAccesses=[self._getnum(2, '16')],
+                                       ProtocolControllers=[lunmask_ctrl])
 
         if rc != 0L:
             msg = (_('Error mapping volume %s.') % volumename)
@@ -725,9 +725,11 @@ class EMCSMISCommon():
                      'masking_group': str(masking_group),
                      'vol': str(vol_instance.path)})
 
-        rc, job = self.conn.InvokeMethod(
-                    'AddMembers', configservice,
-                    MaskingGroup=masking_group, Members=[vol_instance.path])
+        rc, job =\
+            self.conn.InvokeMethod('AddMembers',
+                                   configservice,
+                                   MaskingGroup=masking_group,
+                                   Members=[vol_instance.path])
 
         if rc != 0L:
             rc, errordesc = self._wait_for_job_complete(job)
@@ -865,7 +867,7 @@ class EMCSMISCommon():
 
     def _get_storage_type(self, filename=None):
         """Get the storage type from the config file."""
-        if filename == None:
+        if filename is None:
             filename = self.configuration.cinder_emc_config_file
 
         file = open(filename, 'r')
@@ -885,7 +887,7 @@ class EMCSMISCommon():
             raise exception.VolumeBackendAPIException(data=exception_message)
 
     def _get_masking_view(self, filename=None):
-        if filename == None:
+        if filename is None:
             filename = self.configuration.cinder_emc_config_file
 
         file = open(filename, 'r')
@@ -903,7 +905,7 @@ class EMCSMISCommon():
             return None
 
     def _get_ecom_cred(self, filename=None):
-        if filename == None:
+        if filename is None:
             filename = self.configuration.cinder_emc_config_file
 
         file = open(filename, 'r')
@@ -925,7 +927,7 @@ class EMCSMISCommon():
             return None
 
     def _get_ecom_server(self, filename=None):
-        if filename == None:
+        if filename is None:
             filename = self.configuration.cinder_emc_config_file
 
         file = open(filename, 'r')
@@ -941,7 +943,8 @@ class EMCSMISCommon():
             ecomPort = ecomPorts[0].toxml().replace('<EcomServerPort>', '')
             ecomPort = ecomPort.replace('</EcomServerPort>', '')
         if ecomIp is not None and ecomPort is not None:
-            LOG.debug(_("Ecom IP: %(ecomIp)s Port: %(ecomPort)s") % (locals()))
+            LOG.debug(_("Ecom IP: %(ecomIp)s Port: %(ecomPort)s"),
+                      {'ecomIp': ecomIp, 'ecomPort': ecomPort})
             return ecomIp, ecomPort
         else:
             LOG.debug(_("Ecom server not found."))
@@ -1220,9 +1223,9 @@ class EMCSMISCommon():
         for ctrl in controllers:
             if storage_system != ctrl['SystemName']:
                 continue
-            associators = self.conn.Associators(
-                            ctrl,
-                            resultClass='EMC_StorageHardwareID')
+            associators =\
+                self.conn.Associators(ctrl,
+                                      resultClass='EMC_StorageHardwareID')
             for assoc in associators:
                 # if EMC_StorageHardwareID matches the initiator,
                 # we found the existing EMC_LunMaskingSCSIProtocolController
@@ -1254,14 +1257,16 @@ class EMCSMISCommon():
                                                           connector):
         foundCtrl = None
         initiators = self._find_initiator_names(connector)
-        controllers = self.conn.AssociatorNames(
-                        vol_instance.path,
-                        resultClass='EMC_LunMaskingSCSIProtocolController')
+        controllers =\
+            self.conn.AssociatorNames(
+                vol_instance.path,
+                resultClass='EMC_LunMaskingSCSIProtocolController')
 
         for ctrl in controllers:
-            associators = self.conn.Associators(
-                            ctrl,
-                            resultClass='EMC_StorageHardwareID')
+            associators =\
+                self.conn.Associators(
+                    ctrl,
+                    resultClass='EMC_StorageHardwareID')
             for assoc in associators:
                 # if EMC_StorageHardwareID matches the initiator,
                 # we found the existing EMC_LunMaskingSCSIProtocolController
@@ -1310,7 +1315,7 @@ class EMCSMISCommon():
                      'connector': connector,
                      'ctrl': str(ctrl)})
 
-        associators = conn.Associators(
+        associators = self.conn.Associators(
             ctrl,
             resultClass='EMC_StorageVolume')
 
@@ -1370,8 +1375,8 @@ class EMCSMISCommon():
             pass
 
         unitnames = self.conn.ReferenceNames(
-                        vol_instance.path,
-                        ResultClass='CIM_ProtocolControllerForUnit')
+            vol_instance.path,
+            ResultClass='CIM_ProtocolControllerForUnit')
 
         for unitname in unitnames:
             controller = unitname['Antecedent']
@@ -1451,7 +1456,7 @@ class EMCSMISCommon():
                 sp = idarray[2]
 
             if (storage_system == storsystemname and
-                owningsp == sp):
+                    owningsp == sp):
                 foundSystem = system
                 LOG.debug(_("Found Storage Processor System: %s")
                           % (str(system)))

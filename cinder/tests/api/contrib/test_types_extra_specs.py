@@ -21,6 +21,7 @@ from lxml import etree
 import webob
 
 from cinder.api.contrib import types_extra_specs
+from cinder import exception
 from cinder.openstack.common.notifier import api as notifier_api
 from cinder.openstack.common.notifier import test_notifier
 from cinder import test
@@ -45,13 +46,16 @@ def delete_volume_type_extra_specs(context, volume_type_id, key):
     pass
 
 
+def delete_volume_type_extra_specs_not_found(context, volume_type_id, key):
+    raise exception.VolumeTypeExtraSpecsNotFound("Not Found")
+
+
 def stub_volume_type_extra_specs():
-    specs = {
-            "key1": "value1",
-            "key2": "value2",
-            "key3": "value3",
-            "key4": "value4",
-            "key5": "value5"}
+    specs = {"key1": "value1",
+             "key2": "value2",
+             "key3": "value3",
+             "key4": "value4",
+             "key5": "value5"}
     return specs
 
 
@@ -120,6 +124,14 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
         req = fakes.HTTPRequest.blank(self.api_path + '/key5')
         self.controller.delete(req, 1, 'key5')
         self.assertEquals(len(test_notifier.NOTIFICATIONS), 1)
+
+    def test_delete_not_found(self):
+        self.stubs.Set(cinder.db, 'volume_type_extra_specs_delete',
+                       delete_volume_type_extra_specs_not_found)
+
+        req = fakes.HTTPRequest.blank(self.api_path + '/key6')
+        self.assertRaises(webob.exc.HTTPNotFound, self.controller.delete,
+                          req, 1, 'key6')
 
     def test_create(self):
         self.stubs.Set(cinder.db,

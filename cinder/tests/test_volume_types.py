@@ -16,19 +16,20 @@
 """
 Unit Tests for volume types code
 """
+
+
 import time
 
 from cinder import context
+from cinder.db.sqlalchemy import api as db_api
 from cinder.db.sqlalchemy import models
-from cinder.db.sqlalchemy import session as sql_session
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder import test
-from cinder.tests import fake_flags
+from cinder.tests import conf_fixture
 from cinder.volume import volume_types
 
-FLAGS = flags.FLAGS
+
 LOG = logging.getLogger(__name__)
 
 
@@ -75,7 +76,7 @@ class VolumeTypeTestCase(test.TestCase):
 
     def test_get_all_volume_types(self):
         """Ensures that all volume types can be retrieved."""
-        session = sql_session.get_session()
+        session = db_api.get_session()
         total_volume_types = session.query(models.VolumeTypes).count()
         vol_types = volume_types.get_all_types(self.ctxt)
         self.assertEqual(total_volume_types, len(vol_types))
@@ -83,16 +84,17 @@ class VolumeTypeTestCase(test.TestCase):
     def test_get_default_volume_type(self):
         """Ensures default volume type can be retrieved."""
         type_ref = volume_types.create(self.ctxt,
-                                       fake_flags.def_vol_type,
+                                       conf_fixture.def_vol_type,
                                        {})
         default_vol_type = volume_types.get_default_volume_type()
         self.assertEqual(default_vol_type.get('name'),
-                         fake_flags.def_vol_type)
+                         conf_fixture.def_vol_type)
 
     def test_default_volume_type_missing_in_db(self):
         """Ensures proper exception raised if default volume type
-        is not in database."""
-        session = sql_session.get_session()
+        is not in database.
+        """
+        session = db_api.get_session()
         default_vol_type = volume_types.get_default_volume_type()
         self.assertEqual(default_vol_type, {})
 

@@ -15,6 +15,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+
 import contextlib
 import mox
 import os
@@ -28,48 +29,54 @@ from cinder.openstack.common import timeutils
 from cinder import test
 from cinder.tests.image import fake as fake_image
 from cinder.tests.test_volume import DriverTestCase
+from cinder import units
 from cinder.volume import configuration as conf
-from cinder.volume.drivers.rbd import RBDDriver
-from cinder.volume.drivers.rbd import VERSION as DRIVER_VERSION
+import cinder.volume.drivers.rbd as driver
+
 
 LOG = logging.getLogger(__name__)
+
+
+CEPH_MON_DUMP = """dumped monmap epoch 1
+{ "epoch": 1,
+  "fsid": "33630410-6d93-4d66-8e42-3b953cf194aa",
+  "modified": "2013-05-22 17:44:56.343618",
+  "created": "2013-05-22 17:44:56.343618",
+  "mons": [
+        { "rank": 0,
+          "name": "a",
+          "addr": "[::1]:6789\/0"},
+        { "rank": 1,
+          "name": "b",
+          "addr": "[::1]:6790\/0"},
+        { "rank": 2,
+          "name": "c",
+          "addr": "[::1]:6791\/0"},
+        { "rank": 3,
+          "name": "d",
+          "addr": "127.0.0.1:6792\/0"},
+        { "rank": 4,
+          "name": "e",
+          "addr": "example.com:6791\/0"}],
+  "quorum": [
+        0,
+        1,
+        2]}
+"""
 
 
 class FakeImageService:
     def download(self, context, image_id, path):
         pass
 
-RADOS_DF_OUT = """
-{
-   "total_space" : "958931232",
-   "total_used" : "123906196",
-   "total_objects" : "4221",
-   "total_avail" : "787024012",
-   "pools" : [
-      {
-         "name" : "volumes",
-         "categories" : [
-            {
-               "write_bytes" : "226833",
-               "size_kb" : "17038386",
-               "read_bytes" : "221865",
-               "num_objects" : "4186",
-               "name" : "",
-               "size_bytes" : "17447306589",
-               "write_kb" : "20302730",
-               "num_object_copies" : "8372",
-               "read_kb" : "30",
-               "num_objects_unfound" : "0",
-               "num_object_clones" : "9",
-               "num_objects_missing_on_primary" : "0",
-               "num_objects_degraded" : "0"
-            }
-         ],
-         "id" : "4"
-      }
-   ]
-}
-"""
+
+class TestUtil(test.TestCase):
+    def test_ascii_str(self):
+        self.assertEqual(None, driver.ascii_str(None))
+        self.assertEqual('foo', driver.ascii_str('foo'))
+        self.assertEqual('foo', driver.ascii_str(u'foo'))
+        self.assertRaises(UnicodeEncodeError,
+                          driver.ascii_str, 'foo' + unichr(300))
 
 
 class RBDTestCase(test.TestCase):
@@ -79,17 +86,114 @@ class RBDTestCase(test.TestCase):
 
         def fake_execute(*args, **kwargs):
             return '', ''
-        self._mox = mox.Mox()
         self.configuration = mox.MockObject(conf.Configuration)
         self.configuration.volume_tmp_dir = None
         self.configuration.rbd_pool = 'rbd'
+        self.configuration.rbd_ceph_conf = None
         self.configuration.rbd_secret_uuid = None
         self.configuration.rbd_user = None
         self.configuration.append_config_values(mox.IgnoreArg())
 
-        self.driver = RBDDriver(execute=fake_execute,
-                                configuration=self.configuration)
-        self._mox.ReplayAll()
+        self.rados = self.mox.CreateMockAnything()
+        self.rbd = self.mox.CreateMockAnything()
+        self.driver = driver.RBDDriver(execute=fake_execute,
+                                       configuration=self.configuration,
+                                       rados=self.rados,
+                                       rbd=self.rbd)
+
+    def test_create_volume(self):
+        name = u'volume-00000001'
+        size = 1
+        volume = dict(name=name, size=size)
+        mock_client = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RADOSClient')
+
+        driver.RADOSClient(self.driver).AndReturn(mock_client)
+        mock_client.__enter__().AndReturn(mock_client)
+        self.rbd.RBD_FEATURE_LAYERING = 1
+        mock_rbd = self.mox.CreateMockAnything()
+        self.rbd.RBD().AndReturn(mock_rbd)
+        mock_rbd.create(mox.IgnoreArg(), str(name), size * 1024 ** 3,
+                        old_format=False,
+                        features=self.rbd.RBD_FEATURE_LAYERING)
+        mock_client.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        self.driver.create_volume(volume)
+
+    def test_delete_volume(self):
+        name = u'volume-00000001'
+        volume = dict(name=name)
+        mock_client = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RADOSClient')
+
+        driver.RADOSClient(self.driver).AndReturn(mock_client)
+        mock_client.__enter__().AndReturn(mock_client)
+        mock_rbd = self.mox.CreateMockAnything()
+        self.rbd.RBD().AndReturn(mock_rbd)
+        mock_rbd.remove(mox.IgnoreArg(), str(name))
+        mock_client.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        self.driver.delete_volume(volume)
+
+    def test_create_snapshot(self):
+        vol_name = u'volume-00000001'
+        snap_name = u'snapshot-name'
+        snapshot = dict(volume_name=vol_name, name=snap_name)
+        mock_proxy = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RBDVolumeProxy')
+
+        driver.RBDVolumeProxy(self.driver, vol_name) \
+            .AndReturn(mock_proxy)
+        mock_proxy.__enter__().AndReturn(mock_proxy)
+        mock_proxy.create_snap(str(snap_name))
+        self.rbd.RBD_FEATURE_LAYERING = 1
+        mock_proxy.protect_snap(str(snap_name))
+        mock_proxy.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        self.driver.create_snapshot(snapshot)
+
+    def test_delete_snapshot(self):
+        vol_name = u'volume-00000001'
+        snap_name = u'snapshot-name'
+        snapshot = dict(volume_name=vol_name, name=snap_name)
+        mock_proxy = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RBDVolumeProxy')
+
+        driver.RBDVolumeProxy(self.driver, vol_name) \
+            .AndReturn(mock_proxy)
+        mock_proxy.__enter__().AndReturn(mock_proxy)
+        self.rbd.RBD_FEATURE_LAYERING = 1
+        mock_proxy.unprotect_snap(str(snap_name))
+        mock_proxy.remove_snap(str(snap_name))
+        mock_proxy.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        self.driver.delete_snapshot(snapshot)
+
+    def test_create_cloned_volume(self):
+        src_name = u'volume-00000001'
+        dst_name = u'volume-00000002'
+        mock_proxy = self.mox.CreateMockAnything()
+        mock_proxy.ioctx = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RBDVolumeProxy')
+
+        driver.RBDVolumeProxy(self.driver, src_name, read_only=True) \
+            .AndReturn(mock_proxy)
+        mock_proxy.__enter__().AndReturn(mock_proxy)
+        mock_proxy.copy(mock_proxy.ioctx, str(dst_name))
+        mock_proxy.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        self.driver.create_cloned_volume(dict(name=dst_name),
+                                         dict(name=src_name))
 
     def test_good_locations(self):
         locations = ['rbd://fsid/pool/image/snap',
@@ -113,6 +217,18 @@ class RBDTestCase(test.TestCase):
     def test_cloneable(self):
         self.stubs.Set(self.driver, '_get_fsid', lambda: 'abc')
         location = 'rbd://abc/pool/image/snap'
+        mock_proxy = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RBDVolumeProxy')
+
+        driver.RBDVolumeProxy(self.driver, 'image',
+                              pool='pool',
+                              snapshot='snap',
+                              read_only=True).AndReturn(mock_proxy)
+        mock_proxy.__enter__().AndReturn(mock_proxy)
+        mock_proxy.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
         self.assertTrue(self.driver._is_cloneable(location))
 
     def test_uncloneable_different_fsid(self):
@@ -121,11 +237,18 @@ class RBDTestCase(test.TestCase):
         self.assertFalse(self.driver._is_cloneable(location))
 
     def test_uncloneable_unreadable(self):
-        def fake_exc(*args):
-            raise exception.ProcessExecutionError()
         self.stubs.Set(self.driver, '_get_fsid', lambda: 'abc')
-        self.stubs.Set(self.driver, '_execute', fake_exc)
         location = 'rbd://abc/pool/image/snap'
+        self.stubs.Set(self.rbd, 'Error', test.TestingException)
+        self.mox.StubOutWithMock(driver, 'RBDVolumeProxy')
+
+        driver.RBDVolumeProxy(self.driver, 'image',
+                              pool='pool',
+                              snapshot='snap',
+                              read_only=True).AndRaise(test.TestingException)
+
+        self.mox.ReplayAll()
+
         self.assertFalse(self.driver._is_cloneable(location))
 
     def _copy_image(self):
@@ -138,6 +261,8 @@ class RBDTestCase(test.TestCase):
         self.stubs.Set(tempfile, 'NamedTemporaryFile', fake_temp_file)
         self.stubs.Set(os.path, 'exists', lambda x: True)
         self.stubs.Set(image_utils, 'fetch_to_raw', lambda w, x, y, z: None)
+        self.stubs.Set(self.driver, 'delete_volume', lambda x: None)
+        self.stubs.Set(self.driver, '_resize', lambda x: None)
         self.driver.copy_image_to_volume(None, {'name': 'test',
                                                 'size': 1},
                                          FakeImageService(), None)
@@ -151,44 +276,186 @@ class RBDTestCase(test.TestCase):
         self._copy_image()
 
     def test_update_volume_stats(self):
-        def fake_stats(*args):
-            return RADOS_DF_OUT, ''
+        self.stubs.Set(self.driver.configuration, 'safe_get', lambda x: 'RBD')
+        mock_client = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RADOSClient')
 
-        def fake_safe_get(*args):
-            return "RBD"
+        driver.RADOSClient(self.driver).AndReturn(mock_client)
+        mock_client.__enter__().AndReturn(mock_client)
+        self.mox.StubOutWithMock(mock_client, 'cluster')
+        mock_client.cluster.get_cluster_stats().AndReturn(dict(
+            kb=1234567890,
+            kb_used=4567890,
+            kb_avail=1000000000,
+            num_objects=4683))
+        mock_client.__exit__(None, None, None).AndReturn(None)
 
-        self.stubs.Set(self.driver, '_execute', fake_stats)
-        self.stubs.Set(self.driver.configuration, 'safe_get', fake_safe_get)
+        self.mox.ReplayAll()
+
         expected = dict(
             volume_backend_name='RBD',
             vendor_name='Open Source',
-            driver_version=DRIVER_VERSION,
+            driver_version=driver.VERSION,
             storage_protocol='ceph',
-            total_capacity_gb=914,
-            free_capacity_gb=750,
+            total_capacity_gb=1177,
+            free_capacity_gb=953,
             reserved_percentage=0)
         actual = self.driver.get_volume_stats(True)
         self.assertDictMatch(expected, actual)
 
     def test_update_volume_stats_error(self):
-        def fake_exc(*args):
-            raise exception.ProcessExecutionError()
+        self.stubs.Set(self.driver.configuration, 'safe_get', lambda x: 'RBD')
+        mock_client = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RADOSClient')
 
-        def fake_safe_get(*args):
-            return "RBD"
+        driver.RADOSClient(self.driver).AndReturn(mock_client)
+        mock_client.__enter__().AndReturn(mock_client)
+        self.mox.StubOutWithMock(mock_client, 'cluster')
+        self.stubs.Set(self.rados, 'Error', test.TestingException)
+        mock_client.cluster.get_cluster_stats().AndRaise(test.TestingException)
+        mock_client.__exit__(test.TestingException,
+                             mox.IgnoreArg(), mox.IgnoreArg()).AndReturn(None)
 
-        self.stubs.Set(self.driver, '_execute', fake_exc)
-        self.stubs.Set(self.driver.configuration, 'safe_get', fake_safe_get)
+        self.mox.ReplayAll()
+
         expected = dict(
             volume_backend_name='RBD',
             vendor_name='Open Source',
-            driver_version=DRIVER_VERSION,
+            driver_version=driver.VERSION,
             storage_protocol='ceph',
             total_capacity_gb='unknown',
             free_capacity_gb='unknown',
             reserved_percentage=0)
         actual = self.driver.get_volume_stats(True)
         self.assertDictMatch(expected, actual)
+
+    def test_get_mon_addrs(self):
+        self.stubs.Set(self.driver, '_execute',
+                       lambda *a: (CEPH_MON_DUMP, ''))
+        hosts = ['::1', '::1', '::1', '127.0.0.1', 'example.com']
+        ports = ['6789', '6790', '6791', '6792', '6791']
+        self.assertEqual((hosts, ports), self.driver._get_mon_addrs())
+
+    def test_initialize_connection(self):
+        name = 'volume-00000001'
+        hosts = ['::1', '::1', '::1', '127.0.0.1', 'example.com']
+        ports = ['6789', '6790', '6791', '6792', '6791']
+        self.stubs.Set(self.driver, '_get_mon_addrs', lambda: (hosts, ports))
+        expected = {
+            'driver_volume_type': 'rbd',
+            'data': {
+                'name': '%s/%s' % (self.configuration.rbd_pool,
+                                   name),
+                'hosts': hosts,
+                'ports': ports,
+                'auth_enabled': False,
+                'auth_username': None,
+                'secret_type': 'ceph',
+                'secret_uuid': None, }
+        }
+        actual = self.driver.initialize_connection(dict(name=name), None)
+        self.assertDictMatch(expected, actual)
+
+    def test_clone(self):
+        name = u'volume-00000001'
+        volume = dict(name=name)
+        src_pool = u'images'
+        src_image = u'image-name'
+        src_snap = u'snapshot-name'
+        mock_src_client = self.mox.CreateMockAnything()
+        mock_dst_client = self.mox.CreateMockAnything()
+        mock_rbd = self.mox.CreateMockAnything()
+        self.mox.StubOutWithMock(driver, 'RADOSClient')
+
+        driver.RADOSClient(self.driver, src_pool).AndReturn(mock_src_client)
+        mock_src_client.__enter__().AndReturn(mock_src_client)
+        driver.RADOSClient(self.driver).AndReturn(mock_dst_client)
+        mock_dst_client.__enter__().AndReturn(mock_dst_client)
+        self.rbd.RBD_FEATURE_LAYERING = 1
+        self.rbd.RBD().AndReturn(mock_rbd)
+        mock_rbd.clone(mox.IgnoreArg(),
+                       str(src_image),
+                       str(src_snap),
+                       mox.IgnoreArg(),
+                       str(name),
+                       features=self.rbd.RBD_FEATURE_LAYERING)
+        mock_dst_client.__exit__(None, None, None).AndReturn(None)
+        mock_src_client.__exit__(None, None, None).AndReturn(None)
+
+        self.mox.ReplayAll()
+
+        self.driver._clone(volume, src_pool, src_image, src_snap)
+
+    def test_extend_volume(self):
+        fake_name = u'volume-00000001'
+        fake_size = '20'
+        fake_vol = {'project_id': 'testprjid', 'name': fake_name,
+                    'size': fake_size,
+                    'id': 'a720b3c0-d1f0-11e1-9b23-0800200c9a66'}
+
+        self.mox.StubOutWithMock(self.driver, '_resize')
+        size = int(fake_size) * units.GiB
+        self.driver._resize(fake_vol, size=size)
+
+        self.mox.ReplayAll()
+        self.driver.extend_volume(fake_vol, fake_size)
+
+        self.mox.VerifyAll()
+
+    def test_rbd_volume_proxy_init(self):
+        name = u'volume-00000001'
+        snap = u'snapshot-name'
+        self.stubs.Set(self.driver, '_connect_to_rados',
+                       lambda x: (None, None))
+        self.mox.StubOutWithMock(self.driver, '_disconnect_from_rados')
+
+        # no snapshot
+        self.rbd.Image(None, str(name), snapshot=None, read_only=False) \
+                .AndReturn(None)
+        # snapshot
+        self.rbd.Image(None, str(name), snapshot=str(snap), read_only=True) \
+                .AndReturn(None)
+        # error causes disconnect
+        self.stubs.Set(self.rbd, 'Error', test.TestingException)
+        self.rbd.Image(None, str(name), snapshot=None, read_only=False) \
+                .AndRaise(test.TestingException)
+        self.driver._disconnect_from_rados(None, None)
+
+        self.mox.ReplayAll()
+
+        driver.RBDVolumeProxy(self.driver, name)
+        driver.RBDVolumeProxy(self.driver, name, snapshot=snap, read_only=True)
+        self.assertRaises(test.TestingException,
+                          driver.RBDVolumeProxy, self.driver, name)
+
+    def test_connect_to_rados(self):
+        mock_client = self.mox.CreateMockAnything()
+        mock_ioctx = self.mox.CreateMockAnything()
+        self.stubs.Set(self.rados, 'Error', test.TestingException)
+
+        # default configured pool
+        self.rados.Rados(rados_id=None, conffile=None).AndReturn(mock_client)
+        mock_client.connect()
+        mock_client.open_ioctx('rbd').AndReturn(mock_ioctx)
+
+        # different pool
+        self.rados.Rados(rados_id=None, conffile=None).AndReturn(mock_client)
+        mock_client.connect()
+        mock_client.open_ioctx('images').AndReturn(mock_ioctx)
+
+        # error
+        self.rados.Rados(rados_id=None, conffile=None).AndReturn(mock_client)
+        mock_client.connect()
+        mock_client.open_ioctx('rbd').AndRaise(test.TestingException)
+        mock_client.shutdown()
+
+        self.mox.ReplayAll()
+
+        self.assertEqual((mock_client, mock_ioctx),
+                         self.driver._connect_to_rados())
+        self.assertEqual((mock_client, mock_ioctx),
+                         self.driver._connect_to_rados('images'))
+        self.assertRaises(test.TestingException, self.driver._connect_to_rados)
 
 
 class ManagedRBDTestCase(DriverTestCase):
@@ -201,7 +468,8 @@ class ManagedRBDTestCase(DriverTestCase):
     def _clone_volume_from_image(self, expected_status,
                                  clone_works=True):
         """Try to clone a volume from an image, and check the status
-        afterwards"""
+        afterwards.
+        """
         def fake_clone_image(volume, image_location):
             return True
 

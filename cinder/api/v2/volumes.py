@@ -15,6 +15,7 @@
 
 """The volumes api."""
 
+
 import webob
 from webob import exc
 
@@ -23,7 +24,6 @@ from cinder.api.openstack import wsgi
 from cinder.api.v2.views import volumes as volume_views
 from cinder.api import xmlutil
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import uuidutils
 from cinder import utils
@@ -33,13 +33,13 @@ from cinder.volume import volume_types
 
 LOG = logging.getLogger(__name__)
 SCHEDULER_HINTS_NAMESPACE =\
-        "http://docs.openstack.org/block-service/ext/scheduler-hints/api/v2"
-FLAGS = flags.FLAGS
+    "http://docs.openstack.org/block-service/ext/scheduler-hints/api/v2"
 
 
 def make_attachment(elem):
     elem.set('id')
     elem.set('server_id')
+    elem.set('host_name')
     elem.set('volume_id')
     elem.set('device')
 
@@ -94,8 +94,10 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
 
     def _extract_scheduler_hints(self, volume_node):
         """Marshal the scheduler hints attribute of a parsed request."""
-        node = self.find_first_child_named_in_namespace(volume_node,
-                SCHEDULER_HINTS_NAMESPACE, "scheduler_hints")
+        node =\
+            self.find_first_child_named_in_namespace(volume_node,
+                                                     SCHEDULER_HINTS_NAMESPACE,
+                                                     "scheduler_hints")
         if node:
             scheduler_hints = {}
             for child in self.extract_elements(node):
@@ -112,7 +114,8 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
         volume_node = self.find_first_child_named(node, 'volume')
 
         attributes = ['name', 'description', 'size',
-                      'volume_type', 'availability_zone']
+                      'volume_type', 'availability_zone', 'imageRef',
+                      'snapshot_id', 'source_volid']
         for attr in attributes:
             if volume_node.getAttribute(attr):
                 volume[attr] = volume_node.getAttribute(attr)
@@ -175,6 +178,9 @@ class VolumeController(wsgi.Controller):
             self.volume_api.delete(context, volume)
         except exception.NotFound:
             raise exc.HTTPNotFound()
+        except exception.VolumeAttached:
+            explanation = 'Volume cannot be deleted while in attached state'
+            raise exc.HTTPBadRequest(explanation=explanation)
         return webob.Response(status_int=202)
 
     @wsgi.serializers(xml=VolumesTemplate)
@@ -241,6 +247,7 @@ class VolumeController(wsgi.Controller):
         if not self.is_valid_body(body, 'volume'):
             raise exc.HTTPBadRequest()
 
+        LOG.debug('Create volume request body: %s', body)
         context = req.environ['cinder.context']
         volume = body['volume']
 

@@ -42,13 +42,13 @@ option group. This is due to the way cfg works. All cfg options must be defined
 and registered in the group in which they are used.
 """
 
+
 from oslo.config import cfg
 
-from cinder import flags
 from cinder.openstack.common import log as logging
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
@@ -56,19 +56,20 @@ class Configuration(object):
 
     def __init__(self, volume_opts, config_group=None):
         """This takes care of grafting the implementation's config
-           values into the config group"""
+           values into the config group
+        """
         self.config_group = config_group
 
         # set the local conf so that __call__'s know what to use
         if self.config_group:
             self._ensure_config_values(volume_opts)
-            self.local_conf = FLAGS._get(self.config_group)
+            self.local_conf = CONF._get(self.config_group)
         else:
-            self.local_conf = FLAGS
+            self.local_conf = CONF
 
     def _ensure_config_values(self, volume_opts):
-            FLAGS.register_opts(volume_opts,
-                                group=self.config_group)
+            CONF.register_opts(volume_opts,
+                               group=self.config_group)
 
     def append_config_values(self, volume_opts):
         self._ensure_config_values(volume_opts)

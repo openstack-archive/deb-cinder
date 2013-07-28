@@ -16,19 +16,18 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import distutils.version as dist_version
+
 import os
 
-from cinder.db import migration
-from cinder.db.sqlalchemy.session import get_engine
-from cinder import exception
-from cinder import flags
-from cinder.openstack.common import log as logging
-
-
+import distutils.version as dist_version
 import migrate
 from migrate.versioning import util as migrate_util
 import sqlalchemy
+
+from cinder.db import migration
+from cinder.db.sqlalchemy.api import get_engine
+from cinder import exception
+from cinder.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ def patched_with_engine(f, *a, **kw):
 #                on that version or higher, this can be removed
 MIN_PKG_VERSION = dist_version.StrictVersion('0.7.3')
 if (not hasattr(migrate, '__version__') or
-    dist_version.StrictVersion(migrate.__version__) < MIN_PKG_VERSION):
+        dist_version.StrictVersion(migrate.__version__) < MIN_PKG_VERSION):
     migrate_util.with_engine = patched_with_engine
 
 
@@ -61,7 +60,6 @@ from migrate import exceptions as versioning_exceptions
 from migrate.versioning import api as versioning_api
 from migrate.versioning.repository import Repository
 
-FLAGS = flags.FLAGS
 
 _REPOSITORY = None
 

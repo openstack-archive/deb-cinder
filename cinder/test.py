@@ -18,13 +18,15 @@
 
 """Base classes for our unit tests.
 
-Allows overriding of flags for use of fakes, and some black magic for
+Allows overriding of CONF for use of fakes, and some black magic for
 inline callbacks.
 
 """
 
+
 import functools
 import os
+import shutil
 import uuid
 
 import fixtures
@@ -33,12 +35,14 @@ from oslo.config import cfg
 import stubout
 import testtools
 
-from cinder import flags
+from cinder.common import config  # Need to register global_opts
+from cinder.db import migration
+from cinder.openstack.common.db.sqlalchemy import session
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import service
-from cinder import tests
-from cinder.tests import fake_flags
+from cinder.tests import conf_fixture
+
 
 test_opts = [
     cfg.StrOpt('sqlite_clean_db',
@@ -48,14 +52,57 @@ test_opts = [
                 default=True,
                 help='should we use everything for testing'), ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(test_opts)
+CONF = cfg.CONF
+CONF.register_opts(test_opts)
 
 LOG = logging.getLogger(__name__)
+
+_DB_CACHE = None
 
 
 class TestingException(Exception):
     pass
+
+
+class Database(fixtures.Fixture):
+
+    def __init__(self, db_session, db_migrate, sql_connection,
+                 sqlite_db, sqlite_clean_db):
+        self.sql_connection = sql_connection
+        self.sqlite_db = sqlite_db
+        self.sqlite_clean_db = sqlite_clean_db
+
+        self.engine = db_session.get_engine()
+        self.engine.dispose()
+        conn = self.engine.connect()
+        if sql_connection == "sqlite://":
+            if db_migrate.db_version() > db_migrate.INIT_VERSION:
+                return
+        else:
+            testdb = os.path.join(CONF.state_path, sqlite_db)
+            if os.path.exists(testdb):
+                return
+        db_migrate.db_sync()
+#        self.post_migrations()
+        if sql_connection == "sqlite://":
+            conn = self.engine.connect()
+            self._DB = "".join(line for line in conn.connection.iterdump())
+            self.engine.dispose()
+        else:
+            cleandb = os.path.join(CONF.state_path, sqlite_clean_db)
+            shutil.copyfile(testdb, cleandb)
+
+    def setUp(self):
+        super(Database, self).setUp()
+
+        if self.sql_connection == "sqlite://":
+            conn = self.engine.connect()
+            conn.connection.executescript(self._DB)
+            self.addCleanup(self.engine.dispose)
+        else:
+            shutil.copyfile(
+                os.path.join(CONF.state_path, self.sqlite_clean_db),
+                os.path.join(CONF.state_path, self.sqlite_db))
 
 
 class TestCase(testtools.TestCase):
@@ -87,27 +134,40 @@ class TestCase(testtools.TestCase):
 
         self.log_fixture = self.useFixture(fixtures.FakeLogger())
 
-        fake_flags.set_defaults(FLAGS)
-        flags.parse_args([], default_config_files=[])
+        conf_fixture.set_defaults(CONF)
+        CONF([], default_config_files=[])
 
         # NOTE(vish): We need a better method for creating fixtures for tests
         #             now that we have some required db setup for the system
         #             to work properly.
         self.start = timeutils.utcnow()
-        tests.reset_db()
+
+        CONF.set_default('connection', 'sqlite://', 'database')
+        CONF.set_default('sqlite_synchronous', False)
+
+        self.log_fixture = self.useFixture(fixtures.FakeLogger())
+
+        global _DB_CACHE
+        if not _DB_CACHE:
+            _DB_CACHE = Database(session, migration,
+                                 sql_connection=CONF.database.connection,
+                                 sqlite_db=CONF.sqlite_db,
+                                 sqlite_clean_db=CONF.sqlite_clean_db)
+        self.useFixture(_DB_CACHE)
 
         # emulate some of the mox stuff, we can't use the metaclass
         # because it screws with our generators
         self.mox = mox.Mox()
         self.stubs = stubout.StubOutForTesting()
+        self.addCleanup(CONF.reset)
         self.addCleanup(self.mox.UnsetStubs)
         self.addCleanup(self.stubs.UnsetAll)
         self.addCleanup(self.stubs.SmartUnsetAll)
         self.addCleanup(self.mox.VerifyAll)
         self.injected = []
         self._services = []
-        FLAGS.set_override('fatal_exception_format_errors', True)
-        self.addCleanup(FLAGS.reset)
+
+        CONF.set_override('fatal_exception_format_errors', True)
 
     def tearDown(self):
         """Runs after each test method to tear down test environment."""
@@ -134,9 +194,9 @@ class TestCase(testtools.TestCase):
         super(TestCase, self).tearDown()
 
     def flags(self, **kw):
-        """Override flag variables for a test."""
+        """Override CONF variables for a test."""
         for k, v in kw.iteritems():
-            FLAGS.set_override(k, v)
+            CONF.set_override(k, v)
 
     def start_service(self, name, host=None, **kwargs):
         host = host and host or uuid.uuid4().hex
@@ -165,7 +225,8 @@ class TestCase(testtools.TestCase):
             d1str = str(d1)
             d2str = str(d2)
             base_msg = ('Dictionaries do not match. %(msg)s d1: %(d1str)s '
-                        'd2: %(d2str)s' % locals())
+                        'd2: %(d2str)s' %
+                        {'msg': msg, 'd1str': d1str, 'd2str': d2str})
             raise AssertionError(base_msg)
 
         d1keys = set(d1.keys())
@@ -174,7 +235,8 @@ class TestCase(testtools.TestCase):
             d1only = d1keys - d2keys
             d2only = d2keys - d1keys
             raise_assertion('Keys in d1 and not d2: %(d1only)s. '
-                            'Keys in d2 and not d1: %(d2only)s' % locals())
+                            'Keys in d2 and not d1: %(d2only)s' %
+                            {'d1only': d1only, 'd2only': d2only})
 
         for key in d1keys:
             d1value = d1[key]
@@ -196,7 +258,12 @@ class TestCase(testtools.TestCase):
                 continue
             elif d1value != d2value:
                 raise_assertion("d1['%(key)s']=%(d1value)s != "
-                                "d2['%(key)s']=%(d2value)s" % locals())
+                                "d2['%(key)s']=%(d2value)s" %
+                                {
+                                    'key': key,
+                                    'd1value': d1value,
+                                    'd2value': d2value,
+                                })
 
     def assertDictListMatch(self, L1, L2, approx_equal=False, tolerance=0.001):
         """Assert a list of dicts are equivalent."""
@@ -204,14 +271,16 @@ class TestCase(testtools.TestCase):
             L1str = str(L1)
             L2str = str(L2)
             base_msg = ('List of dictionaries do not match: %(msg)s '
-                        'L1: %(L1str)s L2: %(L2str)s' % locals())
+                        'L1: %(L1str)s L2: %(L2str)s' %
+                        {'msg': msg, 'L1str': L1str, 'L2str': L2str})
             raise AssertionError(base_msg)
 
         L1count = len(L1)
         L2count = len(L2)
         if L1count != L2count:
             raise_assertion('Length mismatch: len(L1)=%(L1count)d != '
-                            'len(L2)=%(L2count)d' % locals())
+                            'len(L2)=%(L2count)d' %
+                            {'L1count': L1count, 'L2count': L2count})
 
         for d1, d2 in zip(L1, L2):
             self.assertDictMatch(d1, d2, approx_equal=approx_equal,

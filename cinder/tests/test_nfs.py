@@ -33,6 +33,8 @@ from cinder.exception import ProcessExecutionError
 from cinder import test
 from cinder import units
 
+from cinder.image import image_utils
+
 from cinder.volume import configuration as conf
 from cinder.volume.drivers import nfs
 
@@ -115,6 +117,8 @@ class NfsDriverTestCase(test.TestCase):
     TEST_LOCAL_PATH = '/mnt/nfs/volume-123'
     TEST_FILE_NAME = 'test.txt'
     TEST_SHARES_CONFIG_FILE = '/etc/cinder/test-shares.conf'
+    TEST_NFS_EXPORT_SPACES = 'nfs-host3:/export this'
+    TEST_MNT_POINT_SPACES = '/ 0 0 0 /foo'
 
     def setUp(self):
         super(NfsDriverTestCase, self).setUp()
@@ -164,6 +168,37 @@ class NfsDriverTestCase(test.TestCase):
         mox.ReplayAll()
 
         drv._mount_nfs(self.TEST_NFS_EXPORT1, self.TEST_MNT_POINT)
+
+        mox.VerifyAll()
+
+    def test_copy_image_to_volume(self):
+        """resize_image common case usage."""
+        mox = self._mox
+        drv = self._driver
+
+        TEST_IMG_SOURCE = 'foo.img'
+
+        volume = {'size': self.TEST_SIZE_IN_GB, 'name': TEST_IMG_SOURCE}
+
+        def fake_local_path(volume):
+            return volume['name']
+
+        self.stubs.Set(drv, 'local_path', fake_local_path)
+
+        mox.StubOutWithMock(image_utils, 'fetch_to_raw')
+        image_utils.fetch_to_raw(None, None, None, TEST_IMG_SOURCE)
+
+        mox.StubOutWithMock(image_utils, 'resize_image')
+        image_utils.resize_image(TEST_IMG_SOURCE, self.TEST_SIZE_IN_GB)
+
+        mox.StubOutWithMock(image_utils, 'qemu_img_info')
+        data = mox_lib.MockAnything()
+        data.virtual_size = 1024 ** 3
+        image_utils.qemu_img_info(TEST_IMG_SOURCE).AndReturn(data)
+
+        mox.ReplayAll()
+
+        drv.copy_image_to_volume(None, volume, None, None)
 
         mox.VerifyAll()
 
@@ -261,12 +296,9 @@ class NfsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        df_total_size = 2620544
-        df_avail = 2129984
-        df_head = 'Filesystem 1K-blocks Used Available Use% Mounted on\n'
-        df_data = 'nfs-host:/export %d 996864 %d 41%% /mnt' % (df_total_size,
-                                                               df_avail)
-        df_output = df_head + df_data
+        stat_total_size = 2620544
+        stat_avail = 2129984
+        stat_output = '1 %d %d' % (stat_total_size, stat_avail)
 
         du_used = 490560
         du_output = '%d /mnt' % du_used
@@ -276,8 +308,9 @@ class NfsDriverTestCase(test.TestCase):
             AndReturn(self.TEST_MNT_POINT)
 
         mox.StubOutWithMock(drv, '_execute')
-        drv._execute('df', '-P', '-B', '1', self.TEST_MNT_POINT,
-                     run_as_root=True).AndReturn((df_output, None))
+        drv._execute('stat', '-f', '-c', '%S %b %a',
+                     self.TEST_MNT_POINT,
+                     run_as_root=True).AndReturn((stat_output, None))
 
         drv._execute('du', '-sb', '--apparent-size',
                      '--exclude', '*snapshot*',
@@ -286,8 +319,41 @@ class NfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
 
-        self.assertEquals((df_total_size, df_avail, du_used),
+        self.assertEquals((stat_total_size, stat_avail, du_used),
                           drv._get_capacity_info(self.TEST_NFS_EXPORT1))
+
+        mox.VerifyAll()
+
+    def test_get_capacity_info_for_share_and_mount_point_with_spaces(self):
+        """_get_capacity_info should calculate correct value."""
+        mox = self._mox
+        drv = self._driver
+
+        stat_total_size = 2620544
+        stat_avail = 2129984
+        stat_output = '1 %d %d' % (stat_total_size, stat_avail)
+
+        du_used = 490560
+        du_output = '%d /mnt' % du_used
+
+        mox.StubOutWithMock(drv, '_get_mount_point_for_share')
+        drv._get_mount_point_for_share(self.TEST_NFS_EXPORT_SPACES).\
+            AndReturn(self.TEST_MNT_POINT_SPACES)
+
+        mox.StubOutWithMock(drv, '_execute')
+        drv._execute('stat', '-f', '-c', '%S %b %a',
+                     self.TEST_MNT_POINT_SPACES,
+                     run_as_root=True).AndReturn((stat_output, None))
+
+        drv._execute('du', '-sb', '--apparent-size',
+                     '--exclude', '*snapshot*',
+                     self.TEST_MNT_POINT_SPACES,
+                     run_as_root=True).AndReturn((du_output, None))
+
+        mox.ReplayAll()
+
+        self.assertEquals((stat_total_size, stat_avail, du_used),
+                          drv._get_capacity_info(self.TEST_NFS_EXPORT_SPACES))
 
         mox.VerifyAll()
 
@@ -397,21 +463,24 @@ class NfsDriverTestCase(test.TestCase):
         drv = self._driver
         self.configuration.nfs_oversub_ratio = -1
         self.assertRaises(exception.NfsException,
-                         drv.do_setup, IsA(context.RequestContext))
+                          drv.do_setup,
+                          IsA(context.RequestContext))
 
     def test_setup_should_throw_error_if_used_ratio_less_than_zero(self):
         """do_setup should throw error if nfs_used_ratio is less than 0."""
         drv = self._driver
         self.configuration.nfs_used_ratio = -1
         self.assertRaises(exception.NfsException,
-                         drv.do_setup, IsA(context.RequestContext))
+                          drv.do_setup,
+                          IsA(context.RequestContext))
 
     def test_setup_should_throw_error_if_used_ratio_greater_than_one(self):
         """do_setup should throw error if nfs_used_ratio is greater than 1."""
         drv = self._driver
         self.configuration.nfs_used_ratio = 2
         self.assertRaises(exception.NfsException,
-                         drv.do_setup, IsA(context.RequestContext))
+                          drv.do_setup,
+                          IsA(context.RequestContext))
 
     def test_setup_should_throw_exception_if_nfs_client_is_not_installed(self):
         """do_setup should throw error if nfs client is not installed."""

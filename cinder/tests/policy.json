@@ -25,6 +25,7 @@
     "volume:get_snapshot": [],
     "volume:get_all_snapshots": [],
     "volume:update_snapshot": [],
+    "volume:extend": [],
 
     "volume_extension:volume_admin_actions:reset_status": [["rule:admin_api"]],
     "volume_extension:snapshot_admin_actions:reset_status": [["rule:admin_api"]],
@@ -38,5 +39,16 @@
     "volume_extension:volume_image_metadata": [],
     "volume_extension:volume_host_attribute": [["rule:admin_api"]],
     "volume_extension:volume_tenant_attribute": [["rule:admin_api"]],
-    "volume_extension:hosts": [["rule:admin_api"]]
+    "volume_extension:hosts": [["rule:admin_api"]],
+
+    "volume:create_transfer": [],
+    "volume:accept_transfer": [],
+    "volume:delete_transfer": [],
+    "volume:get_all_transfers": [],
+    
+    "backup:create" : [],
+    "backup:delete": [],
+    "backup:get": [],
+    "backup:get_all": [],
+    "backup:restore": []
 }

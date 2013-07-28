@@ -21,7 +21,6 @@ import os
 from oslo.config import cfg
 
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers import nfs
 
@@ -44,13 +43,14 @@ volume_opts = [
                       'In such case volume creation takes a lot of time.'))]
 VERSION = '1.0'
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(volume_opts)
+CONF = cfg.CONF
+CONF.register_opts(volume_opts)
 
 
 class GlusterfsDriver(nfs.RemoteFsDriver):
     """Gluster based cinder driver. Creates file on Gluster share for using it
-    as block device on hypervisor."""
+    as block device on hypervisor.
+    """
 
     def __init__(self, *args, **kwargs):
         super(GlusterfsDriver, self).__init__(*args, **kwargs)
@@ -68,7 +68,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             raise exception.GlusterfsException(msg)
         if not os.path.exists(config):
             msg = (_("Gluster config file at %(config)s doesn't exist") %
-                   locals())
+                   {'config': config})
             LOG.warn(msg)
             raise exception.GlusterfsException(msg)
 
@@ -123,7 +123,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
     def create_export(self, ctx, volume):
         """Exports the volume. Can optionally return a Dictionary of changes
-        to the volume object to be persisted."""
+        to the volume object to be persisted.
+        """
         pass
 
     def remove_export(self, ctx, volume):
@@ -161,7 +162,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
     def _ensure_shares_mounted(self):
         """Look for GlusterFS shares in the flags and try to mount them
-           locally."""
+           locally.
+        """
         self._mounted_shares = []
 
         self._load_shares_config(self.configuration.glusterfs_shares_config)
@@ -170,7 +172,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             try:
                 self._ensure_share_mounted(share)
                 self._mounted_shares.append(share)
-            except Exception, exc:
+            except Exception as exc:
                 LOG.warning(_('Exception during mounting %s') % (exc,))
 
         LOG.debug('Available shares %s' % str(self._mounted_shares))
@@ -256,7 +258,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
 
-        If 'refresh' is True, update the stats first."""
+        If 'refresh' is True, update the stats first.
+        """
         if refresh or not self._stats:
             self._update_volume_stats()
 

@@ -32,11 +32,11 @@ these objects be simple dictionaries.
 
 **Related Flags**
 
-:db_backend:  string to lookup in the list of LazyPluggable backends.
-              `sqlalchemy` is the only supported backend right now.
+:backend:  string to lookup in the list of LazyPluggable backends.
+           `sqlalchemy` is the only supported backend right now.
 
-:sql_connection:  string specifying the sqlalchemy connection to use, like:
-                  `sqlite:///var/lib/cinder/cinder.sqlite`.
+:connection:  string specifying the sqlalchemy connection to use, like:
+              `sqlite:///var/lib/cinder/cinder.sqlite`.
 
 :enable_new_services:  when adding a new service to the database, is it in the
                        pool of available hardware (Default: True)
@@ -46,10 +46,15 @@ these objects be simple dictionaries.
 from oslo.config import cfg
 
 from cinder import exception
-from cinder import flags
-from cinder import utils
+from cinder.openstack.common.db import api as db_api
+
 
 db_opts = [
+    # TODO(rpodolyaka): this option is deprecated but still passed to
+    #                   LazyPluggable class which doesn't support retrieving
+    #                   of options put into groups. Nova's version of this
+    #                   class supports this. Perhaps, we should put it to Oslo
+    #                   and then reuse here.
     cfg.StrOpt('db_backend',
                default='sqlalchemy',
                help='The backend to use for db'),
@@ -66,11 +71,12 @@ db_opts = [
                default='backup-%s',
                help='Template string to be used to generate backup names'), ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(db_opts)
+CONF = cfg.CONF
+CONF.register_opts(db_opts)
 
-IMPL = utils.LazyPluggable('db_backend',
-                           sqlalchemy='cinder.db.sqlalchemy.api')
+_BACKEND_MAPPING = {'sqlalchemy': 'cinder.db.sqlalchemy.api'}
+
+IMPL = db_api.DBAPI(backend_mapping=_BACKEND_MAPPING)
 
 
 class NoMoreTargets(exception.CinderException):
@@ -193,9 +199,10 @@ def volume_allocate_iscsi_target(context, volume_id, host):
     return IMPL.volume_allocate_iscsi_target(context, volume_id, host)
 
 
-def volume_attached(context, volume_id, instance_id, mountpoint):
+def volume_attached(context, volume_id, instance_id, host_name, mountpoint):
     """Ensure that a volume is set as attached."""
-    return IMPL.volume_attached(context, volume_id, instance_id, mountpoint)
+    return IMPL.volume_attached(context, volume_id, instance_id, host_name,
+                                mountpoint)
 
 
 def volume_create(context, values):
@@ -203,17 +210,18 @@ def volume_create(context, values):
     return IMPL.volume_create(context, values)
 
 
-def volume_data_get_for_host(context, host, session=None):
+def volume_data_get_for_host(context, host):
     """Get (volume_count, gigabytes) for project."""
     return IMPL.volume_data_get_for_host(context,
-                                         host,
-                                         session)
+                                         host)
 
 
-def volume_data_get_for_project(context, project_id, session=None):
+def volume_data_get_for_project(context, project_id, volume_type_id=None,
+                                session=None):
     """Get (volume_count, gigabytes) for project."""
     return IMPL.volume_data_get_for_project(context,
                                             project_id,
+                                            volume_type_id,
                                             session)
 
 
@@ -310,17 +318,20 @@ def snapshot_update(context, snapshot_id, values):
     return IMPL.snapshot_update(context, snapshot_id, values)
 
 
-def snapshot_data_get_for_project(context, project_id, session=None):
+def snapshot_data_get_for_project(context, project_id, volume_type_id=None,
+                                  session=None):
     """Get count and gigabytes used for snapshots for specified project."""
     return IMPL.snapshot_data_get_for_project(context,
                                               project_id,
+                                              volume_type_id,
                                               session)
 
 
 def snapshot_get_active_by_window(context, begin, end=None, project_id=None):
     """Get all the snapshots inside the window.
 
-    Specifying a project_id will filter for a certain project."""
+    Specifying a project_id will filter for a certain project.
+    """
     return IMPL.snapshot_get_active_by_window(context, begin, end, project_id)
 
 
@@ -373,9 +384,9 @@ def volume_type_get_all(context, inactive=False):
     return IMPL.volume_type_get_all(context, inactive)
 
 
-def volume_type_get(context, id):
+def volume_type_get(context, id, inactive=False):
     """Get volume type by id."""
-    return IMPL.volume_type_get(context, id)
+    return IMPL.volume_type_get(context, id, inactive)
 
 
 def volume_type_get_by_name(context, name):
@@ -391,7 +402,8 @@ def volume_type_destroy(context, id):
 def volume_get_active_by_window(context, begin, end=None, project_id=None):
     """Get all the volumes inside the window.
 
-    Specifying a project_id will filter for a certain project."""
+    Specifying a project_id will filter for a certain project.
+    """
     return IMPL.volume_get_active_by_window(context, begin, end, project_id)
 
 
@@ -412,7 +424,8 @@ def volume_type_extra_specs_update_or_create(context,
                                              volume_type_id,
                                              extra_specs):
     """Create or update volume type extra specs. This adds or modifies the
-    key/value pairs specified in the extra specs dict argument"""
+    key/value pairs specified in the extra specs dict argument
+    """
     IMPL.volume_type_extra_specs_update_or_create(context,
                                                   volume_type_id,
                                                   extra_specs)
@@ -611,6 +624,11 @@ def quota_class_get(context, class_name, resource):
     return IMPL.quota_class_get(context, class_name, resource)
 
 
+def quota_class_get_default(context):
+    """Retrieve all default quotas."""
+    return IMPL.quota_class_get_default(context)
+
+
 def quota_class_get_all_by_name(context, class_name):
     """Retrieve all quotas associated with a given quota class."""
     return IMPL.quota_class_get_all_by_name(context, class_name)
@@ -748,3 +766,36 @@ def backup_update(context, backup_id, values):
 def backup_destroy(context, backup_id):
     """Destroy the backup or raise if it does not exist."""
     return IMPL.backup_destroy(context, backup_id)
+
+
+###################
+
+
+def transfer_get(context, transfer_id):
+    """Get a volume transfer record or raise if it does not exist."""
+    return IMPL.transfer_get(context, transfer_id)
+
+
+def transfer_get_all(context):
+    """Get all volume transfer records."""
+    return IMPL.transfer_get_all(context)
+
+
+def transfer_get_all_by_project(context, project_id):
+    """Get all volume transfer records for specified project."""
+    return IMPL.transfer_get_all_by_project(context, project_id)
+
+
+def transfer_create(context, values):
+    """Create an entry in the transfers table."""
+    return IMPL.transfer_create(context, values)
+
+
+def transfer_destroy(context, transfer_id):
+    """Destroy a record in the volume transfer table."""
+    return IMPL.transfer_destroy(context, transfer_id)
+
+
+def transfer_accept(context, transfer_id, user_id, project_id):
+    """Accept a volume transfer."""
+    return IMPL.transfer_accept(context, transfer_id, user_id, project_id)

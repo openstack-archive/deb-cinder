@@ -19,25 +19,27 @@ Unit Tests for cinder.volume.rpcapi
 """
 
 
+from oslo.config import cfg
+
 from cinder import context
 from cinder import db
-from cinder import flags
 from cinder.openstack.common import jsonutils
 from cinder.openstack.common import rpc
 from cinder import test
 from cinder.volume import rpcapi as volume_rpcapi
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 
 class VolumeRpcAPITestCase(test.TestCase):
 
     def setUp(self):
+        super(VolumeRpcAPITestCase, self).setUp()
         self.context = context.get_admin_context()
         vol = {}
         vol['host'] = 'fake_host'
-        vol['availability_zone'] = FLAGS.storage_availability_zone
+        vol['availability_zone'] = CONF.storage_availability_zone
         vol['status'] = "available"
         vol['attach_status'] = "detached"
         volume = db.volume_create(self.context, vol)
@@ -52,7 +54,6 @@ class VolumeRpcAPITestCase(test.TestCase):
         snapshot = db.snapshot_create(self.context, snpshot)
         self.fake_volume = jsonutils.to_primitive(volume)
         self.fake_snapshot = jsonutils.to_primitive(snapshot)
-        super(VolumeRpcAPITestCase, self).setUp()
 
     def test_serialized_volume_has_id(self):
         self.assertTrue('id' in self.fake_volume)
@@ -87,7 +88,7 @@ class VolumeRpcAPITestCase(test.TestCase):
             host = kwargs['host']
         else:
             host = kwargs['volume']['host']
-        expected_topic = '%s.%s' % (FLAGS.volume_topic, host)
+        expected_topic = '%s.%s' % (CONF.volume_topic, host)
 
         self.fake_args = None
         self.fake_kwargs = None
@@ -137,12 +138,23 @@ class VolumeRpcAPITestCase(test.TestCase):
                               snapshot=self.fake_snapshot,
                               host='fake_host')
 
-    def test_attach_volume(self):
+    def test_attach_volume_to_instance(self):
         self._test_volume_api('attach_volume',
                               rpc_method='call',
                               volume=self.fake_volume,
                               instance_uuid='fake_uuid',
-                              mountpoint='fake_mountpoint')
+                              host_name=None,
+                              mountpoint='fake_mountpoint',
+                              version='1.7')
+
+    def test_attach_volume_to_host(self):
+        self._test_volume_api('attach_volume',
+                              rpc_method='call',
+                              volume=self.fake_volume,
+                              instance_uuid=None,
+                              host_name='fake_host',
+                              mountpoint='fake_mountpoint',
+                              version='1.7')
 
     def test_detach_volume(self):
         self._test_volume_api('detach_volume',
@@ -170,3 +182,16 @@ class VolumeRpcAPITestCase(test.TestCase):
                               volume=self.fake_volume,
                               connector='fake_connector',
                               force=False)
+
+    def test_accept_transfer(self):
+        self._test_volume_api('accept_transfer',
+                              rpc_method='cast',
+                              volume=self.fake_volume,
+                              version='1.5')
+
+    def test_extend_volume(self):
+        self._test_volume_api('extend_volume',
+                              rpc_method='cast',
+                              volume=self.fake_volume,
+                              new_size=1,
+                              version='1.6')

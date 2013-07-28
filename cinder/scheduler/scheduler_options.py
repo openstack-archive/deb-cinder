@@ -28,17 +28,18 @@ import os
 
 from oslo.config import cfg
 
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 
-scheduler_json_config_location_opt = cfg.StrOpt(
-        'scheduler_json_config_location',
-        default='',
-        help='Absolute path to scheduler configuration JSON file.')
 
-FLAGS = flags.FLAGS
-FLAGS.register_opt(scheduler_json_config_location_opt)
+scheduler_json_config_location_opt = cfg.StrOpt(
+    'scheduler_json_config_location',
+    default='',
+    help='Absolute path to scheduler configuration JSON file.')
+
+
+CONF = cfg.CONF
+CONF.register_opt(scheduler_json_config_location_opt)
 
 LOG = logging.getLogger(__name__)
 
@@ -65,18 +66,18 @@ class SchedulerOptions(object):
         """Get the last modified datetime. Broken out for testing."""
         try:
             return os.path.getmtime(filename)
-        except os.error, e:
+        except os.error as e:
             LOG.exception(_("Could not stat scheduler options file "
-                            "%(filename)s: '%(e)s'"), locals())
+                            "%(filename)s: '%(e)s'"),
+                          {'filename': filename, 'e': e})
             raise
 
     def _load_file(self, handle):
         """Decode the JSON file. Broken out for testing."""
         try:
             return json.load(handle)
-        except ValueError, e:
-            LOG.exception(_("Could not decode scheduler options: "
-                            "'%(e)s'") % locals())
+        except ValueError as e:
+            LOG.exception(_("Could not decode scheduler options: '%s'") % e)
             return {}
 
     def _get_time_now(self):
@@ -86,7 +87,7 @@ class SchedulerOptions(object):
     def get_configuration(self, filename=None):
         """Check the json file for changes and load it if needed."""
         if not filename:
-            filename = FLAGS.scheduler_json_config_location
+            filename = CONF.scheduler_json_config_location
         if not filename:
             return self.data
         if self.last_checked:
@@ -96,7 +97,7 @@ class SchedulerOptions(object):
 
         last_modified = self._get_file_timestamp(filename)
         if (not last_modified or not self.last_modified or
-            last_modified > self.last_modified):
+                last_modified > self.last_modified):
             self.data = self._load_file(self._get_file_handle(filename))
             self.last_modified = last_modified
         if not self.data:

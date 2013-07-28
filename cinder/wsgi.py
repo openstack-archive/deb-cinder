@@ -19,6 +19,7 @@
 
 """Utility methods for working with WSGI servers."""
 
+
 import errno
 import os
 import socket
@@ -36,9 +37,9 @@ import webob.dec
 import webob.exc
 
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder import utils
+
 
 socket_opts = [
     cfg.IntOpt('backlog',
@@ -65,7 +66,6 @@ socket_opts = [
 CONF = cfg.CONF
 CONF.register_opts(socket_opts)
 
-FLAGS = flags.FLAGS
 LOG = logging.getLogger(__name__)
 
 
@@ -155,7 +155,7 @@ class Server(object):
                 if use_ssl:
                     sock = wrap_ssl(sock)
 
-            except socket.error, err:
+            except socket.error as err:
                 if err.args[0] != errno.EADDRINUSE:
                     raise
                 eventlet.sleep(0.1)
@@ -475,7 +475,7 @@ class Loader(object):
         :returns: None
 
         """
-        config_path = config_path or FLAGS.api_paste_config
+        config_path = config_path or CONF.api_paste_config
         self.config_path = utils.find_config(config_path)
 
     def load_app(self, name):

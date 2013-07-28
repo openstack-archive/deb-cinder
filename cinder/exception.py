@@ -24,11 +24,14 @@ SHOULD include dedicated exception logging.
 
 """
 
+import sys
+
 from oslo.config import cfg
 import webob.exc
 
-from cinder import flags
+from cinder.openstack.common import exception as com_exception
 from cinder.openstack.common import log as logging
+
 
 LOG = logging.getLogger(__name__)
 
@@ -38,8 +41,8 @@ exc_log_opts = [
                 help='make exception message format errors fatal'),
 ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(exc_log_opts)
+CONF = cfg.CONF
+CONF.register_opts(exc_log_opts)
 
 
 class ConvertedException(webob.exc.WSGIHTTPException):
@@ -65,32 +68,17 @@ class ProcessExecutionError(IOError):
             exit_code = '-'
         message = _('%(description)s\nCommand: %(cmd)s\n'
                     'Exit code: %(exit_code)s\nStdout: %(stdout)r\n'
-                    'Stderr: %(stderr)r') % locals()
+                    'Stderr: %(stderr)r') % {
+                        'description': description,
+                        'cmd': cmd,
+                        'exit_code': exit_code,
+                        'stdout': stdout,
+                        'stderr': stderr,
+                    }
         IOError.__init__(self, message)
 
 
-class Error(Exception):
-    pass
-
-
-class DBError(Error):
-    """Wraps an implementation specific exception."""
-    def __init__(self, inner_exception=None):
-        self.inner_exception = inner_exception
-        super(DBError, self).__init__(str(inner_exception))
-
-
-def wrap_db_error(f):
-    def _wrap(*args, **kwargs):
-        try:
-            return f(*args, **kwargs)
-        except UnicodeEncodeError:
-            raise InvalidUnicodeParameter()
-        except Exception, e:
-            LOG.exception(_('DB exception wrapped.'))
-            raise DBError(e)
-    _wrap.func_name = f.func_name
-    return _wrap
+Error = com_exception.Error
 
 
 class CinderException(Exception):
@@ -119,17 +107,17 @@ class CinderException(Exception):
             try:
                 message = self.message % kwargs
 
-            except Exception as e:
+            except Exception:
+                exc_info = sys.exc_info()
                 # kwargs doesn't match a variable in the message
                 # log the issue and the kwargs
                 LOG.exception(_('Exception in string format operation'))
                 for name, value in kwargs.iteritems():
                     LOG.error("%s: %s" % (name, value))
-                if FLAGS.fatal_exception_format_errors:
-                    raise e
-                else:
-                    # at least get the core message out if something happened
-                    message = self.message
+                if CONF.fatal_exception_format_errors:
+                    raise exc_info[0], exc_info[1], exc_info[2]
+                # at least get the core message out if something happened
+                message = self.message
 
         super(CinderException, self).__init__(message)
 
@@ -164,6 +152,10 @@ class InvalidSnapshot(Invalid):
     message = _("Invalid snapshot") + ": %(reason)s"
 
 
+class InvalidSourceVolume(Invalid):
+    message = _("Invalid source volume %(reason)s.")
+
+
 class VolumeAttached(Invalid):
     message = _("Volume %(volume_id)s is still attached, detach volume first.")
 
@@ -196,15 +188,14 @@ class InvalidContentType(Invalid):
     message = _("Invalid content type %(content_type)s.")
 
 
-class InvalidUnicodeParameter(Invalid):
-    message = _("Invalid Parameter: "
-                "Unicode is not supported by the current database.")
-
-
 # Cannot be templated as the error syntax varies.
 # msg needs to be constructed when raised.
 class InvalidParameterValue(Invalid):
     message = _("%(err)s")
+
+
+class InvalidAuthKey(Invalid):
+    message = _("Invalid auth key") + ": %(reason)s"
 
 
 class ServiceUnavailable(Invalid):
@@ -215,8 +206,12 @@ class ImageUnacceptable(Invalid):
     message = _("Image %(image_id)s is unacceptable: %(reason)s")
 
 
+class DeviceUnavailable(Invalid):
+    message = _("The device in the path %(path)s is unavailable: %(reason)s")
+
+
 class InvalidUUID(Invalid):
-    message = _("Expected a uuid but received %(uuid).")
+    message = _("Expected a uuid but received %(uuid)s.")
 
 
 class NotFound(CinderException):
@@ -426,6 +421,10 @@ class ConfigNotFound(NotFound):
     message = _("Could not find config at %(path)s")
 
 
+class ParameterNotFound(NotFound):
+    message = _("Could not find parameter %(param)s")
+
+
 class PasteAppNotFound(NotFound):
     message = _("Could not load paste app '%(name)s' from %(path)s")
 
@@ -565,6 +564,10 @@ class ImageCopyFailure(Invalid):
     message = _("Failed to copy image to volume: %(reason)s")
 
 
+class BackupVolumeInvalidType(Invalid):
+    message = _("Backup volume %(volume_id)s type not recognised.")
+
+
 class BackupNotFound(NotFound):
     message = _("Backup %(backup_id)s could not be found.")
 
@@ -575,3 +578,7 @@ class InvalidBackup(Invalid):
 
 class SwiftConnectionFailed(CinderException):
     message = _("Connection to swift failed") + ": %(reason)s"
+
+
+class TransferNotFound(NotFound):
+    message = _("Transfer %(transfer_id)s could not be found.")

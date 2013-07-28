@@ -1,4 +1,6 @@
 #    Copyright 2012 OpenStack LLC
+#    Copyright (c) 2013 Zelin.io
+#    All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -16,16 +18,23 @@
 SheepDog Volume Driver.
 
 """
+import os
 import re
+import tempfile
+
+from oslo.config import cfg
 
 from cinder import exception
-from cinder import flags
+from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder import units
 from cinder.volume import driver
 
 
 LOG = logging.getLogger(__name__)
-FLAGS = flags.FLAGS
+
+CONF = cfg.CONF
+CONF.import_opt("image_conversion_dir", "cinder.image.image_utils")
 
 
 class SheepdogDriver(driver.VolumeDriver):
@@ -43,7 +52,7 @@ class SheepdogDriver(driver.VolumeDriver):
             #  gives short output, but for compatibility reason we won't
             #  use it and just check if 'running' is in the output.
             (out, err) = self._execute('collie', 'cluster', 'info')
-            if 'running' not in out.split():
+            if 'status: running' not in out:
                 exception_message = (_("Sheepdog is not working: %s") % out)
                 raise exception.VolumeBackendAPIException(
                     data=exception_message)
@@ -70,7 +79,39 @@ class SheepdogDriver(driver.VolumeDriver):
 
     def delete_volume(self, volume):
         """Deletes a logical volume"""
-        self._try_execute('collie', 'vdi', 'delete', volume['name'])
+        self._delete(volume)
+
+    def _ensure_dir_exists(self, tmp_dir):
+        if tmp_dir and not os.path.exists(tmp_dir):
+            os.makedirs(tmp_dir)
+
+    def _resize(self, volume, size=None):
+        if not size:
+            size = int(volume['size']) * units.GiB
+
+        self._try_execute('collie', 'vdi', 'resize',
+                          volume['name'], size)
+
+    def _delete(self, volume):
+        self._try_execute('collie', 'vdi', 'delete',
+                          volume['name'])
+
+    def copy_image_to_volume(self, context, volume, image_service, image_id):
+        # use the image_conversion_dir as a temporary place to save the image
+        conversion_dir = CONF.image_conversion_dir
+        self._ensure_dir_exists(conversion_dir)
+        with tempfile.NamedTemporaryFile(dir=conversion_dir) as tmp:
+            # (wenhao): we don't need to convert to raw for sheepdog.
+            image_utils.fetch_verify_image(context, image_service,
+                                           image_id, tmp.name)
+
+            # remove the image created by import before this function.
+            # see volume/drivers/manager.py:_create_volume
+            self._delete(volume)
+            # convert and store into sheepdog
+            image_utils.convert_image(tmp, 'sheepdog:%s' % volume['name'],
+                                      'raw')
+            self._resize(volume)
 
     def create_snapshot(self, snapshot):
         """Creates a sheepdog snapshot"""
@@ -139,3 +180,19 @@ class SheepdogDriver(driver.VolumeDriver):
         if refresh:
             self._update_volume_stats()
         return self._stats
+
+    def extend_volume(self, volume, new_size):
+        """Extend an Existing Volume."""
+        old_size = volume['size']
+
+        try:
+            size = int(new_size) * units.GiB
+            self._resize(volume, size=size)
+        except Exception:
+            msg = _('Failed to Extend Volume '
+                    '%(volname)s') % {'volname': volume['name']}
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+
+        LOG.debug(_("Extend volume from %(old_size) to %(new_size)"),
+                  {'old_size': old_size, 'new_size': new_size})

@@ -20,6 +20,7 @@ LVM class for performing LVM operations.
 """
 
 import math
+import re
 
 from itertools import izip
 
@@ -45,8 +46,12 @@ class VolumeGroupCreationFailed(Exception):
 class LVM(object):
     """LVM object to enable various LVM related operations."""
 
-    def __init__(self, vg_name, create_vg=False,
-                 physical_volumes=None):
+    def __init__(self,
+                 vg_name,
+                 create_vg=False,
+                 physical_volumes=None,
+                 lvm_type='default',
+                 executor=putils.execute):
         """Initialize the LVM object.
 
         The LVM object is based on an LVM VolumeGroup, one instantiation
@@ -62,9 +67,11 @@ class LVM(object):
         self.pv_list = []
         self.lv_list = []
         self.vg_size = 0
-        self.vg_available_space = 0
+        self.vg_free_space = 0
         self.vg_lv_count = 0
         self.vg_uuid = None
+        self._execute = executor
+        self.vg_thin_pool = None
 
         if create_vg and physical_volumes is not None:
             self.pv_list = physical_volumes
@@ -82,14 +89,21 @@ class LVM(object):
             LOG.error(_('Unable to locate Volume Group %s') % vg_name)
             raise VolumeGroupNotFound(vg_name=vg_name)
 
+        if lvm_type == 'thin':
+            pool_name = "%s-pool" % self.vg_name
+            if self.get_volume(pool_name) is None:
+                self.create_thin_pool(pool_name)
+            else:
+                self.vg_thin_pool = pool_name
+
     def _size_str(self, size_in_g):
         if '.00' in size_in_g:
             size_in_g = size_in_g.replace('.00', '')
 
         if int(size_in_g) == 0:
-            return '100M'
+            return '100m'
 
-        return '%sG' % size_in_g
+        return '%sg' % size_in_g
 
     def _vg_exists(self):
         """Simple check to see if VG exists.
@@ -99,7 +113,7 @@ class LVM(object):
         """
         exists = False
         cmd = ['vgs', '--noheadings', '-o', 'name']
-        (out, err) = putils.execute(*cmd, root_helper='sudo', run_as_root=True)
+        (out, err) = self._execute(*cmd, root_helper='sudo', run_as_root=True)
 
         if out is not None:
             volume_groups = out.split()
@@ -110,11 +124,11 @@ class LVM(object):
 
     def _create_vg(self, pv_list):
         cmd = ['vgcreate', self.vg_name, ','.join(pv_list)]
-        putils.execute(*cmd, root_helper='sudo', run_as_root=True)
+        self._execute(*cmd, root_helper='sudo', run_as_root=True)
 
     def _get_vg_uuid(self):
-        (out, err) = putils.execute('vgs', '--noheadings',
-                                    '-o uuid', self.vg_name)
+        (out, err) = self._execute('vgs', '--noheadings',
+                                   '-o uuid', self.vg_name)
         if out is not None:
             return out.split()
         else:
@@ -150,7 +164,7 @@ class LVM(object):
         :returns: List of Dictionaries with LV info
 
         """
-        cmd = ['lvs', '--noheadings', '-o', 'vg_name,name,size']
+        cmd = ['lvs', '--noheadings', '--unit=g', '-o', 'vg_name,name,size']
         if vg_name is not None:
             cmd += [vg_name]
 
@@ -193,6 +207,7 @@ class LVM(object):
 
         """
         cmd = ['pvs', '--noheadings',
+               '--unit=g',
                '-o', 'vg_name,name,size,free',
                '--separator', ':']
         if vg_name is not None:
@@ -230,7 +245,8 @@ class LVM(object):
 
         """
         cmd = ['vgs', '--noheadings',
-               '-o', 'name,size,free,lv_count,uuid',
+               '--unit=g', '-o',
+               'name,size,free,lv_count,uuid',
                '--separator', ':']
         if vg_name is not None:
             cmd += [vg_name]
@@ -266,14 +282,20 @@ class LVM(object):
             raise VolumeGroupNotFound(vg_name=self.vg_name)
 
         self.vg_size = vg_list[0]['size']
-        self.vg_available_space = vg_list[0]['available']
+        self.vg_free_space = vg_list[0]['available']
         self.vg_lv_count = vg_list[0]['lv_count']
         self.vg_uuid = vg_list[0]['uuid']
+        if self.vg_thin_pool is not None:
+            self.vg_size = self.vg_size
 
         return vg_list[0]
 
     def create_thin_pool(self, name=None, size_str=0):
         """Creates a thin provisioning pool for this VG.
+
+        The syntax here is slightly different than the default
+        lvcreate -T, so we'll just write a custom cmd here
+        and do it.
 
         :param name: Name to use for pool, default is "<vg-name>-pool"
         :param size_str: Size to allocate for pool, default is entire VG
@@ -293,7 +315,16 @@ class LVM(object):
             self.update_volume_group_info()
             size_str = self.vg_size
 
-        self.create_volume(name, size_str, 'thin')
+        # NOTE(jdg): lvcreate will round up extents
+        # to avoid issues, let's chop the size off to an int
+        size_str = re.sub(r'\.\d*', '', size_str)
+        pool_path = '%s/%s' % (self.vg_name, name)
+        cmd = ['lvcreate', '-T', '-L', size_str, pool_path]
+
+        putils.execute(*cmd,
+                       root_helper='sudo',
+                       run_as_root=True)
+        self.vg_thin_pool = pool_path
 
     def create_volume(self, name, size_str, lv_type='default', mirror_count=0):
         """Creates a logical volume on the object's VG.
@@ -304,25 +335,27 @@ class LVM(object):
         :param mirror_count: Use LVM mirroring with specified count
 
         """
-        size = self._size_str(size_str)
+
+        size_str = self._size_str(size_str)
         cmd = ['lvcreate', '-n', name, self.vg_name]
         if lv_type == 'thin':
-            cmd += ['-T', '-V', size]
+            pool_path = '%s/%s' % (self.vg_name, self.vg_thin_pool)
+            cmd = ['lvcreate', '-T', '-V', size_str, '-n', name, pool_path]
         else:
-            cmd += ['-L', size]
+            cmd = ['lvcreate', '-n', name, self.vg_name, '-L', size_str]
 
         if mirror_count > 0:
             cmd += ['-m', mirror_count, '--nosync']
-            terras = int(size[:-1]) / 1024.0
+            terras = int(size_str[:-1]) / 1024.0
             if terras >= 1.5:
                 rsize = int(2 ** math.ceil(math.log(terras) / math.log(2)))
                 # NOTE(vish): Next power of two for region size. See:
                 #             http://red.ht/U2BPOD
                 cmd += ['-R', str(rsize)]
 
-        putils.execute(*cmd,
-                       root_helper='sudo',
-                       run_as_root=True)
+        self._execute(*cmd,
+                      root_helper='sudo',
+                      run_as_root=True)
 
     def create_lv_snapshot(self, name, source_lv_name, lv_type='default'):
         """Creates a snapshot of a logical volume.
@@ -342,9 +375,9 @@ class LVM(object):
             size = source_lvref['size']
             cmd += ['-L', size]
 
-        putils.execute(*cmd,
-                       root_helper='sudo',
-                       run_as_root=True)
+        self._execute(*cmd,
+                      root_helper='sudo',
+                      run_as_root=True)
 
     def delete(self, name):
         """Delete logical volume or snapshot.
@@ -352,10 +385,10 @@ class LVM(object):
         :param name: Name of LV to delete
 
         """
-        putils.execute('lvremove',
-                       '-f',
-                       '%s/%s' % (self.vg_name, name),
-                       root_helper='sudo', run_as_root=True)
+        self._execute('lvremove',
+                      '-f',
+                      '%s/%s' % (self.vg_name, name),
+                      root_helper='sudo', run_as_root=True)
 
     def revert(self, snapshot_name):
         """Revert an LV from snapshot.
@@ -363,6 +396,16 @@ class LVM(object):
         :param snapshot_name: Name of snapshot to revert
 
         """
-        putils.execute('lvconvert', '--merge',
-                       snapshot_name, root_helper='sudo',
-                       run_as_root=True)
+        self._execute('lvconvert', '--merge',
+                      snapshot_name, root_helper='sudo',
+                      run_as_root=True)
+
+    def lv_has_snapshot(self, name):
+        out, err = self._execute('lvdisplay', '--noheading',
+                                 '-C', '-o', 'Attr',
+                                 '%s/%s' % (self.vg_name, name))
+        if out:
+            out = out.strip()
+            if (out[0] == 'o') or (out[0] == 'O'):
+                return True
+        return False

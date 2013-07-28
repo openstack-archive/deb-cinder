@@ -54,8 +54,9 @@ def _get_connect_string(backend,
     if backend == "postgres":
         backend = "postgresql+psycopg2"
 
-    return ("%(backend)s://%(user)s:%(passwd)s@localhost/%(database)s"
-            % locals())
+    return ("%(backend)s://%(user)s:%(passwd)s@localhost/%(database)s",
+            {'backend': backend, 'user': user, 'passwd': passwd,
+             'database': database})
 
 
 def _is_mysql_avail(**kwargs):
@@ -96,7 +97,8 @@ def get_table(engine, name):
     """Returns an sqlalchemy table dynamically from db.
 
     Needed because the models don't work for us in migrations
-    as models will be far out of sync with the current data."""
+    as models will be far out of sync with the current data.
+    """
     metadata = sqlalchemy.schema.MetaData()
     metadata.bind = engine
     return sqlalchemy.Table(name, metadata, autoload=True)
@@ -133,7 +135,7 @@ class TestMigrations(test.TestCase):
                     for key, value in defaults.items():
                         self.test_databases[key] = value
                     self.snake_walk = cp.getboolean('walk_style', 'snake_walk')
-                except ConfigParser.ParsingError, e:
+                except ConfigParser.ParsingError as e:
                     self.fail("Failed to read test_migrations.conf config "
                               "file. Got error: %s" % e)
             else:
@@ -185,10 +187,11 @@ class TestMigrations(test.TestCase):
                 if len(auth_pieces) > 1:
                     if auth_pieces[1].strip():
                         password = "-p\"%s\"" % auth_pieces[1]
-                sql = ("drop database if exists %(database)s; "
-                       "create database %(database)s;") % locals()
+                sql = ("drop database if exists %(database)s; create database "
+                       "%(database)s;") % {'database': database}
                 cmd = ("mysql -u \"%(user)s\" %(password)s -h %(host)s "
-                       "-e \"%(sql)s\"") % locals()
+                       "-e \"%(sql)s\"") % {'user': user, 'password': password,
+                                            'host': host, 'sql': sql}
                 execute_cmd(cmd)
             elif conn_string.startswith('postgresql'):
                 database = conn_pieces.path.strip('/')
@@ -211,11 +214,13 @@ class TestMigrations(test.TestCase):
                 # operations there is a special database template1.
                 sqlcmd = ("psql -w -U %(user)s -h %(host)s -c"
                           " '%(sql)s' -d template1")
-                sql = ("drop database if exists %(database)s;") % locals()
-                droptable = sqlcmd % locals()
+                sql = ("drop database if exists %(database)s;") % {'database':
+                                                                   database}
+                droptable = sqlcmd % {'user': user, 'host': host, 'sql': sql}
                 execute_cmd(droptable)
-                sql = ("create database %(database)s;") % locals()
-                createtable = sqlcmd % locals()
+                sql = ("create database %(database)s;") % {'database':
+                                                           database}
+                createtable = sqlcmd % {'user': user, 'host': host, 'sql': sql}
                 execute_cmd(createtable)
                 os.unsetenv('PGPASSWORD')
                 os.unsetenv('PGUSER')
@@ -628,3 +633,143 @@ class TestMigrations(test.TestCase):
 
             self.assertFalse(engine.dialect.has_table(engine.connect(),
                                                       "snapshot_metadata"))
+
+    def test_migration_010(self):
+        """Test adding transfers table works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 9)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 10)
+
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     "transfers"))
+            transfers = sqlalchemy.Table('transfers',
+                                         metadata,
+                                         autoload=True)
+
+            self.assertTrue(isinstance(transfers.c.created_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(transfers.c.updated_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(transfers.c.deleted_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(transfers.c.deleted.type,
+                                       sqlalchemy.types.BOOLEAN))
+            self.assertTrue(isinstance(transfers.c.id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(transfers.c.volume_id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(transfers.c.display_name.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(transfers.c.salt.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(transfers.c.crypt_hash.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(transfers.c.expires_at.type,
+                                       sqlalchemy.types.DATETIME))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 9)
+
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      "transfers"))
+
+    def test_migration_011(self):
+        """Test adding transfers table works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 10)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes_v10 = sqlalchemy.Table('volumes',
+                                           metadata,
+                                           autoload=True)
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 11)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     "volumes"))
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+
+            # Make sure we didn't miss any columns in the upgrade
+            for column in volumes_v10.c:
+                self.assertTrue(volumes.c.__contains__(column.name))
+
+            self.assertTrue(isinstance(volumes.c.bootable.type,
+                                       sqlalchemy.types.BOOLEAN))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 10)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue('bootable' not in volumes.c)
+
+            # Make sure we put all the columns back
+            for column in volumes_v10.c:
+                self.assertTrue(volumes.c.__contains__(column.name))
+
+    def test_migration_012(self):
+        """Test that adding attached_host column works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 11)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 12)
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue(isinstance(volumes.c.attached_host.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 11)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue('attached_host' not in volumes.c)
+
+    def test_migration_013(self):
+        """Test that adding provider_geometry column works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 12)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 13)
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue(isinstance(volumes.c.provider_geometry.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 12)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue('provider_geometry' not in volumes.c)

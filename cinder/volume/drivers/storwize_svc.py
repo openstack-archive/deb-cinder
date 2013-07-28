@@ -101,6 +101,10 @@ storwize_svc_opts = [
 ]
 
 
+CONF = cfg.CONF
+CONF.register_opts(storwize_svc_opts)
+
+
 class StorwizeSVCDriver(san.SanISCSIDriver):
     """IBM Storwize V7000 and SVC iSCSI/FC volume driver.
 
@@ -128,7 +132,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         for num in range(0, 128):
             ch = str(chr(num))
             if (not ch.isalnum() and ch != ' ' and ch != '.'
-                and ch != '-' and ch != '_'):
+                    and ch != '-' and ch != '_'):
                 invalid_ch_in_host = invalid_ch_in_host + ch
         self._string_host_name_filter = string.maketrans(
             invalid_ch_in_host, '-' * len(invalid_ch_in_host))
@@ -461,9 +465,9 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
                 # If '!' not found, return the string and two empty strings
                 attr_name, foo, attr_val = attr_line.partition('!')
                 if (attr_name == 'iscsi_name' and
-                    'initiator' in connector and
-                    attr_val == connector['initiator']):
-                        return host
+                        'initiator' in connector and
+                        attr_val == connector['initiator']):
+                    return host
                 elif (attr_name == 'WWPN' and
                       'wwpns' in connector and
                       attr_val.lower() in
@@ -584,9 +588,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
             mapped_flag = True
             result_lun = mapping_data[volume_name]['SCSI_id']
         else:
-            lun_used = []
-            for k, v in mapping_data.iteritems():
-                lun_used.append(int(v['SCSI_id']))
+            lun_used = [int(v['SCSI_id']) for v in mapping_data.values()]
             lun_used.sort()
             # Assume all luns are taken to this point, and then try to find
             # an unused one
@@ -607,7 +609,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
             if err and err.startswith('CMMVC6071E'):
                 if not self.configuration.storwize_svc_multihostmap_enabled:
                     LOG.error(_('storwize_svc_multihostmap_enabled is set '
-                                'to Flase, Not allow multi host mapping'))
+                                'to False, Not allow multi host mapping'))
                     exception_msg = 'CMMVC6071E The VDisk-to-host mapping '\
                                     'was not created because the VDisk is '\
                                     'already mapped to a host.\n"'
@@ -849,8 +851,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         mapping_ids = []
         if (len(out.strip())):
             lines = out.strip().split('\n')
-            for line in lines:
-                mapping_ids.append(line.split()[0])
+            mapping_ids = [line.split()[0] for line in lines]
         return mapping_ids
 
     def _get_vdisk_params(self, type_id):
@@ -1311,7 +1312,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         if opts['protocol'] == 'iSCSI':
             # Implemented in base iSCSI class
             return super(StorwizeSVCDriver, self).copy_image_to_volume(
-                    context, volume, image_service, image_id)
+                context, volume, image_service, image_id)
         else:
             raise NotImplementedError()
 
@@ -1320,7 +1321,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         if opts['protocol'] == 'iSCSI':
             # Implemented in base iSCSI class
             return super(StorwizeSVCDriver, self).copy_volume_to_image(
-                    context, volume, image_service, image_meta)
+                context, volume, image_service, image_meta)
         else:
             raise NotImplementedError()
 
@@ -1332,7 +1333,8 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
         """Get volume status.
 
         If we haven't gotten stats yet or 'refresh' is True,
-        run update the stats first."""
+        run update the stats first.
+        """
         if not self._stats or refresh:
             self._update_volume_status()
 
@@ -1508,9 +1510,7 @@ class StorwizeSVCDriver(san.SanISCSIDriver):
               'Headers: %(header)s\n Values: %(row)s')
             % {'header': str(header),
                'row': str(row)})
-        dic = {}
-        for attribute, value in map(None, attributes, values):
-            dic[attribute] = value
+        dic = dict((a, v) for a, v in map(None, attributes, values))
         return dic
 
     def _log_cli_output_error(self, function, cmd, out, err):

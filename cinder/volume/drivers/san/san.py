@@ -27,7 +27,7 @@ from eventlet import greenthread
 from oslo.config import cfg
 
 from cinder import exception
-from cinder import flags
+from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.driver import ISCSIDriver
@@ -72,8 +72,8 @@ san_opts = [
                help='Maximum ssh connections in the pool'),
 ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(san_opts)
+CONF = cfg.CONF
+CONF.register_opts(san_opts)
 
 
 class SanISCSIDriver(ISCSIDriver):
@@ -133,20 +133,20 @@ class SanISCSIDriver(ISCSIDriver):
                         greenthread.sleep(random.randint(20, 500) / 100.0)
                 try:
                     raise exception.ProcessExecutionError(
-                            exit_code=last_exception.exit_code,
-                            stdout=last_exception.stdout,
-                            stderr=last_exception.stderr,
-                            cmd=last_exception.cmd)
+                        exit_code=last_exception.exit_code,
+                        stdout=last_exception.stdout,
+                        stderr=last_exception.stderr,
+                        cmd=last_exception.cmd)
                 except AttributeError:
                     raise exception.ProcessExecutionError(
-                            exit_code=-1,
-                            stdout="",
-                            stderr="Error running SSH command",
-                            cmd=command)
+                        exit_code=-1,
+                        stdout="",
+                        stderr="Error running SSH command",
+                        cmd=command)
 
-        except Exception as e:
-            LOG.error(_("Error running SSH command: %s") % command)
-            raise e
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_("Error running SSH command: %s") % command)
 
     def ensure_export(self, context, volume):
         """Synchronously recreates an export for a logical volume."""

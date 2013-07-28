@@ -22,15 +22,11 @@ Contrib : Larry Matter <support@coraid.com>
 """
 
 import cookielib
-import os
 import time
 import urllib2
 
 from oslo.config import cfg
 
-from cinder import context
-from cinder import exception
-from cinder import flags
 from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
@@ -38,7 +34,6 @@ from cinder.volume import volume_types
 
 LOG = logging.getLogger(__name__)
 
-FLAGS = flags.FLAGS
 coraid_opts = [
     cfg.StrOpt('coraid_esm_address',
                default='',
@@ -57,7 +52,9 @@ coraid_opts = [
                default='coraid_repository',
                help='Volume Type key name to store ESM Repository Name'),
 ]
-FLAGS.register_opts(coraid_opts)
+
+CONF = cfg.CONF
+CONF.register_opts(coraid_opts)
 
 
 class CoraidException(Exception):
@@ -169,6 +166,17 @@ class CoraidRESTClient(object):
         else:
             raise CoraidRESTException(_('Request without URL'))
 
+    def _check_esm_alive(self):
+        try:
+            url = self.url + 'fetch'
+            req = urllib2.Request(url)
+            code = self.urlOpener.open(req).getcode()
+            if code == '200':
+                return True
+            return False
+        except Exception:
+            return False
+
     def _configure(self, data):
         """In charge of all commands into 'configure'."""
         url = 'configure'
@@ -220,14 +228,21 @@ class CoraidRESTClient(object):
 
     def delete_lun(self, volume_name):
         """Delete LUN."""
-        volume_info = self._get_volume_info(volume_name)
-        repository = volume_info['repo']
-        data = '[{"addr":"cms","data":"{' \
-               '\\"repoName\\":\\"%s\\",' \
-               '\\"lvName\\":\\"%s\\"}",' \
-               '"op":"orchStrLun/verified",' \
-               '"args":"delete"}]' % (repository, volume_name)
-        return self._configure(data)
+        try:
+            volume_info = self._get_volume_info(volume_name)
+            repository = volume_info['repo']
+            data = '[{"addr":"cms","data":"{' \
+                   '\\"repoName\\":\\"%(repo)s\\",' \
+                   '\\"lvName\\":\\"%(volname)s\\"}",' \
+                   '"op":"orchStrLun/verified",' \
+                   '"args":"delete"}]' % dict(repo=repository,
+                                              volname=volume_name)
+            return self._configure(data)
+        except Exception:
+            if self._check_esm_alive():
+                return True
+            else:
+                return False
 
     def create_snapshot(self, volume_name, snapshot_name):
         """Create Snapshot."""
@@ -266,6 +281,19 @@ class CoraidRESTClient(object):
                '"op":"orchStrLunMods",' \
                '"args":"addClone"}]' % (snapshot_name, snapshot_repo,
                                         volume_name, repository)
+        return self._configure(data)
+
+    def resize_volume(self, volume_name, volume_size):
+        volume_info = self._get_volume_info(volume_name)
+        repository = volume_info['repo']
+        data = '[{"addr":"cms","data":"{' \
+               '\\"lvName\\":\\"%s\\",' \
+               '\\"newLvSize\\":\\"%s\\"}",' \
+               '\\"repoName\\":\\"%s\\"}",' \
+               '"op":"orchStrLunMods",' \
+               '"args":"resizeVolume"}]' % (volume_name,
+                                            volume_size,
+                                            repository)
         return self._configure(data)
 
 
@@ -325,13 +353,13 @@ class CoraidDriver(driver.VolumeDriver):
 
     def create_snapshot(self, snapshot):
         """Create a Snapshot."""
+        volume_name = (self.configuration.volume_name_template
+                       % snapshot['volume_id'])
+        snapshot_name = (self.configuration.snapshot_name_template
+                         % snapshot['id'])
         try:
-            volume_name = (FLAGS.volume_name_template
-                           % snapshot['volume_id'])
-            snapshot_name = (FLAGS.snapshot_name_template
-                             % snapshot['id'])
             self.esm.create_snapshot(volume_name, snapshot_name)
-        except Exception, e:
+        except Exception as e:
             msg = _('Failed to Create Snapshot %(snapname)s')
             LOG.debug(msg % dict(snapname=snapshot_name))
             raise
@@ -339,9 +367,9 @@ class CoraidDriver(driver.VolumeDriver):
 
     def delete_snapshot(self, snapshot):
         """Delete a Snapshot."""
+        snapshot_name = (self.configuration.snapshot_name_template
+                         % snapshot['id'])
         try:
-            snapshot_name = (FLAGS.snapshot_name_template
-                             % snapshot['id'])
             self.esm.delete_snapshot(snapshot_name)
         except Exception:
             msg = _('Failed to Delete Snapshot %(snapname)s')
@@ -351,16 +379,29 @@ class CoraidDriver(driver.VolumeDriver):
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Create a Volume from a Snapshot."""
+        snapshot_name = (self.configuration.snapshot_name_template
+                         % snapshot['id'])
+        repository = self._get_repository(volume['volume_type'])
         try:
-            snapshot_name = (FLAGS.snapshot_name_template
-                             % snapshot['id'])
-            repository = self._get_repository(volume['volume_type'])
             self.esm.create_volume_from_snapshot(snapshot_name,
                                                  volume['name'],
                                                  repository)
+            resize = volume['size'] > snapshot['volume_size']
+            if resize:
+                self.esm.resize_volume(volume['name'], volume['size'])
         except Exception:
             msg = _('Failed to Create Volume from Snapshot %(snapname)s')
             LOG.debug(msg % dict(snapname=snapshot_name))
+            raise
+        return
+
+    def extend_volume(self, volume, new_size):
+        """Extend an Existing Volume."""
+        try:
+            self.esm.resize_volume(volume['name'], new_size)
+        except Exception:
+            msg = _('Failed to Extend Volume %(volname)s')
+            LOG.debug(msg % dict(volname=volume['name']))
             raise
         return
 
@@ -415,9 +456,6 @@ class CoraidDriver(driver.VolumeDriver):
         pass
 
     def ensure_export(self, context, volume):
-        pass
-
-    def attach_volume(self, context, volume, instance_uuid, mountpoint):
         pass
 
     def detach_volume(self, context, volume):

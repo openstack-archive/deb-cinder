@@ -19,28 +19,21 @@
 
 """Utilities and helper functions."""
 
+
 import contextlib
 import datetime
-import errno
 import functools
 import hashlib
 import inspect
-import itertools
 import os
 import paramiko
 import pyclbr
 import random
 import re
-import shlex
 import shutil
-import signal
-import socket
-import struct
 import sys
 import tempfile
 import time
-import types
-import warnings
 from xml.dom import minidom
 from xml.parsers import expat
 from xml import sax
@@ -48,23 +41,24 @@ from xml.sax import expatreader
 from xml.sax import saxutils
 
 from eventlet import event
-from eventlet.green import subprocess
 from eventlet import greenthread
 from eventlet import pools
 
+from oslo.config import cfg
+
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder.openstack.common import timeutils
 
 
+CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 ISO_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 PERFECT_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"
-FLAGS = flags.FLAGS
 
 synchronized = lockutils.synchronized_with_prefix('cinder-')
 
@@ -79,9 +73,9 @@ def find_config(config_path):
     """
     possible_locations = [
         config_path,
-        os.path.join(FLAGS.state_path, "etc", "cinder", config_path),
-        os.path.join(FLAGS.state_path, "etc", config_path),
-        os.path.join(FLAGS.state_path, config_path),
+        os.path.join(CONF.state_path, "etc", "cinder", config_path),
+        os.path.join(CONF.state_path, "etc", config_path),
+        os.path.join(CONF.state_path, config_path),
         "/etc/cinder/%s" % config_path,
     ]
 
@@ -97,143 +91,42 @@ def fetchfile(url, target):
     execute('curl', '--fail', url, '-o', target)
 
 
-def _subprocess_setup():
-    # Python installs a SIGPIPE handler by default. This is usually not what
-    # non-Python subprocesses expect.
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-
-
 def execute(*cmd, **kwargs):
-    """Helper method to execute command with optional retry.
-
-    If you add a run_as_root=True command, don't forget to add the
-    corresponding filter to etc/cinder/rootwrap.d !
-
-    :param cmd:                Passed to subprocess.Popen.
-    :param process_input:      Send to opened process.
-    :param check_exit_code:    Single bool, int, or list of allowed exit
-                               codes.  Defaults to [0].  Raise
-                               exception.ProcessExecutionError unless
-                               program exits with one of these code.
-    :param delay_on_retry:     True | False. Defaults to True. If set to
-                               True, wait a short amount of time
-                               before retrying.
-    :param attempts:           How many times to retry cmd.
-    :param run_as_root:        True | False. Defaults to False. If set to True,
-                               the command is prefixed by the command specified
-                               in the root_helper FLAG.
-
-    :raises exception.Error: on receiving unknown arguments
-    :raises exception.ProcessExecutionError:
-
-    :returns: a tuple, (stdout, stderr) from the spawned process, or None if
-             the command fails.
-    """
-
-    process_input = kwargs.pop('process_input', None)
-    check_exit_code = kwargs.pop('check_exit_code', [0])
-    ignore_exit_code = False
-    if isinstance(check_exit_code, bool):
-        ignore_exit_code = not check_exit_code
-        check_exit_code = [0]
-    elif isinstance(check_exit_code, int):
-        check_exit_code = [check_exit_code]
-    delay_on_retry = kwargs.pop('delay_on_retry', True)
-    attempts = kwargs.pop('attempts', 1)
-    run_as_root = kwargs.pop('run_as_root', False)
-    shell = kwargs.pop('shell', False)
-
-    if len(kwargs):
-        raise exception.Error(_('Got unknown keyword args '
-                                'to utils.execute: %r') % kwargs)
-
-    if run_as_root:
-
-        if FLAGS.rootwrap_config is None or FLAGS.root_helper != 'sudo':
-            LOG.deprecated(_('The root_helper option (which lets you specify '
-                             'a root wrapper different from cinder-rootwrap, '
-                             'and defaults to using sudo) is now deprecated. '
-                             'You should use the rootwrap_config option '
-                             'instead.'))
-
-        if (FLAGS.rootwrap_config is not None):
-            cmd = ['sudo', 'cinder-rootwrap',
-                   FLAGS.rootwrap_config] + list(cmd)
-        else:
-            cmd = shlex.split(FLAGS.root_helper) + list(cmd)
-    cmd = map(str, cmd)
-
-    while attempts > 0:
-        attempts -= 1
-        try:
-            LOG.debug(_('Running cmd (subprocess): %s'), ' '.join(cmd))
-            _PIPE = subprocess.PIPE  # pylint: disable=E1101
-            obj = subprocess.Popen(cmd,
-                                   stdin=_PIPE,
-                                   stdout=_PIPE,
-                                   stderr=_PIPE,
-                                   close_fds=True,
-                                   preexec_fn=_subprocess_setup,
-                                   shell=shell)
-            result = None
-            if process_input is not None:
-                result = obj.communicate(process_input)
-            else:
-                result = obj.communicate()
-            obj.stdin.close()  # pylint: disable=E1101
-            _returncode = obj.returncode  # pylint: disable=E1101
-            if _returncode:
-                LOG.debug(_('Result was %s') % _returncode)
-                if not ignore_exit_code and _returncode not in check_exit_code:
-                    (stdout, stderr) = result
-                    raise exception.ProcessExecutionError(
-                        exit_code=_returncode,
-                        stdout=stdout,
-                        stderr=stderr,
-                        cmd=' '.join(cmd))
-            return result
-        except exception.ProcessExecutionError:
-            if not attempts:
-                raise
-            else:
-                LOG.debug(_('%r failed. Retrying.'), cmd)
-                if delay_on_retry:
-                    greenthread.sleep(random.randint(20, 200) / 100.0)
-        finally:
-            # NOTE(termie): this appears to be necessary to let the subprocess
-            #               call clean something up in between calls, without
-            #               it two execute calls in a row hangs the second one
-            greenthread.sleep(0)
+    """Convenience wrapper around oslo's execute() method."""
+    if 'run_as_root' in kwargs and not 'root_helper' in kwargs:
+        kwargs['root_helper'] =\
+            'sudo cinder-rootwrap %s' % CONF.rootwrap_config
+    try:
+        (stdout, stderr) = processutils.execute(*cmd, **kwargs)
+    except processutils.ProcessExecutionError as ex:
+        raise exception.ProcessExecutionError(
+            exit_code=ex.exit_code,
+            stderr=ex.stderr,
+            stdout=ex.stdout,
+            cmd=ex.cmd,
+            description=ex.description)
+    except processutils.UnknownArgumentError as ex:
+        raise exception.Error(ex.message)
+    return (stdout, stderr)
 
 
 def trycmd(*args, **kwargs):
-    """
-    A wrapper around execute() to more easily handle warnings and errors.
-
-    Returns an (out, err) tuple of strings containing the output of
-    the command's stdout and stderr.  If 'err' is not empty then the
-    command can be considered to have failed.
-
-    :discard_warnings   True | False. Defaults to False. If set to True,
-                        then for succeeding commands, stderr is cleared
-
-    """
-    discard_warnings = kwargs.pop('discard_warnings', False)
-
+    """Convenience wrapper around oslo's trycmd() method."""
+    if 'run_as_root' in kwargs and not 'root_helper' in kwargs:
+        kwargs['root_helper'] =\
+            'sudo cinder-rootwrap %s' % CONF.rootwrap_config
     try:
-        out, err = execute(*args, **kwargs)
-        failed = False
-    except exception.ProcessExecutionError, exn:
-        out, err = '', str(exn)
-        LOG.debug(err)
-        failed = True
-
-    if not failed and discard_warnings and err:
-        # Handle commands that output to stderr but otherwise succeed
-        LOG.debug(err)
-        err = ''
-
-    return out, err
+        (stdout, stderr) = processutils.trycmd(*args, **kwargs)
+    except processutils.ProcessExecutionError as ex:
+        raise exception.ProcessExecutionError(
+            exit_code=ex.exit_code,
+            stderr=ex.stderr,
+            stdout=ex.stdout,
+            cmd=ex.cmd,
+            description=ex.description)
+    except processutils.UnknownArgumentError as ex:
+        raise exception.Error(ex.message)
+    return (stdout, stderr)
 
 
 def ssh_execute(ssh, cmd, process_input=None,
@@ -408,9 +301,10 @@ def last_completed_audit_period(unit=None):
 
     returns:  2 tuple of datetimes (begin, end)
               The begin timestamp of this audit period is the same as the
-              end of the previous."""
+              end of the previous.
+    """
     if not unit:
-        unit = FLAGS.volume_usage_audit_period
+        unit = CONF.volume_usage_audit_period
 
     offset = 0
     if '@' in unit:
@@ -533,7 +427,8 @@ def get_my_linklocal(interface):
                                   % if_str)
     except Exception as ex:
         raise exception.Error(_("Couldn't get Link Local IP of %(interface)s"
-                                " :%(ex)s") % locals())
+                                " :%(ex)s") %
+                              {'interface': interface, 'ex': ex, })
 
 
 def parse_mailmap(mailmap='.mailmap'):
@@ -564,7 +459,7 @@ class LazyPluggable(object):
 
     def __get_backend(self):
         if not self.__backend:
-            backend_name = FLAGS[self.__pivot]
+            backend_name = CONF[self.__pivot]
             if backend_name not in self.__backends:
                 raise exception.Error(_('Invalid backend: %s') % backend_name)
 
@@ -623,7 +518,7 @@ class LoopingCall(object):
                     if not self._running:
                         break
                     greenthread.sleep(interval)
-            except LoopingCallDone, e:
+            except LoopingCallDone as e:
                 self.stop()
                 done.send(e.retvalue)
             except Exception:
@@ -695,33 +590,20 @@ def xhtml_escape(value):
 def utf8(value):
     """Try to turn a string into utf-8 if possible.
 
-    Code is directly from the utf8 function in
-    http://github.com/facebook/tornado/blob/master/tornado/escape.py
-
     """
     if isinstance(value, unicode):
         return value.encode('utf-8')
-    assert isinstance(value, str)
-    return value
-
-
-def delete_if_exists(pathname):
-    """delete a file, but ignore file not found error"""
-
-    try:
-        os.unlink(pathname)
-    except OSError as e:
-        if e.errno == errno.ENOENT:
-            return
-        else:
-            raise
+    elif isinstance(value, str):
+        return value
+    else:
+        raise ValueError("%s is not a string" % value)
 
 
 def get_from_path(items, path):
     """Returns a list of items matching the specified path.
 
     Takes an XPath-like expression e.g. prop1/prop2/prop3, and for each item
-    in items, looks up items[prop1][prop2][prop3].  Like XPath, if any of the
+    in items, looks up items[prop1][prop2][prop3]. Like XPath, if any of the
     intermediate results are lists it will treat each list item individually.
     A 'None' in items or any child expressions will be ignored, this function
     will not throw because of None (anywhere) in items.  The returned list
@@ -816,7 +698,7 @@ def check_isinstance(obj, cls):
 
 
 def is_valid_boolstr(val):
-    """Check if the provided string is a valid bool string or not. """
+    """Check if the provided string is a valid bool string or not."""
     val = str(val).lower()
     return (val == 'true' or val == 'false' or
             val == 'yes' or val == 'no' or
@@ -841,11 +723,12 @@ def is_valid_ipv4(address):
 
 
 def monkey_patch():
-    """  If the Flags.monkey_patch set as True,
+    """If the CONF.monkey_patch set as True,
     this function patches a decorator
     for all functions in specified modules.
+
     You can set decorators for each modules
-    using FLAGS.monkey_patch_modules.
+    using CONF.monkey_patch_modules.
     The format is "Module path:Decorator function".
     Example: 'cinder.api.ec2.cloud:' \
      cinder.openstack.common.notifier.api.notify_decorator'
@@ -856,11 +739,11 @@ def monkey_patch():
     name - name of the function
     function - object of the function
     """
-    # If FLAGS.monkey_patch is not True, this function do nothing.
-    if not FLAGS.monkey_patch:
+    # If CONF.monkey_patch is not True, this function do nothing.
+    if not CONF.monkey_patch:
         return
     # Get list of modules and decorators
-    for module_and_decorator in FLAGS.monkey_patch_modules:
+    for module_and_decorator in CONF.monkey_patch_modules:
         module, decorator_name = module_and_decorator.split(':')
         # import decorator function
         decorator = importutils.import_class(decorator_name)
@@ -909,7 +792,7 @@ def generate_glance_url():
     """Generate the URL to glance."""
     # TODO(jk0): This will eventually need to take SSL into consideration
     # when supported in glance.
-    return "http://%s:%d" % (FLAGS.glance_host, FLAGS.glance_port)
+    return "http://%s:%d" % (CONF.glance_host, CONF.glance_port)
 
 
 @contextlib.contextmanager
@@ -923,18 +806,6 @@ def logging_error(message):
     except Exception as error:
         with excutils.save_and_reraise_exception():
             LOG.exception(message)
-
-
-@contextlib.contextmanager
-def remove_path_on_error(path):
-    """Protect code that wants to operate on PATH atomically.
-    Any exception will cause PATH to be removed.
-    """
-    try:
-        yield
-    except Exception:
-        with excutils.save_and_reraise_exception():
-            delete_if_exists(path)
 
 
 def make_dev_path(dev, partition=None, base='/dev'):
@@ -994,18 +865,6 @@ def read_cached_file(filename, cache_info, reload_func=None):
     return cache_info['data']
 
 
-def file_open(*args, **kwargs):
-    """Open file
-
-    see built-in file() documentation for more details
-
-    Note: The reason this is kept in a separate module is to easily
-          be able to provide a stub module that doesn't alter system
-          state at all (for unit tests)
-    """
-    return file(*args, **kwargs)
-
-
 def hash_file(file_like_object):
     """Generate a hash for the contents of a file."""
     checksum = hashlib.sha1()
@@ -1046,7 +905,7 @@ def service_is_up(service):
     last_heartbeat = service['updated_at'] or service['created_at']
     # Timestamps in DB are UTC.
     elapsed = total_seconds(timeutils.utcnow() - last_heartbeat)
-    return abs(elapsed) <= FLAGS.service_down_time
+    return abs(elapsed) <= CONF.service_down_time
 
 
 def generate_mac_address():
@@ -1101,7 +960,7 @@ def tempdir(**kwargs):
     finally:
         try:
             shutil.rmtree(tmpdir)
-        except OSError, e:
+        except OSError as e:
             LOG.debug(_('Could not remove tmpdir: %s'), str(e))
 
 
@@ -1163,54 +1022,3 @@ class UndoManager(object):
                 LOG.exception(msg, **kwargs)
 
             self._rollback()
-
-
-def ensure_tree(path):
-    """Create a directory (and any ancestor directories required)
-
-    :param path: Directory to create
-    """
-    try:
-        os.makedirs(path)
-    except OSError as exc:
-        if exc.errno == errno.EEXIST:
-            if not os.path.isdir(path):
-                raise
-        else:
-            raise
-
-
-def to_bytes(text, default=0):
-    """Try to turn a string into a number of bytes. Looks at the last
-    characters of the text to determine what conversion is needed to
-    turn the input text into a byte number.
-
-    Supports: B/b, K/k, M/m, G/g, T/t (or the same with b/B on the end)
-
-    """
-    BYTE_MULTIPLIERS = {
-        '': 1,
-        't': 1024 ** 4,
-        'g': 1024 ** 3,
-        'm': 1024 ** 2,
-        'k': 1024,
-    }
-
-    # Take off everything not number 'like' (which should leave
-    # only the byte 'identifier' left)
-    mult_key_org = text.lstrip('-1234567890')
-    mult_key = mult_key_org.lower()
-    mult_key_len = len(mult_key)
-    if mult_key.endswith("b"):
-        mult_key = mult_key[0:-1]
-    try:
-        multiplier = BYTE_MULTIPLIERS[mult_key]
-        if mult_key_len:
-            # Empty cases shouldn't cause text[0:-0]
-            text = text[0:-mult_key_len]
-        return int(text) * multiplier
-    except KeyError:
-        msg = _('Unknown byte multiplier: %s') % mult_key_org
-        raise TypeError(msg)
-    except ValueError:
-        return default

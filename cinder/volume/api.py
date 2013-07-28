@@ -20,13 +20,14 @@
 Handles all requests relating to volumes.
 """
 
+
 import functools
 
 from oslo.config import cfg
 
+from cinder import context
 from cinder.db import base
 from cinder import exception
-from cinder import flags
 from cinder.image import glance
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
@@ -34,20 +35,22 @@ from cinder.openstack.common import timeutils
 import cinder.policy
 from cinder import quota
 from cinder.scheduler import rpcapi as scheduler_rpcapi
+from cinder import units
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import volume_types
+
 
 volume_host_opt = cfg.BoolOpt('snapshot_same_host',
                               default=True,
                               help='Create volume from snapshot at the host '
                                    'where snapshot resides')
 
-FLAGS = flags.FLAGS
-FLAGS.register_opt(volume_host_opt)
-flags.DECLARE('storage_availability_zone', 'cinder.volume.manager')
+CONF = cfg.CONF
+CONF.register_opt(volume_host_opt)
+CONF.import_opt('storage_availability_zone', 'cinder.volume.manager')
 
 LOG = logging.getLogger(__name__)
-GB = 1048576 * 1024
+GB = units.GiB
 QUOTAS = quota.QUOTAS
 
 
@@ -83,6 +86,7 @@ class API(base.Base):
                               glance.get_default_image_service())
         self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
         self.volume_rpcapi = volume_rpcapi.VolumeAPI()
+        self.availability_zone_names = ()
         super(API, self).__init__(db_driver)
 
     def create(self, context, size, name, description, snapshot=None,
@@ -155,8 +159,18 @@ class API(base.Base):
                 msg = _('Image minDisk size is larger than the volume size.')
                 raise exception.InvalidInput(reason=msg)
 
+        if not volume_type and not source_volume:
+            volume_type = volume_types.get_default_volume_type()
+
+        if not volume_type and source_volume:
+            volume_type_id = source_volume['volume_type_id']
+        else:
+            volume_type_id = volume_type.get('id')
+
         try:
-            reservations = QUOTAS.reserve(context, volumes=1, gigabytes=size)
+            reserve_opts = {'volumes': 1, 'gigabytes': size}
+            QUOTAS.add_volume_type_opts(context, reserve_opts, volume_type_id)
+            reservations = QUOTAS.reserve(context, **reserve_opts)
         except exception.OverQuota as e:
             overs = e.kwargs['overs']
             usages = e.kwargs['usages']
@@ -165,33 +179,28 @@ class API(base.Base):
             def _consumed(name):
                 return (usages[name]['reserved'] + usages[name]['in_use'])
 
-            if 'gigabytes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "%(s_size)sG volume (%(d_consumed)dG of %(d_quota)dG "
-                        "already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                's_size': size,
-                                'd_consumed': _consumed('gigabytes'),
-                                'd_quota': quotas['gigabytes']})
-                raise exception.VolumeSizeExceedsAvailableQuota()
-            elif 'volumes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "volume (%(d_consumed)d volumes "
-                        "already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                'd_consumed': _consumed('volumes')})
-                raise exception.VolumeLimitExceeded(allowed=quotas['volumes'])
+            for over in overs:
+                if 'gigabytes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "%(s_size)sG volume (%(d_consumed)dG of "
+                            "%(d_quota)dG already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    's_size': size,
+                                    'd_consumed': _consumed(over),
+                                    'd_quota': quotas[over]})
+                    raise exception.VolumeSizeExceedsAvailableQuota()
+                elif 'volumes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "volume (%(d_consumed)d volumes"
+                            "already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    'd_consumed': _consumed(over)})
+                    raise exception.VolumeLimitExceeded(allowed=quotas[over])
 
         if availability_zone is None:
-            availability_zone = FLAGS.storage_availability_zone
-
-        if not volume_type and not source_volume:
-            volume_type = volume_types.get_default_volume_type()
-
-        if not volume_type and source_volume:
-            volume_type_id = source_volume['volume_type_id']
+            availability_zone = CONF.storage_availability_zone
         else:
-            volume_type_id = volume_type.get('id')
+            self._check_availabilty_zone(availability_zone)
 
         self._check_metadata_properties(context, metadata)
         options = {'size': size,
@@ -245,7 +254,7 @@ class API(base.Base):
         snapshot_id = request_spec['snapshot_id']
         image_id = request_spec['image_id']
 
-        if snapshot_id and FLAGS.snapshot_same_host:
+        if snapshot_id and CONF.snapshot_same_host:
             snapshot_ref = self.db.snapshot_get(context, snapshot_id)
             source_volume_ref = self.db.volume_get(context,
                                                    snapshot_ref['volume_id'])
@@ -284,12 +293,46 @@ class API(base.Base):
         else:
             self.scheduler_rpcapi.create_volume(
                 context,
-                FLAGS.volume_topic,
+                CONF.volume_topic,
                 volume_id,
                 snapshot_id,
                 image_id,
                 request_spec=request_spec,
                 filter_properties=filter_properties)
+
+    def _check_availabilty_zone(self, availability_zone):
+        #NOTE(bcwaldon): This approach to caching fails to handle the case
+        # that an availability zone is disabled/removed.
+        if availability_zone in self.availability_zone_names:
+            return
+
+        azs = self.list_availability_zones()
+        self.availability_zone_names = [az['name'] for az in azs]
+
+        if availability_zone not in self.availability_zone_names:
+            msg = _("Availability zone is invalid")
+            LOG.warn(msg)
+            raise exception.InvalidInput(reason=msg)
+
+    def list_availability_zones(self):
+        """Describe the known availability zones
+
+        :retval list of dicts, each with a 'name' and 'available' key
+        """
+        topic = CONF.volume_topic
+        ctxt = context.get_admin_context()
+        services = self.db.service_get_all_by_topic(ctxt, topic)
+        az_data = [(s['availability_zone'], s['disabled']) for s in services]
+
+        disabled_map = {}
+        for (az_name, disabled) in az_data:
+            tracked_disabled = disabled_map.get(az_name, True)
+            disabled_map[az_name] = tracked_disabled and disabled
+
+        azs = [{'name': name, 'available': not disabled}
+               for (name, disabled) in disabled_map.items()]
+
+        return tuple(azs)
 
     @wrap_check_policy
     def delete(self, context, volume, force=False):
@@ -303,10 +346,13 @@ class API(base.Base):
             # NOTE(vish): scheduling failed, so delete it
             # Note(zhiteng): update volume quota reservation
             try:
+                reserve_opts = {'volumes': -1, 'gigabytes': -volume['size']}
+                QUOTAS.add_volume_type_opts(context,
+                                            reserve_opts,
+                                            volume['volume_type_id'])
                 reservations = QUOTAS.reserve(context,
                                               project_id=project_id,
-                                              volumes=-1,
-                                              gigabytes=-volume['size'])
+                                              **reserve_opts)
             except Exception:
                 reservations = None
                 LOG.exception(_("Failed to update quota for deleting volume"))
@@ -319,6 +365,10 @@ class API(base.Base):
                                                   "error_restoring"]:
             msg = _("Volume status must be available or error")
             raise exception.InvalidVolume(reason=msg)
+
+        if volume['attach_status'] == "attached":
+            # Volume is still attached, need to detach first
+            raise exception.VolumeAttached(volume_id=volume_id)
 
         snapshots = self.db.snapshot_get_all_for_volume(context, volume_id)
         if len(snapshots):
@@ -337,16 +387,8 @@ class API(base.Base):
 
     def get(self, context, volume_id):
         rv = self.db.volume_get(context, volume_id)
-        glance_meta = rv.get('volume_glance_metadata', None)
         volume = dict(rv.iteritems())
         check_policy(context, 'get', volume)
-
-        # NOTE(jdg): As per bug 1115629 iteritems doesn't pick
-        # up the glance_meta dependency, add it explicitly if
-        # it exists in the rv
-        if glance_meta:
-            volume['volume_glance_metadata'] = glance_meta
-
         return volume
 
     def get_all(self, context, marker=None, limit=None, sort_key='created_at',
@@ -459,8 +501,8 @@ class API(base.Base):
     @wrap_check_policy
     def check_detach(self, context, volume):
         # TODO(vish): abstract status checking?
-        if volume['status'] == "available":
-            msg = _("already detached")
+        if volume['status'] != "in-use":
+            msg = _("status must be in-use to detach")
             raise exception.InvalidVolume(reason=msg)
 
     @wrap_check_policy
@@ -490,10 +532,11 @@ class API(base.Base):
             self.update(context, volume, {"status": "in-use"})
 
     @wrap_check_policy
-    def attach(self, context, volume, instance_uuid, mountpoint):
+    def attach(self, context, volume, instance_uuid, host_name, mountpoint):
         return self.volume_rpcapi.attach_volume(context,
                                                 volume,
                                                 instance_uuid,
+                                                host_name,
                                                 mountpoint)
 
     @wrap_check_policy
@@ -514,6 +557,11 @@ class API(base.Base):
                                                        connector,
                                                        force)
 
+    @wrap_check_policy
+    def accept_transfer(self, context, volume):
+        return self.volume_rpcapi.accept_transfer(context,
+                                                  volume)
+
     def _create_snapshot(self, context,
                          volume, name, description,
                          force=False, metadata=None):
@@ -524,11 +572,14 @@ class API(base.Base):
             raise exception.InvalidVolume(reason=msg)
 
         try:
-            if FLAGS.no_snapshot_gb_quota:
-                reservations = QUOTAS.reserve(context, snapshots=1)
+            if CONF.no_snapshot_gb_quota:
+                reserve_opts = {'snapshots': 1}
             else:
-                reservations = QUOTAS.reserve(context, snapshots=1,
-                                              gigabytes=volume['size'])
+                reserve_opts = {'snapshots': 1, 'gigabytes': volume['size']}
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
+                                        volume.get('volume_type_id'))
+            reservations = QUOTAS.reserve(context, **reserve_opts)
         except exception.OverQuota as e:
             overs = e.kwargs['overs']
             usages = e.kwargs['usages']
@@ -537,24 +588,25 @@ class API(base.Base):
             def _consumed(name):
                 return (usages[name]['reserved'] + usages[name]['in_use'])
 
-            if 'gigabytes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "%(s_size)sG snapshot (%(d_consumed)dG of "
-                        "%(d_quota)dG already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                's_size': volume['size'],
-                                'd_consumed': _consumed('gigabytes'),
-                                'd_quota': quotas['gigabytes']})
-                raise exception.VolumeSizeExceedsAvailableQuota()
-            elif 'snapshots' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "snapshot (%(d_consumed)d snapshots "
-                        "already consumed)")
+            for over in overs:
+                if 'gigabytes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "%(s_size)sG snapshot (%(d_consumed)dG of "
+                            "%(d_quota)dG already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    's_size': volume['size'],
+                                    'd_consumed': _consumed(over),
+                                    'd_quota': quotas[over]})
+                    raise exception.VolumeSizeExceedsAvailableQuota()
+                elif 'snapshots' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "snapshot (%(d_consumed)d snapshots "
+                            "already consumed)")
 
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                'd_consumed': _consumed('snapshots')})
-                raise exception.SnapshotLimitExceeded(
-                    allowed=quotas['snapshots'])
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    'd_consumed': _consumed(over)})
+                    raise exception.SnapshotLimitExceeded(
+                        allowed=quotas[over])
 
         self._check_metadata_properties(context, metadata)
         options = {'volume_id': volume['id'],
@@ -746,6 +798,55 @@ class API(base.Base):
                     "image_name": recv_metadata.get('name', None)}
         return response
 
+    @wrap_check_policy
+    def extend(self, context, volume, new_size):
+        if volume['status'] != 'available':
+            msg = _('Volume status must be available to extend.')
+            raise exception.InvalidVolume(reason=msg)
+
+        size_increase = (int(new_size)) - volume['size']
+        if size_increase <= 0:
+            msg = (_("New size for extend must be greater "
+                     "than current size. (current: %(size)s, "
+                     "extended: %(new_size)s)") % {'new_size': new_size,
+                                                   'size': volume['size']})
+            raise exception.InvalidInput(reason=msg)
+        try:
+            reservations = QUOTAS.reserve(context, gigabytes=+size_increase)
+        except exception.OverQuota as exc:
+            overs = exc.kwargs['overs']
+            usages = exc.kwargs['usages']
+            quotas = exc.kwargs['quotas']
+
+            def _consumed(name):
+                return (usages[name]['reserved'] + usages[name]['in_use'])
+
+            if 'gigabytes' in overs:
+                msg = _("Quota exceeded for %(s_pid)s, "
+                        "tried to extend volume by "
+                        "%(s_size)sG, (%(d_consumed)dG of %(d_quota)dG "
+                        "already consumed)")
+                LOG.warn(msg % {'s_pid': context.project_id,
+                                's_size': size_increase,
+                                'd_consumed': _consumed('gigabytes'),
+                                'd_quota': quotas['gigabytes']})
+                raise exception.VolumeSizeExceedsAvailableQuota()
+
+        self.update(context, volume, {'status': 'extending'})
+
+        try:
+            self.volume_rpcapi.extend_volume(context, volume, new_size)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                try:
+                    self.update(context, volume, {'status': 'error_extending'})
+                finally:
+                    QUOTAS.rollback(context, reservations)
+
+        self.update(context, volume, {'size': new_size})
+        QUOTAS.commit(context, reservations)
+        self.update(context, volume, {'status': 'available'})
+
 
 class HostAPI(base.Base):
     def __init__(self):
@@ -765,5 +866,6 @@ class HostAPI(base.Base):
 
     def set_host_maintenance(self, context, host, mode):
         """Start/Stop host maintenance window. On start, it triggers
-        volume evacuation."""
+        volume evacuation.
+        """
         raise NotImplementedError()

@@ -24,6 +24,7 @@
 Tests for the IBM Storwize family and SVC volume driver.
 """
 
+
 import random
 import re
 import socket
@@ -141,7 +142,7 @@ class StorwizeSVCManagementSimulator:
 
     def _state_transition(self, function, fcmap):
         if (function == 'wait' and
-            'wait' not in self._transitions[fcmap['status']]):
+                'wait' not in self._transitions[fcmap['status']]):
             return ('', '')
 
         if fcmap['status'] == 'copying' and function == 'wait':
@@ -1239,7 +1240,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.USESIM = True
         if self.USESIM:
             self.driver = StorwizeSVCFakeDriver(
-                                configuration=conf.Configuration(None))
+                configuration=conf.Configuration(None))
             self._def_flags = {'san_ip': 'hostname',
                                'san_login': 'user',
                                'san_password': 'pass',
@@ -1250,8 +1251,8 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self._host_name = 'storwize-svc-test'
             self._host_ip = '1.234.56.78'
             self._host_wwpns = [
-                    str(random.randint(0, 9999999999999999)).zfill(16),
-                    str(random.randint(0, 9999999999999999)).zfill(16)]
+                str(random.randint(0, 9999999999999999)).zfill(16),
+                str(random.randint(0, 9999999999999999)).zfill(16)]
             self._iscsi_name = ('test.initiator.%s' %
                                 str(random.randint(10000, 99999)))
             self.sim = StorwizeSVCManagementSimulator('volpool')
@@ -1259,7 +1260,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.driver.set_fake_storage(self.sim)
         else:
             self.driver = storwize_svc.StorwizeSVCDriver(
-                                configuration=conf.Configuration(None))
+                configuration=conf.Configuration(None))
             self._def_flags = {'san_ip': '1.111.11.11',
                                'san_login': 'user',
                                'san_password': 'password',
@@ -1278,7 +1279,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             for line in lines:
                 val = line.split('=')
                 if (len(val) == 2 and
-                    val[0].strip().replace(" ", "") == 'port_name'):
+                        val[0].strip().replace(" ", "") == 'port_name'):
                     self._host_wwpns.append(val[1].strip()[3:-1])
             self.assertNotEqual(len(self._host_wwpns), 0)
 
@@ -1610,7 +1611,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                         self.assertEqual(attrs[k], v)
                 except exception.ProcessExecutionError as e:
                     if 'CMMVC7050E' not in e.stderr:
-                        raise e
+                        raise
 
     def test_storwize_svc_unicode_host_and_volume_names(self):
         # We'll check with iSCSI only - nothing protocol-dependednt here

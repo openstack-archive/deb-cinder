@@ -16,8 +16,9 @@
 """
 Backup manager manages volume backups.
 
-Volume Backups are full copies of persistent volumes stored in Swift object
-storage. They are usable without the original object being available. A
+Volume Backups are full copies of persistent volumes stored in a backup
+store e.g. an object store or any other backup store if and when support is
+added. They are usable without the original object being available. A
 volume backup can be restored to the original volume it was created from or
 any other available volume with a minimum size of the original volume.
 Volume backups can be created, restored, deleted and listed.
@@ -36,22 +37,28 @@ from oslo.config import cfg
 
 from cinder import context
 from cinder import exception
-from cinder import flags
 from cinder import manager
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 
+
 LOG = logging.getLogger(__name__)
 
 backup_manager_opts = [
-    cfg.StrOpt('backup_service',
-               default='cinder.backup.services.swift',
-               help='Service to use for backups.'),
+    cfg.StrOpt('backup_driver',
+               default='cinder.backup.drivers.swift',
+               help='Driver to use for backups.',
+               deprecated_name='backup_service'),
 ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(backup_manager_opts)
+# This map doesn't need to be extended in the future since it's only
+# for old backup services
+mapper = {'cinder.backup.services.swift': 'cinder.backup.drivers.swift',
+          'cinder.backup.services.ceph': 'cinder.backup.drivers.ceph'}
+
+CONF = cfg.CONF
+CONF.register_opts(backup_manager_opts)
 
 
 class BackupManager(manager.SchedulerDependentManager):
@@ -60,17 +67,32 @@ class BackupManager(manager.SchedulerDependentManager):
     RPC_API_VERSION = '1.0'
 
     def __init__(self, service_name=None, *args, **kwargs):
-        self.service = importutils.import_module(FLAGS.backup_service)
-        self.az = FLAGS.storage_availability_zone
-        self.volume_manager = importutils.import_object(FLAGS.volume_manager)
+        self.service = importutils.import_module(self.driver_name)
+        self.az = CONF.storage_availability_zone
+        self.volume_manager = importutils.import_object(
+            CONF.volume_manager)
         self.driver = self.volume_manager.driver
         super(BackupManager, self).__init__(service_name='backup',
                                             *args, **kwargs)
         self.driver.db = self.db
 
+    @property
+    def driver_name(self):
+        """This function maps old backup services to backup drivers."""
+
+        return self._map_service_to_driver(CONF.backup_driver)
+
+    def _map_service_to_driver(self, service):
+        """Maps services to drivers."""
+
+        if service in mapper:
+            return mapper[service]
+        return service
+
     def init_host(self):
         """Do any initialization that needs to be run if this is a
-           standalone service."""
+           standalone service.
+        """
 
         ctxt = context.get_admin_context()
         self.driver.do_setup(ctxt)
@@ -117,16 +139,20 @@ class BackupManager(manager.SchedulerDependentManager):
         volume_id = backup['volume_id']
         volume = self.db.volume_get(context, volume_id)
         LOG.info(_('create_backup started, backup: %(backup_id)s for '
-                   'volume: %(volume_id)s') % locals())
+                   'volume: %(volume_id)s') %
+                 {'backup_id': backup_id, 'volume_id': volume_id})
         self.db.backup_update(context, backup_id, {'host': self.host,
                                                    'service':
-                                                   FLAGS.backup_service})
+                                                   self.driver_name})
 
         expected_status = 'backing-up'
         actual_status = volume['status']
         if actual_status != expected_status:
             err = _('create_backup aborted, expected volume status '
-                    '%(expected_status)s but got %(actual_status)s') % locals()
+                    '%(expected_status)s but got %(actual_status)s') % {
+                        'expected_status': expected_status,
+                        'actual_status': actual_status,
+                    }
             self.db.backup_update(context, backup_id, {'status': 'error',
                                                        'fail_reason': err})
             raise exception.InvalidVolume(reason=err)
@@ -135,14 +161,17 @@ class BackupManager(manager.SchedulerDependentManager):
         actual_status = backup['status']
         if actual_status != expected_status:
             err = _('create_backup aborted, expected backup status '
-                    '%(expected_status)s but got %(actual_status)s') % locals()
+                    '%(expected_status)s but got %(actual_status)s') % {
+                        'expected_status': expected_status,
+                        'actual_status': actual_status,
+                    }
             self.db.volume_update(context, volume_id, {'status': 'available'})
             self.db.backup_update(context, backup_id, {'status': 'error',
                                                        'fail_reason': err})
             raise exception.InvalidBackup(reason=err)
 
         try:
-            backup_service = self.service.get_backup_service(context)
+            backup_service = self.service.get_backup_driver(context)
             self.driver.backup_volume(context, backup, backup_service)
         except Exception as err:
             with excutils.save_and_reraise_exception():
@@ -164,7 +193,8 @@ class BackupManager(manager.SchedulerDependentManager):
         Restore volume backups from configured backup service.
         """
         LOG.info(_('restore_backup started, restoring backup: %(backup_id)s'
-                   ' to volume: %(volume_id)s') % locals())
+                   ' to volume: %(volume_id)s') %
+                 {'backup_id': backup_id, 'volume_id': volume_id})
         backup = self.db.backup_get(context, backup_id)
         volume = self.db.volume_get(context, volume_id)
         self.db.backup_update(context, backup_id, {'host': self.host})
@@ -173,7 +203,10 @@ class BackupManager(manager.SchedulerDependentManager):
         actual_status = volume['status']
         if actual_status != expected_status:
             err = _('restore_backup aborted, expected volume status '
-                    '%(expected_status)s but got %(actual_status)s') % locals()
+                    '%(expected_status)s but got %(actual_status)s') % {
+                        'expected_status': expected_status,
+                        'actual_status': actual_status
+                    }
             self.db.backup_update(context, backup_id, {'status': 'available'})
             raise exception.InvalidVolume(reason=err)
 
@@ -181,7 +214,10 @@ class BackupManager(manager.SchedulerDependentManager):
         actual_status = backup['status']
         if actual_status != expected_status:
             err = _('restore_backup aborted, expected backup status '
-                    '%(expected_status)s but got %(actual_status)s') % locals()
+                    '%(expected_status)s but got %(actual_status)s') % {
+                        'expected_status': expected_status,
+                        'actual_status': actual_status
+                    }
             self.db.backup_update(context, backup_id, {'status': 'error',
                                                        'fail_reason': err})
             self.db.volume_update(context, volume_id, {'status': 'error'})
@@ -193,19 +229,22 @@ class BackupManager(manager.SchedulerDependentManager):
                      volume['id'], volume['size'],
                      backup['id'], backup['size'])
 
-        backup_service = backup['service']
-        configured_service = FLAGS.backup_service
+        backup_service = self._map_service_to_driver(backup['service'])
+        configured_service = self.driver_name
         if backup_service != configured_service:
             err = _('restore_backup aborted, the backup service currently'
                     ' configured [%(configured_service)s] is not the'
                     ' backup service that was used to create this'
-                    ' backup [%(backup_service)s]') % locals()
+                    ' backup [%(backup_service)s]') % {
+                        'configured_service': configured_service,
+                        'backup_service': backup_service,
+                    }
             self.db.backup_update(context, backup_id, {'status': 'available'})
             self.db.volume_update(context, volume_id, {'status': 'error'})
             raise exception.InvalidBackup(reason=err)
 
         try:
-            backup_service = self.service.get_backup_service(context)
+            backup_service = self.service.get_backup_driver(context)
             self.driver.restore_backup(context, backup, volume,
                                        backup_service)
         except Exception as err:
@@ -218,7 +257,8 @@ class BackupManager(manager.SchedulerDependentManager):
         self.db.volume_update(context, volume_id, {'status': 'available'})
         self.db.backup_update(context, backup_id, {'status': 'available'})
         LOG.info(_('restore_backup finished, backup: %(backup_id)s restored'
-                   ' to volume: %(volume_id)s') % locals())
+                   ' to volume: %(volume_id)s') %
+                 {'backup_id': backup_id, 'volume_id': volume_id})
 
     def delete_backup(self, context, backup_id):
         """
@@ -232,25 +272,31 @@ class BackupManager(manager.SchedulerDependentManager):
         actual_status = backup['status']
         if actual_status != expected_status:
             err = _('delete_backup aborted, expected backup status '
-                    '%(expected_status)s but got %(actual_status)s') % locals()
+                    '%(expected_status)s but got %(actual_status)s') % {
+                        'expected_status': expected_status,
+                        'actual_status': actual_status,
+                    }
             self.db.backup_update(context, backup_id, {'status': 'error',
                                                        'fail_reason': err})
             raise exception.InvalidBackup(reason=err)
 
-        backup_service = backup['service']
+        backup_service = self._map_service_to_driver(backup['service'])
         if backup_service is not None:
-            configured_service = FLAGS.backup_service
+            configured_service = self.driver_name
             if backup_service != configured_service:
                 err = _('delete_backup aborted, the backup service currently'
                         ' configured [%(configured_service)s] is not the'
                         ' backup service that was used to create this'
-                        ' backup [%(backup_service)s]') % locals()
+                        ' backup [%(backup_service)s]') % {
+                            'configured_service': configured_service,
+                            'backup_service': backup_service,
+                        }
                 self.db.backup_update(context, backup_id,
                                       {'status': 'error'})
                 raise exception.InvalidBackup(reason=err)
 
             try:
-                backup_service = self.service.get_backup_service(context)
+                backup_service = self.service.get_backup_driver(context)
                 backup_service.delete(backup)
             except Exception as err:
                 with excutils.save_and_reraise_exception():

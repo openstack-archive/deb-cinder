@@ -79,12 +79,9 @@ def _print_module(mod_str):
         mod_str = mod_str[:mod_str.rfind(".")]
     try:
         mod_obj = importutils.import_module(mod_str)
-    except (ValueError, AttributeError), err:
-        return
-    except ImportError, ie:
-        sys.stderr.write("%s\n" % str(ie))
-        return
-    except Exception, e:
+    except Exception as e:
+        sys.stderr.write("Failed to collect options from module %s: %s\n" % (
+            mod_str, str(e)))
         return
     _list_opts(mod_obj, mod_str)
 
@@ -156,7 +153,7 @@ def _print_opt(opt):
     opt_type = None
     try:
         opt_type = OPTION_REGEX.search(str(type(opt))).group(0)
-    except (ValueError, AttributeError), err:
+    except (ValueError, AttributeError) as err:
         sys.stderr.write("%s\n" % str(err))
         sys.exit(1)
     opt_help += ' (' + OPT_TYPES[opt_type] + ')'

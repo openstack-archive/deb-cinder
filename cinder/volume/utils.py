@@ -16,17 +16,19 @@
 
 """Volume-related Utilities and helpers."""
 
+
 import os
 import stat
 
-from cinder import flags
+from oslo.config import cfg
+
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier_api
 from cinder.openstack.common import timeutils
 from cinder import utils
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
@@ -37,11 +39,12 @@ def get_host_from_queue(queuename):
 
 
 def notify_usage_exists(context, volume_ref, current_period=False):
-    """ Generates 'exists' notification for a volume for usage auditing
-        purposes.
+    """Generates 'exists' notification for a volume for usage auditing
+       purposes.
 
-        Generates usage for last completed period, unless 'current_period'
-        is True."""
+       Generates usage for last completed period, unless 'current_period'
+       is True.
+    """
     begin, end = utils.last_completed_audit_period()
     if current_period:
         audit_start = end
@@ -81,7 +84,7 @@ def _usage_from_volume(context, volume_ref, **kw):
 def notify_about_volume_usage(context, volume, event_suffix,
                               extra_usage_info=None, host=None):
     if not host:
-        host = FLAGS.host
+        host = CONF.host
 
     if not extra_usage_info:
         extra_usage_info = {}
@@ -114,7 +117,7 @@ def _usage_from_snapshot(context, snapshot_ref, **extra_usage_info):
 def notify_about_snapshot_usage(context, snapshot, event_suffix,
                                 extra_usage_info=None, host=None):
     if not host:
-        host = FLAGS.host
+        host = CONF.host
 
     if not extra_usage_info:
         extra_usage_info = {}

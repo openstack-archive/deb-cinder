@@ -183,11 +183,10 @@ class XMLDeserializer(TextDeserializer):
         """Search a nodes children for the first child with a given name."""
         for node in parent.childNodes:
             if (node.localName == name and
-                node.namespaceURI and
-                node.namespaceURI == namespace):
+                    node.namespaceURI and
+                    node.namespaceURI == namespace):
                 return node
         return None
-
 
     def find_first_child_named(self, parent, name):
         """Search a nodes children for the first child with a given name"""
@@ -894,7 +893,7 @@ class Resource(wsgi.Application):
         try:
             msg_dict = dict(url=request.url, status=response.status_int)
             msg = _("%(url)s returned with HTTP %(status)d") % msg_dict
-        except AttributeError, e:
+        except AttributeError as e:
             msg_dict = dict(url=request.url, e=e)
             msg = _("%(url)s returned a fault: %(e)s") % msg_dict
 

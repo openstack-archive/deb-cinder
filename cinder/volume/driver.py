@@ -26,6 +26,7 @@ import time
 
 from oslo.config import cfg
 
+from cinder.brick.initiator import connector as initiator
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
@@ -57,7 +58,11 @@ volume_opts = [
                help='The port that the iSCSI daemon is listening on'),
     cfg.StrOpt('volume_backend_name',
                default=None,
-               help='The backend name for a given driver implementation'), ]
+               help='The backend name for a given driver implementation'),
+    cfg.StrOpt('use_multipath_for_image_xfer',
+               default=False,
+               help='Do we attach/detach volumes in cinder using multipath '
+                    'for volume to image and image to volume transfers?'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
@@ -78,19 +83,32 @@ class VolumeDriver(object):
     def set_execute(self, execute):
         self._execute = execute
 
+    def _is_non_recoverable(self, err, non_recoverable_list):
+        for item in non_recoverable_list:
+            if item in err:
+                return True
+
+        return False
+
     def _try_execute(self, *command, **kwargs):
         # NOTE(vish): Volume commands can partially fail due to timing, but
         #             running them a second time on failure will usually
         #             recover nicely.
+
+        non_recoverable = kwargs.pop('no_retry_list', [])
+
         tries = 0
         while True:
             try:
                 self._execute(*command, **kwargs)
                 return True
-            except exception.ProcessExecutionError:
+            except exception.ProcessExecutionError as ex:
                 tries = tries + 1
-                if tries >= self.configuration.num_shell_tries:
+
+                if tries >= self.configuration.num_shell_tries or\
+                        self._is_non_recoverable(ex.stderr, non_recoverable):
                     raise
+
                 LOG.exception(_("Recovering from a failed execute.  "
                                 "Try number %s"), tries)
                 time.sleep(tries ** 2)
@@ -100,7 +118,8 @@ class VolumeDriver(object):
 
     def create_volume(self, volume):
         """Creates a volume. Can optionally return a Dictionary of
-        changes to the volume object to be persisted."""
+        changes to the volume object to be persisted.
+        """
         raise NotImplementedError()
 
     def create_volume_from_snapshot(self, volume, snapshot):
@@ -132,7 +151,8 @@ class VolumeDriver(object):
 
     def create_export(self, context, volume):
         """Exports the volume. Can optionally return a Dictionary of changes
-        to the volume object to be persisted."""
+        to the volume object to be persisted.
+        """
         raise NotImplementedError()
 
     def remove_export(self, context, volume):
@@ -143,34 +163,95 @@ class VolumeDriver(object):
         """Allow connection to connector and return connection info."""
         raise NotImplementedError()
 
-    def terminate_connection(self, volume, connector, force=False, **kwargs):
+    def terminate_connection(self, volume, connector, **kwargs):
         """Disallow connection from connector"""
         raise NotImplementedError()
 
-    def attach_volume(self, context, volume_id, instance_uuid, mountpoint):
-        """ Callback for volume attached to instance."""
+    def attach_volume(self, context, volume_id, instance_uuid, host_name,
+                      mountpoint):
+        """Callback for volume attached to instance or host."""
         pass
 
     def detach_volume(self, context, volume_id):
-        """ Callback for volume detached."""
+        """Callback for volume detached."""
         pass
 
     def get_volume_stats(self, refresh=False):
         """Return the current state of the volume service. If 'refresh' is
-           True, run the update first."""
+           True, run the update first.
+        """
         return None
 
     def do_setup(self, context):
         """Any initialization the volume driver does while starting"""
         pass
 
+    def validate_connector(self, connector):
+        """Fail if connector doesn't contain all the data needed by driver"""
+        pass
+
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
-        raise NotImplementedError()
+        LOG.debug(_('copy_image_to_volume %s.') % volume['name'])
+
+        properties = initiator.get_connector_properties()
+        connection, device, connector = self._attach_volume(context, volume,
+                                                            properties)
+
+        try:
+            image_utils.fetch_to_raw(context,
+                                     image_service,
+                                     image_id,
+                                     device['path'])
+        finally:
+            self._detach_volume(connection, device, connector)
+            self.terminate_connection(volume, properties)
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
-        raise NotImplementedError()
+        LOG.debug(_('copy_volume_to_image %s.') % volume['name'])
+
+        properties = initiator.get_connector_properties()
+        connection, device, connector = self._attach_volume(context, volume,
+                                                            properties)
+
+        try:
+            image_utils.upload_volume(context,
+                                      image_service,
+                                      image_meta,
+                                      device['path'])
+        finally:
+            self._detach_volume(connection, device, connector)
+            self.terminate_connection(volume, properties)
+
+    def _attach_volume(self, context, volume, properties):
+        """Attach the volume."""
+        host_device = None
+        conn = self.initialize_connection(volume, properties)
+
+        # Use Brick's code to do attach/detach
+        use_multipath = self.configuration.use_multipath_for_image_xfer
+        protocol = conn['driver_volume_type']
+        connector = initiator.InitiatorConnector.factory(protocol,
+                                                         use_multipath=
+                                                         use_multipath)
+        device = connector.connect_volume(conn['data'])
+        host_device = device['path']
+
+        if not connector.check_valid_device(host_device):
+            raise exception.DeviceUnavailable(path=host_device,
+                                              reason=(_("Unable to access "
+                                                        "the backend storage "
+                                                        "via the path "
+                                                        "%(path)s.") %
+                                                      {'path': host_device}))
+        return conn, device, connector
+
+    def _detach_volume(self, connection, device, connector):
+        """Disconnect the volume from the host."""
+        protocol = connection['driver_volume_type']
+        # Use Brick's code to do attach/detach
+        connector.disconnect_volume(connection['data'], device)
 
     def clone_image(self, volume, image_location):
         """Create a volume efficiently from an existing image.
@@ -194,6 +275,10 @@ class VolumeDriver(object):
     def clear_download(self, context, volume):
         """Clean up after an interrupted image copy."""
         pass
+
+    def extend_volume(self, volume, new_size):
+        msg = _("Extend volume not implemented")
+        raise NotImplementedError(msg)
 
 
 class ISCSIDriver(VolumeDriver):
@@ -227,7 +312,7 @@ class ISCSIDriver(VolumeDriver):
                                     run_as_root=True)
         for target in out.splitlines():
             if (self.configuration.iscsi_ip_address in target
-                and volume_name in target):
+                    and volume_name in target):
                 return target
         return None
 
@@ -297,6 +382,12 @@ class ISCSIDriver(VolumeDriver):
             properties['auth_username'] = auth_username
             properties['auth_password'] = auth_secret
 
+        geometry = volume.get('provider_geometry', None)
+        if geometry:
+            (physical_block_size, logical_block_size) = geometry.split()
+            properties['physical_block_size'] = physical_block_size
+            properties['logical_block_size'] = logical_block_size
+
         return properties
 
     def _run_iscsiadm(self, iscsi_properties, iscsi_command, **kwargs):
@@ -305,6 +396,16 @@ class ISCSIDriver(VolumeDriver):
                                    iscsi_properties['target_iqn'],
                                    '-p', iscsi_properties['target_portal'],
                                    *iscsi_command, run_as_root=True,
+                                   check_exit_code=check_exit_code)
+        LOG.debug("iscsiadm %s: stdout=%s stderr=%s" %
+                  (iscsi_command, out, err))
+        return (out, err)
+
+    def _run_iscsiadm_bare(self, iscsi_command, **kwargs):
+        check_exit_code = kwargs.pop('check_exit_code', 0)
+        (out, err) = self._execute('iscsiadm',
+                                   *iscsi_command,
+                                   run_as_root=True,
                                    check_exit_code=check_exit_code)
         LOG.debug("iscsiadm %s: stdout=%s stderr=%s" %
                   (iscsi_command, out, err))
@@ -344,6 +445,14 @@ class ISCSIDriver(VolumeDriver):
             'data': iscsi_properties
         }
 
+    def validate_connector(self, connector):
+        # iSCSI drivers require the initiator information
+        if 'initiator' not in connector:
+            err_msg = (_('The volume driver requires the iSCSI initiator '
+                         'name in the connector.'))
+            LOG.error(err_msg)
+            raise exception.VolumeBackendAPIException(data=err_msg)
+
     def terminate_connection(self, volume, connector, **kwargs):
         pass
 
@@ -356,108 +465,11 @@ class ISCSIDriver(VolumeDriver):
             if l.startswith('InitiatorName='):
                 return l[l.index('=') + 1:].strip()
 
-    def copy_image_to_volume(self, context, volume, image_service, image_id):
-        """Fetch the image from image_service and write it to the volume."""
-        LOG.debug(_('copy_image_to_volume %s.') % volume['name'])
-        connector = {'initiator': self._get_iscsi_initiator(),
-                     'host': socket.gethostname()}
-
-        iscsi_properties, volume_path = self._attach_volume(
-            context, volume, connector)
-
-        try:
-            image_utils.fetch_to_raw(context,
-                                     image_service,
-                                     image_id,
-                                     volume_path)
-        finally:
-            self.terminate_connection(volume, connector)
-
-    def copy_volume_to_image(self, context, volume, image_service, image_meta):
-        """Copy the volume to the specified image."""
-        LOG.debug(_('copy_volume_to_image %s.') % volume['name'])
-        connector = {'initiator': self._get_iscsi_initiator(),
-                     'host': socket.gethostname()}
-
-        iscsi_properties, volume_path = self._attach_volume(
-            context, volume, connector)
-
-        try:
-            image_utils.upload_volume(context,
-                                      image_service,
-                                      image_meta,
-                                      volume_path)
-        finally:
-            self.terminate_connection(volume, connector)
-
-    def _attach_volume(self, context, volume, connector):
-        """Attach the volume."""
-        iscsi_properties = None
-        host_device = None
-        init_conn = self.initialize_connection(volume, connector)
-        iscsi_properties = init_conn['data']
-
-        # code "inspired by" nova/virt/libvirt/volume.py
-        try:
-            self._run_iscsiadm(iscsi_properties, ())
-        except exception.ProcessExecutionError as exc:
-            # iscsiadm returns 21 for "No records found" after version 2.0-871
-            if exc.exit_code in [21, 255]:
-                self._run_iscsiadm(iscsi_properties, ('--op', 'new'))
-            else:
-                raise
-
-        if iscsi_properties.get('auth_method'):
-            self._iscsiadm_update(iscsi_properties,
-                                  "node.session.auth.authmethod",
-                                  iscsi_properties['auth_method'])
-            self._iscsiadm_update(iscsi_properties,
-                                  "node.session.auth.username",
-                                  iscsi_properties['auth_username'])
-            self._iscsiadm_update(iscsi_properties,
-                                  "node.session.auth.password",
-                                  iscsi_properties['auth_password'])
-
-        # NOTE(vish): If we have another lun on the same target, we may
-        #             have a duplicate login
-        self._run_iscsiadm(iscsi_properties, ("--login",),
-                           check_exit_code=[0, 255])
-
-        self._iscsiadm_update(iscsi_properties, "node.startup", "automatic")
-
-        host_device = ("/dev/disk/by-path/ip-%s-iscsi-%s-lun-%s" %
-                       (iscsi_properties['target_portal'],
-                        iscsi_properties['target_iqn'],
-                        iscsi_properties.get('target_lun', 0)))
-
-        tries = 0
-        while not os.path.exists(host_device):
-            if tries >= self.configuration.num_iscsi_scan_tries:
-                raise exception.CinderException(
-                    _("iSCSI device not found at %s") % (host_device))
-
-            LOG.warn(_("ISCSI volume not yet found at: %(host_device)s. "
-                     "Will rescan & retry.  Try number: %(tries)s") %
-                     locals())
-
-            # The rescan isn't documented as being necessary(?), but it helps
-            self._run_iscsiadm(iscsi_properties, ("--rescan",))
-
-            tries = tries + 1
-            if not os.path.exists(host_device):
-                time.sleep(tries ** 2)
-
-        if tries != 0:
-            LOG.debug(_("Found iSCSI node %(host_device)s "
-                      "(after %(tries)s rescans)") %
-                      locals())
-
-        return iscsi_properties, host_device
-
     def get_volume_stats(self, refresh=False):
         """Get volume status.
 
-        If 'refresh' is True, run update the stats first."""
+        If 'refresh' is True, run update the stats first.
+        """
         if refresh:
             self._update_volume_status()
 
@@ -480,12 +492,18 @@ class ISCSIDriver(VolumeDriver):
         data['QoS_support'] = False
         self._stats = data
 
+    def accept_transfer(self, volume):
+        pass
+
 
 class FakeISCSIDriver(ISCSIDriver):
     """Logs calls instead of executing."""
     def __init__(self, *args, **kwargs):
         super(FakeISCSIDriver, self).__init__(execute=self.fake_execute,
                                               *args, **kwargs)
+
+    def create_volume(self, volume):
+        pass
 
     def check_for_setup_error(self):
         """No setup necessary in fake mode."""
@@ -543,9 +561,3 @@ class FibreChannelDriver(VolumeDriver):
         """
         msg = _("Driver must implement initialize_connection")
         raise NotImplementedError(msg)
-
-    def copy_image_to_volume(self, context, volume, image_service, image_id):
-        raise NotImplementedError()
-
-    def copy_volume_to_image(self, context, volume, image_service, image_meta):
-        raise NotImplementedError()

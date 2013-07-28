@@ -64,7 +64,8 @@ fake_snapshot_name = "snapshot-12345678-8888-8888-1234-1234567890ab"
 fake_snapshot_id = "12345678-8888-8888-1234-1234567890ab"
 fake_volume_id = "12345678-1234-1234-1234-1234567890ab"
 fake_snapshot = {"id": fake_snapshot_id,
-                 "volume_id": fake_volume_id}
+                 "volume_id": fake_volume_id,
+                 "volume_size": 10}
 
 fake_configure_data = [{"addr": "cms", "data": "FAKE"}]
 
@@ -120,6 +121,8 @@ class TestCoraidDriver(test.TestCase):
         configuration.coraid_user = fake_esm_username
         configuration.coraid_group = fake_esm_group
         configuration.coraid_password = fake_esm_password
+        configuration.volume_name_template = "volume-%s"
+        configuration.snapshot_name_template = "snapshot-%s"
 
         self.drv = CoraidDriver(configuration=configuration)
         self.drv.do_setup({})
@@ -151,11 +154,30 @@ class TestCoraidDriver(test.TestCase):
         self.drv.delete_snapshot(fake_snapshot)
 
     def test_create_volume_from_snapshot(self):
-        setattr(self.esm_mock, 'create_volume_from_snapshot',
-                lambda *_: True)
-        self.stubs.Set(CoraidDriver, '_get_repository',
-                       lambda *_: fake_repository_name)
-        self.drv.create_volume_from_snapshot(fake_volume, fake_snapshot)
+        self.esm_mock.create_volume_from_snapshot(
+            fake_volume,
+            fake_snapshot).AndReturn(True)
+        mox.Replay(self.esm_mock)
+        self.esm_mock.create_volume_from_snapshot(fake_volume, fake_snapshot)
+        mox.Verify(self.esm_mock)
+
+    def test_create_volume_from_snapshot_bigger(self):
+        self.esm_mock.create_volume_from_snapshot(
+            fake_volume,
+            fake_snapshot).AndReturn(True)
+        self.esm_mock.resize_volume(fake_volume_name,
+                                    '20').AndReturn(True)
+        mox.Replay(self.esm_mock)
+        self.esm_mock.create_volume_from_snapshot(fake_volume, fake_snapshot)
+        self.esm_mock.resize_volume(fake_volume_name, '20')
+        mox.Verify(self.esm_mock)
+
+    def test_extend_volume(self):
+        self.esm_mock.resize_volume(fake_volume_name,
+                                    '20').AndReturn(True)
+        mox.Replay(self.esm_mock)
+        self.esm_mock.resize_volume(fake_volume_name, '20')
+        mox.Verify(self.esm_mock)
 
 
 class TestCoraidRESTClient(test.TestCase):
@@ -227,15 +249,41 @@ class TestCoraidRESTClient(test.TestCase):
         self.drv.create_lun(fake_volume_name, '10',
                             fake_repository_name)
 
-    def test_delete_lun(self):
+    def test_delete_lun_ok(self):
+        """Test Delete Volume classic case."""
         setattr(self.rest_mock, 'delete_lun',
-                lambda *_: True)
+                lambda *_: self.mox.CreateMockAnything())
         self.stubs.Set(CoraidRESTClient, '_get_volume_info',
                        lambda *_: fake_volume_info)
         self.stubs.Set(CoraidRESTClient, '_configure',
                        lambda *_: fake_esm_success)
         self.rest_mock.delete_lun(fake_volume_name)
-        self.drv.delete_lun(fake_volume_name)
+        result = self.drv.delete_lun(fake_volume_name)
+        self.assertTrue(result)
+
+    def test_delete_lun_in_error(self):
+        """Test Delete Volume in Error State."""
+        setattr(self.rest_mock, 'delete_lun',
+                lambda *_: self.mox.CreateMockAnything())
+        self.stubs.Set(CoraidRESTClient, '_get_volume_info',
+                       lambda *_: Exception)
+        self.stubs.Set(CoraidRESTClient, '_check_esm_alive',
+                       lambda *_: True)
+        self.rest_mock.delete_lun(fake_volume_name)
+        result = self.drv.delete_lun(fake_volume_name)
+        self.assertTrue(result)
+
+    def test_delete_lun_esm_unavailable(self):
+        """Test Delete Volume with ESM Unavailable."""
+        setattr(self.rest_mock, 'delete_lun',
+                lambda *_: self.mox.CreateMockAnything())
+        self.stubs.Set(CoraidRESTClient, '_get_volume_info',
+                       lambda *_: Exception)
+        self.stubs.Set(CoraidRESTClient, '_check_esm_alive',
+                       lambda *_: False)
+        self.rest_mock.delete_lun(fake_volume_name)
+        result = self.drv.delete_lun(fake_volume_name)
+        self.assertRaises(Exception, result)
 
     def test_create_snapshot(self):
         setattr(self.rest_mock, 'create_snapshot',
@@ -266,3 +314,13 @@ class TestCoraidRESTClient(test.TestCase):
         self.drv.create_volume_from_snapshot(fake_volume_name,
                                              fake_volume_name,
                                              fake_repository_name)
+
+    def test_resize_volume(self):
+        setattr(self.rest_mock, 'resize_volume',
+                lambda *_: True)
+        self.stubs.Set(CoraidRESTClient, '_get_volume_info',
+                       lambda *_: fake_volume_info)
+        self.stubs.Set(CoraidRESTClient, '_configure',
+                       lambda *_: fake_esm_success)
+        self.drv.resize_volume(fake_volume_name,
+                               '20')

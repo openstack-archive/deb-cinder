@@ -18,13 +18,14 @@
 Client side of the volume RPC API.
 """
 
-from cinder import exception
-from cinder import flags
+
+from oslo.config import cfg
+
 from cinder.openstack.common import rpc
 import cinder.openstack.common.rpc.proxy
 
 
-FLAGS = flags.FLAGS
+CONF = cfg.CONF
 
 
 class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
@@ -35,16 +36,20 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
         1.0 - Initial version.
         1.1 - Adds clone volume option to create_volume.
         1.2 - Add publish_service_capabilities() method.
-        1.3 - Pass all image metadata (not just ID) in copy_volume_to_image
+        1.3 - Pass all image metadata (not just ID) in copy_volume_to_image.
         1.4 - Add request_spec, filter_properties and
               allow_reschedule arguments to create_volume().
+        1.5 - Add accept_transfer.
+        1.6 - Add extend_volume.
+        1.7 - Adds host_name parameter to attach_volume()
+              to allow attaching to host rather than instance.
     '''
 
     BASE_RPC_API_VERSION = '1.0'
 
     def __init__(self, topic=None):
         super(VolumeAPI, self).__init__(
-            topic=topic or FLAGS.volume_topic,
+            topic=topic or CONF.volume_topic,
             default_version=self.BASE_RPC_API_VERSION)
 
     def create_volume(self, ctxt, volume, host,
@@ -83,14 +88,17 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
                                       snapshot_id=snapshot['id']),
                   topic=rpc.queue_get_for(ctxt, self.topic, host))
 
-    def attach_volume(self, ctxt, volume, instance_uuid, mountpoint):
+    def attach_volume(self, ctxt, volume, instance_uuid, host_name,
+                      mountpoint):
         return self.call(ctxt, self.make_msg('attach_volume',
                                              volume_id=volume['id'],
                                              instance_uuid=instance_uuid,
+                                             host_name=host_name,
                                              mountpoint=mountpoint),
                          topic=rpc.queue_get_for(ctxt,
                                                  self.topic,
-                                                 volume['host']))
+                                                 volume['host']),
+                         version='1.7')
 
     def detach_volume(self, ctxt, volume):
         return self.call(ctxt, self.make_msg('detach_volume',
@@ -128,3 +136,18 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
     def publish_service_capabilities(self, ctxt):
         self.fanout_cast(ctxt, self.make_msg('publish_service_capabilities'),
                          version='1.2')
+
+    def accept_transfer(self, ctxt, volume):
+        self.cast(ctxt,
+                  self.make_msg('accept_transfer',
+                                volume_id=volume['id']),
+                  topic=rpc.queue_get_for(ctxt, self.topic, volume['host']),
+                  version='1.5')
+
+    def extend_volume(self, ctxt, volume, new_size):
+        self.cast(ctxt,
+                  self.make_msg('extend_volume',
+                                volume_id=volume['id'],
+                                new_size=new_size),
+                  topic=rpc.queue_get_for(ctxt, self.topic, volume['host']),
+                  version='1.6')

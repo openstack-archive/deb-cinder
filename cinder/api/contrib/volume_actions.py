@@ -18,14 +18,12 @@ from cinder.api import extensions
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.rpc import common as rpc_common
 from cinder import utils
 from cinder import volume
 
 
-FLAGS = flags.FLAGS
 LOG = logging.getLogger(__name__)
 
 
@@ -78,12 +76,30 @@ class VolumeActionsController(wsgi.Controller):
         """Add attachment metadata."""
         context = req.environ['cinder.context']
         volume = self.volume_api.get(context, id)
-
-        instance_uuid = body['os-attach']['instance_uuid']
+        # instance uuid is an option now
+        instance_uuid = None
+        if 'instance_uuid' in body['os-attach']:
+            instance_uuid = body['os-attach']['instance_uuid']
+        host_name = None
+        # Keep API backward compatibility
+        if 'host_name' in body['os-attach']:
+            host_name = body['os-attach']['host_name']
         mountpoint = body['os-attach']['mountpoint']
 
+        if instance_uuid and host_name:
+            msg = _("Invalid request to attach volume to an "
+                    "instance %(instance_uuid)s and a "
+                    "host %(host_name)s simultaneously") % {
+                        'instance_uuid': instance_uuid,
+                        'host_name': host_name,
+                    }
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+        elif instance_uuid is None and host_name is None:
+            msg = _("Invalid request to attach volume to an invalid target")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
         self.volume_api.attach(context, volume,
-                               instance_uuid, mountpoint)
+                               instance_uuid, host_name, mountpoint)
         return webob.Response(status_int=202)
 
     @wsgi.action('os-detach')
@@ -166,7 +182,7 @@ class VolumeActionsController(wsgi.Controller):
         force = params.get('force', False)
         try:
             volume = self.volume_api.get(context, id)
-        except exception.VolumeNotFound, error:
+        except exception.VolumeNotFound as error:
             raise webob.exc.HTTPNotFound(explanation=unicode(error))
         authorize(context, "upload_image")
         image_metadata = {"container_format": params.get("container_format",
@@ -178,15 +194,30 @@ class VolumeActionsController(wsgi.Controller):
                                                             volume,
                                                             image_metadata,
                                                             force)
-        except exception.InvalidVolume, error:
+        except exception.InvalidVolume as error:
             raise webob.exc.HTTPBadRequest(explanation=unicode(error))
-        except ValueError, error:
+        except ValueError as error:
             raise webob.exc.HTTPBadRequest(explanation=unicode(error))
         except rpc_common.RemoteError as error:
             msg = "%(err_type)s: %(err_msg)s" % {'err_type': error.exc_type,
                                                  'err_msg': error.value}
             raise webob.exc.HTTPBadRequest(explanation=msg)
         return {'os-volume_upload_image': response}
+
+    @wsgi.action('os-extend')
+    def _extend(self, req, id, body):
+        """Extend size of volume."""
+        context = req.environ['cinder.context']
+        volume = self.volume_api.get(context, id)
+        try:
+            val = int(body['os-extend']['new_size'])
+        except ValueError:
+            msg = _("New volume size must be specified as an integer.")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
+        size = body['os-extend']['new_size']
+        self.volume_api.extend(context, volume, size)
+        return webob.Response(status_int=202)
 
 
 class Volume_actions(extensions.ExtensionDescriptor):

@@ -28,9 +28,11 @@ from oslo.config import cfg
 
 from cinder.brick.iscsi import iscsi
 from cinder import exception
-from cinder import flags
 from cinder.image import image_utils
+from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import strutils
+from cinder import units
 from cinder import utils
 from cinder.volume import driver
 
@@ -60,8 +62,8 @@ volume_opts = [
                     'this requires lvm_mirrors + 2 pvs with available space'),
 ]
 
-FLAGS = flags.FLAGS
-FLAGS.register_opts(volume_opts)
+CONF = cfg.CONF
+CONF.register_opts(volume_opts)
 
 
 class LVMVolumeDriver(driver.VolumeDriver):
@@ -84,6 +86,10 @@ class LVMVolumeDriver(driver.VolumeDriver):
             raise exception.VolumeBackendAPIException(data=exception_message)
 
     def _create_volume(self, volume_name, sizestr):
+
+        no_retry_list = ['Insufficient free extents',
+                         'One or more specified logical volume(s) not found']
+
         cmd = ['lvcreate', '-L', sizestr, '-n', volume_name,
                self.configuration.volume_group]
         if self.configuration.lvm_mirrors:
@@ -95,7 +101,31 @@ class LVMVolumeDriver(driver.VolumeDriver):
                 #             http://red.ht/U2BPOD
                 cmd += ['-R', str(rsize)]
 
-        self._try_execute(*cmd, run_as_root=True)
+        self._try_execute(*cmd, run_as_root=True, no_retry_list=no_retry_list)
+
+    def _calculate_count(self, blocksize, size_in_g):
+        # Check if volume_dd_blocksize is valid
+        try:
+            # Rule out zero-sized/negative dd blocksize which
+            # cannot be caught by strutils
+            if blocksize.startswith(('-', '0')):
+                raise ValueError
+            bs = strutils.to_bytes(blocksize)
+        except (ValueError, TypeError):
+            msg = (_("Incorrect value error: %(blocksize)s, "
+                     "it may indicate that \'volume_dd_blocksize\' "
+                     "was configured incorrectly. Fall back to default.")
+                   % {'blocksize': blocksize})
+            LOG.warn(msg)
+            # Fall back to default blocksize
+            CONF.clear_override('volume_dd_blocksize',
+                                self.configuration.config_group)
+            blocksize = self.configuration.volume_dd_blocksize
+            bs = strutils.to_bytes(blocksize)
+
+        count = math.ceil(size_in_g * units.GiB / float(bs))
+
+        return blocksize, int(count)
 
     def _copy_volume(self, srcstr, deststr, size_in_g, clearing=False):
         # Use O_DIRECT to avoid thrashing the system buffer cache
@@ -114,10 +144,13 @@ class LVMVolumeDriver(driver.VolumeDriver):
         if clearing and not extra_flags:
             extra_flags.append('conv=fdatasync')
 
+        blocksize = self.configuration.volume_dd_blocksize
+        blocksize, count = self._calculate_count(blocksize, size_in_g)
+
         # Perform the copy
         self._execute('dd', 'if=%s' % srcstr, 'of=%s' % deststr,
-                      'count=%d' % (size_in_g * 1024),
-                      'bs=%s' % self.configuration.volume_dd_blocksize,
+                      'count=%d' % count,
+                      'bs=%s' % blocksize,
                       *extra_flags, run_as_root=True)
 
     def _volume_not_present(self, volume_name):
@@ -129,7 +162,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
             return True
         return False
 
-    def _delete_volume(self, volume, size_in_g):
+    def _delete_volume(self, volume):
         """Deletes a logical volume."""
         # zero out old volumes to prevent data leaking between users
         # TODO(ja): reclaiming space should be done lazy and low priority
@@ -156,7 +189,8 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
     def create_volume(self, volume):
         """Creates a logical volume. Can optionally return a Dictionary of
-        changes to the volume object to be persisted."""
+        changes to the volume object to be persisted.
+        """
         self._create_volume(volume['name'], self._sizestr(volume['size']))
 
     def create_volume_from_snapshot(self, volume, snapshot):
@@ -184,19 +218,18 @@ class LVMVolumeDriver(driver.VolumeDriver):
             if (out[0] == 'o') or (out[0] == 'O'):
                 raise exception.VolumeIsBusy(volume_name=volume['name'])
 
-        self._delete_volume(volume, volume['size'])
+        self._delete_volume(volume)
 
     def clear_volume(self, volume):
         """unprovision old volumes to prevent data leaking between users."""
 
         vol_path = self.local_path(volume)
-        size_in_g = volume.get('size')
-        size_in_m = self.configuration.volume_clear_size
-
-        if not size_in_g:
+        size_in_g = volume.get('size', volume.get('volume_size', None))
+        if size_in_g is None:
             LOG.warning(_("Size for volume: %s not found, "
-                          "skipping secure delete.") % volume['name'])
+                          "skipping secure delete.") % volume['id'])
             return
+        size_in_m = self.configuration.volume_clear_size
 
         if self.configuration.volume_clear == 'none':
             return
@@ -241,7 +274,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         # TODO(yamahata): zeroing out the whole snapshot triggers COW.
         # it's quite slow.
-        self._delete_volume(snapshot, snapshot['volume_size'])
+        self._delete_volume(snapshot)
 
     def local_path(self, volume):
         # NOTE(vish): stops deprecation warning
@@ -266,7 +299,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
         LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
-        volume_name = FLAGS.volume_name_template % src_vref['id']
+        volume_name = CONF.volume_name_template % src_vref['id']
         temp_id = 'tmp-snap-%s' % src_vref['id']
         temp_snapshot = {'volume_name': volume_name,
                          'size': src_vref['size'],
@@ -290,14 +323,14 @@ class LVMVolumeDriver(driver.VolumeDriver):
         volume = self.db.volume_get(context, backup['volume_id'])
         volume_path = self.local_path(volume)
         with utils.temporary_chown(volume_path):
-            with utils.file_open(volume_path) as volume_file:
+            with fileutils.file_open(volume_path) as volume_file:
                 backup_service.backup(backup, volume_file)
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
         volume_path = self.local_path(volume)
         with utils.temporary_chown(volume_path):
-            with utils.file_open(volume_path, 'wb') as volume_file:
+            with fileutils.file_open(volume_path, 'wb') as volume_file:
                 backup_service.restore(backup, volume['id'], volume_file)
 
 
@@ -346,8 +379,10 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
                            "provision for volume: %s"), volume['id'])
                 return
 
-            iscsi_name = "%s%s" % (FLAGS.iscsi_target_prefix, volume['name'])
-            volume_path = "/dev/%s/%s" % (FLAGS.volume_group, volume['name'])
+            iscsi_name = "%s%s" % (self.configuration.iscsi_target_prefix,
+                                   volume['name'])
+            volume_path = "/dev/%s/%s" % (self.configuration.volume_group,
+                                          volume['name'])
             iscsi_target = 1
 
             self.tgtadm.create_iscsi_target(iscsi_name, iscsi_target,
@@ -548,7 +583,8 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
     def get_volume_stats(self, refresh=False):
         """Get volume status.
 
-        If 'refresh' is True, run update the stats first."""
+        If 'refresh' is True, run update the stats first.
+        """
         if refresh:
             self._update_volume_status()
 
@@ -580,7 +616,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
                                      self.configuration.volume_group,
                                      run_as_root=True)
         except exception.ProcessExecutionError as exc:
-            LOG.error(_("Error retrieving volume status: "), exc.stderr)
+            LOG.error(_("Error retrieving volume status: %s"), exc.stderr)
             out = False
 
         if out:
@@ -611,17 +647,22 @@ class ThinLVMVolumeDriver(LVMISCSIDriver):
         out, err = self._execute('lvs', '--option',
                                  'name', '--noheadings',
                                  run_as_root=True)
-        pool_name = "%s-pool" % FLAGS.volume_group
+        pool_name = "%s-pool" % self.configuration.volume_group
         if pool_name not in out:
-            if not FLAGS.pool_size:
-                out, err = self._execute('vgs', FLAGS.volume_group,
-                                         '--noheadings', '--options',
-                                         'name,size', run_as_root=True)
+            if not self.configuration.pool_size:
+                out, err = self._execute('vgs',
+                                         self.configuration.volume_group,
+                                         '--noheadings',
+                                         '--options',
+                                         'name,size',
+                                         run_as_root=True)
+
                 size = re.sub(r'[\.][\d][\d]', '', out.split()[1])
             else:
-                size = "%s" % FLAGS.pool_size
+                size = "%s" % self.configuration.pool_size
 
-            pool_path = '%s/%s' % (FLAGS.volume_group, pool_name)
+            pool_path = '%s/%s' % (self.configuration.volume_group,
+                                   pool_name)
             out, err = self._execute('lvcreate', '-T', '-L', size,
                                      pool_path, run_as_root=True)
 
@@ -634,37 +675,43 @@ class ThinLVMVolumeDriver(LVMISCSIDriver):
             self._try_execute('lvcreate', '-s', '-n', new_name,
                               src_lvm_name, run_as_root=True)
 
-    def create_volume(self, volume):
-        """Creates a logical volume. Can optionally return a Dictionary of
-        changes to the volume object to be persisted."""
+    def _create_volume(self, volume):
         sizestr = self._sizestr(volume['size'])
-        vg_name = ("%s/%s-pool" % (FLAGS.volume_group, FLAGS.volume_group))
+        vg_name = ("%s/%s-pool" % (self.configuration.volume_group,
+                                   self.configuration.volume_group))
         self._try_execute('lvcreate', '-T', '-V', sizestr, '-n',
                           volume['name'], vg_name, run_as_root=True)
+
+    def create_volume(self, volume):
+        """Creates a logical volume."""
+        self._create_volume(volume)
 
     def delete_volume(self, volume):
         """Deletes a logical volume."""
         if self._volume_not_present(volume['name']):
             return True
         self._try_execute('lvremove', '-f', "%s/%s" %
-                          (FLAGS.volume_group,
+                          (self.configuration.volume_group,
                            self._escape_snapshot(volume['name'])),
                           run_as_root=True)
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
         LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
-        orig_lv_name = "%s/%s" % (FLAGS.volume_group, src_vref['name'])
+        orig_lv_name = "%s/%s" % (self.configuration.volume_group,
+                                  src_vref['name'])
         self._do_lvm_snapshot(orig_lv_name, volume, False)
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot of a volume."""
-        orig_lv_name = "%s/%s" % (FLAGS.volume_group, snapshot['volume_name'])
+        orig_lv_name = "%s/%s" % (self.configuration.volume_group,
+                                  snapshot['volume_name'])
         self._do_lvm_snapshot(orig_lv_name, snapshot)
 
     def get_volume_stats(self, refresh=False):
         """Get volume status.
-        If 'refresh' is True, run update the stats first."""
+        If 'refresh' is True, run update the stats first.
+        """
         if refresh:
             self._update_volume_status()
 

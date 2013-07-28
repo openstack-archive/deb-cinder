@@ -17,19 +17,32 @@
 Handles all requests relating to the volume backups service.
 """
 
+
 from eventlet import greenthread
 
+from oslo.config import cfg
+
 from cinder.backup import rpcapi as backup_rpcapi
+from cinder import context
 from cinder.db import base
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import log as logging
+from cinder import utils
+
+import cinder.policy
 import cinder.volume
 
-
-FLAGS = flags.FLAGS
-
+CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
+
+
+def check_policy(context, action):
+        target = {
+            'project_id': context.project_id,
+            'user_id': context.user_id,
+        }
+        _action = 'backup:%s' % action
+        cinder.policy.enforce(context, _action, target)
 
 
 class API(base.Base):
@@ -41,6 +54,7 @@ class API(base.Base):
         super(API, self).__init__(db_driver)
 
     def get(self, context, backup_id):
+        check_policy(context, 'get')
         rv = self.db.backup_get(context, backup_id)
         return dict(rv.iteritems())
 
@@ -48,6 +62,7 @@ class API(base.Base):
         """
         Make the RPC call to delete a volume backup.
         """
+        check_policy(context, 'delete')
         backup = self.get(context, backup_id)
         if backup['status'] not in ['available', 'error']:
             msg = _('Backup status must be available or error')
@@ -60,6 +75,7 @@ class API(base.Base):
 
     # TODO(moorehef): Add support for search_opts, discarded atm
     def get_all(self, context, search_opts={}):
+        check_policy(context, 'get_all')
         if context.is_admin:
             backups = self.db.backup_get_all(context)
         else:
@@ -68,11 +84,26 @@ class API(base.Base):
 
         return backups
 
+    def _check_backup_service(self, volume):
+        """
+        Check if there is an backup service available
+        """
+        topic = CONF.backup_topic
+        ctxt = context.get_admin_context()
+        services = self.db.service_get_all_by_topic(ctxt, topic)
+        for srv in services:
+            if (srv['availability_zone'] == volume['availability_zone'] and
+                    srv['host'] == volume['host'] and not srv['disabled'] and
+                    utils.service_is_up(srv)):
+                return True
+        return False
+
     def create(self, context, name, description, volume_id,
                container, availability_zone=None):
         """
         Make the RPC call to create a volume backup.
         """
+        check_policy(context, 'create')
         volume = self.volume_api.get(context, volume_id)
         if volume['status'] != "available":
             msg = _('Volume to be backed up must be available')
@@ -92,6 +123,8 @@ class API(base.Base):
                    'host': volume['host'], }
 
         backup = self.db.backup_create(context, options)
+        if not self._check_backup_service(volume):
+            raise exception.ServiceNotFound(service_id='cinder-backup')
 
         #TODO(DuncanT): In future, when we have a generic local attach,
         #               this can go via the scheduler, which enables
@@ -107,6 +140,7 @@ class API(base.Base):
         """
         Make the RPC call to restore a volume backup.
         """
+        check_policy(context, 'restore')
         backup = self.get(context, backup_id)
         if backup['status'] != 'available':
             msg = _('Backup status must be available')
@@ -121,10 +155,12 @@ class API(base.Base):
         # it is large enough for the backup
         if volume_id is None:
             name = 'restore_backup_%s' % backup_id
-            description = 'auto-created_from_restore_from_swift'
+            description = 'auto-created_from_restore_from_backup'
 
             LOG.audit(_("Creating volume of %(size)s GB for restore of "
-                        "backup %(backup_id)s"), locals(), context=context)
+                        "backup %(backup_id)s"),
+                      {'size': size, 'backup_id': backup_id},
+                      context=context)
             volume = self.volume_api.create(context, size, name, description)
             volume_id = volume['id']
 
@@ -137,8 +173,9 @@ class API(base.Base):
             volume = self.volume_api.get(context, volume_id)
             volume_size = volume['size']
             if volume_size < size:
-                err = _('volume size %(volume_size)d is too small to restore '
-                        'backup of size %(size)d.') % locals()
+                err = (_('volume size %(volume_size)d is too small to restore '
+                         'backup of size %(size)d.') %
+                       {'volume_size': volume_size, 'size': size})
                 raise exception.InvalidVolume(reason=err)
 
         if volume['status'] != "available":
@@ -153,7 +190,9 @@ class API(base.Base):
             raise exception.InvalidVolume(reason=msg)
 
         LOG.audit(_("Overwriting volume %(volume_id)s with restore of "
-                    "backup %(backup_id)s"), locals(), context=context)
+                    "backup %(backup_id)s"),
+                  {'volume_id': volume_id, 'backup_id': backup_id},
+                  context=context)
 
         # Setting the status here rather than setting at start and unrolling
         # for each error condition, it should be a very small window

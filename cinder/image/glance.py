@@ -17,6 +17,7 @@
 
 """Implementation of an image service that uses Glance as the backend"""
 
+
 from __future__ import absolute_import
 
 import copy
@@ -28,66 +29,68 @@ import urlparse
 
 import glanceclient
 import glanceclient.exc
+from oslo.config import cfg
 
 from cinder import exception
-from cinder import flags
 from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 
 
+CONF = cfg.CONF
+
 LOG = logging.getLogger(__name__)
-FLAGS = flags.FLAGS
 
 
 def _parse_image_ref(image_href):
     """Parse an image href into composite parts.
 
     :param image_href: href of an image
-    :returns: a tuple of the form (image_id, host, port)
+    :returns: a tuple of the form (image_id, netloc, use_ssl)
     :raises ValueError
 
     """
     url = urlparse.urlparse(image_href)
-    port = url.port or 80
-    host = url.netloc.split(':', 1)[0]
+    netloc = url.netloc
     image_id = url.path.split('/')[-1]
     use_ssl = (url.scheme == 'https')
-    return (image_id, host, port, use_ssl)
+    return (image_id, netloc, use_ssl)
 
 
-def _create_glance_client(context, host, port, use_ssl,
-                          version=FLAGS.glance_api_version):
-    """Instantiate a new glanceclient.Client object"""
+def _create_glance_client(context, netloc, use_ssl,
+                          version=CONF.glance_api_version):
+    """Instantiate a new glanceclient.Client object."""
     if version is None:
-        version = FLAGS.glance_api_version
+        version = CONF.glance_api_version
+    params = {}
     if use_ssl:
         scheme = 'https'
+        # https specific params
+        params['insecure'] = CONF.glance_api_insecure
+        params['ssl_compression'] = CONF.glance_api_ssl_compression
     else:
         scheme = 'http'
-    params = {}
-    params['insecure'] = FLAGS.glance_api_insecure
-    if FLAGS.auth_strategy == 'keystone':
+    if CONF.auth_strategy == 'keystone':
         params['token'] = context.auth_token
-    endpoint = '%s://%s:%s' % (scheme, host, port)
+    endpoint = '%s://%s' % (scheme, netloc)
     return glanceclient.Client(str(version), endpoint, **params)
 
 
 def get_api_servers():
-    """
-    Shuffle a list of FLAGS.glance_api_servers and return an iterator
+    """Return Iterable over shuffled api servers.
+
+    Shuffle a list of CONF.glance_api_servers and return an iterator
     that will cycle through the list, looping around to the beginning
     if necessary.
     """
     api_servers = []
-    for api_server in FLAGS.glance_api_servers:
+    for api_server in CONF.glance_api_servers:
         if '//' not in api_server:
             api_server = 'http://' + api_server
         url = urlparse.urlparse(api_server)
-        port = url.port or 80
-        host = url.netloc.split(':', 1)[0]
+        netloc = url.netloc
         use_ssl = (url.scheme == 'https')
-        api_servers.append((host, port, use_ssl))
+        api_servers.append((netloc, use_ssl))
     random.shuffle(api_servers)
     return itertools.cycle(api_servers)
 
@@ -95,40 +98,40 @@ def get_api_servers():
 class GlanceClientWrapper(object):
     """Glance client wrapper class that implements retries."""
 
-    def __init__(self, context=None, host=None, port=None, use_ssl=False,
+    def __init__(self, context=None, netloc=None, use_ssl=False,
                  version=None):
-        if host is not None:
+        if netloc is not None:
             self.client = self._create_static_client(context,
-                                                     host, port,
+                                                     netloc,
                                                      use_ssl, version)
         else:
             self.client = None
         self.api_servers = None
         self.version = version
 
-    def _create_static_client(self, context, host, port, use_ssl, version):
+    def _create_static_client(self, context, netloc, use_ssl, version):
         """Create a client that we'll use for every call."""
-        self.host = host
-        self.port = port
+        self.netloc = netloc
         self.use_ssl = use_ssl
         self.version = version
         return _create_glance_client(context,
-                                     self.host, self.port,
+                                     self.netloc,
                                      self.use_ssl, self.version)
 
     def _create_onetime_client(self, context, version):
         """Create a client that will be used for one call."""
         if self.api_servers is None:
             self.api_servers = get_api_servers()
-        self.host, self.port, self.use_ssl = self.api_servers.next()
+        self.netloc, self.use_ssl = self.api_servers.next()
         return _create_glance_client(context,
-                                     self.host, self.port,
+                                     self.netloc,
                                      self.use_ssl, version)
 
     def call(self, context, method, *args, **kwargs):
-        """
-        Call a glance client method.  If we get a connection error,
-        retry the request according to FLAGS.glance_num_retries.
+        """Call a glance client method.
+
+        If we get a connection error,
+        retry the request according to CONF.glance_num_retries.
         """
         version = self.version
         if version in kwargs:
@@ -137,7 +140,7 @@ class GlanceClientWrapper(object):
         retry_excs = (glanceclient.exc.ServiceUnavailable,
                       glanceclient.exc.InvalidEndpoint,
                       glanceclient.exc.CommunicationError)
-        num_attempts = 1 + FLAGS.glance_num_retries
+        num_attempts = 1 + CONF.glance_num_retries
 
         for attempt in xrange(1, num_attempts + 1):
             client = self.client or self._create_onetime_client(context,
@@ -145,19 +148,28 @@ class GlanceClientWrapper(object):
             try:
                 return getattr(client.images, method)(*args, **kwargs)
             except retry_excs as e:
-                host = self.host
-                port = self.port
+                netloc = self.netloc
                 extra = "retrying"
                 error_msg = _("Error contacting glance server "
-                              "'%(host)s:%(port)s' for '%(method)s', "
-                              "%(extra)s.")
+                              "'%(netloc)s' for '%(method)s', "
+                              "%(extra)s.") % {
+                                  'netloc': netloc,
+                                  'method': method,
+                                  'extra': extra,
+                              }
                 if attempt == num_attempts:
                     extra = 'done trying'
-                    LOG.exception(error_msg, locals())
-                    raise exception.GlanceConnectionFailed(host=host,
-                                                           port=port,
+                    error_msg = _("Error contacting glance server "
+                                  "'%(netloc)s' for '%(method)s', "
+                                  "%(extra)s.") % {
+                                      'netloc': netloc,
+                                      'method': method,
+                                      'extra': extra,
+                                  }
+                    LOG.exception(error_msg)
+                    raise exception.GlanceConnectionFailed(netloc=netloc,
                                                            reason=str(e))
-                LOG.exception(error_msg, locals())
+                LOG.exception(error_msg)
                 time.sleep(1)
 
 
@@ -212,7 +224,8 @@ class GlanceImageService(object):
 
     def get_location(self, context, image_id):
         """Returns the direct url representing the backend storage location,
-        or None if this attribute is not shown by Glance."""
+        or None if this attribute is not shown by Glance.
+        """
         try:
             client = GlanceClientWrapper()
             image_meta = client.call(context, 'get', image_id)
@@ -443,11 +456,9 @@ def get_remote_image_service(context, image_href):
         return image_service, image_href
 
     try:
-        (image_id, glance_host, glance_port, use_ssl) = \
-            _parse_image_ref(image_href)
+        (image_id, glance_netloc, use_ssl) = _parse_image_ref(image_href)
         glance_client = GlanceClientWrapper(context=context,
-                                            host=glance_host,
-                                            port=glance_port,
+                                            netloc=glance_netloc,
                                             use_ssl=use_ssl)
     except ValueError:
         raise exception.InvalidImageRef(image_href=image_href)
