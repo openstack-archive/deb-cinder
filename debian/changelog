@@ -1,4 +1,4 @@
-cinder (2013.1.2-4) unstable; urgency=low
+cinder (2013.1.2-4) unstable; urgency=high
 
   * Adds missing depends: sqlite3.
   * CVE-2013-4202: Fix DoS using XML entities in extensions (Closes: #719118).
