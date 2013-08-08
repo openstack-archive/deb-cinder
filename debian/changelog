@@ -1,7 +1,7 @@
 cinder (2013.1.2-4) unstable; urgency=low
 
   * Adds missing depends: sqlite3.
-  * CVE-2013-4202: Fix DoS using XML entities in extensions (Closes: #XXXXXX).
+  * CVE-2013-4202: Fix DoS using XML entities in extensions (Closes: #719118).
   * CVE-2013-4183: Enable zero the snapshot when delete snapshot in
     LVMVolumeDriver (Closes: #719010).
 
