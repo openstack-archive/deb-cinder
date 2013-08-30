@@ -1,0 +1,239 @@
+# Czech PO debconf template translation of nova.
+# Copyright (C) 2013 Michal Simunek <michal.simunek@gmail.com>
+# This file is distributed under the same license as the nova package.
+# Michal Simunek <michal.simunek@gmail.com>, 2013.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: cinder 2013.1.2-4\n"
+"Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
+"POT-Creation-Date: 2012-11-28 11:58+0000\n"
+"PO-Revision-Date: 2013-08-28 12:31+0200\n"
+"Last-Translator: Michal Simunek <michal.simunek@gmail.com>\n"
+"Language-Team: Czech <debian-l10n-czech@lists.debian.org>\n"
+"Language: cs\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:1001
+msgid "Start cinder services at boot?"
+msgstr "Spouštět služby cinder při zavádění?"
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:1001
+msgid ""
+"Please choose whether you want to start Cinder services when the machine is "
+"booted up."
+msgstr ""
+"Zvolte si prosím, zda chcete, aby se služby Cinder spouštěly při zavádění "
+"systému."
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:2001
+msgid "Set up a database for Cinder?"
+msgstr "Nastavit databázi pro Cinder?"
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:2001
+msgid ""
+"No database has been set up for Cinder to use. If you want to set one up "
+"now, please make sure you have all needed information:"
+msgstr ""
+"Nebyla nastavena žádná databáze k použití s Nova. Chcete-li ji nyní "
+"nastavit, ujistěte se prosím, že máte všechny potřebné údaje:"
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:2001
+msgid ""
+" * the host name of the database server (which must allow TCP\n"
+"   connections from this machine);\n"
+" * a username and password to access the database;\n"
+" * the type of database management software you want to use."
+msgstr ""
+" * název hostitele databázového serveru (který musí přijímat TCP\n"
+"   spojení z tohoto počítače);\n"
+" * uživatelské jméno a heslo pro přístup k databázi;\n"
+" * typ softwaru pro správu databáze, který chcete používat."
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:2001
+msgid ""
+"If you don't choose this option, no database will be set up and Cinder will "
+"use regular SQLite support."
+msgstr ""
+"Pokud tuto volbu nezadáte, databáze nebude vytvořena a Cinder bude používat "
+"běžnou podporu SQLite."
+
+#. Type: boolean
+#. Description
+#: ../cinder-common.templates:2001
+msgid ""
+"You can change this setting later on by running \"dpkg-reconfigure -plow "
+"cinder-common\"."
+msgstr ""
+"Toto nastavení můžete později změnit spuštěním \"dpkg-reconfigure -plow "
+"cinder-common\"."
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:3001
+msgid "Auth server hostname:"
+msgstr "Název hostitele autentizačního serveru:"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:3001
+msgid ""
+"Please specify the URL of your Cinder authentication server. Typically  this "
+"is also the URL of your OpenStack Identity Service (Keystone)."
+msgstr ""
+"Zadejte prosím URL autentizačního serveru pro Cinder. Většinou je to také URL "
+"OpenStack Identity Service (Keystone)."
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:4001
+msgid "Auth server tenant name:"
+msgstr "Název nájemce pro autentizační server:"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:5001
+msgid "Auth server username:"
+msgstr "Uživatel autentizačního serveru:"
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:6001
+msgid "Auth server password:"
+msgstr "Heslo autentizačního serveru:"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:7001
+msgid "Cinder volume group:"
+msgstr "Skupina svazků pro Cinder:"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:7001
+msgid ""
+"Please specify the name of the LVM volume group (vg) on which Cinder will "
+"create partitions."
+msgstr ""
+"Zadejte prosím název skupiny LVM svazků (vg), na které bude Cinder "
+"vytvářet oddíly."
+
+#. Type: boolean
+#. Description
+#: ../cinder-api.templates:1001
+msgid "Register Cinder in the keystone endpoint catalog?"
+msgstr "Zaregistrovat Cinder v katalogu koncových bodů keystone?"
+
+#. Type: boolean
+#. Description
+#: ../cinder-api.templates:1001
+msgid ""
+"Each Openstack services (each API) should be registered in order to be "
+"accessible. This is done using \"keystone service-create\" and \"keystone "
+"endpoint-create\". Select if you want to run these commands now."
+msgstr ""
+"Aby byla každá služba Openstack (každé API) přístupná, musí být "
+"zaregistrována. To se provádí pomocí příkazů \"keystone service-create\" a "
+"\"keystone endpoint-create\". Zvolte si, zda-li se tyto příkazy mají nyní spustit."
+
+#. Type: boolean
+#. Description
+#: ../cinder-api.templates:1001
+msgid ""
+"Note that you will need to have an up and running keystone server on which "
+"to connect using the Keystone auth token."
+msgstr ""
+"Berte na vědomí, že musíte mít běžící server keystone, na který se lze "
+"připojit pomocí ověřovacího klíče pro Keystone."
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:2001
+msgid "Keystone IP address:"
+msgstr "IP adresa serveru keystone:"
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:2001
+msgid ""
+"Enter the IP address of your keystone server, so that cinder-api can contact "
+"Keystone to do the Cinder service and endpoint creation."
+msgstr ""
+"Zadejte IP adresu serveru keystone, aby se mohlo cinder-api spojit s Keystone "
+"a provozovat službu Cinder a vytvářet koncové body."
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:3001
+msgid "Keystone Auth Token:"
+msgstr "Autentizační klíč pro Keystone:"
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:3001
+msgid ""
+"To configure its endpoint in Keystone, cinder-api needs the Keystone auth "
+"token."
+msgstr ""
+"Aby mohlo cinder-api nastavit v Keystone svůj koncový bod, potřebuje "
+"autentizační klíč pro Keystone."
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:4001
+msgid "Cinder endpoint IP address:"
+msgstr "IP adresa koncového bodu Cinder:"
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:4001
+msgid ""
+"Enter the IP address that will be used to contact Cinder (eg: the Cinder "
+"endpoint IP address)."
+msgstr ""
+"Zadejte IP adresu, která se bude používat ke spojení s Cinder (např: "
+"IP adresa koncového bodu Cinder)."
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:4001
+msgid ""
+"This IP address should be accessible from the clients that will use this "
+"service, so if you are installing a public cloud, this should be a public IP "
+"address."
+msgstr ""
+"Tato IP adresa musí být přístupná z klientů, kteří budou tuto službu "
+"používat, takže pokud instalujete veřejný cloud, musí to být veřejná "
+"IP adresa."
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:5001
+msgid "Name of the region to register:"
+msgstr "Název registrované oblasti:"
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:5001
+msgid ""
+"Openstack can be used using availability zones, with each region "
+"representing a location. Please enter the zone that you wish to use when "
+"registering the endpoint."
+msgstr ""
+"Openstack lze využívat pomocí oblastí dostupnosti, přičemž každá oblast "
+"představuje místo. Zadejte prosím oblast, kterou chcete použít při "
+"registraci koncového bodu."
