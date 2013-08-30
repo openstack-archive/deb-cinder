@@ -125,7 +125,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
             return True
         return False
 
-    def _delete_volume(self, volume, size_in_g):
+    def _delete_volume(self, volume):
         """Deletes a logical volume."""
         # zero out old volumes to prevent data leaking between users
         # TODO(ja): reclaiming space should be done lazy and low priority
@@ -180,19 +180,18 @@ class LVMVolumeDriver(driver.VolumeDriver):
             if (out[0] == 'o') or (out[0] == 'O'):
                 raise exception.VolumeIsBusy(volume_name=volume['name'])
 
-        self._delete_volume(volume, volume['size'])
+        self._delete_volume(volume)
 
     def clear_volume(self, volume):
         """unprovision old volumes to prevent data leaking between users."""
 
         vol_path = self.local_path(volume)
-        size_in_g = volume.get('size')
-        size_in_m = self.configuration.volume_clear_size
-
-        if not size_in_g:
+        size_in_g = volume.get('size', volume.get('volume_size', None))
+        if size_in_g is None:
             LOG.warning(_("Size for volume: %s not found, "
-                          "skipping secure delete.") % volume['name'])
+                          "skipping secure delete.") % volume['id'])
             return
+        size_in_m = self.configuration.volume_clear_size
 
         if self.configuration.volume_clear == 'none':
             return
@@ -237,7 +236,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         # TODO(yamahata): zeroing out the whole snapshot triggers COW.
         # it's quite slow.
-        self._delete_volume(snapshot, snapshot['volume_size'])
+        self._delete_volume(snapshot)
 
     def local_path(self, volume):
         # NOTE(vish): stops deprecation warning
@@ -630,13 +629,15 @@ class ThinLVMVolumeDriver(LVMISCSIDriver):
             self._try_execute('lvcreate', '-s', '-n', new_name,
                               src_lvm_name, run_as_root=True)
 
-    def create_volume(self, volume):
-        """Creates a logical volume. Can optionally return a Dictionary of
-        changes to the volume object to be persisted."""
+    def _create_volume(self, volume):
         sizestr = self._sizestr(volume['size'])
         vg_name = ("%s/%s-pool" % (FLAGS.volume_group, FLAGS.volume_group))
         self._try_execute('lvcreate', '-T', '-V', sizestr, '-n',
                           volume['name'], vg_name, run_as_root=True)
+
+    def create_volume(self, volume):
+        """Creates a logical volume."""
+        self._create_volume(volume)
 
     def delete_volume(self, volume):
         """Deletes a logical volume."""

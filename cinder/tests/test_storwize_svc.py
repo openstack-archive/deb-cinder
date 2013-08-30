@@ -62,7 +62,6 @@ class StorwizeSVCManagementSimulator:
         self._fcmappings_list = {}
         self._next_cmd_error = {
             'lsportip': '',
-            'lsportfc': '',
             'lsfabric': '',
             'lsiscsiauth': '',
             'lsnodecanister': '',
@@ -215,8 +214,14 @@ class StorwizeSVCManagementSimulator:
 
         # Handle the special case of lsnode which is a two-word command
         # Use the one word version of the command internally
-        if arg_list[0] == 'svcinfo' and arg_list[1] == 'lsnode':
-            ret = {'cmd': 'lsnodecanister'}
+        if arg_list[0] in ('svcinfo', 'svctask'):
+            if arg_list[1] == 'lsnode':
+                if len(arg_list) > 4:  # e.g. svcinfo lsnode -delim ! <node id>
+                    ret = {'cmd': 'lsnode', 'node_id': arg_list[-1]}
+                else:
+                    ret = {'cmd': 'lsnodecanister'}
+            else:
+                ret = {'cmd': arg_list[1]}
             arg_list.pop(0)
         else:
             ret = {'cmd': arg_list[0]}
@@ -431,42 +436,31 @@ class StorwizeSVCManagementSimulator:
 
         return self._print_info_cmd(rows=rows, **kwargs)
 
-    def _cmd_lsportfc(self, **kwargs):
-        if self._next_cmd_error['lsportfc'] == 'fc_no_config':
-            self._next_cmd_error['lsportfc'] = ''
-            wwpn1 = ''
-            wwpn2 = ''
-        else:
-            wwpn1 = '123456789ABCDEF0'
-            wwpn2 = '123456789ABCDEF1'
+    def _cmd_lsnode(self, **kwargs):
+        node_id = kwargs.get('node_id', None)
+        if not node_id:
+            return ('', '')
 
-        rows = [None] * 9
-        rows[0] = ['id', 'fc_io_port_id', 'port_id', 'type', 'port_speed',
-                   'node_id', 'node_name', 'WWPN', 'nportid', 'status']
-        rows[1] = ['0', '1', '1', 'fc', '4Gb', '1', 'node1',
-                   wwpn1, '012ABC', 'active']
-        rows[2] = ['1', '2', '2', 'fc', '4Gb', '1', 'node1',
-                   wwpn1, '012ABC', 'active']
-        rows[3] = ['2', '3', '3', 'fc', 'N/A', '1', 'node1',
-                   wwpn1, '000000', 'inactive_unconfigured']
-        rows[4] = ['3', '4', '4', 'fc', '4Gb', '1', 'node1',
-                   wwpn1, 'ABCDEF', 'active']
-        rows[5] = ['6', '1', '1', 'fc', '4Gb', '2', 'node2',
-                   wwpn2, '012ABC', 'active']
-        rows[6] = ['7', '2', '2', 'fc', '4Gb', '2', 'node2',
-                   wwpn2, '012ABC', 'active']
-        rows[7] = ['8', '3', '3', 'fc', '4Gb', '2', 'node2',
-                   wwpn2, 'ABC123', 'active']
-        rows[8] = ['9', '4', '4', 'fc', '4Gb', '2', 'node2',
-                   wwpn2, '012ABC', 'active']
+        rows = [None] * 8
+        rows[0] = ['id', '1']
+        rows[1] = ['name', 'node1']
+        rows[2] = ['port_id', '500507680210C744']
+        rows[3] = ['port_status', 'active']
+        rows[4] = ['port_speed', '8Gb']
+        rows[5] = ['port_id', '500507680210C744']
+        rows[6] = ['port_status', 'active']
+        rows[7] = ['port_speed', 'NA']
 
-        if self._next_cmd_error['lsportfc'] == 'header_mismatch':
-            rows[0].pop(2)
-            self._next_cmd_error['lsportfc'] = ''
-        if self._next_cmd_error['lsportfc'] == 'remove_field':
-            for row in rows:
-                row.pop(7)
-            self._next_cmd_error['lsportfc'] = ''
+        # fake another node
+        if node_id != '1':
+            rows[0] = ['id', '2']
+            rows[1] = ['name', 'node2']
+            rows[2] = ['port_id', '500507680210C745']
+            rows[3] = ['port_status', 'active']
+            rows[4] = ['port_speed', '8Gb']
+            rows[5] = ['port_id', '500507680210C745']
+            rows[6] = ['port_status', 'active']
+            rows[7] = ['port_speed', 'NA']
 
         return self._print_info_cmd(rows=rows, **kwargs)
 
@@ -892,9 +886,17 @@ class StorwizeSVCManagementSimulator:
                     (v['lun'] == mapping_info['lun'])):
                 return self._errors['CMMVC5879E']
 
-        self._mappings_list[mapping_info['vol']] = mapping_info
-        return ('Virtual Disk to Host map, id [%s], successfully created'
-                % (mapping_info['id']), '')
+        if kwargs.get('host', '').startswith('duplicate_mapping'):
+            if 'force' in kwargs:
+                self._mappings_list[mapping_info['vol']] = mapping_info
+                return ('Virtual Disk to Host map, id [%s], '
+                        'successfully created' % (mapping_info['id']), '')
+            else:
+                return self._errors['CMMVC6071E']
+        else:
+            self._mappings_list[mapping_info['vol']] = mapping_info
+            return ('Virtual Disk to Host map, id [%s], successfully created'
+                    % (mapping_info['id']), '')
 
     # Delete a vdisk-host mapping
     def _cmd_rmvdiskhostmap(self, **kwargs):
@@ -1144,8 +1146,8 @@ class StorwizeSVCManagementSimulator:
             out, err = self._cmd_lsnodecanister(**kwargs)
         elif command == 'lsportip':
             out, err = self._cmd_lsportip(**kwargs)
-        elif command == 'lsportfc':
-            out, err = self._cmd_lsportfc(**kwargs)
+        elif command == 'lsnode':
+            out, err = self._cmd_lsnode(**kwargs)
         elif command == 'lsfabric':
             out, err = self._cmd_lsfabric(**kwargs)
         elif command == 'mkvdisk':
@@ -1325,20 +1327,10 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.assertRaises(exception.VolumeBackendAPIException,
                               self.driver.do_setup, None)
 
-            self.sim.error_injection('lsportip', 'ip_no_config')
-            self.sim.error_injection('lsportfc', 'fc_no_config')
-            self.assertRaises(exception.VolumeBackendAPIException,
-                              self.driver.do_setup, None)
             self.sim.error_injection('lsportip', 'header_mismatch')
             self.assertRaises(exception.VolumeBackendAPIException,
                               self.driver.do_setup, None)
             self.sim.error_injection('lsportip', 'remove_field')
-            self.assertRaises(exception.VolumeBackendAPIException,
-                              self.driver.do_setup, None)
-            self.sim.error_injection('lsportfc', 'header_mismatch')
-            self.assertRaises(exception.VolumeBackendAPIException,
-                              self.driver.do_setup, None)
-            self.sim.error_injection('lsportfc', 'remove_field')
             self.assertRaises(exception.VolumeBackendAPIException,
                               self.driver.do_setup, None)
 
@@ -1795,6 +1787,38 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         # Check if our host still exists (it should not)
         ret = self.driver._get_host_from_connector(conn)
         self.assertEqual(ret, None)
+
+    def test_storwize_svc_multi_host_maps(self):
+        # Create a volume to be used in mappings
+        ctxt = context.get_admin_context()
+        volume = self._generate_vol_info(None, None)
+        self.driver.create_volume(volume)
+
+        # Create volume types that we created
+        types = {}
+        for protocol in ['FC', 'iSCSI']:
+            opts = {'storage_protocol': '<in> ' + protocol}
+            types[protocol] = volume_types.create(ctxt, protocol, opts)
+
+        conn = {'initiator': self._iscsi_name,
+                'ip': '11.11.11.11',
+                'host': 'duplicate_mapping'}
+
+        for protocol in ['FC', 'iSCSI']:
+            volume['volume_type_id'] = types[protocol]['id']
+
+            # Make sure that the volumes have been created
+            self._assert_vol_exists(volume['name'], True)
+
+            self._set_flag('storwize_svc_multihostmap_enabled', True)
+            self.driver.initialize_connection(volume, conn)
+            self.driver.terminate_connection(volume, conn)
+
+            self._set_flag('storwize_svc_multihostmap_enabled', False)
+            self.assertRaises(exception.CinderException,
+                              self.driver.initialize_connection, volume, conn)
+            self.driver.terminate_connection(volume, conn)
+            self._reset_flags()
 
     def test_storwize_svc_delete_volume_snapshots(self):
         # Create a volume with two snapshots
