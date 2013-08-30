@@ -5,6 +5,7 @@ cinder (2013.1.3-1) unstable; urgency=low
     - Portuguese, thanks to Miguel Figueiredo (Closes: #705707).
     - Italian, thanks to Beatrice Torracca (Closes: #719879).
     - Czech, thanks to Michal Šimůnek (Closes: #721135).
+  * Removes now applied upstream patches for CVE-2013-4202 & CVE-2013-4183.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 30 Aug 2013 11:35:22 +0800
 

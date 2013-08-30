@@ -1,4 +1,2 @@
 install-missing-files.patch
 fix-compatibility-with-sqlalchemy-0.8.patch
-CVE-2013-4202_DoS_using_XML_entities.patch
-CVE-2013-4183_Enable_zero_the_snapshot_when_delete_snapshot_in_LVMVolumeDriver.patch
