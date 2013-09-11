@@ -1,6 +1,7 @@
-cinder (2013.2~b3-1) UNRELEASED; urgency=low
+cinder (2013.2~b3-1) experimental; urgency=low
 
   * New upstream release.
+  * Reviewed (build-)dependencies.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 22 Jun 2013 16:27:46 +0800
 
