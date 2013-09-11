@@ -29,8 +29,9 @@ from oslo.config import cfg
 from cinder import exception
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import utils
-from cinder.volume.driver import ISCSIDriver
+from cinder.volume import driver
 
 LOG = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ CONF = cfg.CONF
 CONF.register_opts(san_opts)
 
 
-class SanISCSIDriver(ISCSIDriver):
+class SanDriver(driver.VolumeDriver):
     """Base class for SAN-style storage volumes
 
     A SAN-style storage value is 'different' because the volume controller
@@ -85,16 +86,14 @@ class SanISCSIDriver(ISCSIDriver):
     """
 
     def __init__(self, *args, **kwargs):
-        super(SanISCSIDriver, self).__init__(*args, **kwargs)
+        execute = kwargs.pop('execute', self.san_execute)
+        super(SanDriver, self).__init__(execute=execute,
+                                        *args, **kwargs)
         self.configuration.append_config_values(san_opts)
         self.run_local = self.configuration.san_is_local
         self.sshpool = None
 
-    def _build_iscsi_target_name(self, volume):
-        return "%s%s" % (self.configuration.iscsi_target_prefix,
-                         volume['name'])
-
-    def _execute(self, *cmd, **kwargs):
+    def san_execute(self, *cmd, **kwargs):
         if self.run_local:
             return utils.execute(*cmd, **kwargs)
         else:
@@ -102,7 +101,10 @@ class SanISCSIDriver(ISCSIDriver):
             command = ' '.join(cmd)
             return self._run_ssh(command, check_exit_code)
 
-    def _run_ssh(self, command, check_exit_code=True, attempts=1):
+    def _run_ssh(self, cmd_list, check_exit_code=True, attempts=1):
+        utils.check_ssh_injection(cmd_list)
+        command = ' '. join(cmd_list)
+
         if not self.sshpool:
             password = self.configuration.san_password
             privatekey = self.configuration.san_private_key
@@ -123,7 +125,7 @@ class SanISCSIDriver(ISCSIDriver):
                 while attempts > 0:
                     attempts -= 1
                     try:
-                        return utils.ssh_execute(
+                        return processutils.ssh_execute(
                             ssh,
                             command,
                             check_exit_code=check_exit_code)
@@ -132,13 +134,13 @@ class SanISCSIDriver(ISCSIDriver):
                         last_exception = e
                         greenthread.sleep(random.randint(20, 500) / 100.0)
                 try:
-                    raise exception.ProcessExecutionError(
+                    raise processutils.ProcessExecutionError(
                         exit_code=last_exception.exit_code,
                         stdout=last_exception.stdout,
                         stderr=last_exception.stderr,
                         cmd=last_exception.cmd)
                 except AttributeError:
-                    raise exception.ProcessExecutionError(
+                    raise processutils.ProcessExecutionError(
                         exit_code=-1,
                         stdout="",
                         stderr="Error running SSH command",
@@ -172,6 +174,11 @@ class SanISCSIDriver(ISCSIDriver):
         if not self.configuration.san_ip:
             raise exception.InvalidInput(reason=_("san_ip must be set"))
 
-    def create_cloned_volume(self, volume, src_vref):
-        """Create a cloen of the specified volume."""
-        raise NotImplementedError()
+
+class SanISCSIDriver(SanDriver, driver.ISCSIDriver):
+    def __init__(self, *args, **kwargs):
+        super(SanISCSIDriver, self).__init__(*args, **kwargs)
+
+    def _build_iscsi_target_name(self, volume):
+        return "%s%s" % (self.configuration.iscsi_target_prefix,
+                         volume['name'])

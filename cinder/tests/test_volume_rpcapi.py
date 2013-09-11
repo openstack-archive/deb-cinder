@@ -56,7 +56,7 @@ class VolumeRpcAPITestCase(test.TestCase):
         self.fake_snapshot = jsonutils.to_primitive(snapshot)
 
     def test_serialized_volume_has_id(self):
-        self.assertTrue('id' in self.fake_volume)
+        self.assertIn('id', self.fake_volume)
 
     def _test_volume_api(self, method, rpc_method, **kwargs):
         ctxt = context.RequestContext('fake_user', 'fake_project')
@@ -81,6 +81,16 @@ class VolumeRpcAPITestCase(test.TestCase):
             expected_msg['args']['snapshot_id'] = snapshot['id']
         if 'host' in expected_msg['args']:
             del expected_msg['args']['host']
+        if 'dest_host' in expected_msg['args']:
+            dest_host = expected_msg['args']['dest_host']
+            dest_host_dict = {'host': dest_host.host,
+                              'capabilities': dest_host.capabilities}
+            del expected_msg['args']['dest_host']
+            expected_msg['args']['host'] = dest_host_dict
+        if 'new_volume' in expected_msg['args']:
+            volume = expected_msg['args']['new_volume']
+            del expected_msg['args']['new_volume']
+            expected_msg['args']['new_volume_id'] = volume['id']
 
         expected_msg['version'] = expected_version
 
@@ -88,7 +98,7 @@ class VolumeRpcAPITestCase(test.TestCase):
             host = kwargs['host']
         else:
             host = kwargs['volume']['host']
-        expected_topic = '%s.%s' % (CONF.volume_topic, host)
+        expected_topic = '%s:%s' % (CONF.volume_topic, host)
 
         self.fake_args = None
         self.fake_kwargs = None
@@ -145,7 +155,8 @@ class VolumeRpcAPITestCase(test.TestCase):
                               instance_uuid='fake_uuid',
                               host_name=None,
                               mountpoint='fake_mountpoint',
-                              version='1.7')
+                              mode='ro',
+                              version='1.11')
 
     def test_attach_volume_to_host(self):
         self._test_volume_api('attach_volume',
@@ -154,7 +165,8 @@ class VolumeRpcAPITestCase(test.TestCase):
                               instance_uuid=None,
                               host_name='fake_host',
                               mountpoint='fake_mountpoint',
-                              version='1.7')
+                              mode='rw',
+                              version='1.11')
 
     def test_detach_volume(self):
         self._test_volume_api('detach_volume',
@@ -187,7 +199,11 @@ class VolumeRpcAPITestCase(test.TestCase):
         self._test_volume_api('accept_transfer',
                               rpc_method='cast',
                               volume=self.fake_volume,
-                              version='1.5')
+                              new_user='e5565fd0-06c8-11e3-'
+                                       '8ffd-0800200c9b77',
+                              new_project='e4465fd0-06c8-11e3'
+                                          '-8ffd-0800200c9a66',
+                              version='1.9')
 
     def test_extend_volume(self):
         self._test_volume_api('extend_volume',
@@ -195,3 +211,24 @@ class VolumeRpcAPITestCase(test.TestCase):
                               volume=self.fake_volume,
                               new_size=1,
                               version='1.6')
+
+    def test_migrate_volume(self):
+        class FakeHost(object):
+            def __init__(self):
+                self.host = 'host'
+                self.capabilities = {}
+        dest_host = FakeHost()
+        self._test_volume_api('migrate_volume',
+                              rpc_method='cast',
+                              volume=self.fake_volume,
+                              dest_host=dest_host,
+                              force_host_copy=True,
+                              version='1.8')
+
+    def test_migrate_volume_completion(self):
+        self._test_volume_api('migrate_volume_completion',
+                              rpc_method='call',
+                              volume=self.fake_volume,
+                              new_volume=self.fake_volume,
+                              error=False,
+                              version='1.10')

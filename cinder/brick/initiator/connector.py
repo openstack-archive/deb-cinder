@@ -15,17 +15,18 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import executor
-import host_driver
-import linuxfc
-import linuxscsi
 import os
 import socket
 import time
 
 from oslo.config import cfg
 
-from cinder import exception
+from cinder.brick import exception
+from cinder.brick import executor
+from cinder.brick.initiator import host_driver
+from cinder.brick.initiator import linuxfc
+from cinder.brick.initiator import linuxscsi
+from cinder.brick.remotefs import remotefs
 from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
@@ -33,29 +34,47 @@ from cinder.openstack.common import loopingcall
 from cinder.openstack.common import processutils as putils
 
 LOG = logging.getLogger(__name__)
+
+connector_opts = [
+    cfg.IntOpt('num_volume_device_scan_tries',
+               deprecated_name='num_iscsi_scan_tries',
+               default=3,
+               help='The maximum number of times to rescan targets'
+                    'to find volume'),
+]
+
 CONF = cfg.CONF
+CONF.register_opts(connector_opts)
+
 synchronized = lockutils.synchronized_with_prefix('brick-')
 
 
-def get_connector_properties():
+def get_connector_properties(root_helper):
     """Get the connection properties for all protocols."""
 
-    iscsi = ISCSIConnector()
-    fc = linuxfc.LinuxFibreChannel()
+    iscsi = ISCSIConnector(root_helper=root_helper)
+    fc = linuxfc.LinuxFibreChannel(root_helper=root_helper)
 
     props = {}
     props['ip'] = CONF.my_ip
     props['host'] = socket.gethostname()
-    props['initiator'] = iscsi.get_initiator()
-    props['wwpns'] = fc.get_fc_wwpns()
+    initiator = iscsi.get_initiator()
+    if initiator:
+        props['initiator'] = initiator
+    wwpns = fc.get_fc_wwpns()
+    if wwpns:
+        props['wwpns'] = wwpns
+    wwnns = fc.get_fc_wwnns()
+    if wwnns:
+        props['wwnns'] = wwnns
 
     return props
 
 
 class InitiatorConnector(executor.Executor):
-    def __init__(self, driver=None, execute=putils.execute,
-                 root_helper="sudo", *args, **kwargs):
-        super(InitiatorConnector, self).__init__(execute, root_helper,
+    def __init__(self, root_helper, driver=None,
+                 execute=putils.execute, *args, **kwargs):
+        super(InitiatorConnector, self).__init__(root_helper, execute,
                                                  *args, **kwargs)
         if not driver:
             driver = host_driver.HostDriver()
@@ -67,19 +86,30 @@ class InitiatorConnector(executor.Executor):
         self.driver = driver
 
     @staticmethod
-    def factory(protocol, execute=putils.execute,
-                root_helper="sudo", use_multipath=False):
+    def factory(protocol, root_helper, driver=None,
+                execute=putils.execute, use_multipath=False):
         """Build a Connector object based upon protocol."""
         LOG.debug("Factory for %s" % protocol)
         protocol = protocol.upper()
         if protocol == "ISCSI":
             return ISCSIConnector(execute=execute,
+                                  driver=driver,
                                   root_helper=root_helper,
                                   use_multipath=use_multipath)
         elif protocol == "FIBRE_CHANNEL":
             return FibreChannelConnector(execute=execute,
+                                         driver=driver,
                                          root_helper=root_helper,
                                          use_multipath=use_multipath)
+        elif protocol == "AOE":
+            return AoEConnector(execute=execute,
+                                driver=driver,
+                                root_helper=root_helper)
+        elif protocol == "NFS" or protocol == "GLUSTERFS":
+            return RemoteFsConnector(mount_type=protocol.lower(),
+                                     execute=execute,
+                                     driver=driver,
+                                     root_helper=root_helper)
         else:
             msg = (_("Invalid InitiatorConnector protocol "
                      "specified %(protocol)s") %
@@ -93,7 +123,7 @@ class InitiatorConnector(executor.Executor):
         try:
             out, info = self._execute(*cmd, run_as_root=True,
                                       root_helper=self._root_helper)
-        except exception.ProcessExecutionError as e:
+        except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to access the device on the path "
                         "%(path)s: %(error)s %(info)s.") %
                       {"path": path, "error": e.stderr,
@@ -105,14 +135,16 @@ class InitiatorConnector(executor.Executor):
         return True
 
     def connect_volume(self, connection_properties):
-        """Connect to a volume. The connection_properties
-        describes the information needed by the specific
-        protocol to use to make the connection.
+        """Connect to a volume.
+
+        The connection_properties describes the information needed by
+        the specific protocol to use to make the connection.
         """
         raise NotImplementedError()
 
     def disconnect_volume(self, connection_properties, device_info):
         """Disconnect a volume from the local host.
+
         The connection_properties are the same as from connect_volume.
         The device_info is returned from connect_volume.
         """
@@ -120,15 +152,19 @@ class InitiatorConnector(executor.Executor):
 
 
 class ISCSIConnector(InitiatorConnector):
-    """"Connector class to attach/detach iSCSI volumes."""
+    """Connector class to attach/detach iSCSI volumes."""
 
-    def __init__(self, driver=None, execute=putils.execute,
-                 root_helper="sudo", use_multipath=False,
+    def __init__(self, root_helper, driver=None,
+                 execute=putils.execute, use_multipath=False,
                  *args, **kwargs):
-        super(ISCSIConnector, self).__init__(driver, execute, root_helper,
+        self._linuxscsi = linuxscsi.LinuxSCSI(root_helper, execute)
+        super(ISCSIConnector, self).__init__(root_helper, driver, execute,
                                              *args, **kwargs)
         self.use_multipath = use_multipath
-        self._linuxscsi = linuxscsi.LinuxSCSI(execute, root_helper)
+
+    def set_execute(self, execute):
+        super(ISCSIConnector, self).set_execute(execute)
+        self._linuxscsi.set_execute(execute)
 
     @synchronized('connect_volume')
     def connect_volume(self, connection_properties):
@@ -169,9 +205,8 @@ class ISCSIConnector(InitiatorConnector):
         # TODO(justinsb): This retry-with-delay is a pattern, move to utils?
         tries = 0
         while not os.path.exists(host_device):
-            if tries >= CONF.num_iscsi_scan_tries:
-                raise exception.CinderException(
-                    _("iSCSI device not found at %s") % (host_device))
+            if tries >= CONF.num_volume_device_scan_tries:
+                raise exception.VolumeDeviceNotFound(device=host_device)
 
             LOG.warn(_("ISCSI volume not yet found at: %(host_device)s. "
                        "Will rescan & retry.  Try number: %(tries)s"),
@@ -244,16 +279,19 @@ class ISCSIConnector(InitiatorConnector):
 
     def get_initiator(self):
         """Secure helper to read file as root."""
+        file_path = '/etc/iscsi/initiatorname.iscsi'
         try:
-            file_path = '/etc/iscsi/initiatorname.iscsi'
             lines, _err = self._execute('cat', file_path, run_as_root=True,
                                         root_helper=self._root_helper)
 
             for l in lines.split('\n'):
                 if l.startswith('InitiatorName='):
                     return l[l.index('=') + 1:].strip()
-        except exception.ProcessExecutionError:
-            raise exception.FileNotFound(file_path=file_path)
+        except putils.ProcessExecutionError:
+            msg = (_("Could not find the iSCSI Initiator File %s")
+                   % file_path)
+            LOG.warn(msg)
+            return None
 
     def _run_iscsiadm(self, connection_properties, iscsi_command, **kwargs):
         check_exit_code = kwargs.pop('check_exit_code', 0)
@@ -452,17 +490,21 @@ class ISCSIConnector(InitiatorConnector):
 
 
 class FibreChannelConnector(InitiatorConnector):
-    """"Connector class to attach/detach Fibre Channel volumes."""
+    """Connector class to attach/detach Fibre Channel volumes."""
 
-    def __init__(self, driver=None, execute=putils.execute,
-                 root_helper="sudo", use_multipath=False,
+    def __init__(self, root_helper, driver=None,
+                 execute=putils.execute, use_multipath=False,
                  *args, **kwargs):
-        super(FibreChannelConnector, self).__init__(driver, execute,
-                                                    root_helper,
-                                                    *args, **kwargs)
+        self._linuxscsi = linuxscsi.LinuxSCSI(root_helper, execute)
+        self._linuxfc = linuxfc.LinuxFibreChannel(root_helper, execute)
+        super(FibreChannelConnector, self).__init__(root_helper, driver,
+                                                    execute, *args, **kwargs)
         self.use_multipath = use_multipath
-        self._linuxscsi = linuxscsi.LinuxSCSI(execute, root_helper)
-        self._linuxfc = linuxfc.LinuxFibreChannel(execute, root_helper)
+
+    def set_execute(self, execute):
+        super(FibreChannelConnector, self).set_execute(execute)
+        self._linuxscsi.set_execute(execute)
+        self._linuxfc.set_execute(execute)
 
     @synchronized('connect_volume')
     def connect_volume(self, connection_properties):
@@ -481,9 +523,9 @@ class FibreChannelConnector(InitiatorConnector):
         # we support a list of wwns or a single wwn
         if isinstance(ports, list):
             for wwn in ports:
-                wwns.append(wwn)
-        elif isinstance(ports, str):
-            wwns.append(ports)
+                wwns.append(str(wwn))
+        elif isinstance(ports, basestring):
+            wwns.append(str(ports))
 
         # We need to look for wwns on every hba
         # because we don't know ahead of time
@@ -504,7 +546,8 @@ class FibreChannelConnector(InitiatorConnector):
         if len(host_devices) == 0:
             # this is empty because we don't have any FC HBAs
             msg = _("We are unable to locate any Fibre Channel devices")
-            raise exception.CinderException(msg)
+            LOG.warn(msg)
+            raise exception.NoFibreChannelHostsFound()
 
         # The /dev/disk/by-path/... node is not always present immediately
         # We only need to find the first device.  Once we see the first device
@@ -521,9 +564,10 @@ class FibreChannelConnector(InitiatorConnector):
                     self.device_name = os.path.realpath(device)
                     raise loopingcall.LoopingCallDone()
 
-            if self.tries >= CONF.num_iscsi_scan_tries:
-                msg = _("Fibre Channel device not found.")
-                raise exception.CinderException(msg)
+            if self.tries >= CONF.num_volume_device_scan_tries:
+                msg = _("Fibre Channel volume device not found.")
+                LOG.error(msg)
+                raise exception.NoFibreChannelVolumeDeviceFound()
 
             LOG.warn(_("Fibre volume not yet found. "
                        "Will rescan & retry.  Try number: %(tries)s"),
@@ -615,3 +659,153 @@ class FibreChannelConnector(InitiatorConnector):
                     pci_num = device_path[index - 1]
 
         return pci_num
+
+
+class AoEConnector(InitiatorConnector):
+    """Connector class to attach/detach AoE volumes."""
+    def __init__(self, root_helper, driver=None,
+                 execute=putils.execute, *args, **kwargs):
+        super(AoEConnector, self).__init__(root_helper, driver, execute,
+                                           *args, **kwargs)
+
+    def _get_aoe_info(self, connection_properties):
+        shelf = connection_properties['target_shelf']
+        lun = connection_properties['target_lun']
+        aoe_device = 'e%(shelf)s.%(lun)s' % {'shelf': shelf,
+                                             'lun': lun}
+        aoe_path = '/dev/etherd/%s' % (aoe_device)
+        return aoe_device, aoe_path
+
+    @lockutils.synchronized('aoe_control', 'aoe-')
+    def connect_volume(self, connection_properties):
+        """Discover and attach the volume.
+
+        connection_properties for AoE must include:
+        target_shelf - shelf id of volume
+        target_lun - lun id of volume
+        """
+        aoe_device, aoe_path = self._get_aoe_info(connection_properties)
+
+        device_info = {
+            'type': 'block',
+            'device': aoe_device,
+            'path': aoe_path,
+        }
+
+        if os.path.exists(aoe_path):
+            self._aoe_revalidate(aoe_device)
+        else:
+            self._aoe_discover()
+
+        waiting_status = {'tries': 0}
+
+        #NOTE(jbr_): Device path is not always present immediately
+        def _wait_for_discovery(aoe_path):
+            if os.path.exists(aoe_path):
+                raise loopingcall.LoopingCallDone
+
+            if waiting_status['tries'] >= CONF.num_volume_device_scan_tries:
+                raise exception.VolumeDeviceNotFound(device=aoe_path)
+
+            LOG.warn(_("AoE volume not yet found at: %(path)s. "
+                       "Try number: %(tries)s"),
+                     {'path': aoe_device,
+                      'tries': waiting_status['tries']})
+
+            self._aoe_discover()
+            waiting_status['tries'] += 1
+
+        timer = loopingcall.FixedIntervalLoopingCall(_wait_for_discovery,
+                                                     aoe_path)
+        timer.start(interval=2).wait()
+
+        if waiting_status['tries']:
+            LOG.debug(_("Found AoE device %(path)s "
+                        "(after %(tries)s rediscover)"),
+                      {'path': aoe_path,
+                       'tries': waiting_status['tries']})
+
+        return device_info
+
+    @lockutils.synchronized('aoe_control', 'aoe-')
+    def disconnect_volume(self, connection_properties, device_info):
+        """Detach and flush the volume.
+
+        connection_properties for AoE must include:
+        target_shelf - shelf id of volume
+        target_lun - lun id of volume
+        """
+        aoe_device, aoe_path = self._get_aoe_info(connection_properties)
+
+        if os.path.exists(aoe_path):
+            self._aoe_flush(aoe_device)
+
+    def _aoe_discover(self):
+        (out, err) = self._execute('aoe-discover',
+                                   run_as_root=True,
+                                   root_helper=self._root_helper,
+                                   check_exit_code=0)
+
+        LOG.debug(_('aoe-discover: stdout=%(out)s stderr%(err)s') %
+                  {'out': out, 'err': err})
+
+    def _aoe_revalidate(self, aoe_device):
+        (out, err) = self._execute('aoe-revalidate',
+                                   aoe_device,
+                                   run_as_root=True,
+                                   root_helper=self._root_helper,
+                                   check_exit_code=0)
+
+        LOG.debug(_('aoe-revalidate %(dev)s: stdout=%(out)s stderr%(err)s') %
+                  {'dev': aoe_device, 'out': out, 'err': err})
+
+    def _aoe_flush(self, aoe_device):
+        (out, err) = self._execute('aoe-flush',
+                                   aoe_device,
+                                   run_as_root=True,
+                                   root_helper=self._root_helper,
+                                   check_exit_code=0)
+        LOG.debug(_('aoe-flush %(dev)s: stdout=%(out)s stderr%(err)s') %
+                  {'dev': aoe_device, 'out': out, 'err': err})
+
+
+class RemoteFsConnector(InitiatorConnector):
+    """Connector class to attach/detach NFS and GlusterFS volumes."""
+
+    def __init__(self, mount_type, root_helper, driver=None,
+                 execute=putils.execute, *args, **kwargs):
+        self._remotefsclient = remotefs.RemoteFsClient(mount_type,
+                                                       execute, root_helper)
+        super(RemoteFsConnector, self).__init__(driver, execute, root_helper,
+                                                *args, **kwargs)
+
+    def set_execute(self, execute):
+        super(RemoteFsConnector, self).set_execute(execute)
+        self._remotefsclient.set_execute(execute)
+
+    def connect_volume(self, connection_properties):
+        """Ensure that the filesystem containing the volume is mounted.
+
+        connection_properties must include:
+        export - remote filesystem device (e.g. '172.18.194.100:/var/nfs')
+        name - file name within the filesystem
+
+        connection_properties may optionally include:
+        options - options to pass to mount
+        """
+
+        mnt_flags = []
+        if 'options' in connection_properties:
+            mnt_flags = connection_properties['options'].split()
+
+        nfs_share = connection_properties['export']
+        self._remotefsclient.mount(nfs_share, mnt_flags)
+        mount_point = self._remotefsclient.get_mount_point(nfs_share)
+
+        path = mount_point + '/' + connection_properties['name']
+
+        return {'path': path}
+
+    def disconnect_volume(self, connection_properties, device_info):
+        """No need to do anything to disconnect a volume in a filesystem."""
+        pass

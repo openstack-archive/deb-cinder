@@ -39,10 +39,15 @@ class BrickLvmTestCase(test.TestCase):
         self.configuration = mox.MockObject(conf.Configuration)
         self.configuration.volume_group_name = 'fake-volumes'
         super(BrickLvmTestCase, self).setUp()
+
+        #Stub processutils.execute for static methods
         self.stubs.Set(processutils, 'execute',
                        self.fake_execute)
         self.vg = brick.LVM(self.configuration.volume_group_name,
-                            False, None, 'default', self.fake_execute)
+                            'sudo',
+                            False, None,
+                            'default',
+                            self.fake_execute)
 
     def failed_fake_execute(obj, *cmd, **kwargs):
         return ("\n", "fake-error")
@@ -56,7 +61,10 @@ class BrickLvmTestCase(test.TestCase):
     def fake_execute(obj, *cmd, **kwargs):
         cmd_string = ', '.join(cmd)
         data = "\n"
-        if 'vgs, --noheadings, -o, name' == cmd_string:
+
+        if 'vgs, --noheadings, --unit=g, -o, name' == cmd_string:
+            data = "  fake-volumes\n"
+        elif 'vgs, --noheadings, -o, name' == cmd_string:
             data = "  fake-volumes\n"
         if 'vgs, --version' in cmd_string:
             data = "  LVM version:     2.02.95(2) (2012-03-06)\n"
@@ -76,6 +84,11 @@ class BrickLvmTestCase(test.TestCase):
                 in cmd_string:
             data = "  fake-volumes fake-1 1.00g\n"
             data += "  fake-volumes fake-2 1.00g\n"
+        elif 'lvdisplay, --noheading, -C, -o, Attr' in cmd_string:
+            if 'test-volumes' in cmd_string:
+                data = '  wi-a-'
+            else:
+                data = '  owi-a-'
         elif 'pvs, --noheadings' and 'fake-volumes' in cmd_string:
             data = "  fake-volumes:/dev/sda:10.00g:8.99g\n"
         elif 'pvs, --noheadings' in cmd_string:
@@ -105,7 +118,7 @@ class BrickLvmTestCase(test.TestCase):
         self.assertEqual(self.vg.get_volume('fake-1')['name'], 'fake-1')
 
     def test_get_all_physical_volumes(self):
-        pvs = self.vg.get_all_physical_volumes()
+        pvs = self.vg.get_all_physical_volumes('sudo')
         self.assertEqual(len(pvs), 3)
 
     def test_get_physical_volumes(self):
@@ -113,16 +126,43 @@ class BrickLvmTestCase(test.TestCase):
         self.assertEqual(len(pvs), 1)
 
     def test_get_volume_groups(self):
-        self.assertEqual(len(self.vg.get_all_volume_groups()), 3)
-        self.assertEqual(len(self.vg.get_all_volume_groups('fake-volumes')), 1)
-
-    def test_update_vg_info(self):
-        self.assertEqual(self.vg.update_volume_group_info()['name'],
-                         'fake-volumes')
+        self.assertEqual(len(self.vg.get_all_volume_groups('sudo')), 3)
+        self.assertEqual(len(self.vg.get_all_volume_groups('sudo',
+                                                           'fake-volumes')), 1)
 
     def test_thin_support(self):
+        # lvm.supports_thin() is a static method and doesn't
+        # use the self._executor fake we pass in on init
+        # so we need to stub proessutils.execute appropriately
+
         self.stubs.Set(processutils, 'execute', self.fake_execute)
-        self.assertTrue(self.vg.supports_thin_provisioning())
+        self.assertTrue(self.vg.supports_thin_provisioning('sudo'))
+
+        self.stubs.Set(processutils, 'execute', self.fake_pretend_lvm_version)
+        self.assertTrue(self.vg.supports_thin_provisioning('sudo'))
 
         self.stubs.Set(processutils, 'execute', self.fake_old_lvm_version)
-        self.assertFalse(self.vg.supports_thin_provisioning())
+        self.assertFalse(self.vg.supports_thin_provisioning('sudo'))
+
+    def test_volume_create_after_thin_creation(self):
+        """Test self.vg.vg_thin_pool is set to pool_name
+
+        See bug #1220286 for more info.
+        """
+
+        vg_name = "vg-name"
+        pool_name = vg_name + "-pool"
+        pool_path = "%s/%s" % (vg_name, pool_name)
+
+        def executor(obj, *cmd, **kwargs):
+            self.assertEqual(pool_path, cmd[-1])
+
+        self.vg._executor = executor
+        self.vg.create_thin_pool(pool_name, "1G")
+        self.vg.create_volume("test", "1G", lv_type='thin')
+
+        self.assertEqual(self.vg.vg_thin_pool, pool_name)
+
+    def test_lv_has_snapshot(self):
+        self.assertTrue(self.vg.lv_has_snapshot('fake-volumes'))
+        self.assertFalse(self.vg.lv_has_snapshot('test-volumes'))

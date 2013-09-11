@@ -17,9 +17,8 @@
 """Generic linux Fibre Channel utilities."""
 
 import errno
-import executor
-import linuxscsi
 
+from cinder.brick.initiator import linuxscsi
 from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils as putils
@@ -28,9 +27,9 @@ LOG = logging.getLogger(__name__)
 
 
 class LinuxFibreChannel(linuxscsi.LinuxSCSI):
-    def __init__(self, execute=putils.execute, root_helper="sudo",
+    def __init__(self, root_helper, execute=putils.execute,
                  *args, **kwargs):
-        super(LinuxFibreChannel, self).__init__(execute, root_helper,
+        super(LinuxFibreChannel, self).__init__(root_helper, execute,
                                                 *args, **kwargs)
 
     def rescan_hosts(self, hbas):
@@ -59,8 +58,9 @@ class LinuxFibreChannel(linuxscsi.LinuxSCSI):
                 LOG.warn(_("systool is not installed"))
             return []
 
+        # No FC HBAs were found
         if out is None:
-            raise RuntimeError(_("Cannot find any Fibre Channel HBAs"))
+            return []
 
         lines = out.split('\n')
         # ignore the first 2 lines
@@ -91,6 +91,9 @@ class LinuxFibreChannel(linuxscsi.LinuxSCSI):
         # Note(walter-boring) modern linux kernels contain the FC HBA's in /sys
         # and are obtainable via the systool app
         hbas = self.get_fc_hbas()
+        if not hbas:
+            return []
+
         hbas_info = []
         for hba in hbas:
             wwpn = hba['port_name'].replace('0x', '')
@@ -125,6 +128,8 @@ class LinuxFibreChannel(linuxscsi.LinuxSCSI):
         # Note(walter-boring) modern linux kernels contain the FC HBA's in /sys
         # and are obtainable via the systool app
         hbas = self.get_fc_hbas()
+        if not hbas:
+            return []
 
         wwnns = []
         if hbas:

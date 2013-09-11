@@ -24,6 +24,9 @@ lvremove: CommandFilter, lvremove, root
 # cinder/volume/driver.py: 'lvdisplay', '--noheading', '-C', '-o', 'Attr',..
 lvdisplay: CommandFilter, lvdisplay, root
 
+# cinder/volume/driver.py: 'lvrename', '%(vg)s', '%(orig)s' '(new)s'...
+lvrename: CommandFilter, lvrename, root
+
 # cinder/volume/driver.py: 'iscsiadm', '-m', 'discovery', '-t',...
 # cinder/volume/driver.py: 'iscsiadm', '-m', 'node', '-T', ...
 iscsiadm: CommandFilter, iscsiadm, root
@@ -54,6 +57,9 @@ chmod: CommandFilter, chmod, root
 rm: CommandFilter, rm, root
 lvs: CommandFilter, lvs, root
 
+# cinder/volume/drivers/glusterfs.py
+mv: CommandFilter, mv, root
+
 # cinder/volumes/drivers/hds/hds.py: 
 hus-cmd: CommandFilter, hus-cmd, root
 
@@ -70,5 +76,16 @@ blockdev: CommandFilter, blockdev, root
 mmgetstate: CommandFilter, /usr/lpp/mmfs/bin/mmgetstate, root
 mmclone: CommandFilter, /usr/lpp/mmfs/bin/mmclone, root
 mmlsattr: CommandFilter, /usr/lpp/mmfs/bin/mmlsattr, root
+mmchattr: CommandFilter, /usr/lpp/mmfs/bin/mmchattr, root
+mmlsconfig: CommandFilter, /usr/lpp/mmfs/bin/mmlsconfig, root
+mmlsfs: CommandFilter, /usr/lpp/mmfs/bin/mmlsfs, root
 find: CommandFilter, find, root
 mkfs: CommandFilter, mkfs, root
+
+# cinder/brick/initiator/connector.py:
+aoe-revalidate: CommandFilter, aoe-revalidate, root
+aoe-discover: CommandFilter, aoe-discover, root
+aoe-flush: CommandFilter, aoe-flush, root
+
+#cinder/backup/services/tsm.py
+dsmc:CommandFilter,/usr/bin/dsmc,root

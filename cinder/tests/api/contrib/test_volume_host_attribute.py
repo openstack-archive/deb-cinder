@@ -22,6 +22,7 @@ from lxml import etree
 import webob
 
 from cinder import context
+from cinder import db
 from cinder import test
 from cinder.tests.api import fakes
 from cinder import volume
@@ -41,6 +42,8 @@ def fake_volume_get(*args, **kwargs):
         'volume_type_id': None,
         'snapshot_id': None,
         'project_id': 'fake',
+        'migration_status': None,
+        '_name_id': 'fake2',
     }
 
 
@@ -62,6 +65,8 @@ class VolumeHostAttributeTest(test.TestCase):
         super(VolumeHostAttributeTest, self).setUp()
         self.stubs.Set(volume.API, 'get', fake_volume_get)
         self.stubs.Set(volume.API, 'get_all', fake_volume_get_all)
+        self.stubs.Set(db, 'volume_get', fake_volume_get)
+
         self.UUID = uuid.uuid4()
 
     def test_get_volume_allowed(self):
@@ -80,7 +85,7 @@ class VolumeHostAttributeTest(test.TestCase):
         req.environ['cinder.context'] = ctx
         res = req.get_response(app())
         vol = json.loads(res.body)['volume']
-        self.assertFalse('os-vol-host-attr:host' in vol)
+        self.assertNotIn('os-vol-host-attr:host', vol)
 
     def test_list_detail_volumes_allowed(self):
         ctx = context.RequestContext('admin', 'fake', True)
@@ -98,7 +103,7 @@ class VolumeHostAttributeTest(test.TestCase):
         req.environ['cinder.context'] = ctx
         res = req.get_response(app())
         vol = json.loads(res.body)['volumes']
-        self.assertFalse('os-vol-host-attr:host' in vol[0])
+        self.assertNotIn('os-vol-host-attr:host', vol[0])
 
     def test_list_simple_volumes_no_host(self):
         ctx = context.RequestContext('admin', 'fake', True)
@@ -107,7 +112,7 @@ class VolumeHostAttributeTest(test.TestCase):
         req.environ['cinder.context'] = ctx
         res = req.get_response(app())
         vol = json.loads(res.body)['volumes']
-        self.assertFalse('os-vol-host-attr:host' in vol[0])
+        self.assertNotIn('os-vol-host-attr:host', vol[0])
 
     def test_get_volume_xml(self):
         ctx = context.RequestContext('admin', 'fake', True)

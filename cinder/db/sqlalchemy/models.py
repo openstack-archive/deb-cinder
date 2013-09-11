@@ -26,6 +26,7 @@ from sqlalchemy import Column, Integer, String, Text, schema
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm.collections import attribute_mapped_collection
 
 from oslo.config import cfg
 
@@ -81,10 +82,19 @@ class Volume(BASE, CinderBase):
     """Represents a block storage device that can be attached to a vm."""
     __tablename__ = 'volumes'
     id = Column(String(36), primary_key=True)
+    _name_id = Column(String(36))  # Don't access/modify this directly!
+
+    @property
+    def name_id(self):
+        return self.id if not self._name_id else self._name_id
+
+    @name_id.setter
+    def name_id(self, value):
+        self._name_id = value
 
     @property
     def name(self):
-        return CONF.volume_name_template % self.id
+        return CONF.volume_name_template % self.name_id
 
     ec2_id = Column(Integer)
     user_id = Column(String(255))
@@ -101,6 +111,7 @@ class Volume(BASE, CinderBase):
     attach_time = Column(String(255))  # TODO(vish): datetime
     status = Column(String(255))  # TODO(vish): enum?
     attach_status = Column(String(255))  # TODO(vish): enum
+    migration_status = Column(String(255))
 
     scheduled_at = Column(DateTime)
     launched_at = Column(DateTime)
@@ -115,6 +126,8 @@ class Volume(BASE, CinderBase):
 
     volume_type_id = Column(String(36))
     source_volid = Column(String(36))
+    encryption_key_id = Column(String(36))
+
     deleted = Column(Boolean, default=False)
     bootable = Column(Boolean, default=False)
 
@@ -133,12 +146,28 @@ class VolumeMetadata(BASE, CinderBase):
                           'VolumeMetadata.deleted == False)')
 
 
+class VolumeAdminMetadata(BASE, CinderBase):
+    """Represents a administrator metadata key/value pair for a volume."""
+    __tablename__ = 'volume_admin_metadata'
+    id = Column(Integer, primary_key=True)
+    key = Column(String(255))
+    value = Column(String(255))
+    volume_id = Column(String(36), ForeignKey('volumes.id'), nullable=False)
+    volume = relationship(Volume, backref="volume_admin_metadata",
+                          foreign_keys=volume_id,
+                          primaryjoin='and_('
+                          'VolumeAdminMetadata.volume_id == Volume.id,'
+                          'VolumeAdminMetadata.deleted == False)')
+
+
 class VolumeTypes(BASE, CinderBase):
     """Represent possible volume_types of volumes offered."""
     __tablename__ = "volume_types"
     id = Column(String(36), primary_key=True)
     name = Column(String(255))
-
+    # A reference to qos_specs entity
+    qos_specs_id = Column(String(36),
+                          ForeignKey('quality_of_service_specs.id'))
     volumes = relationship(Volume,
                            backref=backref('volume_type', uselist=False),
                            foreign_keys=id,
@@ -164,6 +193,63 @@ class VolumeTypeExtraSpecs(BASE, CinderBase):
         'VolumeTypeExtraSpecs.volume_type_id == VolumeTypes.id,'
         'VolumeTypeExtraSpecs.deleted == False)'
     )
+
+
+class QualityOfServiceSpecs(BASE, CinderBase):
+    """Represents QoS specs as key/value pairs.
+
+    QoS specs is standalone entity that can be associated/disassociated
+    with volume types (one to many relation).  Adjacency list relationship
+    pattern is used in this model in order to represent following hierarchical
+    data with in flat table, e.g, following structure
+
+    qos-specs-1  'Rate-Limit'
+         |
+         +------>  consumer = 'front-end'
+         +------>  total_bytes_sec = 1048576
+         +------>  total_iops_sec = 500
+
+    qos-specs-2  'QoS_Level1'
+         |
+         +------>  consumer = 'back-end'
+         +------>  max-iops =  1000
+         +------>  min-iops = 200
+
+    is represented by:
+
+      id       specs_id       key                  value
+    ------     --------   -------------            -----
+    UUID-1     NULL       QoSSpec_Name           Rate-Limit
+    UUID-2     UUID-1       consumer             front-end
+    UUID-3     UUID-1     total_bytes_sec        1048576
+    UUID-4     UUID-1     total_iops_sec           500
+    UUID-5     NULL       QoSSpec_Name           QoS_Level1
+    UUID-6     UUID-5       consumer             back-end
+    UUID-7     UUID-5       max-iops               1000
+    UUID-8     UUID-5       min-iops               200
+    """
+    __tablename__ = 'quality_of_service_specs'
+    id = Column(String(36), primary_key=True)
+    specs_id = Column(String(36), ForeignKey(id))
+    key = Column(String(255))
+    value = Column(String(255))
+
+    specs = relationship(
+        "QualityOfServiceSpecs",
+        cascade="all, delete-orphan",
+        backref=backref("qos_spec", remote_side=id),
+    )
+
+    vol_types = relationship(
+        VolumeTypes,
+        backref=backref('qos_specs'),
+        foreign_keys=id,
+        primaryjoin='and_('
+                    'or_(VolumeTypes.qos_specs_id == '
+                    'QualityOfServiceSpecs.id,'
+                    'VolumeTypes.qos_specs_id == '
+                    'QualityOfServiceSpecs.specs_id),'
+                    'QualityOfServiceSpecs.deleted == False)')
 
 
 class VolumeGlanceMetadata(BASE, CinderBase):
@@ -269,7 +355,7 @@ class Snapshot(BASE, CinderBase):
 
     @property
     def volume_name(self):
-        return CONF.volume_name_template % self.volume_id
+        return self.volume.name  # pylint: disable=E1101
 
     user_id = Column(String(255))
     project_id = Column(String(255))
@@ -282,13 +368,14 @@ class Snapshot(BASE, CinderBase):
     display_name = Column(String(255))
     display_description = Column(String(255))
 
+    encryption_key_id = Column(String(36))
+    volume_type_id = Column(String(36))
+
     provider_location = Column(String(255))
 
     volume = relationship(Volume, backref="snapshots",
                           foreign_keys=volume_id,
-                          primaryjoin='and_('
-                          'Snapshot.volume_id == Volume.id,'
-                          'Snapshot.deleted == False)')
+                          primaryjoin='Snapshot.volume_id == Volume.id')
 
 
 class SnapshotMetadata(BASE, CinderBase):
@@ -323,50 +410,6 @@ class IscsiTarget(BASE, CinderBase):
                           'IscsiTarget.deleted==False)')
 
 
-class Migration(BASE, CinderBase):
-    """Represents a running host-to-host migration."""
-    __tablename__ = 'migrations'
-    id = Column(Integer, primary_key=True, nullable=False)
-    # NOTE(tr3buchet): the ____compute variables are instance['host']
-    source_compute = Column(String(255))
-    dest_compute = Column(String(255))
-    # NOTE(tr3buchet): dest_host, btw, is an ip address
-    dest_host = Column(String(255))
-    old_instance_type_id = Column(Integer())
-    new_instance_type_id = Column(Integer())
-    instance_uuid = Column(String(255),
-                           ForeignKey('instances.uuid'),
-                           nullable=True)
-    #TODO(_cerberus_): enum
-    status = Column(String(255))
-
-
-class SMFlavors(BASE, CinderBase):
-    """Represents a flavor for SM volumes."""
-    __tablename__ = 'sm_flavors'
-    id = Column(Integer(), primary_key=True)
-    label = Column(String(255))
-    description = Column(String(255))
-
-
-class SMBackendConf(BASE, CinderBase):
-    """Represents the connection to the backend for SM."""
-    __tablename__ = 'sm_backend_config'
-    id = Column(Integer(), primary_key=True)
-    flavor_id = Column(Integer, ForeignKey('sm_flavors.id'), nullable=False)
-    sr_uuid = Column(String(255))
-    sr_type = Column(String(255))
-    config_params = Column(String(2047))
-
-
-class SMVolume(BASE, CinderBase):
-    __tablename__ = 'sm_volume'
-    id = Column(String(36), ForeignKey(Volume.id), primary_key=True)
-    backend_id = Column(Integer, ForeignKey('sm_backend_config.id'),
-                        nullable=False)
-    vdi_uuid = Column(String(255))
-
-
 class Backup(BASE, CinderBase):
     """Represents a backup of a volume to Swift."""
     __tablename__ = 'backups'
@@ -391,6 +434,31 @@ class Backup(BASE, CinderBase):
     service = Column(String(255))
     size = Column(Integer)
     object_count = Column(Integer)
+
+
+class Encryption(BASE, CinderBase):
+    """Represents encryption requirement for a volume type.
+
+    Encryption here is a set of performance characteristics describing
+    cipher, provider, and key_size for a certain volume type.
+    """
+
+    __tablename__ = 'encryption'
+    cipher = Column(String(255))
+    key_size = Column(Integer)
+    provider = Column(String(255))
+    control_location = Column(String(255))
+    volume_type_id = Column(String(36),
+                            ForeignKey('volume_types.id'),
+                            primary_key=True)
+    volume_type = relationship(
+        VolumeTypes,
+        backref="encryption",
+        foreign_keys=volume_type_id,
+        primaryjoin='and_('
+        'Encryption.volume_type_id == VolumeTypes.id,'
+        'Encryption.deleted == False)'
+    )
 
 
 class Transfer(BASE, CinderBase):
@@ -418,13 +486,10 @@ def register_models():
     """
     from sqlalchemy import create_engine
     models = (Backup,
-              Migration,
               Service,
-              SMBackendConf,
-              SMFlavors,
-              SMVolume,
               Volume,
               VolumeMetadata,
+              VolumeAdminMetadata,
               SnapshotMetadata,
               Transfer,
               VolumeTypeExtraSpecs,

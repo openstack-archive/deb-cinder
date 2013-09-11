@@ -4,6 +4,7 @@
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
 # Copyright 2012 Red Hat, Inc.
+# Copyright 2013 NTT corp.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -112,6 +113,11 @@ global_opts = [
                      'this may improve data throughput, eg when high network '
                      'bandwidth is available and you are using already '
                      'compressed image formats such as qcow2 .'),
+    cfg.IntOpt('glance_request_timeout',
+               default=None,
+               help='http/https timeout value for glance operations. If no '
+                    'value (None) is supplied here, the glanceclient default '
+                    'value is used.'),
     cfg.StrOpt('scheduler_topic',
                default='cinder-scheduler',
                help='the topic scheduler nodes listen on'),
@@ -138,15 +144,6 @@ global_opts = [
     cfg.MultiStrOpt('osapi_volume_extension',
                     default=['cinder.api.contrib.standard_extensions'],
                     help='osapi volume extension to load'),
-    cfg.StrOpt('osapi_volume_base_URL',
-               default=None,
-               help='Base URL that will be presented to users in links '
-                    'to the OpenStack Volume API',
-               deprecated_name='osapi_compute_link_prefix'),
-    cfg.IntOpt('osapi_max_limit',
-               default=1000,
-               help='the maximum number of items returned in a single '
-                    'response from a collection resource'),
     cfg.StrOpt('volume_manager',
                default='cinder.volume.manager.VolumeManager',
                help='full class name for the Manager for volume'),

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 IBM Corp.
 # Copyright 2012 OpenStack LLC.
 # All Rights Reserved.
@@ -33,7 +31,9 @@ from cinder import context
 from cinder import exception
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import test
+from cinder import units
 from cinder import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers import storwize_svc
@@ -61,6 +61,7 @@ class StorwizeSVCManagementSimulator:
         self._hosts_list = {}
         self._mappings_list = {}
         self._fcmappings_list = {}
+        self._other_pools = {'openstack2': {}, 'openstack3': {}}
         self._next_cmd_error = {
             'lsportip': '',
             'lsfabric': '',
@@ -117,6 +118,13 @@ class StorwizeSVCManagementSimulator:
             'CMMVC7050E': ('', 'CMMVC7050E The command failed because at '
                                'least one node in the I/O group does not '
                                'support compressed VDisks.'),
+            'CMMVC6430E': ('', 'CMMVC6430E The command failed because the '
+                               'target and source managed disk groups must '
+                               'be different.'),
+            'CMMVC6353E': ('', 'CMMVC6353E The command failed because the '
+                               'copy specified does not exist.'),
+            'CMMVC6446E': ('', 'The command failed because the managed disk '
+                               'groups have different extent sizes.'),
             # Catch-all for invalid state transitions:
             'CMMVC5903E': ('', 'CMMVC5903E The FlashCopy mapping was not '
                                'changed because the mapping or consistency '
@@ -179,8 +187,7 @@ class StorwizeSVCManagementSimulator:
         return True
 
     # Convert argument string to dictionary
-    def _cmd_to_dict(self, cmd):
-        arg_list = cmd.split()
+    def _cmd_to_dict(self, arg_list):
         no_param_args = [
             'autodelete',
             'autoexpand',
@@ -192,8 +199,10 @@ class StorwizeSVCManagementSimulator:
         one_param_args = [
             'chapsecret',
             'cleanrate',
+            'copy',
             'copyrate',
             'delim',
+            'easytier',
             'filtervalue',
             'grainsize',
             'hbawwpn',
@@ -208,7 +217,7 @@ class StorwizeSVCManagementSimulator:
             'source',
             'target',
             'unit',
-            'easytier',
+            'vdisk',
             'warning',
             'wwpn',
         ]
@@ -308,7 +317,7 @@ class StorwizeSVCManagementSimulator:
 
     # Print mostly made-up stuff in the correct syntax, assume -bytes passed
     def _cmd_lsmdiskgrp(self, **kwargs):
-        rows = [None] * 3
+        rows = [None] * 4
         rows[0] = ['id', 'name', 'status', 'mdisk_count',
                    'vdisk_count', 'capacity', 'extent_size',
                    'free_capacity', 'virtual_capacity', 'used_capacity',
@@ -318,8 +327,12 @@ class StorwizeSVCManagementSimulator:
                    '1', str(len(self._volumes_list)), '3573412790272',
                    '256', '3529926246400', '1693247906775', '277841182',
                    '38203734097', '47', '80', 'auto', 'inactive']
-        rows[2] = ['2', 'volpool2', 'online',
+        rows[2] = ['2', 'openstack2', 'online',
                    '1', '0', '3573412790272', '256',
+                   '3529432325160', '1693247906775', '277841182',
+                   '38203734097', '47', '80', 'auto', 'inactive']
+        rows[3] = ['3', 'openstack3', 'online',
+                   '1', '0', '3573412790272', '128',
                    '3529432325160', '1693247906775', '277841182',
                    '38203734097', '47', '80', 'auto', 'inactive']
         if 'obj' not in kwargs:
@@ -327,8 +340,10 @@ class StorwizeSVCManagementSimulator:
         else:
             if kwargs['obj'] == self._flags['storwize_svc_volpool_name']:
                 row = rows[1]
-            elif kwargs['obj'] == 'volpool2':
+            elif kwargs['obj'] == 'openstack2':
                 row = rows[2]
+            elif kwargs['obj'] == 'openstack3':
+                row = rows[3]
             else:
                 return self._errors['CMMVC5754E']
 
@@ -513,6 +528,8 @@ port_speed!N/A
         capacity = int(kwargs['size'])
         unit = kwargs['unit']
         volume_info['capacity'] = self._convert_units_bytes(capacity, unit)
+        volume_info['IO_group_id'] = kwargs['iogrp']
+        volume_info['IO_group_name'] = 'io_grp%s' % kwargs['iogrp']
 
         if 'easytier' in kwargs:
             if kwargs['easytier'] == 'on':
@@ -550,6 +567,16 @@ port_speed!N/A
             volume_info['grainsize'] = ''
             volume_info['compressed_copy'] = 'no'
 
+        vol_cp = {'id': '0',
+                  'status': 'online',
+                  'sync': 'yes',
+                  'primary': 'yes',
+                  'mdisk_grp_id': '1',
+                  'mdisk_grp_name': self._flags['storwize_svc_volpool_name'],
+                  'easy_tier': volume_info['easy_tier'],
+                  'compressed_copy': volume_info['compressed_copy']}
+        volume_info['copies'] = {'0': vol_cp}
+
         if volume_info['name'] in self._volumes_list:
             return self._errors['CMMVC6035E']
         else:
@@ -578,6 +605,24 @@ port_speed!N/A
                     return self._errors['CMMVC5840E']
 
         del self._volumes_list[vol_name]
+        return ('', '')
+
+    def _cmd_expandvdisksize(self, **kwargs):
+        if 'obj' not in kwargs:
+            return self._errors['CMMVC5701E']
+        vol_name = kwargs['obj'].strip('\'\'')
+
+        # Assume unit is gb
+        if 'size' not in kwargs:
+            return self._errors['CMMVC5707E']
+        size = int(kwargs['size'])
+
+        if vol_name not in self._volumes_list:
+            return self._errors['CMMVC5753E']
+
+        curr_size = int(self._volumes_list[vol_name]['capacity'])
+        addition = size * units.GiB
+        self._volumes_list[vol_name]['capacity'] = str(curr_size + addition)
         return ('', '')
 
     def _get_fcmap_info(self, vol_name):
@@ -612,8 +657,8 @@ port_speed!N/A
                     cap = self._convert_bytes_units(vol['capacity'])
                 else:
                     cap = vol['capacity']
-                rows.append([str(vol['id']), vol['name'], '0', 'io_grp0',
-                            'online', '0',
+                rows.append([str(vol['id']), vol['name'], vol['IO_group_id'],
+                            vol['IO_group_name'], 'online', '0',
                             self._flags['storwize_svc_volpool_name'],
                             cap, 'striped',
                             fcmap_info['fc_id'], fcmap_info['fc_name'],
@@ -639,8 +684,8 @@ port_speed!N/A
 
             rows.append(['id', str(vol['id'])])
             rows.append(['name', vol['name']])
-            rows.append(['IO_group_id', '0'])
-            rows.append(['IO_group_name', 'io_grp0'])
+            rows.append(['IO_group_id', vol['IO_group_id']])
+            rows.append(['IO_group_name', vol['IO_group_name']])
             rows.append(['status', 'online'])
             rows.append(['mdisk_grp_id', '0'])
             rows.append([
@@ -692,6 +737,16 @@ port_speed!N/A
                     rows[index] = kwargs['delim'].join(rows[index])
 
             return ('%s' % '\n'.join(rows), '')
+
+    def _cmd_lsiogrp(self, **kwargs):
+        rows = [None] * 6
+        rows[0] = ['id', 'name', 'node_count', 'vdisk_count', 'host_count']
+        rows[1] = ['0', 'io_grp0', '2', '22', '4']
+        rows[2] = ['1', 'io_grp1', '2', '22', '4']
+        rows[3] = ['2', 'io_grp2', '0', '0', '4']
+        rows[4] = ['3', 'io_grp3', '0', '0', '4']
+        rows[5] = ['4', 'recovery_io_grp', '0', '0', '0']
+        return self._print_info_cmd(rows=rows, **kwargs)
 
     def _add_port_to_host(self, host_info, **kwargs):
         if 'iscsiname' in kwargs:
@@ -884,17 +939,13 @@ port_speed!N/A
                     (v['lun'] == mapping_info['lun'])):
                 return self._errors['CMMVC5879E']
 
-        if kwargs.get('host', '').startswith('duplicate_mapping'):
-            if 'force' in kwargs:
-                self._mappings_list[mapping_info['vol']] = mapping_info
-                return ('Virtual Disk to Host map, id [%s], '
-                        'successfully created' % (mapping_info['id']), '')
-            else:
+        for k, v in self._mappings_list.iteritems():
+            if (v['lun'] == mapping_info['lun']) and ('force' not in kwargs):
                 return self._errors['CMMVC6071E']
-        else:
-            self._mappings_list[mapping_info['vol']] = mapping_info
-            return ('Virtual Disk to Host map, id [%s], successfully created'
-                    % (mapping_info['id']), '')
+
+        self._mappings_list[mapping_info['id']] = mapping_info
+        return ('Virtual Disk to Host map, id [%s], successfully created'
+                % (mapping_info['id']), '')
 
     # Delete a vdisk-host mapping
     def _cmd_rmvdiskhostmap(self, **kwargs):
@@ -906,13 +957,21 @@ port_speed!N/A
             return self._errors['CMMVC5701E']
         vol = kwargs['obj'].strip('\'\'')
 
-        if vol not in self._mappings_list:
+        mapping_ids = []
+        for k, v in self._mappings_list.iteritems():
+            if v['vol'] == vol:
+                mapping_ids.append(v['id'])
+        if not mapping_ids:
             return self._errors['CMMVC5753E']
 
-        if self._mappings_list[vol]['host'] != host:
+        this_mapping = None
+        for mapping_id in mapping_ids:
+            if self._mappings_list[mapping_id]['host'] == host:
+                this_mapping = mapping_id
+        if this_mapping == None:
             return self._errors['CMMVC5753E']
 
-        del self._mappings_list[vol]
+        del self._mappings_list[this_mapping]
         return ('', '')
 
     # List information about vdisk-host mappings
@@ -1110,7 +1169,135 @@ port_speed!N/A
 
         return self._print_info_cmd(rows=rows, **kwargs)
 
-    # Add host to list
+    def _cmd_migratevdisk(self, **kwargs):
+        if 'mdiskgrp' not in kwargs or 'vdisk' not in kwargs:
+            return self._errors['CMMVC5707E']
+        mdiskgrp = kwargs['mdiskgrp'].strip('\'\'')
+        vdisk = kwargs['vdisk'].strip('\'\'')
+
+        if vdisk in self._volumes_list:
+            curr_mdiskgrp = self._volumes_list
+        else:
+            for pool in self._other_pools:
+                if vdisk in pool:
+                    curr_mdiskgrp = pool
+                    break
+            else:
+                return self._errors['CMMVC5754E']
+
+        if mdiskgrp == self._flags['storwize_svc_volpool_name']:
+            tgt_mdiskgrp = self._volumes_list
+        elif mdiskgrp == 'openstack2':
+            tgt_mdiskgrp = self._other_pools['openstack2']
+        elif mdiskgrp == 'openstack3':
+            tgt_mdiskgrp = self._other_pools['openstack3']
+        else:
+            return self._errors['CMMVC5754E']
+
+        if curr_mdiskgrp == tgt_mdiskgrp:
+            return self._errors['CMMVC6430E']
+
+        vol = curr_mdiskgrp[vdisk]
+        tgt_mdiskgrp[vdisk] = vol
+        del curr_mdiskgrp[vdisk]
+        return ('', '')
+
+    def _cmd_addvdiskcopy(self, **kwargs):
+        if 'obj' not in kwargs:
+            return self._errors['CMMVC5701E']
+        vol_name = kwargs['obj'].strip('\'\'')
+        if vol_name not in self._volumes_list:
+            return self._errors['CMMVC5753E']
+        vol = self._volumes_list[vol_name]
+        if 'mdiskgrp' not in kwargs:
+            return self._errors['CMMVC5707E']
+        mdiskgrp = kwargs['mdiskgrp'].strip('\'\'')
+
+        copy_info = {}
+        copy_info['id'] = self._find_unused_id(vol['copies'])
+        copy_info['status'] = 'online'
+        copy_info['sync'] = 'no'
+        copy_info['primary'] = 'no'
+        copy_info['mdisk_grp_name'] = mdiskgrp
+        if mdiskgrp == self._flags['storwize_svc_volpool_name']:
+            copy_info['mdisk_grp_id'] = '1'
+        elif mdiskgrp == 'openstack2':
+            copy_info['mdisk_grp_id'] = '2'
+        elif mdiskgrp == 'openstack3':
+            copy_info['mdisk_grp_id'] = '3'
+        if 'easytier' in kwargs:
+            if kwargs['easytier'] == 'on':
+                copy_info['easy_tier'] = 'on'
+            else:
+                copy_info['easy_tier'] = 'off'
+        if 'rsize' in kwargs:
+            if 'compressed' in kwargs:
+                copy_info['compressed_copy'] = 'yes'
+            else:
+                copy_info['compressed_copy'] = 'no'
+        vol['copies'][copy_info['id']] = copy_info
+        return ('Vdisk [%(vid)s] copy [%(cid)s] successfully created' %
+                {'vid': vol['id'], 'cid': copy_info['id']}, '')
+
+    def _cmd_lsvdiskcopy(self, **kwargs):
+        if 'obj' not in kwargs:
+            return self._errors['CMMVC5804E']
+        name = kwargs['obj']
+        vol = self._volumes_list[name]
+        rows = []
+        rows.append(['vdisk_id', 'vdisk_name', 'copy_id', 'status', 'sync',
+                     'primary', 'mdisk_grp_id', 'mdisk_grp_name', 'capacity',
+                     'type', 'se_copy', 'easy_tier', 'easy_tier_status',
+                     'compressed_copy'])
+        for k, copy in vol['copies'].iteritems():
+            rows.append([vol['id'], vol['name'], copy['id'],
+                        copy['status'], copy['sync'], copy['primary'],
+                        copy['mdisk_grp_id'], copy['mdisk_grp_name'],
+                        vol['capacity'], 'striped', 'yes', copy['easy_tier'],
+                        'inactive', copy['compressed_copy']])
+        if 'copy' not in kwargs:
+            return self._print_info_cmd(rows=rows, **kwargs)
+        else:
+            copy_id = kwargs['copy'].strip('\'\'')
+            if copy_id not in vol['copies']:
+                return self._errors['CMMVC6353E']
+            copy = vol['copies'][copy_id]
+            rows = []
+            rows.append(['vdisk_id', vol['id']])
+            rows.append(['vdisk_name', vol['name']])
+            rows.append(['capacity', vol['capacity']])
+            rows.append(['copy_id', copy['id']])
+            rows.append(['status', copy['status']])
+            rows.append(['sync', copy['sync']])
+            copy['sync'] = 'yes'
+            rows.append(['primary', copy['primary']])
+            rows.append(['mdisk_grp_id', copy['mdisk_grp_id']])
+            rows.append(['mdisk_grp_name', copy['mdisk_grp_name']])
+            rows.append(['easy_tier', copy['easy_tier']])
+            rows.append(['easy_tier_status', 'inactive'])
+            rows.append(['compressed_copy', copy['compressed_copy']])
+
+            if 'delim' in kwargs:
+                for index in range(len(rows)):
+                    rows[index] = kwargs['delim'].join(rows[index])
+
+            return ('%s' % '\n'.join(rows), '')
+
+    def _cmd_rmvdiskcopy(self, **kwargs):
+        if 'obj' not in kwargs:
+            return self._errors['CMMVC5701E']
+        vol_name = kwargs['obj'].strip('\'\'')
+        if 'copy' not in kwargs:
+            return self._errors['CMMVC5707E']
+        copy_id = kwargs['copy'].strip('\'\'')
+        if vol_name not in self._volumes_list:
+            return self._errors['CMMVC5753E']
+        vol = self._volumes_list[vol_name]
+        if copy_id not in vol['copies']:
+            return self._errors['CMMVC6353E']
+        del vol['copies'][copy_id]
+        return ('', '')
+
     def _add_host_to_list(self, connector):
         host_info = {}
         host_info['id'] = self._find_unused_id(self._hosts_list)
@@ -1132,7 +1319,6 @@ port_speed!N/A
 
         command = kwargs['cmd']
         del kwargs['cmd']
-        arg_list = cmd.split()
 
         if command == 'lsmdiskgrp':
             out, err = self._cmd_lsmdiskgrp(**kwargs)
@@ -1152,8 +1338,12 @@ port_speed!N/A
             out, err = self._cmd_mkvdisk(**kwargs)
         elif command == 'rmvdisk':
             out, err = self._cmd_rmvdisk(**kwargs)
+        elif command == 'expandvdisksize':
+            out, err = self._cmd_expandvdisksize(**kwargs)
         elif command == 'lsvdisk':
             out, err = self._cmd_lsvdisk(**kwargs)
+        elif command == 'lsiogrp':
+            out, err = self._cmd_lsiogrp(**kwargs)
         elif command == 'mkhost':
             out, err = self._cmd_mkhost(**kwargs)
         elif command == 'addhostport':
@@ -1188,14 +1378,22 @@ port_speed!N/A
             out, err = self._cmd_lsfcmap(**kwargs)
         elif command == 'lsvdiskfcmappings':
             out, err = self._cmd_lsvdiskfcmappings(**kwargs)
+        elif command == 'migratevdisk':
+            out, err = self._cmd_migratevdisk(**kwargs)
+        elif command == 'addvdiskcopy':
+            out, err = self._cmd_addvdiskcopy(**kwargs)
+        elif command == 'lsvdiskcopy':
+            out, err = self._cmd_lsvdiskcopy(**kwargs)
+        elif command == 'rmvdiskcopy':
+            out, err = self._cmd_rmvdiskcopy(**kwargs)
         else:
             out, err = ('', 'ERROR: Unsupported command')
 
         if (check_exit_code) and (len(err) != 0):
-            raise exception.ProcessExecutionError(exit_code=1,
-                                                  stdout=out,
-                                                  stderr=err,
-                                                  cmd=' '.join(cmd))
+            raise processutils.ProcessExecutionError(exit_code=1,
+                                                     stdout=out,
+                                                     stderr=err,
+                                                     cmd=' '.join(cmd))
 
         return (out, err)
 
@@ -1220,7 +1418,7 @@ class StorwizeSVCFakeDriver(storwize_svc.StorwizeSVCDriver):
             LOG.debug(_('CLI output:\n stdout: %(stdout)s\n stderr: '
                         '%(stderr)s') % {'stdout': stdout, 'stderr': stderr})
 
-        except exception.ProcessExecutionError as e:
+        except processutils.ProcessExecutionError as e:
             with excutils.save_and_reraise_exception():
                 LOG.debug(_('CLI Exception output:\n stdout: %(out)s\n '
                             'stderr: %(err)s') % {'out': e.stdout,
@@ -1244,18 +1442,19 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self._def_flags = {'san_ip': 'hostname',
                                'san_login': 'user',
                                'san_password': 'pass',
+                               'storwize_svc_volpool_name': 'openstack',
                                'storwize_svc_flashcopy_timeout': 20,
                                # Test ignore capitalization
                                'storwize_svc_connection_protocol': 'iScSi',
                                'storwize_svc_multipath_enabled': False}
-            self._host_name = 'storwize-svc-test'
-            self._host_ip = '1.234.56.78'
-            self._host_wwpns = [
-                str(random.randint(0, 9999999999999999)).zfill(16),
-                str(random.randint(0, 9999999999999999)).zfill(16)]
-            self._iscsi_name = ('test.initiator.%s' %
-                                str(random.randint(10000, 99999)))
-            self.sim = StorwizeSVCManagementSimulator('volpool')
+            wwpns = [str(random.randint(0, 9999999999999999)).zfill(16),
+                     str(random.randint(0, 9999999999999999)).zfill(16)]
+            initiator = 'test.initiator.%s' % str(random.randint(10000, 99999))
+            self._connector = {'ip': '1.234.56.78',
+                               'host': 'storwize-svc-test',
+                               'wwpns': wwpns,
+                               'initiator': initiator}
+            self.sim = StorwizeSVCManagementSimulator('openstack')
 
             self.driver.set_fake_storage(self.sim)
         else:
@@ -1269,24 +1468,11 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                                'storwize_svc_connection_protocol': 'iScSi',
                                'storwize_svc_multipath_enabled': False,
                                'ssh_conn_timeout': 0}
-            self._host_name = socket.gethostname()
-            self._host_ip = socket.gethostbyname(self._host_name)
-
-            self._host_wwpns = []
-            out, err = utils.execute('systool', '-c', 'fc_host', '-v',
-                                     run_as_root=True)
-            lines = out.split('\n')
-            for line in lines:
-                val = line.split('=')
-                if (len(val) == 2 and
-                        val[0].strip().replace(" ", "") == 'port_name'):
-                    self._host_wwpns.append(val[1].strip()[3:-1])
-            self.assertNotEqual(len(self._host_wwpns), 0)
-
-            lines = utils.read_file_as_root('/etc/iscsi/initiatorname.iscsi')
-            for l in lines.split('\n'):
-                if l.startswith('InitiatorName='):
-                    self._iscsi_name = l[l.index('=') + 1:].strip()
+            config_group = self.driver.configuration.config_group
+            self.driver.configuration.set_override('rootwrap_config',
+                                                   '/etc/cinder/rootwrap.conf',
+                                                   config_group)
+            self._connector = utils.brick_get_connector_properties()
 
         self._reset_flags()
         self.driver.db = StorwizeSVCFakeDB()
@@ -1374,8 +1560,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                           self.driver.check_for_setup_error)
         self._reset_flags()
 
-        self._set_flag('storwize_svc_connection_protocol', 'iSCSI')
-        self._set_flag('storwize_svc_multipath_enabled', True)
+        self._set_flag('storwize_svc_vol_iogrp', 5)
         self.assertRaises(exception.InvalidInput,
                           self.driver.check_for_setup_error)
         self._reset_flags()
@@ -1418,10 +1603,10 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         return attrs
 
     def _fail_prepare_fc_map(self, fc_map_id, source, target):
-        raise exception.ProcessExecutionError(exit_code=1,
-                                              stdout='',
-                                              stderr='unit-test-fail',
-                                              cmd='prestartfcmap id')
+        raise processutils.ProcessExecutionError(exit_code=1,
+                                                 stdout='',
+                                                 stderr='unit-test-fail',
+                                                 cmd='prestartfcmap id')
 
     def test_storwize_svc_snapshots(self):
         vol1 = self._generate_vol_info(None, None)
@@ -1439,18 +1624,18 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         # Test prestartfcmap, startfcmap, and rmfcmap failing
         orig = self.driver._call_prepare_fc_map
         self.driver._call_prepare_fc_map = self._fail_prepare_fc_map
-        self.assertRaises(exception.ProcessExecutionError,
+        self.assertRaises(processutils.ProcessExecutionError,
                           self.driver.create_snapshot, snap1)
         self.driver._call_prepare_fc_map = orig
 
         if self.USESIM:
             self.sim.error_injection('lsfcmap', 'speed_up')
             self.sim.error_injection('startfcmap', 'bad_id')
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(processutils.ProcessExecutionError,
                               self.driver.create_snapshot, snap1)
             self._assert_vol_exists(snap1['name'], False)
             self.sim.error_injection('prestartfcmap', 'bad_id')
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(processutils.ProcessExecutionError,
                               self.driver.create_snapshot, snap1)
             self._assert_vol_exists(snap1['name'], False)
 
@@ -1489,7 +1674,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         # Fail the snapshot
         orig = self.driver._call_prepare_fc_map
         self.driver._call_prepare_fc_map = self._fail_prepare_fc_map
-        self.assertRaises(exception.ProcessExecutionError,
+        self.assertRaises(processutils.ProcessExecutionError,
                           self.driver.create_volume_from_snapshot,
                           vol2, snap1)
         self.driver._call_prepare_fc_map = orig
@@ -1551,7 +1736,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.assertEqual(attributes['mdisk_grp_name'], pool)
 
         # Try to create the volume again (should fail)
-        self.assertRaises(exception.ProcessExecutionError,
+        self.assertRaises(processutils.ProcessExecutionError,
                           self.driver.create_volume,
                           volume)
 
@@ -1579,17 +1764,22 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         # compression   False   2,3
         # easytier      True    1,3
         # easytier      False   2
+        # iogrp         0       1
+        # iogrp         1       2
 
         opts_list = []
         chck_list = []
-        opts_list.append({'rsize': -1, 'easytier': True})
-        chck_list.append({'free_capacity': '0', 'easy_tier': 'on'})
+        opts_list.append({'rsize': -1, 'easytier': True, 'iogrp': 0})
+        chck_list.append({'free_capacity': '0', 'easy_tier': 'on',
+                          'IO_group_id': '0'})
+        test_iogrp = 1 if self.USESIM else 0
         opts_list.append({'rsize': 2, 'compression': False, 'warning': 0,
                           'autoexpand': True, 'grainsize': 32,
-                          'easytier': False})
+                          'easytier': False, 'iogrp': test_iogrp})
         chck_list.append({'-free_capacity': '0', 'compressed_copy': 'no',
                           'warning': '0', 'autoexpand': 'on',
-                          'grainsize': '32', 'easy_tier': 'off'})
+                          'grainsize': '32', 'easy_tier': 'off',
+                          'IO_group_id': str(test_iogrp)})
         opts_list.append({'rsize': 2, 'compression': False, 'warning': 80,
                           'autoexpand': False, 'grainsize': 256,
                           'easytier': True})
@@ -1609,7 +1799,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                         self.assertNotEqual(attrs[k], v)
                     else:
                         self.assertEqual(attrs[k], v)
-                except exception.ProcessExecutionError as e:
+                except processutils.ProcessExecutionError as e:
                     if 'CMMVC7050E' not in e.stderr:
                         raise
 
@@ -1661,6 +1851,35 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.assertNotEqual(host_name, None)
             self.driver._delete_host(host_name)
 
+    def test_storwize_svc_validate_connector(self):
+        conn_neither = {'host': 'host'}
+        conn_iscsi = {'host': 'host', 'initiator': 'foo'}
+        conn_fc = {'host': 'host', 'wwpns': 'bar'}
+        conn_both = {'host': 'host', 'initiator': 'foo', 'wwpns': 'bar'}
+
+        self.driver._enabled_protocols = set(['iSCSI'])
+        self.driver.validate_connector(conn_iscsi)
+        self.driver.validate_connector(conn_both)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.validate_connector, conn_fc)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.validate_connector, conn_neither)
+
+        self.driver._enabled_protocols = set(['FC'])
+        self.driver.validate_connector(conn_fc)
+        self.driver.validate_connector(conn_both)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.validate_connector, conn_iscsi)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.validate_connector, conn_neither)
+
+        self.driver._enabled_protocols = set(['iSCSI', 'FC'])
+        self.driver.validate_connector(conn_iscsi)
+        self.driver.validate_connector(conn_fc)
+        self.driver.validate_connector(conn_both)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.validate_connector, conn_neither)
+
     def test_storwize_svc_host_maps(self):
         # Create two volumes to be used in mappings
 
@@ -1676,18 +1895,13 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             opts = {'storage_protocol': '<in> ' + protocol}
             types[protocol] = volume_types.create(ctxt, protocol, opts)
 
-        conn = {'initiator': self._iscsi_name,
-                'ip': self._host_ip,
-                'host': self._host_name,
-                'wwpns': self._host_wwpns}
-
         for protocol in ['FC', 'iSCSI']:
             volume1['volume_type_id'] = types[protocol]['id']
             volume2['volume_type_id'] = types[protocol]['id']
 
             # Check case where no hosts exist
             if self.USESIM:
-                ret = self.driver._get_host_from_connector(conn)
+                ret = self.driver._get_host_from_connector(self._connector)
                 self.assertEqual(ret, None)
 
             # Make sure that the volumes have been created
@@ -1695,13 +1909,13 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self._assert_vol_exists(volume2['name'], True)
 
             # Initialize connection from the first volume to a host
-            self.driver.initialize_connection(volume1, conn)
+            self.driver.initialize_connection(volume1, self._connector)
 
             # Initialize again, should notice it and do nothing
-            self.driver.initialize_connection(volume1, conn)
+            self.driver.initialize_connection(volume1, self._connector)
 
             # Try to delete the 1st volume (should fail because it is mapped)
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(processutils.ProcessExecutionError,
                               self.driver.delete_volume,
                               volume1)
 
@@ -1711,12 +1925,12 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                     self.sim.error_injection('lsfabric', error)
                     self.assertRaises(exception.VolumeBackendAPIException,
                                       self.driver.initialize_connection,
-                                      volume2, conn)
+                                      volume2, self._connector)
 
-            self.driver.terminate_connection(volume1, conn)
+            self.driver.terminate_connection(volume1, self._connector)
             if self.USESIM:
-                host_name = self.driver._get_host_from_connector(conn)
-                self.assertEqual(host_name, None)
+                ret = self.driver._get_host_from_connector(self._connector)
+                self.assertEqual(ret, None)
 
         # Check cases with no auth set for host
         if self.USESIM:
@@ -1739,17 +1953,17 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.sim.error_injection('lsvdisk', 'no_pref_node')
             self.assertRaises(exception.VolumeBackendAPIException,
                               self.driver.initialize_connection,
-                              volume1, conn)
+                              volume1, self._connector)
 
         # Initialize connection from the second volume to the host with no
         # preferred node set if in simulation mode, otherwise, just
         # another initialize connection.
         if self.USESIM:
             self.sim.error_injection('lsvdisk', 'blank_pref_node')
-        self.driver.initialize_connection(volume2, conn)
+        self.driver.initialize_connection(volume2, self._connector)
 
         # Try to remove connection from host that doesn't exist (should fail)
-        conn_no_exist = conn.copy()
+        conn_no_exist = self._connector.copy()
         conn_no_exist['initiator'] = 'i_dont_exist'
         conn_no_exist['wwpns'] = ['0000000000000000']
         self.assertRaises(exception.VolumeBackendAPIException,
@@ -1760,20 +1974,20 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         # Try to remove connection from volume that isn't mapped (should print
         # message but NOT fail)
         vol_no_exist = {'name': 'i_dont_exist'}
-        self.driver.terminate_connection(vol_no_exist, conn)
+        self.driver.terminate_connection(vol_no_exist, self._connector)
 
         # Remove the mapping from the 1st volume and delete it
-        self.driver.terminate_connection(volume1, conn)
+        self.driver.terminate_connection(volume1, self._connector)
         self.driver.delete_volume(volume1)
         self._assert_vol_exists(volume1['name'], False)
 
         # Make sure our host still exists
-        host_name = self.driver._get_host_from_connector(conn)
+        host_name = self.driver._get_host_from_connector(self._connector)
         self.assertNotEqual(host_name, None)
 
         # Remove the mapping from the 2nd volume and delete it. The host should
         # be automatically removed because there are no more mappings.
-        self.driver.terminate_connection(volume2, conn)
+        self.driver.terminate_connection(volume2, self._connector)
         self.driver.delete_volume(volume2)
         self._assert_vol_exists(volume2['name'], False)
 
@@ -1782,39 +1996,53 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             volume_types.destroy(ctxt, types[protocol]['id'])
 
         # Check if our host still exists (it should not)
-        ret = self.driver._get_host_from_connector(conn)
-        self.assertEqual(ret, None)
+        if self.USESIM:
+            ret = self.driver._get_host_from_connector(self._connector)
+            self.assertEqual(ret, None)
 
     def test_storwize_svc_multi_host_maps(self):
+        # We can't test connecting to multiple hosts from a single host when
+        # using real storage
+        if not self.USESIM:
+            return
+
         # Create a volume to be used in mappings
         ctxt = context.get_admin_context()
         volume = self._generate_vol_info(None, None)
         self.driver.create_volume(volume)
 
-        # Create volume types that we created
+        # Create volume types for protocols
         types = {}
         for protocol in ['FC', 'iSCSI']:
             opts = {'storage_protocol': '<in> ' + protocol}
             types[protocol] = volume_types.create(ctxt, protocol, opts)
 
-        conn = {'initiator': self._iscsi_name,
-                'ip': '11.11.11.11',
-                'host': 'duplicate_mapping'}
+        # Create a connector for the second 'host'
+        wwpns = [str(random.randint(0, 9999999999999999)).zfill(16),
+                 str(random.randint(0, 9999999999999999)).zfill(16)]
+        initiator = 'test.initiator.%s' % str(random.randint(10000, 99999))
+        conn2 = {'ip': '1.234.56.79',
+                 'host': 'storwize-svc-test2',
+                 'wwpns': wwpns,
+                 'initiator': initiator}
 
         for protocol in ['FC', 'iSCSI']:
             volume['volume_type_id'] = types[protocol]['id']
 
-            # Make sure that the volumes have been created
+            # Make sure that the volume has been created
             self._assert_vol_exists(volume['name'], True)
 
-            self.driver.initialize_connection(volume, conn)
-            self.driver.terminate_connection(volume, conn)
+            self.driver.initialize_connection(volume, self._connector)
 
             self._set_flag('storwize_svc_multihostmap_enabled', False)
             self.assertRaises(exception.CinderException,
-                              self.driver.initialize_connection, volume, conn)
-            self.driver.terminate_connection(volume, conn)
-            self._reset_flags()
+                              self.driver.initialize_connection, volume, conn2)
+
+            self._set_flag('storwize_svc_multihostmap_enabled', True)
+            self.driver.initialize_connection(volume, conn2)
+
+            self.driver.terminate_connection(volume, conn2)
+            self.driver.terminate_connection(volume, self._connector)
 
     def test_storwize_svc_delete_volume_snapshots(self):
         # Create a volume with two snapshots
@@ -1826,7 +2054,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         if self.USESIM and False:
             snap = self._generate_vol_info(master['name'], master['id'])
             self.sim.error_injection('startfcmap', 'bad_id')
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(processutils.ProcessExecutionError,
                               self.driver.create_snapshot, snap)
             self._assert_vol_exists(snap['name'], False)
 
@@ -1849,7 +2077,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             volfs = self._generate_vol_info(None, None)
             self.sim.error_injection('startfcmap', 'bad_id')
             self.sim.error_injection('lsfcmap', 'speed_up')
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(processutils.ProcessExecutionError,
                               self.driver.create_volume_from_snapshot,
                               volfs, snap)
             self._assert_vol_exists(volfs['name'], False)
@@ -1876,7 +2104,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             clone = self._generate_vol_info(None, None)
             self.sim.error_injection('startfcmap', 'bad_id')
             self.sim.error_injection('lsfcmap', 'speed_up')
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(processutils.ProcessExecutionError,
                               self.driver.create_cloned_volume,
                               clone, volfs)
             self._assert_vol_exists(clone['name'], False)
@@ -1898,14 +2126,81 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.fail('%s not less than or equal to %s' % (repr(a), repr(b)))
 
     def test_storwize_svc_get_volume_stats(self):
+        self._set_flag('reserved_percentage', 25)
         stats = self.driver.get_volume_stats()
         self.assertLessEqual(stats['free_capacity_gb'],
                              stats['total_capacity_gb'])
+        self.assertEquals(stats['reserved_percentage'], 25)
+        pool = self.driver.configuration.local_conf.storwize_svc_volpool_name
         if self.USESIM:
-            self.assertEqual(stats['volume_backend_name'],
-                             'storwize-svc-sim_volpool')
+            expected = 'storwize-svc-sim_' + pool
+            self.assertEqual(stats['volume_backend_name'], expected)
             self.assertAlmostEqual(stats['total_capacity_gb'], 3328.0)
             self.assertAlmostEqual(stats['free_capacity_gb'], 3287.5)
+
+    def test_storwize_svc_extend_volume(self):
+        volume = self._generate_vol_info(None, None)
+        self.driver.db.volume_set(volume)
+        self.driver.create_volume(volume)
+        stats = self.driver.extend_volume(volume, '13')
+        attrs = self.driver._get_vdisk_attributes(volume['name'])
+        vol_size = int(attrs['capacity']) / units.GiB
+        self.assertAlmostEqual(vol_size, 13)
+
+        snap = self._generate_vol_info(volume['name'], volume['id'])
+        self.driver.create_snapshot(snap)
+        self._assert_vol_exists(snap['name'], True)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume, volume, '16')
+
+        self.driver.delete_snapshot(snap)
+        self.driver.delete_volume(volume)
+
+    def _check_loc_info(self, capabilities, expected):
+        host = {'host': 'foo', 'capabilities': capabilities}
+        vol = {'name': 'test', 'id': 1, 'size': 1}
+        ctxt = context.get_admin_context()
+        moved, model_update = self.driver.migrate_volume(ctxt, vol, host)
+        self.assertEqual(moved, expected['moved'])
+        self.assertEqual(model_update, expected['model_update'])
+
+    def test_storwize_svc_migrate_bad_loc_info(self):
+        self._check_loc_info({}, {'moved': False, 'model_update': None})
+        cap = {'location_info': 'foo'}
+        self._check_loc_info(cap, {'moved': False, 'model_update': None})
+        cap = {'location_info': 'FooDriver:foo:bar'}
+        self._check_loc_info(cap, {'moved': False, 'model_update': None})
+        cap = {'location_info': 'StorwizeSVCDriver:foo:bar'}
+        self._check_loc_info(cap, {'moved': False, 'model_update': None})
+
+    def test_storwize_svc_migrate_same_extent_size(self):
+        def _copy_info_exc(self, name):
+            raise Exception('should not be called')
+
+        self.stubs.Set(self.driver, '_get_vdisk_copy_info', _copy_info_exc)
+        self.driver.do_setup(None)
+        loc = 'StorwizeSVCDriver:' + self.driver._system_id + ':openstack2'
+        cap = {'location_info': loc, 'extent_size': '256'}
+        host = {'host': 'foo', 'capabilities': cap}
+        ctxt = context.get_admin_context()
+        volume = self._generate_vol_info(None, None)
+        volume['volume_type_id'] = None
+        self.driver.create_volume(volume)
+        self.driver.migrate_volume(ctxt, volume, host)
+        self.driver.delete_volume(volume)
+
+    def test_storwize_svc_migrate_diff_extent_size(self):
+        self.driver.do_setup(None)
+        loc = 'StorwizeSVCDriver:' + self.driver._system_id + ':openstack3'
+        cap = {'location_info': loc, 'extent_size': '128'}
+        host = {'host': 'foo', 'capabilities': cap}
+        ctxt = context.get_admin_context()
+        volume = self._generate_vol_info(None, None)
+        volume['volume_type_id'] = None
+        self.driver.create_volume(volume)
+        self.assertNotEquals(cap['extent_size'], self.driver._extent_size)
+        self.driver.migrate_volume(ctxt, volume, host)
+        self.driver.delete_volume(volume)
 
 
 class CLIResponseTestCase(test.TestCase):

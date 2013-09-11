@@ -18,7 +18,6 @@
 
 import webob
 from webob import exc
-from xml.dom import minidom
 
 from cinder.api import common
 from cinder.api import extensions
@@ -28,6 +27,7 @@ from cinder.api import xmlutil
 from cinder import backup as backupAPI
 from cinder import exception
 from cinder.openstack.common import log as logging
+from cinder import utils
 
 
 LOG = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ class BackupRestoreTemplate(xmlutil.TemplateBuilder):
 
 class CreateDeserializer(wsgi.MetadataXMLDeserializer):
     def default(self, string):
-        dom = minidom.parseString(string)
+        dom = utils.safe_minidom_parse_string(string)
         backup = self._extract_backup(dom)
         return {'body': {'backup': backup}}
 
@@ -101,7 +101,7 @@ class CreateDeserializer(wsgi.MetadataXMLDeserializer):
 
 class RestoreDeserializer(wsgi.MetadataXMLDeserializer):
     def default(self, string):
-        dom = minidom.parseString(string)
+        dom = utils.safe_minidom_parse_string(string)
         restore = self._extract_restore(dom)
         return {'body': {'restore': restore}}
 
@@ -131,7 +131,7 @@ class BackupsController(wsgi.Controller):
         try:
             backup = self.backup_api.get(context, backup_id=id)
         except exception.BackupNotFound as error:
-            raise exc.HTTPNotFound(explanation=unicode(error))
+            raise exc.HTTPNotFound(explanation=error.msg)
 
         return self._view_builder.detail(req, backup)
 
@@ -145,9 +145,9 @@ class BackupsController(wsgi.Controller):
         try:
             self.backup_api.delete(context, id)
         except exception.BackupNotFound as error:
-            raise exc.HTTPNotFound(explanation=unicode(error))
+            raise exc.HTTPNotFound(explanation=error.msg)
         except exception.InvalidBackup as error:
-            raise exc.HTTPBadRequest(explanation=unicode(error))
+            raise exc.HTTPBadRequest(explanation=error.msg)
 
         return webob.Response(status_int=202)
 
@@ -207,11 +207,11 @@ class BackupsController(wsgi.Controller):
             new_backup = self.backup_api.create(context, name, description,
                                                 volume_id, container)
         except exception.InvalidVolume as error:
-            raise exc.HTTPBadRequest(explanation=unicode(error))
+            raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.VolumeNotFound as error:
-            raise exc.HTTPNotFound(explanation=unicode(error))
+            raise exc.HTTPNotFound(explanation=error.msg)
         except exception.ServiceNotFound as error:
-            raise exc.HTTPInternalServerError(explanation=unicode(error))
+            raise exc.HTTPInternalServerError(explanation=error.msg)
 
         retval = self._view_builder.summary(req, dict(new_backup.iteritems()))
         return retval
@@ -244,21 +244,21 @@ class BackupsController(wsgi.Controller):
                                                   backup_id=id,
                                                   volume_id=volume_id)
         except exception.InvalidInput as error:
-            raise exc.HTTPBadRequest(explanation=unicode(error))
+            raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.InvalidVolume as error:
-            raise exc.HTTPBadRequest(explanation=unicode(error))
+            raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.InvalidBackup as error:
-            raise exc.HTTPBadRequest(explanation=unicode(error))
+            raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.BackupNotFound as error:
-            raise exc.HTTPNotFound(explanation=unicode(error))
+            raise exc.HTTPNotFound(explanation=error.msg)
         except exception.VolumeNotFound as error:
-            raise exc.HTTPNotFound(explanation=unicode(error))
+            raise exc.HTTPNotFound(explanation=error.msg)
         except exception.VolumeSizeExceedsAvailableQuota as error:
             raise exc.HTTPRequestEntityTooLarge(
-                explanation=error.message, headers={'Retry-After': 0})
+                explanation=error.msg, headers={'Retry-After': 0})
         except exception.VolumeLimitExceeded as error:
             raise exc.HTTPRequestEntityTooLarge(
-                explanation=error.message, headers={'Retry-After': 0})
+                explanation=error.msg, headers={'Retry-After': 0})
 
         retval = self._view_builder.restore_summary(
             req, dict(new_restore.iteritems()))

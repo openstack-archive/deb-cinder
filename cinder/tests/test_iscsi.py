@@ -34,6 +34,7 @@ class TargetAdminTestCase(object):
         self.lun = 10
         self.path = '/foo'
         self.vol_id = 'blaa'
+        self.vol_name = 'volume-blaa'
 
         self.script_template = None
         self.stubs.Set(os.path, 'isfile', lambda _: True)
@@ -42,7 +43,7 @@ class TargetAdminTestCase(object):
         self.stubs.Set(iscsi.LioAdm, '_get_target', self.fake_get_target)
         self.stubs.Set(iscsi.LioAdm, '__init__', self.fake_init)
 
-    def fake_init(obj):
+    def fake_init(obj, root_helper):
         return
 
     def fake_get_target(obj, iqn):
@@ -79,12 +80,13 @@ class TargetAdminTestCase(object):
         self.verify_cmds(cmds)
 
     def run_commands(self):
-        tgtadm = iscsi.get_target_admin()
+        tgtadm = iscsi.get_target_admin(None)
         tgtadm.set_execute(self.fake_execute)
         tgtadm.create_iscsi_target(self.target_name, self.tid,
                                    self.lun, self.path)
         tgtadm.show_target(self.tid, iqn=self.target_name)
-        tgtadm.remove_iscsi_target(self.tid, self.lun, self.vol_id)
+        tgtadm.remove_iscsi_target(self.tid, self.lun, self.vol_id,
+                                   self.vol_name)
 
     def test_target_admin(self):
         self.clear_cmds()
@@ -165,7 +167,7 @@ class IetAdmAutoIOTestCase(test.TestCase, TargetAdminTestCase):
     def setUp(self):
         super(IetAdmAutoIOTestCase, self).setUp()
         TargetAdminTestCase.setUp(self)
-        self.stubs.Set(volume_utils, 'is_block', lambda _: True)
+        self.stubs.Set(iscsi.IetAdm, '_is_block', lambda a, b: True)
         self.flags(iscsi_helper='ietadm')
         self.flags(iscsi_iotype='auto')
         self.script_template = "\n".join([

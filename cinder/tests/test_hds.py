@@ -72,6 +72,7 @@ class SimulatedHusBackend:
     init_index = 0              # initiator index
     target_index = 0            # target index
     hlun = 0                    # hlun index
+    out = ''
 
     def __init__(self):
         self.start_lun = 0
@@ -103,6 +104,11 @@ class SimulatedHusBackend:
         self.start_lun += 1
         return out
 
+    def extend_vol(self, cmd, ver, ip0, ip1, user, pw, id, lu, size):
+        out = ("LUN: %s successfully extended to %s MB" % (lu, size))
+        SimulatedHusBackend.out = out
+        return out
+
     def delete_lu(self, cmd, ver, ip0, ip1, user, pw, id, lun):
         out = ""
         if lun in self.alloc_lun:
@@ -132,7 +138,7 @@ class SimulatedHusBackend:
         return out
 
     def del_iscsi_conn(self, cmd, ver, ip0, ip1, user, pw, id, lun, ctl, port,
-                       iqn, initiator, force):
+                       iqn, initiator):
         conn = ()
         for connection in SimulatedHusBackend.connections:
             if (connection[1] == lun):
@@ -165,6 +171,7 @@ class HUSiSCSIDriverTest(test.TestCase):
         os.close(handle)
         SimulatedHusBackend.alloc_lun = []
         SimulatedHusBackend.connections = []
+        SimulatedHusBackend.out = ''
         self.mox = mox.Mox()
         self.mox.StubOutWithMock(hds, 'factory_bend')
         hds.factory_bend().AndReturn(SimulatedHusBackend())
@@ -209,7 +216,26 @@ class HUSiSCSIDriverTest(test.TestCase):
         num_luns_after = len(SimulatedHusBackend.alloc_lun)
         self.assertTrue(num_luns_before > num_luns_after)
 
+    def test_extend_volume(self):
+        vol = self.test_create_volume()
+        new_size = _VOLUME['size'] * 2
+        self.driver.extend_volume(vol, new_size)
+        self.assertTrue(str(new_size * 1024) in
+                        SimulatedHusBackend.out)
+
     def test_create_snapshot(self):
+        vol = self.test_create_volume()
+        self.mox.StubOutWithMock(self.driver, '_id_to_vol')
+        self.driver._id_to_vol(vol['volume_id']).AndReturn(vol)
+        self.mox.ReplayAll()
+        svol = vol.copy()
+        svol['volume_size'] = svol['size']
+        loc = self.driver.create_snapshot(svol)
+        self.assertNotEqual(loc, None)
+        svol['provider_location'] = loc['provider_location']
+        return svol
+
+    def test_create_clone(self):
         vol = self.test_create_volume()
         self.mox.StubOutWithMock(self.driver, '_id_to_vol')
         self.driver._id_to_vol(vol['volume_id']).AndReturn(vol)
@@ -250,8 +276,8 @@ class HUSiSCSIDriverTest(test.TestCase):
         vol = self.test_create_volume()
         self.mox.StubOutWithMock(self.driver, '_update_vol_location')
         conn = self.driver.initialize_connection(vol, connector)
-        self.assertTrue('hitachi' in conn['data']['target_iqn'])
-        self.assertTrue('3260' in conn['data']['target_portal'])
+        self.assertIn('hitachi', conn['data']['target_iqn'])
+        self.assertIn('3260', conn['data']['target_portal'])
         vol['provider_location'] = conn['data']['provider_location']
         return (vol, connector)
 

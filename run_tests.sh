@@ -109,12 +109,6 @@ if [ $no_site_packages -eq 1 ]; then
   installvenvopts="--no-site-packages"
 fi
 
-function init_testr {
-  if [ ! -d .testrepository ]; then
-    ${wrapper} testr init
-  fi
-}
-
 function run_tests {
   # Cleanup *pyc
   ${wrapper} find . -type f -name "*.pyc" -delete
@@ -180,7 +174,11 @@ function copy_subunit_log {
 
 function run_pep8 {
   echo "Running flake8 ..."
-  bash -c "${wrapper} flake8"
+  if [ $never_venv -eq 1 ]; then
+      echo "**WARNING**:"
+      echo "Running flake8 without virtual env may miss OpenStack HACKING detection"
+  fi
+  bash -c "${wrapper} flake8 cinder* bin/*"
 }
 
 
@@ -223,6 +221,7 @@ fi
 
 if [ $just_pep8 -eq 1 ]; then
     run_pep8
+    ${wrapper}   bash ./tools/conf/check_uptodate.sh
     exit
 fi
 
@@ -230,7 +229,6 @@ if [ $recreate_db -eq 1 ]; then
     rm -f tests.sqlite
 fi
 
-init_testr
 run_tests
 
 # NOTE(sirp): we only want to run pep8 when we're running the full-test suite,
@@ -240,5 +238,6 @@ run_tests
 if [ -z "$testrargs" ]; then
   if [ $no_pep8 -eq 0 ]; then
     run_pep8
+    ${wrapper} bash ./tools/conf/check_uptodate.sh
   fi
 fi

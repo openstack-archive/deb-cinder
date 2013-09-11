@@ -94,7 +94,7 @@ class SnapshotApiTest(test.TestCase):
         req = fakes.HTTPRequest.blank('/v1/snapshots')
         resp_dict = self.controller.create(req, body)
 
-        self.assertTrue('snapshot' in resp_dict)
+        self.assertIn('snapshot', resp_dict)
         self.assertEqual(resp_dict['snapshot']['display_name'],
                          snapshot['display_name'])
         self.assertEqual(resp_dict['snapshot']['display_description'],
@@ -113,7 +113,7 @@ class SnapshotApiTest(test.TestCase):
         req = fakes.HTTPRequest.blank('/v1/snapshots')
         resp_dict = self.controller.create(req, body)
 
-        self.assertTrue('snapshot' in resp_dict)
+        self.assertIn('snapshot', resp_dict)
         self.assertEqual(resp_dict['snapshot']['display_name'],
                          snapshot['display_name'])
         self.assertEqual(resp_dict['snapshot']['display_description'],
@@ -195,7 +195,7 @@ class SnapshotApiTest(test.TestCase):
         req = fakes.HTTPRequest.blank('/v1/snapshots/%s' % UUID)
         resp_dict = self.controller.show(req, UUID)
 
-        self.assertTrue('snapshot' in resp_dict)
+        self.assertIn('snapshot', resp_dict)
         self.assertEqual(resp_dict['snapshot']['id'], UUID)
 
     def test_snapshot_show_invalid_id(self):
@@ -213,7 +213,7 @@ class SnapshotApiTest(test.TestCase):
         req = fakes.HTTPRequest.blank('/v1/snapshots/detail')
         resp_dict = self.controller.detail(req)
 
-        self.assertTrue('snapshots' in resp_dict)
+        self.assertIn('snapshots', resp_dict)
         resp_snapshots = resp_dict['snapshots']
         self.assertEqual(len(resp_snapshots), 1)
 
@@ -311,26 +311,52 @@ class SnapshotApiTest(test.TestCase):
                                       use_admin_context=True)
         res = self.controller.index(req)
 
-        self.assertTrue('snapshots' in res)
+        self.assertIn('snapshots', res)
         self.assertEqual(1, len(res['snapshots']))
+
+    def test_list_snapshots_with_limit_and_offset(self):
+        def list_snapshots_with_limit_and_offset(is_admin):
+            def stub_snapshot_get_all_by_project(context, project_id):
+                return [
+                    stubs.stub_snapshot(1, display_name='backup1'),
+                    stubs.stub_snapshot(2, display_name='backup2'),
+                    stubs.stub_snapshot(3, display_name='backup3'),
+                ]
+
+            self.stubs.Set(db, 'snapshot_get_all_by_project',
+                           stub_snapshot_get_all_by_project)
+
+            req = fakes.HTTPRequest.blank('/v1/fake/snapshots?limit=1\
+                                          &offset=1',
+                                          use_admin_context=is_admin)
+            res = self.controller.index(req)
+
+            self.assertIn('snapshots', res)
+            self.assertEqual(1, len(res['snapshots']))
+            self.assertEqual(2, res['snapshots'][0]['id'])
+
+        #admin case
+        list_snapshots_with_limit_and_offset(is_admin=True)
+        #non_admin case
+        list_snapshots_with_limit_and_offset(is_admin=False)
 
     def test_admin_list_snapshots_all_tenants(self):
         req = fakes.HTTPRequest.blank('/v1/fake/snapshots?all_tenants=1',
                                       use_admin_context=True)
         res = self.controller.index(req)
-        self.assertTrue('snapshots' in res)
+        self.assertIn('snapshots', res)
         self.assertEqual(3, len(res['snapshots']))
 
     def test_all_tenants_non_admin_gets_all_tenants(self):
         req = fakes.HTTPRequest.blank('/v1/fake/snapshots?all_tenants=1')
         res = self.controller.index(req)
-        self.assertTrue('snapshots' in res)
+        self.assertIn('snapshots', res)
         self.assertEqual(1, len(res['snapshots']))
 
     def test_non_admin_get_by_project(self):
         req = fakes.HTTPRequest.blank('/v1/fake/snapshots')
         res = self.controller.index(req)
-        self.assertTrue('snapshots' in res)
+        self.assertIn('snapshots', res)
         self.assertEqual(1, len(res['snapshots']))
 
 
@@ -354,7 +380,6 @@ class SnapshotSerializerTest(test.TestCase):
             volume_id='vol_id', )
         text = serializer.serialize(dict(snapshot=raw_snapshot))
 
-        print text
         tree = etree.fromstring(text)
 
         self._verify_snapshot(raw_snapshot, tree)
@@ -377,7 +402,6 @@ class SnapshotSerializerTest(test.TestCase):
                               volume_id='vol2_id', )]
         text = serializer.serialize(dict(snapshots=raw_snapshots))
 
-        print text
         tree = etree.fromstring(text)
 
         self.assertEqual('snapshots', tree.tag)

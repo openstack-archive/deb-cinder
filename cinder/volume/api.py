@@ -29,6 +29,7 @@ from cinder import context
 from cinder.db import base
 from cinder import exception
 from cinder.image import glance
+from cinder import keymgr
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
@@ -36,21 +37,29 @@ import cinder.policy
 from cinder import quota
 from cinder.scheduler import rpcapi as scheduler_rpcapi
 from cinder import units
+from cinder import utils
+from cinder.volume.flows import create_volume
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import volume_types
+
+from cinder.taskflow import states
 
 
 volume_host_opt = cfg.BoolOpt('snapshot_same_host',
                               default=True,
                               help='Create volume from snapshot at the host '
                                    'where snapshot resides')
+volume_same_az_opt = cfg.BoolOpt('cloned_volume_same_az',
+                                 default=True,
+                                 help='Ensure that the new volumes are the '
+                                      'same AZ as snapshot or source volume')
 
 CONF = cfg.CONF
 CONF.register_opt(volume_host_opt)
+CONF.register_opt(volume_same_az_opt)
 CONF.import_opt('storage_availability_zone', 'cinder.volume.manager')
 
 LOG = logging.getLogger(__name__)
-GB = units.GiB
 QUOTAS = quota.QUOTAS
 
 
@@ -87,232 +96,20 @@ class API(base.Base):
         self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
         self.volume_rpcapi = volume_rpcapi.VolumeAPI()
         self.availability_zone_names = ()
+        self.key_manager = keymgr.API()
         super(API, self).__init__(db_driver)
 
-    def create(self, context, size, name, description, snapshot=None,
-               image_id=None, volume_type=None, metadata=None,
-               availability_zone=None, source_volume=None,
-               scheduler_hints=None):
-
-        exclusive_options = (snapshot, image_id, source_volume)
-        exclusive_options_set = sum(1 for option in
-                                    exclusive_options if option is not None)
-        if exclusive_options_set > 1:
-            msg = (_("May specify only one of snapshot, imageRef "
-                     "or source volume"))
-            raise exception.InvalidInput(reason=msg)
-
-        check_policy(context, 'create')
-        if snapshot is not None:
-            if snapshot['status'] != "available":
-                msg = _("status must be available")
-                raise exception.InvalidSnapshot(reason=msg)
-            if not size:
-                size = snapshot['volume_size']
-            elif size < snapshot['volume_size']:
-                msg = _("Volume size cannot be lesser than"
-                        " the Snapshot size")
-                raise exception.InvalidInput(reason=msg)
-            snapshot_id = snapshot['id']
-        else:
-            snapshot_id = None
-
-        if source_volume is not None:
-            if source_volume['status'] == "error":
-                msg = _("Unable to clone volumes that are in an error state")
-                raise exception.InvalidSourceVolume(reason=msg)
-            if not size:
-                size = source_volume['size']
-            else:
-                if size < source_volume['size']:
-                    msg = _("Clones currently must be "
-                            ">= original volume size.")
-                    raise exception.InvalidInput(reason=msg)
-            source_volid = source_volume['id']
-        else:
-            source_volid = None
-
-        def as_int(s):
-            try:
-                return int(s)
-            except (ValueError, TypeError):
-                return s
-
-        # tolerate size as stringified int
-        size = as_int(size)
-
-        if not isinstance(size, int) or size <= 0:
-            msg = (_("Volume size '%s' must be an integer and greater than 0")
-                   % size)
-            raise exception.InvalidInput(reason=msg)
-
-        if (image_id and not (source_volume or snapshot)):
-            # check image existence
-            image_meta = self.image_service.show(context, image_id)
-            image_size_in_gb = (int(image_meta['size']) + GB - 1) / GB
-            #check image size is not larger than volume size.
-            if image_size_in_gb > size:
-                msg = _('Size of specified image is larger than volume size.')
-                raise exception.InvalidInput(reason=msg)
-            # Check image minDisk requirement is met for the particular volume
-            if size < image_meta.get('min_disk', 0):
-                msg = _('Image minDisk size is larger than the volume size.')
-                raise exception.InvalidInput(reason=msg)
-
-        if not volume_type and not source_volume:
-            volume_type = volume_types.get_default_volume_type()
-
-        if not volume_type and source_volume:
-            volume_type_id = source_volume['volume_type_id']
-        else:
-            volume_type_id = volume_type.get('id')
-
-        try:
-            reserve_opts = {'volumes': 1, 'gigabytes': size}
-            QUOTAS.add_volume_type_opts(context, reserve_opts, volume_type_id)
-            reservations = QUOTAS.reserve(context, **reserve_opts)
-        except exception.OverQuota as e:
-            overs = e.kwargs['overs']
-            usages = e.kwargs['usages']
-            quotas = e.kwargs['quotas']
-
-            def _consumed(name):
-                return (usages[name]['reserved'] + usages[name]['in_use'])
-
-            for over in overs:
-                if 'gigabytes' in over:
-                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                            "%(s_size)sG volume (%(d_consumed)dG of "
-                            "%(d_quota)dG already consumed)")
-                    LOG.warn(msg % {'s_pid': context.project_id,
-                                    's_size': size,
-                                    'd_consumed': _consumed(over),
-                                    'd_quota': quotas[over]})
-                    raise exception.VolumeSizeExceedsAvailableQuota()
-                elif 'volumes' in over:
-                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                            "volume (%(d_consumed)d volumes"
-                            "already consumed)")
-                    LOG.warn(msg % {'s_pid': context.project_id,
-                                    'd_consumed': _consumed(over)})
-                    raise exception.VolumeLimitExceeded(allowed=quotas[over])
-
-        if availability_zone is None:
-            availability_zone = CONF.storage_availability_zone
-        else:
-            self._check_availabilty_zone(availability_zone)
-
-        self._check_metadata_properties(context, metadata)
-        options = {'size': size,
-                   'user_id': context.user_id,
-                   'project_id': context.project_id,
-                   'snapshot_id': snapshot_id,
-                   'availability_zone': availability_zone,
-                   'status': "creating",
-                   'attach_status': "detached",
-                   'display_name': name,
-                   'display_description': description,
-                   'volume_type_id': volume_type_id,
-                   'metadata': metadata,
-                   'source_volid': source_volid}
-
-        try:
-            volume = self.db.volume_create(context, options)
-            QUOTAS.commit(context, reservations)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                try:
-                    self.db.volume_destroy(context, volume['id'])
-                finally:
-                    QUOTAS.rollback(context, reservations)
-
-        request_spec = {'volume_properties': options,
-                        'volume_type': volume_type,
-                        'volume_id': volume['id'],
-                        'snapshot_id': volume['snapshot_id'],
-                        'image_id': image_id,
-                        'source_volid': volume['source_volid']}
-
-        if scheduler_hints:
-            filter_properties = {'scheduler_hints': scheduler_hints}
-        else:
-            filter_properties = {}
-
-        self._cast_create_volume(context, request_spec, filter_properties)
-
-        return volume
-
-    def _cast_create_volume(self, context, request_spec, filter_properties):
-
-        # NOTE(Rongze Zhu): It is a simple solution for bug 1008866
-        # If snapshot_id is set, make the call create volume directly to
-        # the volume host where the snapshot resides instead of passing it
-        # through the scheduler. So snapshot can be copy to new volume.
-
-        source_volid = request_spec['source_volid']
-        volume_id = request_spec['volume_id']
-        snapshot_id = request_spec['snapshot_id']
-        image_id = request_spec['image_id']
-
-        if snapshot_id and CONF.snapshot_same_host:
-            snapshot_ref = self.db.snapshot_get(context, snapshot_id)
-            source_volume_ref = self.db.volume_get(context,
-                                                   snapshot_ref['volume_id'])
-            now = timeutils.utcnow()
-            values = {'host': source_volume_ref['host'], 'scheduled_at': now}
-            volume_ref = self.db.volume_update(context, volume_id, values)
-
-            # bypass scheduler and send request directly to volume
-            self.volume_rpcapi.create_volume(
-                context,
-                volume_ref,
-                volume_ref['host'],
-                request_spec=request_spec,
-                filter_properties=filter_properties,
-                allow_reschedule=False,
-                snapshot_id=snapshot_id,
-                image_id=image_id)
-        elif source_volid:
-            source_volume_ref = self.db.volume_get(context,
-                                                   source_volid)
-            now = timeutils.utcnow()
-            values = {'host': source_volume_ref['host'], 'scheduled_at': now}
-            volume_ref = self.db.volume_update(context, volume_id, values)
-
-            # bypass scheduler and send request directly to volume
-            self.volume_rpcapi.create_volume(
-                context,
-                volume_ref,
-                volume_ref['host'],
-                request_spec=request_spec,
-                filter_properties=filter_properties,
-                allow_reschedule=False,
-                snapshot_id=snapshot_id,
-                image_id=image_id,
-                source_volid=source_volid)
-        else:
-            self.scheduler_rpcapi.create_volume(
-                context,
-                CONF.volume_topic,
-                volume_id,
-                snapshot_id,
-                image_id,
-                request_spec=request_spec,
-                filter_properties=filter_properties)
-
-    def _check_availabilty_zone(self, availability_zone):
+    def _valid_availabilty_zone(self, availability_zone):
         #NOTE(bcwaldon): This approach to caching fails to handle the case
         # that an availability zone is disabled/removed.
         if availability_zone in self.availability_zone_names:
-            return
+            return True
+        if CONF.storage_availability_zone == availability_zone:
+            return True
 
         azs = self.list_availability_zones()
         self.availability_zone_names = [az['name'] for az in azs]
-
-        if availability_zone not in self.availability_zone_names:
-            msg = _("Availability zone is invalid")
-            LOG.warn(msg)
-            raise exception.InvalidInput(reason=msg)
+        return availability_zone in self.availability_zone_names
 
     def list_availability_zones(self):
         """Describe the known availability zones
@@ -333,6 +130,58 @@ class API(base.Base):
                for (name, disabled) in disabled_map.items()]
 
         return tuple(azs)
+
+    def create(self, context, size, name, description, snapshot=None,
+               image_id=None, volume_type=None, metadata=None,
+               availability_zone=None, source_volume=None,
+               scheduler_hints=None, backup_source_volume=None):
+
+        def check_volume_az_zone(availability_zone):
+            try:
+                return self._valid_availabilty_zone(availability_zone)
+            except exception.CinderException:
+                LOG.exception(_("Unable to query if %s is in the "
+                                "availability zone set"), availability_zone)
+                return False
+
+        create_what = {
+            'size': size,
+            'name': name,
+            'description': description,
+            'snapshot': snapshot,
+            'image_id': image_id,
+            'volume_type': volume_type,
+            'metadata': metadata,
+            'availability_zone': availability_zone,
+            'source_volume': source_volume,
+            'scheduler_hints': scheduler_hints,
+            'key_manager': self.key_manager,
+            'backup_source_volume': backup_source_volume,
+        }
+        (flow, uuid) = create_volume.get_api_flow(self.scheduler_rpcapi,
+                                                  self.volume_rpcapi,
+                                                  self.db,
+                                                  self.image_service,
+                                                  check_volume_az_zone,
+                                                  create_what)
+
+        assert flow, _('Create volume flow not retrieved')
+        flow.run(context)
+        if flow.state != states.SUCCESS:
+            raise exception.CinderException(_("Failed to successfully complete"
+                                              " create volume workflow"))
+
+        # Extract the volume information from the task uuid that was specified
+        # to produce said information.
+        volume = None
+        try:
+            volume = flow.results[uuid]['volume']
+        except KeyError:
+            pass
+
+        # Raise an error, nobody provided it??
+        assert volume, _('Expected volume result not found')
+        return volume
 
     @wrap_check_policy
     def delete(self, context, volume, force=False):
@@ -362,18 +211,32 @@ class API(base.Base):
                 QUOTAS.commit(context, reservations, project_id=project_id)
             return
         if not force and volume['status'] not in ["available", "error",
-                                                  "error_restoring"]:
-            msg = _("Volume status must be available or error")
+                                                  "error_restoring",
+                                                  "error_extending"]:
+            msg = _("Volume status must be available or error, "
+                    "but current status is: %s") % volume['status']
             raise exception.InvalidVolume(reason=msg)
 
         if volume['attach_status'] == "attached":
             # Volume is still attached, need to detach first
             raise exception.VolumeAttached(volume_id=volume_id)
 
+        if volume['migration_status'] != None:
+            # Volume is migrating, wait until done
+            msg = _("Volume cannot be deleted while migrating")
+            raise exception.InvalidVolume(reason=msg)
+
         snapshots = self.db.snapshot_get_all_for_volume(context, volume_id)
         if len(snapshots):
             msg = _("Volume still has %d dependent snapshots") % len(snapshots)
             raise exception.InvalidVolume(reason=msg)
+
+        # If the volume is encrypted, delete its encryption key from the key
+        # manager. This operation makes volume deletion an irreversible process
+        # because the volume cannot be decrypted without its key.
+        encryption_key_id = volume.get('encryption_key_id', None)
+        if encryption_key_id is not None:
+            self.key_manager.delete_key(context, encryption_key_id)
 
         now = timeutils.utcnow()
         self.db.volume_update(context, volume_id, {'status': 'deleting',
@@ -416,6 +279,10 @@ class API(base.Base):
                                                         marker, limit,
                                                         sort_key, sort_dir)
 
+        # Non-admin shouldn't see temporary target of a volume migration
+        if not context.is_admin:
+            filters['no_migration_targets'] = True
+
         if filters:
             LOG.debug(_("Searching by: %s") % str(filters))
 
@@ -430,8 +297,15 @@ class API(base.Base):
                         return False
                 return True
 
+            def _check_migration_target(volume, searchdict):
+                status = volume['migration_status']
+                if status and status.startswith('target:'):
+                    return False
+                return True
+
             # search_option to filter_name mapping.
-            filter_mapping = {'metadata': _check_metadata_match}
+            filter_mapping = {'metadata': _check_metadata_match,
+                              'no_migration_targets': _check_migration_target}
 
             result = []
             not_found = object()
@@ -524,7 +398,11 @@ class API(base.Base):
 
     @wrap_check_policy
     def begin_detaching(self, context, volume):
-        self.update(context, volume, {"status": "detaching"})
+        # If we are in the middle of a volume migration, we don't want the user
+        # to see that the volume is 'detaching'. Having 'migration_status' set
+        # will have the same effect internally.
+        if not volume['migration_status']:
+            self.update(context, volume, {"status": "detaching"})
 
     @wrap_check_policy
     def roll_detaching(self, context, volume):
@@ -532,12 +410,26 @@ class API(base.Base):
             self.update(context, volume, {"status": "in-use"})
 
     @wrap_check_policy
-    def attach(self, context, volume, instance_uuid, host_name, mountpoint):
+    def attach(self, context, volume, instance_uuid, host_name,
+               mountpoint, mode):
+        volume_metadata = self.get_volume_admin_metadata(context.elevated(),
+                                                         volume)
+        if 'readonly' not in volume_metadata:
+            # NOTE(zhiyan): set a default value for read-only flag to metadata.
+            self.update_volume_admin_metadata(context.elevated(), volume,
+                                              {'readonly': 'False'})
+            volume_metadata['readonly'] = 'False'
+
+        if volume_metadata['readonly'] == 'True' and mode != 'ro':
+            raise exception.InvalidVolumeAttachMode(mode=mode,
+                                                    volume_id=volume['id'])
+
         return self.volume_rpcapi.attach_volume(context,
                                                 volume,
                                                 instance_uuid,
                                                 host_name,
-                                                mountpoint)
+                                                mountpoint,
+                                                mode)
 
     @wrap_check_policy
     def detach(self, context, volume):
@@ -558,14 +450,21 @@ class API(base.Base):
                                                        force)
 
     @wrap_check_policy
-    def accept_transfer(self, context, volume):
+    def accept_transfer(self, context, volume, new_user, new_project):
         return self.volume_rpcapi.accept_transfer(context,
-                                                  volume)
+                                                  volume,
+                                                  new_user,
+                                                  new_project)
 
     def _create_snapshot(self, context,
                          volume, name, description,
                          force=False, metadata=None):
         check_policy(context, 'create_snapshot', volume)
+
+        if volume['migration_status'] != None:
+            # Volume is migrating, wait until done
+            msg = _("Volume cannot be deleted while migrating")
+            raise exception.InvalidVolume(reason=msg)
 
         if ((not force) and (volume['status'] != "available")):
             msg = _("must be available")
@@ -617,6 +516,8 @@ class API(base.Base):
                    'volume_size': volume['size'],
                    'display_name': name,
                    'display_description': description,
+                   'volume_type_id': volume['volume_type_id'],
+                   'encryption_key_id': volume['encryption_key_id'],
                    'metadata': metadata}
 
         try:
@@ -705,7 +606,8 @@ class API(base.Base):
 
         self._check_metadata_properties(context, _metadata)
 
-        self.db.volume_metadata_update(context, volume['id'], _metadata, True)
+        self.db.volume_metadata_update(context, volume['id'],
+                                       _metadata, delete)
 
         # TODO(jdg): Implement an RPC call for drivers that may use this info
 
@@ -719,6 +621,42 @@ class API(base.Base):
                 if i['key'] == key:
                     return i['value']
         return None
+
+    @wrap_check_policy
+    def get_volume_admin_metadata(self, context, volume):
+        """Get all administration metadata associated with a volume."""
+        rv = self.db.volume_admin_metadata_get(context, volume['id'])
+        return dict(rv.iteritems())
+
+    @wrap_check_policy
+    def delete_volume_admin_metadata(self, context, volume, key):
+        """Delete the given administration metadata item from a volume."""
+        self.db.volume_admin_metadata_delete(context, volume['id'], key)
+
+    @wrap_check_policy
+    def update_volume_admin_metadata(self, context, volume, metadata,
+                                     delete=False):
+        """Updates or creates volume administration metadata.
+
+        If delete is True, metadata items that are not specified in the
+        `metadata` argument will be deleted.
+
+        """
+        orig_meta = self.get_volume_admin_metadata(context, volume)
+        if delete:
+            _metadata = metadata
+        else:
+            _metadata = orig_meta.copy()
+            _metadata.update(metadata)
+
+        self._check_metadata_properties(context, _metadata)
+
+        self.db.volume_admin_metadata_update(context, volume['id'],
+                                             _metadata, delete)
+
+        # TODO(jdg): Implement an RPC call for drivers that may use this info
+
+        return _metadata
 
     def get_snapshot_metadata(self, context, snapshot):
         """Get all metadata associated with a snapshot."""
@@ -811,41 +749,101 @@ class API(base.Base):
                      "extended: %(new_size)s)") % {'new_size': new_size,
                                                    'size': volume['size']})
             raise exception.InvalidInput(reason=msg)
-        try:
-            reservations = QUOTAS.reserve(context, gigabytes=+size_increase)
-        except exception.OverQuota as exc:
-            overs = exc.kwargs['overs']
-            usages = exc.kwargs['usages']
-            quotas = exc.kwargs['quotas']
-
-            def _consumed(name):
-                return (usages[name]['reserved'] + usages[name]['in_use'])
-
-            if 'gigabytes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, "
-                        "tried to extend volume by "
-                        "%(s_size)sG, (%(d_consumed)dG of %(d_quota)dG "
-                        "already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                's_size': size_increase,
-                                'd_consumed': _consumed('gigabytes'),
-                                'd_quota': quotas['gigabytes']})
-                raise exception.VolumeSizeExceedsAvailableQuota()
 
         self.update(context, volume, {'status': 'extending'})
+        self.volume_rpcapi.extend_volume(context, volume, new_size)
 
-        try:
-            self.volume_rpcapi.extend_volume(context, volume, new_size)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                try:
-                    self.update(context, volume, {'status': 'error_extending'})
-                finally:
-                    QUOTAS.rollback(context, reservations)
+    @wrap_check_policy
+    def migrate_volume(self, context, volume, host, force_host_copy):
+        """Migrate the volume to the specified host."""
 
-        self.update(context, volume, {'size': new_size})
-        QUOTAS.commit(context, reservations)
-        self.update(context, volume, {'status': 'available'})
+        # We only handle "available" volumes for now
+        if volume['status'] not in ['available', 'in-use']:
+            msg = _('Volume status must be available/in-use.')
+            LOG.error(msg)
+            raise exception.InvalidVolume(reason=msg)
+
+        # Make sure volume is not part of a migration
+        if volume['migration_status'] != None:
+            msg = _("Volume is already part of an active migration")
+            raise exception.InvalidVolume(reason=msg)
+
+        # We only handle volumes without snapshots for now
+        snaps = self.db.snapshot_get_all_for_volume(context, volume['id'])
+        if snaps:
+            msg = _("volume must not have snapshots")
+            LOG.error(msg)
+            raise exception.InvalidVolume(reason=msg)
+
+        # Make sure the host is in the list of available hosts
+        elevated = context.elevated()
+        topic = CONF.volume_topic
+        services = self.db.service_get_all_by_topic(elevated, topic)
+        found = False
+        for service in services:
+            if utils.service_is_up(service) and service['host'] == host:
+                found = True
+        if not found:
+            msg = (_('No available service named %s') % host)
+            LOG.error(msg)
+            raise exception.InvalidHost(reason=msg)
+
+        # Make sure the destination host is different than the current one
+        if host == volume['host']:
+            msg = _('Destination host must be different than current host')
+            LOG.error(msg)
+            raise exception.InvalidHost(reason=msg)
+
+        self.update(context, volume, {'migration_status': 'starting'})
+
+        # Call the scheduler to ensure that the host exists and that it can
+        # accept the volume
+        volume_type = {}
+        volume_type_id = volume['volume_type_id']
+        if volume_type_id:
+            volume_type = volume_types.get_volume_type(context, volume_type_id)
+        request_spec = {'volume_properties': volume,
+                        'volume_type': volume_type,
+                        'volume_id': volume['id']}
+        self.scheduler_rpcapi.migrate_volume_to_host(context,
+                                                     CONF.volume_topic,
+                                                     volume['id'],
+                                                     host,
+                                                     force_host_copy,
+                                                     request_spec)
+
+    @wrap_check_policy
+    def migrate_volume_completion(self, context, volume, new_volume, error):
+        # This is a volume swap initiated by Nova, not Cinder. Nova expects
+        # us to return the new_volume_id.
+        if not (volume['migration_status'] or new_volume['migration_status']):
+            return new_volume['id']
+
+        if not volume['migration_status']:
+            msg = _('Source volume not mid-migration.')
+            raise exception.InvalidVolume(reason=msg)
+
+        if not new_volume['migration_status']:
+            msg = _('Destination volume not mid-migration.')
+            raise exception.InvalidVolume(reason=msg)
+
+        expected_status = 'target:%s' % volume['id']
+        if not new_volume['migration_status'] == expected_status:
+            msg = (_('Destination has migration_status %(stat)s, expected '
+                     '%(exp)s.') % {'stat': new_volume['migration_status'],
+                                    'exp': expected_status})
+            raise exception.InvalidVolume(reason=msg)
+
+        return self.volume_rpcapi.migrate_volume_completion(context, volume,
+                                                            new_volume, error)
+
+    @wrap_check_policy
+    def update_readonly_flag(self, context, volume, flag):
+        if volume['status'] != 'available':
+            msg = _('Volume status must be available to update readonly flag.')
+            raise exception.InvalidVolume(reason=msg)
+        self.update_volume_admin_metadata(context.elevated(), volume,
+                                          {'readonly': str(flag)})
 
 
 class HostAPI(base.Base):

@@ -18,22 +18,20 @@
 
    Note, this is not iSCSI.
 """
-
-import executor
 import os
 
+from cinder.brick import executor
 from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import loopingcall
 from cinder.openstack.common import processutils as putils
 
 LOG = logging.getLogger(__name__)
 
 
 class LinuxSCSI(executor.Executor):
-    def __init__(self, execute=putils.execute, root_helper="sudo",
+    def __init__(self, root_helper, execute=putils.execute,
                  *args, **kwargs):
-        super(LinuxSCSI, self).__init__(execute, root_helper,
+        super(LinuxSCSI, self).__init__(root_helper, execute,
                                         *args, **kwargs)
 
     def echo_scsi_command(self, path, content):

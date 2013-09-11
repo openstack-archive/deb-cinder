@@ -54,7 +54,7 @@ def _get_connect_string(backend,
     if backend == "postgres":
         backend = "postgresql+psycopg2"
 
-    return ("%(backend)s://%(user)s:%(passwd)s@localhost/%(database)s",
+    return ("%(backend)s://%(user)s:%(passwd)s@localhost/%(database)s" %
             {'backend': backend, 'user': user, 'passwd': passwd,
              'database': database})
 
@@ -79,6 +79,7 @@ def _is_backend_avail(backend,
     except Exception:
         # intentionally catch all to handle exceptions even if we don't
         # have any backend code loaded.
+        LOG.exception("Backend %s is not available", backend)
         return False
     else:
         connection.close()
@@ -513,7 +514,7 @@ class TestMigrations(test.TestCase):
         for metadata in self.metadatas_downgraded_from(6):
             snapshots = sqlalchemy.Table('snapshots', metadata, autoload=True)
 
-            self.assertTrue('provider_location' not in snapshots.c)
+            self.assertNotIn('provider_location', snapshots.c)
 
     def test_upgrade_007_adds_fk(self):
         for metadata in self.metadatas_upgraded_to(7):
@@ -645,7 +646,6 @@ class TestMigrations(test.TestCase):
             metadata.bind = engine
 
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 10)
-
             self.assertTrue(engine.dialect.has_table(engine.connect(),
                                                      "transfers"))
             transfers = sqlalchemy.Table('transfers',
@@ -716,7 +716,7 @@ class TestMigrations(test.TestCase):
             volumes = sqlalchemy.Table('volumes',
                                        metadata,
                                        autoload=True)
-            self.assertTrue('bootable' not in volumes.c)
+            self.assertNotIn('bootable', volumes.c)
 
             # Make sure we put all the columns back
             for column in volumes_v10.c:
@@ -746,7 +746,7 @@ class TestMigrations(test.TestCase):
             volumes = sqlalchemy.Table('volumes',
                                        metadata,
                                        autoload=True)
-            self.assertTrue('attached_host' not in volumes.c)
+            self.assertNotIn('attached_host', volumes.c)
 
     def test_migration_013(self):
         """Test that adding provider_geometry column works correctly."""
@@ -772,4 +772,233 @@ class TestMigrations(test.TestCase):
             volumes = sqlalchemy.Table('volumes',
                                        metadata,
                                        autoload=True)
-            self.assertTrue('provider_geometry' not in volumes.c)
+            self.assertNotIn('provider_geometry', volumes.c)
+
+    def test_migration_014(self):
+        """Test that adding _name_id column works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 13)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 14)
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue(isinstance(volumes.c._name_id.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 13)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertNotIn('_name_id', volumes.c)
+
+    def test_migration_015(self):
+        """Test removing migrations table works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 15)
+
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      "migrations"))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 14)
+
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     "migrations"))
+
+    def test_migration_016(self):
+        """Test that dropping xen storage manager tables works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 15)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 16)
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      'sm_flavors'))
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      'sm_backend_config'))
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      'sm_volume'))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 15)
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     'sm_flavors'))
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     'sm_backend_config'))
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     'sm_volume'))
+
+    def test_migration_017(self):
+        """Test that added encryption information works correctly."""
+
+            # upgrade schema
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 16)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 17)
+
+            # encryption key UUID
+            volumes = sqlalchemy.Table('volumes', metadata, autoload=True)
+            self.assertIn('encryption_key_id', volumes.c)
+            self.assertTrue(isinstance(volumes.c.encryption_key_id.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            snapshots = sqlalchemy.Table('snapshots', metadata, autoload=True)
+            self.assertIn('encryption_key_id', snapshots.c)
+            self.assertTrue(isinstance(snapshots.c.encryption_key_id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertIn('volume_type_id', snapshots.c)
+            self.assertTrue(isinstance(snapshots.c.volume_type_id.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            # encryption types table
+            encryption = sqlalchemy.Table('encryption',
+                                          metadata,
+                                          autoload=True)
+            self.assertTrue(isinstance(encryption.c.volume_type_id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(encryption.c.cipher.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(encryption.c.key_size.type,
+                                       sqlalchemy.types.INTEGER))
+            self.assertTrue(isinstance(encryption.c.provider.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            # downgrade schema
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 16)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes', metadata, autoload=True)
+            self.assertNotIn('encryption_key_id', volumes.c)
+
+            snapshots = sqlalchemy.Table('snapshots', metadata, autoload=True)
+            self.assertNotIn('encryption_key_id', snapshots.c)
+
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      'encryption'))
+
+    def test_migration_018(self):
+        """Test that added qos_specs table works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 17)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 18)
+            self.assertTrue(engine.dialect.has_table(
+                engine.connect(), "quality_of_service_specs"))
+            qos_specs = sqlalchemy.Table('quality_of_service_specs',
+                                         metadata,
+                                         autoload=True)
+            self.assertTrue(isinstance(qos_specs.c.created_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(qos_specs.c.updated_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(qos_specs.c.deleted_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(qos_specs.c.deleted.type,
+                                       sqlalchemy.types.BOOLEAN))
+            self.assertTrue(isinstance(qos_specs.c.id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(qos_specs.c.specs_id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(qos_specs.c.key.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(qos_specs.c.value.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 17)
+
+            self.assertFalse(engine.dialect.has_table(
+                engine.connect(), "quality_of_service_specs"))
+
+    def test_migration_019(self):
+        """Test that adding migration_status column works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 18)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 19)
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertTrue(isinstance(volumes.c.migration_status.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 18)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertNotIn('migration_status', volumes.c)
+
+    def test_migration_020(self):
+        """Test adding volume_admin_metadata table works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.INIT_VERSION)
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 19)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 20)
+
+            self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                     "volume_admin_metadata"))
+            volume_admin_metadata = sqlalchemy.Table('volume_admin_metadata',
+                                                     metadata,
+                                                     autoload=True)
+
+            self.assertTrue(isinstance(volume_admin_metadata.c.created_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(volume_admin_metadata.c.updated_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(volume_admin_metadata.c.deleted_at.type,
+                                       sqlalchemy.types.DATETIME))
+            self.assertTrue(isinstance(volume_admin_metadata.c.deleted.type,
+                                       sqlalchemy.types.BOOLEAN))
+            self.assertTrue(isinstance(volume_admin_metadata.c.deleted.type,
+                                       sqlalchemy.types.BOOLEAN))
+            self.assertTrue(isinstance(volume_admin_metadata.c.id.type,
+                                       sqlalchemy.types.INTEGER))
+            self.assertTrue(isinstance(volume_admin_metadata.c.volume_id.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(volume_admin_metadata.c.key.type,
+                                       sqlalchemy.types.VARCHAR))
+            self.assertTrue(isinstance(volume_admin_metadata.c.value.type,
+                                       sqlalchemy.types.VARCHAR))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 19)
+
+            self.assertFalse(engine.dialect.has_table(engine.connect(),
+                                                      "volume_admin_metadata"))

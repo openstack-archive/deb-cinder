@@ -20,6 +20,7 @@ import string
 from cinder.brick.initiator import linuxscsi
 from cinder.openstack.common import log as logging
 from cinder import test
+from cinder import utils
 
 LOG = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class LinuxSCSITestCase(test.TestCase):
         super(LinuxSCSITestCase, self).setUp()
         self.cmds = []
         self.stubs.Set(os.path, 'realpath', lambda x: '/dev/sdc')
-        self.linuxscsi = linuxscsi.LinuxSCSI(execute=self.fake_execute)
+        self.linuxscsi = linuxscsi.LinuxSCSI(None, execute=self.fake_execute)
 
     def fake_execute(self, *cmd, **kwargs):
         self.cmds.append(string.join(cmd))

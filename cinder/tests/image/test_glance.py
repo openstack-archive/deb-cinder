@@ -19,6 +19,7 @@
 import datetime
 
 import glanceclient.exc
+import glanceclient.v2.client
 from glanceclient.v2.client import Client as glanceclient_v2
 from oslo.config import cfg
 
@@ -335,7 +336,6 @@ class TestGlanceImageService(test.TestCase):
     def test_update(self):
         fixture = self._make_fixture(name='test image')
         image = self.service.create(self.context, fixture)
-        print image
         image_id = image['id']
         fixture['name'] = 'new image name'
         self.service.update(self.context, image_id, fixture)
@@ -599,3 +599,63 @@ def _create_failing_glance_client(info):
             return {}
 
     return MyGlanceStubClient()
+
+
+class TestGlanceImageServiceClient(test.TestCase):
+
+    def setUp(self):
+        super(TestGlanceImageServiceClient, self).setUp()
+        self.context = context.RequestContext('fake', 'fake', auth_token=True)
+        self.stubs.Set(glance.time, 'sleep', lambda s: None)
+
+    def test_create_glance_client(self):
+        self.flags(auth_strategy='keystone')
+        self.flags(glance_request_timeout=60)
+
+        class MyGlanceStubClient(object):
+            def __init__(inst, version, *args, **kwargs):
+                self.assertEqual('1', version)
+                self.assertEqual("http://fake_host:9292", args[0])
+                self.assertEqual(True, kwargs['token'])
+                self.assertEqual(60, kwargs['timeout'])
+
+        self.stubs.Set(glance.glanceclient, 'Client', MyGlanceStubClient)
+        client = glance._create_glance_client(self.context, 'fake_host:9292',
+                                              False)
+        self.assertTrue(isinstance(client, MyGlanceStubClient))
+
+    def test_create_glance_client_auth_strategy_is_not_keystone(self):
+        self.flags(auth_strategy='noauth')
+        self.flags(glance_request_timeout=60)
+
+        class MyGlanceStubClient(object):
+            def __init__(inst, version, *args, **kwargs):
+                self.assertEqual('1', version)
+                self.assertEqual('http://fake_host:9292', args[0])
+                self.assertNotIn('token', kwargs)
+                self.assertEqual(60, kwargs['timeout'])
+
+        self.stubs.Set(glance.glanceclient, 'Client', MyGlanceStubClient)
+        client = glance._create_glance_client(self.context, 'fake_host:9292',
+                                              False)
+        self.assertTrue(isinstance(client, MyGlanceStubClient))
+
+    def test_create_glance_client_glance_request_default_timeout(self):
+        self.flags(auth_strategy='keystone')
+        self.flags(glance_request_timeout=None)
+
+        class MyGlanceStubClient(object):
+            def __init__(inst, version, *args, **kwargs):
+                self.assertEqual("1", version)
+                self.assertEqual("http://fake_host:9292", args[0])
+                self.assertEqual(True, kwargs['token'])
+                self.assertNotIn('timeout', kwargs)
+
+        self.stubs.Set(glance.glanceclient, 'Client', MyGlanceStubClient)
+        client = glance._create_glance_client(self.context, 'fake_host:9292',
+                                              False)
+        self.assertTrue(isinstance(client, MyGlanceStubClient))
+
+    def tearDown(self):
+        self.stubs.UnsetAll()
+        super(TestGlanceImageServiceClient, self).tearDown()

@@ -24,6 +24,7 @@ from cinder.image import image_utils
 import cinder.test
 from cinder.volume.driver import ISCSIDriver
 from cinder.volume.drivers.block_device import BlockDeviceDriver
+from cinder.volume import utils as volutils
 
 
 class TestBlockDeviceDriver(cinder.test.TestCase):
@@ -100,7 +101,7 @@ class TestBlockDeviceDriver(cinder.test.TestCase):
             'provider_location': 'None:3260,None None '
                                  'None dev_path'})
 
-    def test_update_volume_status(self):
+    def test_update_volume_stats(self):
         self.mox.StubOutWithMock(self.drv, '_devices_sizes')
         self.drv._devices_sizes().AndReturn({'/dev/loop1': 1024,
                                              '/dev/loop2': 1024})
@@ -110,7 +111,7 @@ class TestBlockDeviceDriver(cinder.test.TestCase):
         self.configuration.safe_get('volume_backend_name'). \
             AndReturn('BlockDeviceDriver')
         self.mox.ReplayAll()
-        self.drv._update_volume_status()
+        self.drv._update_volume_stats()
         self.assertEquals(self.drv._stats,
                           {'total_capacity_gb': 2,
                            'free_capacity_gb': 2,
@@ -118,7 +119,7 @@ class TestBlockDeviceDriver(cinder.test.TestCase):
                            self.configuration.reserved_percentage,
                            'QoS_support': False,
                            'vendor_name': "Open Source",
-                           'driver_version': '1.0',
+                           'driver_version': self.drv.VERSION,
                            'storage_protocol': 'unknown',
                            'volume_backend_name': 'BlockDeviceDriver',
                            })
@@ -131,12 +132,13 @@ class TestBlockDeviceDriver(cinder.test.TestCase):
         self.mox.StubOutWithMock(self.drv, 'find_appropriate_size_device')
         dev = self.drv.find_appropriate_size_device(TEST_SRC['size']).\
             AndReturn('/dev/loop2')
-        self.mox.StubOutWithMock(self.drv, '_copy_volume')
+        self.mox.StubOutWithMock(volutils, 'copy_volume')
         self.mox.StubOutWithMock(self.drv, 'local_path')
         self.mox.StubOutWithMock(self.drv, '_get_device_size')
         self.drv.local_path(TEST_SRC).AndReturn('/dev/loop1')
         self.drv._get_device_size('/dev/loop2').AndReturn(1)
-        self.drv._copy_volume('/dev/loop1', dev, 2048)
+        volutils.copy_volume('/dev/loop1', dev, 2048,
+                             execute=self.drv._execute)
         self.mox.ReplayAll()
         self.assertEquals(self.drv.create_cloned_volume(TEST_VOLUME, TEST_SRC),
                           {'provider_location': 'None:3260,'

@@ -30,10 +30,10 @@ from oslo.config import cfg
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import timeutils
 from cinder.volume.drivers.san.san import SanISCSIDriver
 from cinder.volume import volume_types
 
-VERSION = '1.2'
 LOG = logging.getLogger(__name__)
 
 sf_opts = [
@@ -47,14 +47,19 @@ sf_opts = [
 
     cfg.StrOpt('sf_account_prefix',
                default=socket.gethostname(),
-               help='Create SolidFire accounts with this prefix'), ]
+               help='Create SolidFire accounts with this prefix'),
+
+    cfg.IntOpt('sf_api_port',
+               default=443,
+               help='SolidFire API port. Useful if the device api is behind '
+                    'a proxy on a different port.'), ]
 
 
 CONF = cfg.CONF
 CONF.register_opts(sf_opts)
 
 
-class SolidFire(SanISCSIDriver):
+class SolidFireDriver(SanISCSIDriver):
     """OpenStack driver to enable SolidFire cluster.
 
     Version history:
@@ -62,6 +67,8 @@ class SolidFire(SanISCSIDriver):
         1.1 - Refactor, clone support, qos by type and minor bug fixes
 
     """
+
+    VERSION = '1.2.0'
 
     sf_qos_dict = {'slow': {'minIOPS': 100,
                             'maxIOPS': 200,
@@ -83,7 +90,7 @@ class SolidFire(SanISCSIDriver):
     GB = math.pow(2, 30)
 
     def __init__(self, *args, **kwargs):
-            super(SolidFire, self).__init__(*args, **kwargs)
+            super(SolidFireDriver, self).__init__(*args, **kwargs)
             self.configuration.append_config_values(sf_opts)
             try:
                 self._update_cluster_status()
@@ -103,8 +110,7 @@ class SolidFire(SanISCSIDriver):
                                    'xMaxSnapshotsPerNodeExceeded',
                                    'xMaxClonesPerNodeExceeded']
         host = self.configuration.san_ip
-        # For now 443 is the only port our server accepts requests on
-        port = 443
+        port = self.configuration.sf_api_port
 
         cluster_admin = self.configuration.san_login
         cluster_password = self.configuration.san_password
@@ -343,6 +349,7 @@ class SolidFire(SanISCSIDriver):
 
         params = {'volumeID': int(sf_vol['volumeID']),
                   'name': 'UUID-%s' % v_ref['id'],
+                  'newSize': int(v_ref['size'] * self.GB),
                   'newAccountID': sfaccount['accountID']}
         data = self._issue_api_request('CloneVolume', params)
 
@@ -364,9 +371,11 @@ class SolidFire(SanISCSIDriver):
         # to set any that were provided
         params = {'volumeID': sf_volume_id}
 
+        create_time = timeutils.strtime(v_ref['created_at'])
         attributes = {'uuid': v_ref['id'],
                       'is_clone': 'True',
-                      'src_uuid': src_uuid}
+                      'src_uuid': src_uuid,
+                      'created_at': create_time}
         if qos:
             params['qos'] = qos
             for k, v in qos.items():
@@ -484,8 +493,10 @@ class SolidFire(SanISCSIDriver):
         if type_id is not None:
             qos = self._set_qos_by_volume_type(ctxt, type_id)
 
+        create_time = timeutils.strtime(volume['created_at'])
         attributes = {'uuid': volume['id'],
-                      'is_clone': 'False'}
+                      'is_clone': 'False',
+                      'created_at': create_time}
         if qos:
             for k, v in qos.items():
                 attributes[k] = str(v)
@@ -547,7 +558,10 @@ class SolidFire(SanISCSIDriver):
     def ensure_export(self, context, volume):
         """Verify the iscsi export info."""
         LOG.debug(_("Executing SolidFire ensure_export..."))
-        return self._do_export(volume)
+        try:
+            return self._do_export(volume)
+        except exception.SolidFireAPIException:
+            return None
 
     def create_export(self, context, volume):
         """Setup the iscsi export info."""
@@ -647,7 +661,7 @@ class SolidFire(SanISCSIDriver):
         backend_name = self.configuration.safe_get('volume_backend_name')
         data["volume_backend_name"] = backend_name or self.__class__.__name__
         data["vendor_name"] = 'SolidFire Inc'
-        data["driver_version"] = VERSION
+        data["driver_version"] = self.VERSION
         data["storage_protocol"] = 'iSCSI'
 
         data['total_capacity_gb'] = results['maxProvisionedSpace']
@@ -662,3 +676,79 @@ class SolidFire(SanISCSIDriver):
         data['thin_provision_percent'] =\
             results['thinProvisioningPercent']
         self.cluster_stats = data
+
+    def attach_volume(self, context, volume,
+                      instance_uuid, host_name,
+                      mountpoint):
+
+        LOG.debug(_("Entering SolidFire attach_volume..."))
+        sfaccount = self._get_sfaccount(volume['project_id'])
+        params = {'accountID': sfaccount['accountID']}
+
+        sf_vol = self._get_sf_volume(volume['id'], params)
+        if sf_vol is None:
+            LOG.error(_("Volume ID %s was not found on "
+                        "the SolidFire Cluster!"), volume['id'])
+            raise exception.VolumeNotFound(volume_id=volume['id'])
+
+        attributes = sf_vol['attributes']
+        attributes['attach_time'] = volume.get('attach_time', None)
+        attributes['attached_to'] = instance_uuid
+        params = {
+            'volumeID': sf_vol['volumeID'],
+            'attributes': attributes
+        }
+
+        data = self._issue_api_request('ModifyVolume', params)
+
+        if 'result' not in data:
+            raise exception.SolidFireAPIDataException(data=data)
+
+    def detach_volume(self, context, volume):
+
+        LOG.debug(_("Entering SolidFire attach_volume..."))
+        sfaccount = self._get_sfaccount(volume['project_id'])
+        params = {'accountID': sfaccount['accountID']}
+
+        sf_vol = self._get_sf_volume(volume['id'], params)
+        if sf_vol is None:
+            LOG.error(_("Volume ID %s was not found on "
+                        "the SolidFire Cluster!"), volume['id'])
+            raise exception.VolumeNotFound(volume_id=volume['id'])
+
+        attributes = sf_vol['attributes']
+        attributes['attach_time'] = None
+        attributes['attached_to'] = None
+        params = {
+            'volumeID': sf_vol['volumeID'],
+            'attributes': attributes
+        }
+
+        data = self._issue_api_request('ModifyVolume', params)
+
+        if 'result' not in data:
+            raise exception.SolidFireAPIDataException(data=data)
+
+    def accept_transfer(self, context, volume,
+                        new_user, new_project):
+
+        sfaccount = self._get_sfaccount(volume['project_id'])
+        params = {'accountID': sfaccount['accountID']}
+        sf_vol = self._get_sf_volume(volume['id'], params)
+
+        if new_project != volume['project_id']:
+            # do a create_sfaccount here as this tenant
+            # may not exist on the cluster yet
+            sfaccount = self._create_sfaccount(new_project)
+
+        params = {
+            'volumeID': sf_vol['volumeID'],
+            'accountID': sfaccount['accountID']
+        }
+        data = self._issue_api_request('ModifyVolume',
+                                       params, version='5.0')
+
+        if 'result' not in data:
+            raise exception.SolidFireAPIDataException(data=data)
+
+        LOG.debug(_("Leaving SolidFire transfer volume"))

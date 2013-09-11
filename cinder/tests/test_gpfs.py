@@ -25,7 +25,9 @@ from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import test
+from cinder.tests import utils as test_utils
 from cinder import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.gpfs import GPFSDriver
@@ -38,6 +40,11 @@ CONF = cfg.CONF
 class FakeImageService():
     def update(self, context, image_id, path):
         pass
+
+    def show(self, context, image_id):
+        image_meta = {'disk_format': None,
+                      'container_format': None}
+        return image_meta
 
     def download(self, context, image_id, image_fd):
         for b in range(256):
@@ -72,8 +79,6 @@ class GPFSDriverTestCase(test.TestCase):
         if not os.path.exists(self.images_dir):
             os.mkdir(self.images_dir)
         self.image_id = '70a599e0-31e7-49b7-b260-868f441e862b'
-        self.image_path = self.images_dir + "/" + self.image_id
-        utils.execute('truncate', '-s', 1024, self.image_path)
 
         self.driver = GPFSDriver(configuration=conf.Configuration(None))
         self.driver.set_execute(self._execute_wrapper)
@@ -90,70 +95,77 @@ class GPFSDriverTestCase(test.TestCase):
                        self._fake_gpfs_redirect)
         self.stubs.Set(GPFSDriver, '_is_gpfs_parent_file',
                        self._fake_is_gpfs_parent)
+        self.stubs.Set(GPFSDriver, '_is_gpfs_path',
+                       self._fake_is_gpfs_path)
         self.stubs.Set(GPFSDriver, '_delete_gpfs_file',
                        self._fake_delete_gpfs_file)
+        self.stubs.Set(GPFSDriver, '_create_sparse_file',
+                       self._fake_create_sparse_file)
+        self.stubs.Set(GPFSDriver, '_allocate_file_blocks',
+                       self._fake_allocate_file_blocks)
+        self.stubs.Set(GPFSDriver, '_get_available_capacity',
+                       self._fake_get_available_capacity)
         self.stubs.Set(image_utils, 'qemu_img_info',
                        self._fake_qemu_qcow2_image_info)
         self.stubs.Set(image_utils, 'convert_image',
                        self._fake_convert_image)
+        self.stubs.Set(image_utils, 'resize_image',
+                       self._fake_qemu_image_resize)
 
         self.context = context.get_admin_context()
-
+        self.context.user_id = 'fake'
+        self.context.project_id = 'fake'
         CONF.gpfs_images_dir = self.images_dir
 
     def tearDown(self):
         try:
-            os.remove(self.image_path)
             os.rmdir(self.images_dir)
             os.rmdir(self.volumes_path)
         except OSError:
             pass
         super(GPFSDriverTestCase, self).tearDown()
 
-    def _create_volume(self, size=0, snapshot_id=None, image_id=None,
-                       metadata=None):
-        """Create a volume object."""
-        vol = {}
-        vol['size'] = size
-        vol['snapshot_id'] = snapshot_id
-        vol['image_id'] = image_id
-        vol['user_id'] = 'fake'
-        vol['project_id'] = 'fake'
-        vol['availability_zone'] = CONF.storage_availability_zone
-        vol['status'] = "creating"
-        vol['attach_status'] = "detached"
-        vol['host'] = CONF.host
-        if metadata is not None:
-            vol['metadata'] = metadata
-        return db.volume_create(context.get_admin_context(), vol)
-
     def test_create_delete_volume_full_backing_file(self):
         """create and delete vol with full creation method"""
         CONF.gpfs_sparse_volumes = False
-        vol = self._create_volume(size=1)
+        vol = test_utils.create_volume(self.context, host=CONF.host)
         volume_id = vol['id']
         self.assertTrue(os.path.exists(self.volumes_path))
         self.volume.create_volume(self.context, volume_id)
         path = self.volumes_path + '/' + vol['name']
-        self.assertTrue(os.path.exists(self.volumes_path))
         self.assertTrue(os.path.exists(path))
         self.volume.delete_volume(self.context, volume_id)
         self.assertFalse(os.path.exists(path))
-        self.assertTrue(os.path.exists(self.volumes_path))
 
     def test_create_delete_volume_sparse_backing_file(self):
         """create and delete vol with default sparse creation method"""
         CONF.gpfs_sparse_volumes = True
-        vol = self._create_volume(size=1)
+        vol = test_utils.create_volume(self.context, host=CONF.host)
         volume_id = vol['id']
         self.assertTrue(os.path.exists(self.volumes_path))
         self.volume.create_volume(self.context, volume_id)
         path = self.volumes_path + '/' + vol['name']
-        self.assertTrue(os.path.exists(self.volumes_path))
         self.assertTrue(os.path.exists(path))
         self.volume.delete_volume(self.context, volume_id)
         self.assertFalse(os.path.exists(path))
+
+    def test_create_volume_with_attributes(self):
+        self.stubs.Set(GPFSDriver, '_gpfs_change_attributes',
+                       self._fake_gpfs_change_attributes)
+        attributes = {'dio': 'yes', 'data_pool_name': 'ssd_pool',
+                      'replicas': '2', 'write_affinity_depth': '1',
+                      'block_group_factor': '1',
+                      'write_affinity_failure-group':
+                      '1,1,1:2;2,1,1:2;2,0,3:4'}
+        vol = test_utils.create_volume(self.context, host=CONF.host,
+                                       metadata=attributes)
+        volume_id = vol['id']
         self.assertTrue(os.path.exists(self.volumes_path))
+        self.volume.create_volume(self.context, volume_id)
+        path = self.volumes_path + '/' + vol['name']
+        self.assertTrue(os.path.exists(path))
+        self.volume.delete_volume(self.context, volume_id)
+        self.assertFalse(os.path.exists(path))
 
     def _create_snapshot(self, volume_id, size='0'):
         """Create a snapshot object."""
@@ -166,7 +178,7 @@ class GPFSDriverTestCase(test.TestCase):
         return db.snapshot_create(context.get_admin_context(), snap)
 
     def test_create_delete_snapshot(self):
-        volume_src = self._create_volume()
+        volume_src = test_utils.create_volume(self.context, host=CONF.host)
         self.volume.create_volume(self.context, volume_src['id'])
         snapCount = len(db.snapshot_get_all_for_volume(self.context,
                                                        volume_src['id']))
@@ -189,7 +201,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertTrue(snapCount == 0)
 
     def test_create_volume_from_snapshot(self):
-        volume_src = self._create_volume()
+        volume_src = test_utils.create_volume(self.context, host=CONF.host)
         self.volume.create_volume(self.context, volume_src['id'])
         snapshot = self._create_snapshot(volume_src['id'])
         snapshot_id = snapshot['id']
@@ -197,7 +209,8 @@ class GPFSDriverTestCase(test.TestCase):
                                     snapshot_id)
         self.assertTrue(os.path.exists(os.path.join(self.volumes_path,
                                                     snapshot['name'])))
-        volume_dst = self._create_volume(0, snapshot_id)
+        volume_dst = test_utils.create_volume(self.context, host=CONF.host,
+                                              snapshot_id=snapshot_id)
         self.volume.create_volume(self.context, volume_dst['id'], snapshot_id)
         self.assertEqual(volume_dst['id'], db.volume_get(
                          context.get_admin_context(),
@@ -211,10 +224,10 @@ class GPFSDriverTestCase(test.TestCase):
         self.volume.delete_snapshot(self.context, snapshot_id)
 
     def test_create_cloned_volume(self):
-        volume_src = self._create_volume()
+        volume_src = test_utils.create_volume(self.context, host=CONF.host)
         self.volume.create_volume(self.context, volume_src['id'])
 
-        volume_dst = self._create_volume()
+        volume_dst = test_utils.create_volume(self.context, host=CONF.host)
         volumepath = os.path.join(self.volumes_path, volume_dst['name'])
         self.assertFalse(os.path.exists(volumepath))
 
@@ -229,14 +242,14 @@ class GPFSDriverTestCase(test.TestCase):
         self.volume.delete_volume(self.context, volume_dst['id'])
 
     def test_create_volume_from_snapshot_method(self):
-        volume_src = self._create_volume()
+        volume_src = test_utils.create_volume(self.context, host=CONF.host)
         self.volume.create_volume(self.context, volume_src['id'])
 
         snapshot = self._create_snapshot(volume_src['id'])
         snapshot_id = snapshot['id']
         self.volume.create_snapshot(self.context, volume_src['id'],
                                     snapshot_id)
-        volume_dst = self._create_volume()
+        volume_dst = test_utils.create_volume(self.context, host=CONF.host)
         self.driver.create_volume_from_snapshot(volume_dst, snapshot)
         self.assertEqual(volume_dst['id'], db.volume_get(
                          context.get_admin_context(),
@@ -249,7 +262,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.volume.delete_volume(self.context, volume_src['id'])
         self.volume.delete_snapshot(self.context, snapshot_id)
 
-    def test_copy_image_to_volume_with_copy_on_write_mode(self):
+    def test_clone_image_to_volume_with_copy_on_write_mode(self):
         """Test the function of copy_image_to_volume
         focusing on the integretion of the image_util
         using copy_on_write image sharing mode.
@@ -259,19 +272,18 @@ class GPFSDriverTestCase(test.TestCase):
         self.stubs.Set(image_utils, 'qemu_img_info',
                        self._fake_qemu_raw_image_info)
 
-        volume = self._create_volume()
+        volume = test_utils.create_volume(self.context, host=CONF.host)
         volumepath = os.path.join(self.volumes_path, volume['name'])
         CONF.gpfs_images_share_mode = 'copy_on_write'
-        self.driver.copy_image_to_volume(self.context,
-                                         volume,
-                                         FakeImageService(),
-                                         self.image_id)
+        self.driver.clone_image(volume,
+                                None,
+                                self.image_id)
 
         self.assertTrue(os.path.exists(volumepath))
         self.volume.delete_volume(self.context, volume['id'])
         self.assertFalse(os.path.exists(volumepath))
 
-    def test_copy_image_to_volume_with_copy_mode(self):
+    def test_clone_image_to_volume_with_copy_mode(self):
         """Test the function of copy_image_to_volume
         focusing on the integretion of the image_util
         using copy image sharing mode.
@@ -281,13 +293,12 @@ class GPFSDriverTestCase(test.TestCase):
         self.stubs.Set(image_utils, 'qemu_img_info',
                        self._fake_qemu_raw_image_info)
 
-        volume = self._create_volume()
+        volume = test_utils.create_volume(self.context, host=CONF.host)
         volumepath = os.path.join(self.volumes_path, volume['name'])
         CONF.gpfs_images_share_mode = 'copy'
-        self.driver.copy_image_to_volume(self.context,
-                                         volume,
-                                         FakeImageService(),
-                                         self.image_id)
+        self.driver.clone_image(volume,
+                                None,
+                                self.image_id)
 
         self.assertTrue(os.path.exists(volumepath))
         self.volume.delete_volume(self.context, volume['id'])
@@ -302,7 +313,7 @@ class GPFSDriverTestCase(test.TestCase):
                        self._fake_qemu_raw_image_info)
 
         for share_mode in ['copy_on_write', 'copy']:
-            volume = self._create_volume()
+            volume = test_utils.create_volume(self.context, host=CONF.host)
             volumepath = os.path.join(self.volumes_path, volume['name'])
             CONF.gpfs_images_share_mode = share_mode
             CONF.gpfs_images_dir = None
@@ -322,7 +333,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.stubs.Set(image_utils, 'qemu_img_info',
                        self._fake_qemu_qcow2_image_info)
 
-        volume = self._create_volume()
+        volume = test_utils.create_volume(self.context, host=CONF.host)
         CONF.gpfs_images_share_mode = 'copy'
         CONF.gpfs_images_dir = self.images_dir
         self.assertRaises(exception.ImageUnacceptable,
@@ -342,15 +353,15 @@ class GPFSDriverTestCase(test.TestCase):
     def test_check_for_setup_error_ok(self):
         self.stubs.Set(GPFSDriver, '_get_gpfs_state',
                        self._fake_gpfs_get_state_active)
-        self.stubs.Set(GPFSDriver, '_is_gpfs_path',
-                       self._fake_is_gpfs_path)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_cluster_release_level',
+                       self._fake_gpfs_compatible_cluster_release_level)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_filesystem_release_level',
+                       self._fake_gpfs_compatible_filesystem_release_level)
         self.driver.check_for_setup_error()
 
     def test_check_for_setup_error_gpfs_not_active(self):
         self.stubs.Set(GPFSDriver, '_get_gpfs_state',
                        self._fake_gpfs_get_state_not_active)
-        self.stubs.Set(GPFSDriver, '_is_gpfs_path',
-                       self._fake_is_gpfs_path)
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.check_for_setup_error)
 
@@ -359,24 +370,62 @@ class GPFSDriverTestCase(test.TestCase):
                        self._fake_gpfs_get_state_active)
         self.stubs.Set(GPFSDriver, '_is_gpfs_path',
                        self._fake_is_not_gpfs_path)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_cluster_release_level',
+                       self._fake_gpfs_compatible_cluster_release_level)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_filesystem_release_level',
+                       self._fake_gpfs_compatible_filesystem_release_level)
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.check_for_setup_error)
+
+    def test_check_for_setup_error_incompatible_cluster_version(self):
+        self.stubs.Set(GPFSDriver, '_get_gpfs_state',
+                       self._fake_gpfs_get_state_active)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_cluster_release_level',
+                       self._fake_gpfs_incompatible_cluster_release_level)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.check_for_setup_error)
+
+    def test_check_for_setup_error_incompatible_filesystem_version(self):
+        self.stubs.Set(GPFSDriver, '_get_gpfs_state',
+                       self._fake_gpfs_get_state_active)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_cluster_release_level',
+                       self._fake_gpfs_compatible_cluster_release_level)
+        self.stubs.Set(GPFSDriver, '_get_gpfs_filesystem_release_level',
+                       self._fake_gpfs_incompatible_filesystem_release_level)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.check_for_setup_error)
+
+    def _fake_create_file(self, path, modebits='666'):
+        open(path, 'w').close()
+        utils.execute('chmod', modebits, path)
 
     def _fake_gpfs_snap(self, src, dest=None, modebits='644'):
         if dest is None:
             dest = src
-        utils.execute('truncate', '-s', 0, dest)
-        utils.execute('chmod', '644', dest)
+        self._fake_create_file(dest, '644')
 
     def _fake_gpfs_copy(self, src, dest):
-        utils.execute('truncate', '-s', 0, dest)
-        utils.execute('chmod', '666', dest)
+        self._fake_create_file(dest)
+
+    def _fake_create_sparse_file(self, path, size):
+        self._fake_create_file(path)
+
+    def _fake_allocate_file_blocks(self, path, size):
+        self._fake_create_file(path)
+
+    def _fake_gpfs_change_attributes(self, options, path):
+        pass
 
     def _fake_gpfs_redirect(self, src):
         return True
 
     def _fake_is_gpfs_parent(self, gpfs_file):
         return False
+
+    def _fake_get_available_capacity(self, path):
+        fake_avail = 80 * 1024 * 1024 * 1024
+        fake_size = 2 * fake_avail
+        return fake_avail, fake_size
 
     def _fake_gpfs_get_state_active(self):
         active_txt = ('mmgetstate::HEADER:version:reserved:reserved:'
@@ -394,11 +443,29 @@ class GPFSDriverTestCase(test.TestCase):
                         '1:quorum node:(undefined):')
         return inactive_txt
 
+    def _fake_gpfs_compatible_cluster_release_level(self):
+        release = 1400
+        return release
+
+    def _fake_gpfs_incompatible_cluster_release_level(self):
+        release = 1105
+        return release
+
+    def _fake_gpfs_compatible_filesystem_release_level(self, path=None):
+        release = 1400
+        fs = '/dev/gpfs'
+        return fs, release
+
+    def _fake_gpfs_incompatible_filesystem_release_level(self, path=None):
+        release = 1105
+        fs = '/dev/gpfs'
+        return fs, release
+
     def _fake_is_gpfs_path(self, path):
         pass
 
     def _fake_is_not_gpfs_path(self, path):
-        raise(exception.ProcessExecutionError('invalid gpfs path'))
+        raise(processutils.ProcessExecutionError('invalid gpfs path'))
 
     def _fake_convert_image(self, source, dest, out_format):
         utils.execute('cp', source, dest)
@@ -416,6 +483,9 @@ class GPFSDriverTestCase(test.TestCase):
         data.backing_file = None
         data.virtual_size = 1024 * 1024 * 1024
         return data
+
+    def _fake_qemu_image_resize(self, path, size):
+        pass
 
     def _fake_delete_gpfs_file(self, fchild):
         volume_path = fchild

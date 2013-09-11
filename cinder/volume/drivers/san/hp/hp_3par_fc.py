@@ -18,11 +18,12 @@
 #    under the License.
 #
 """
-Volume driver for HP 3PAR Storage array. This driver requires 3.1.2 firmware
-on the 3PAR array.
+Volume driver for HP 3PAR Storage array.
+This driver requires 3.1.2 MU2 firmware on the 3PAR array, using
+the 2.x version of the hp3parclient.
 
 You will need to install the python hp3parclient.
-sudo pip install hp3parclient
+sudo pip install --upgrade "hp3parclient>=2.0"
 
 Set the following in the cinder.conf file to enable the
 3PAR Fibre Channel Driver along with the required flags:
@@ -40,7 +41,6 @@ import cinder.volume.driver
 from cinder.volume.drivers.san.hp import hp_3par_common as hpcommon
 from cinder.volume.drivers.san import san
 
-VERSION = 1.0
 LOG = logging.getLogger(__name__)
 
 
@@ -48,9 +48,15 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
     """OpenStack Fibre Channel driver to enable 3PAR storage array.
 
     Version history:
-        1.0 - Initial driver
-
+        1.0   - Initial driver
+        1.1   - QoS, extend volume, multiple iscsi ports, remove domain,
+                session changes, faster clone, requires 3.1.2 MU2 firmware,
+                copy volume <--> Image.
+        1.2.0 - Updated the use of the hp3parclient to 2.0.0 and refactored
+                the drivers to use the new APIs.
     """
+
+    VERSION = "1.2.0"
 
     def __init__(self, *args, **kwargs):
         super(HP3PARFCDriver, self).__init__(*args, **kwargs)
@@ -73,6 +79,7 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         self.common.client_login()
         stats = self.common.get_volume_stats(refresh)
         stats['storage_protocol'] = 'FC'
+        stats['driver_version'] = self.VERSION
         backend_name = self.configuration.safe_get('volume_backend_name')
         stats['volume_backend_name'] = backend_name or self.__class__.__name__
         self.common.client_logout()
@@ -115,8 +122,9 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         TODO: support using the size from the user.
         """
         self.common.client_login()
-        self.common.create_volume_from_snapshot(volume, snapshot)
+        metadata = self.common.create_volume_from_snapshot(volume, snapshot)
         self.common.client_logout()
+        return {'metadata': metadata}
 
     @utils.synchronized('3par', external=True)
     def create_snapshot(self, snapshot):
@@ -175,53 +183,64 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         # now that we have a host, create the VLUN
         vlun = self.common.create_vlun(volume, host)
 
-        ports = self.common.get_ports()
+        fc_ports = self.common.get_active_fc_target_ports()
+        wwns = []
+
+        for port in fc_ports:
+            wwns.append(port['portWWN'])
 
         self.common.client_logout()
         info = {'driver_volume_type': 'fibre_channel',
                 'data': {'target_lun': vlun['lun'],
                          'target_discovered': True,
-                         'target_wwn': ports['FC']}}
+                         'target_wwn': wwns}}
         return info
 
     @utils.synchronized('3par', external=True)
     def terminate_connection(self, volume, connector, **kwargs):
         """Driver entry point to unattach a volume from an instance."""
         self.common.client_login()
-        self.common.terminate_connection(volume,
-                                         connector['host'],
-                                         connector['wwpns'])
+        hostname = self.common._safe_hostname(connector['host'])
+        self.common.terminate_connection(volume, hostname,
+                                         wwn=connector['wwpns'])
         self.common.client_logout()
 
-    def _create_3par_fibrechan_host(self, hostname, wwn, domain, persona_id):
+    def _create_3par_fibrechan_host(self, hostname, wwns, domain, persona_id):
         """Create a 3PAR host.
 
         Create a 3PAR host, if there is already a host on the 3par using
         the same wwn but with a different hostname, return the hostname
         used by 3PAR.
         """
-        out = self.common._cli_run('createhost -persona %s -domain %s %s %s'
-                                   % (persona_id, domain,
-                                      hostname, " ".join(wwn)), None)
+        if domain is not None:
+            command = ['createhost', '-persona', persona_id, '-domain', domain,
+                       hostname]
+        else:
+            command = ['createhost', '-persona', persona_id, hostname]
+        for wwn in wwns:
+            command.append(wwn)
+
+        out = self.common._cli_run(command)
         if out and len(out) > 1:
             return self.common.parse_create_host_error(hostname, out)
 
         return hostname
 
     def _modify_3par_fibrechan_host(self, hostname, wwn):
-        # when using -add, you can not send the persona or domain options
-        out = self.common._cli_run('createhost -add %s %s'
-                                   % (hostname, " ".join(wwn)), None)
+        mod_request = {'pathOperation': self.common.client.HOST_EDIT_ADD,
+                       'FCWWNs': wwn}
+
+        self.common.client.modifyHost(hostname, mod_request)
 
     def _create_host(self, volume, connector):
         """Creates or modifies existing 3PAR host."""
         host = None
         hostname = self.common._safe_hostname(connector['host'])
-        cpg = self.common.get_volume_metadata_value(volume, 'CPG')
+        cpg = self.common.get_cpg(volume, allowSnap=True)
         domain = self.common.get_domain(cpg)
         try:
             host = self.common._get_3par_host(hostname)
-            if not host['FCPaths']:
+            if 'FCPaths' not in host or len(host['FCPaths']) < 1:
                 self._modify_3par_fibrechan_host(hostname, connector['wwpns'])
                 host = self.common._get_3par_host(hostname)
         except hpexceptions.HTTPNotFound as ex:
@@ -247,3 +266,6 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
     @utils.synchronized('3par', external=True)
     def remove_export(self, context, volume):
         pass
+
+    def extend_volume(self, volume, new_size):
+        self.common.extend_volume(volume, new_size)

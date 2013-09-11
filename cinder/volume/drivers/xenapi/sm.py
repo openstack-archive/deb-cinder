@@ -58,6 +58,9 @@ CONF.register_opts(xenapi_nfs_opts)
 
 
 class XenAPINFSDriver(driver.VolumeDriver):
+
+    VERSION = "1.0.0"
+
     def __init__(self, *args, **kwargs):
         super(XenAPINFSDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(xenapi_opts)
@@ -250,7 +253,7 @@ class XenAPINFSDriver(driver.VolumeDriver):
             backend_name = self.configuration.safe_get('volume_backend_name')
             data["volume_backend_name"] = backend_name or 'XenAPINFS',
             data['vendor_name'] = 'Open Source',
-            data['driver_version'] = '1.0'
+            data['driver_version'] = self.VERSION
             data['storage_protocol'] = 'xensm'
             data['total_capacity_gb'] = 'unknown'
             data['free_capacity_gb'] = 'unknown'
@@ -258,3 +261,11 @@ class XenAPINFSDriver(driver.VolumeDriver):
             self._stats = data
 
         return self._stats
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume."""
+        raise NotImplementedError()
+
+    def restore_backup(self, context, backup, volume, backup_service):
+        """Restore an existing backup to a new or existing volume."""
+        raise NotImplementedError()

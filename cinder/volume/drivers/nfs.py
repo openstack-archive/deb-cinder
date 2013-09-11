@@ -16,16 +16,19 @@
 #    under the License.
 
 import errno
-import hashlib
 import os
 
 from oslo.config import cfg
 
+from cinder.brick.remotefs import remotefs
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils as putils
 from cinder import units
 from cinder.volume import driver
+
+VERSION = '1.1.0'
 
 LOG = logging.getLogger(__name__)
 
@@ -33,18 +36,11 @@ volume_opts = [
     cfg.StrOpt('nfs_shares_config',
                default='/etc/cinder/nfs_shares',
                help='File with the list of available nfs shares'),
-    cfg.StrOpt('nfs_mount_point_base',
-               default='$state_path/mnt',
-               help='Base dir containing mount points for nfs shares'),
     cfg.BoolOpt('nfs_sparsed_volumes',
                 default=True,
                 help=('Create volumes as sparsed files which take no space.'
                       'If set to False volume is created as regular file.'
                       'In such case volume creation takes a lot of time.')),
-    cfg.StrOpt('nfs_mount_options',
-               default=None,
-               help='Mount options passed to the nfs client. See section '
-                    'of the nfs man page for details'),
     cfg.FloatOpt('nfs_used_ratio',
                  default=0.95,
                  help=('Percent of ACTUAL usage of the underlying volume '
@@ -57,7 +53,6 @@ volume_opts = [
                        'number, the destination will no longer be valid.'))
 ]
 
-VERSION = '1.1'
 
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
@@ -66,24 +61,115 @@ CONF.register_opts(volume_opts)
 class RemoteFsDriver(driver.VolumeDriver):
     """Common base for drivers that work like NFS."""
 
+    VERSION = "0.0.0"
+
     def check_for_setup_error(self):
         """Just to override parent behavior."""
         pass
 
+    def initialize_connection(self, volume, connector):
+        """Allow connection to connector and return connection info.
+
+        :param volume: volume reference
+        :param connector: connector reference
+        """
+        data = {'export': volume['provider_location'],
+                'name': volume['name']}
+        if volume['provider_location'] in self.shares:
+            data['options'] = self.shares[volume['provider_location']]
+        return {
+            'driver_volume_type': self.driver_volume_type,
+            'data': data
+        }
+
     def create_volume(self, volume):
+        """Creates a volume.
+
+        :param volume: volume reference
+        """
+        self._ensure_shares_mounted()
+
+        volume['provider_location'] = self._find_share(volume['size'])
+
+        LOG.info(_('casted to %s') % volume['provider_location'])
+
+        self._do_create_volume(volume)
+
+        return {'provider_location': volume['provider_location']}
+
+    def _do_create_volume(self, volume):
+        """Create a volume on given remote share.
+
+        :param volume: volume reference
+        """
+        volume_path = self.local_path(volume)
+        volume_size = volume['size']
+
+        if getattr(self.configuration,
+                   self.driver_prefix + '_sparsed_volumes'):
+            self._create_sparsed_file(volume_path, volume_size)
+        else:
+            self._create_regular_file(volume_path, volume_size)
+
+        self._set_rw_permissions_for_all(volume_path)
+
+    def _ensure_shares_mounted(self):
+        """Look for remote shares in the flags and tries to mount them
+        locally.
+        """
+        self._mounted_shares = []
+
+        self._load_shares_config(getattr(self.configuration,
+                                         self.driver_prefix +
+                                         '_shares_config'))
+
+        for share in self.shares.keys():
+            try:
+                self._ensure_share_mounted(share)
+                self._mounted_shares.append(share)
+            except Exception as exc:
+                LOG.warning(_('Exception during mounting %s') % (exc,))
+
+        LOG.debug('Available shares %s' % str(self._mounted_shares))
+
+    def create_cloned_volume(self, volume, src_vref):
         raise NotImplementedError()
 
     def delete_volume(self, volume):
-        raise NotImplementedError()
+        """Deletes a logical volume.
+
+        :param volume: volume reference
+        """
+        if not volume['provider_location']:
+            LOG.warn(_('Volume %s does not have provider_location specified, '
+                     'skipping'), volume['name'])
+            return
+
+        self._ensure_share_mounted(volume['provider_location'])
+
+        mounted_path = self.local_path(volume)
+
+        self._execute('rm', '-f', mounted_path, run_as_root=True)
+
+    def ensure_export(self, ctx, volume):
+        """Synchronously recreates an export for a logical volume."""
+        self._ensure_share_mounted(volume['provider_location'])
+
+    def create_export(self, ctx, volume):
+        """Exports the volume. Can optionally return a Dictionary of changes
+        to the volume object to be persisted.
+        """
+        pass
+
+    def remove_export(self, ctx, volume):
+        """Removes an export for a logical volume."""
+        pass
 
     def delete_snapshot(self, snapshot):
         """Do nothing for this driver, but allow manager to handle deletion
            of snapshot in error state.
         """
         pass
-
-    def ensure_export(self, ctx, volume):
-        raise NotImplementedError()
 
     def _create_sparsed_file(self, path, size):
         """Creates file with 0 disk usage."""
@@ -103,6 +189,14 @@ class RemoteFsDriver(driver.VolumeDriver):
                       'count=%d' % block_count,
                       run_as_root=True)
 
+    def _create_qcow2_file(self, path, size_gb):
+        """Creates a QCOW2 file of a given size."""
+
+        self._execute('qemu-img', 'create', '-f', 'qcow2',
+                      '-o', 'preallocation=metadata',
+                      path, str(size_gb * units.GiB),
+                      run_as_root=True)
+
     def _set_rw_permissions_for_all(self, path):
         """Sets 666 permissions for the path."""
         self._execute('chmod', 'ugo+rw', path, run_as_root=True)
@@ -114,12 +208,6 @@ class RemoteFsDriver(driver.VolumeDriver):
         nfs_share = volume['provider_location']
         return os.path.join(self._get_mount_point_for_share(nfs_share),
                             volume['name'])
-
-    def _get_hash_str(self, base_str):
-        """returns string that represents hash of base_str
-        (in a hex format).
-        """
-        return hashlib.md5(base_str).hexdigest()
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
@@ -185,14 +273,98 @@ class RemoteFsDriver(driver.VolumeDriver):
     def _get_mount_point_for_share(self, path):
         raise NotImplementedError()
 
+    def terminate_connection(self, volume, connector, **kwargs):
+        """Disallow connection from connector."""
+        pass
+
+    def get_volume_stats(self, refresh=False):
+        """Get volume stats.
+
+        If 'refresh' is True, update the stats first.
+        """
+        if refresh or not self._stats:
+            self._update_volume_stats()
+
+        return self._stats
+
+    def _update_volume_stats(self):
+        """Retrieve stats info from volume group."""
+
+        data = {}
+        backend_name = self.configuration.safe_get('volume_backend_name')
+        data['volume_backend_name'] = backend_name or self.volume_backend_name
+        data['vendor_name'] = 'Open Source'
+        data['driver_version'] = self.get_version()
+        data['storage_protocol'] = self.driver_volume_type
+
+        self._ensure_shares_mounted()
+
+        global_capacity = 0
+        global_free = 0
+        for share in self._mounted_shares:
+            capacity, free, used = self._get_capacity_info(share)
+            global_capacity += capacity
+            global_free += free
+
+        data['total_capacity_gb'] = global_capacity / float(units.GiB)
+        data['free_capacity_gb'] = global_free / float(units.GiB)
+        data['reserved_percentage'] = 0
+        data['QoS_support'] = False
+        self._stats = data
+
+    def _do_mount(self, cmd, ensure, share):
+        """Finalize mount command.
+
+        :param cmd: command to do the actual mount
+        :param ensure: boolean to allow remounting a share with a warning
+        :param share: description of the share for error reporting
+        """
+        try:
+            self._execute(*cmd, run_as_root=True)
+        except putils.ProcessExecutionError as exc:
+            if ensure and 'already mounted' in exc.stderr:
+                LOG.warn(_("%s is already mounted"), share)
+            else:
+                raise
+
+    def _get_capacity_info(self, nfs_share):
+        raise NotImplementedError()
+
+    def _find_share(self, volume_size_in_gib):
+        raise NotImplementedError()
+
+    def _ensure_share_mounted(self, nfs_share):
+        raise NotImplementedError()
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume."""
+        raise NotImplementedError()
+
+    def restore_backup(self, context, backup, volume, backup_service):
+        """Restore an existing backup to a new or existing volume."""
+        raise NotImplementedError()
+
 
 class NfsDriver(RemoteFsDriver):
     """NFS based cinder driver. Creates file on NFS share for using it
     as block device on hypervisor.
     """
-    def __init__(self, *args, **kwargs):
+
+    driver_volume_type = 'nfs'
+    driver_prefix = 'nfs'
+    volume_backend_name = 'Generic_NFS'
+    VERSION = VERSION
+
+    def __init__(self, execute=putils.execute, *args, **kwargs):
+        self._remotefsclient = None
         super(NfsDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
+        self._remotefsclient = remotefs.RemoteFsClient('nfs', execute)
+
+    def set_execute(self, execute):
+        super(NfsDriver, self).set_execute(execute)
+        if self._remotefsclient:
+            self._remotefsclient.set_execute(execute)
 
     def do_setup(self, context):
         """Any initialization the volume driver does while starting"""
@@ -233,108 +405,14 @@ class NfsDriver(RemoteFsDriver):
             else:
                 raise
 
-    def create_cloned_volume(self, volume, src_vref):
-        raise NotImplementedError()
-
-    def create_volume(self, volume):
-        """Creates a volume"""
-
-        self._ensure_shares_mounted()
-
-        volume['provider_location'] = self._find_share(volume['size'])
-
-        LOG.info(_('casted to %s') % volume['provider_location'])
-
-        self._do_create_volume(volume)
-
-        return {'provider_location': volume['provider_location']}
-
-    def delete_volume(self, volume):
-        """Deletes a logical volume."""
-
-        if not volume['provider_location']:
-            LOG.warn(_('Volume %s does not have provider_location specified, '
-                     'skipping'), volume['name'])
-            return
-
-        self._ensure_share_mounted(volume['provider_location'])
-
-        mounted_path = self.local_path(volume)
-
-        self._execute('rm', '-f', mounted_path, run_as_root=True)
-
-    def ensure_export(self, ctx, volume):
-        """Synchronously recreates an export for a logical volume."""
-        self._ensure_share_mounted(volume['provider_location'])
-
-    def create_export(self, ctx, volume):
-        """Exports the volume. Can optionally return a Dictionary of changes
-        to the volume object to be persisted.
-        """
-        pass
-
-    def remove_export(self, ctx, volume):
-        """Removes an export for a logical volume."""
-        pass
-
-    def initialize_connection(self, volume, connector):
-        """Allow connection to connector and return connection info."""
-        data = {'export': volume['provider_location'],
-                'name': volume['name']}
-        if volume['provider_location'] in self.shares:
-            data['options'] = self.shares[volume['provider_location']]
-        return {
-            'driver_volume_type': 'nfs',
-            'data': data
-        }
-
-    def terminate_connection(self, volume, connector, **kwargs):
-        """Disallow connection from connector."""
-        pass
-
-    def _do_create_volume(self, volume):
-        """Create a volume on given nfs_share.
-        :param volume: volume reference
-        """
-        volume_path = self.local_path(volume)
-        volume_size = volume['size']
-
-        if self.configuration.nfs_sparsed_volumes:
-            self._create_sparsed_file(volume_path, volume_size)
-        else:
-            self._create_regular_file(volume_path, volume_size)
-
-        self._set_rw_permissions_for_all(volume_path)
-
-    def _ensure_shares_mounted(self):
-        """Look for NFS shares in the flags and tries to mount them locally."""
-        self._mounted_shares = []
-
-        self._load_shares_config(self.configuration.nfs_shares_config)
-
-        for share in self.shares.keys():
-            try:
-                self._ensure_share_mounted(share)
-                self._mounted_shares.append(share)
-            except Exception as exc:
-                LOG.warning(_('Exception during mounting %s') % (exc,))
-
-        LOG.debug('Available shares %s' % str(self._mounted_shares))
-
     def _ensure_share_mounted(self, nfs_share):
-        mount_path = self._get_mount_point_for_share(nfs_share)
-        self._mount_nfs(nfs_share, mount_path, ensure=True)
+        mnt_flags = []
+        if self.shares.get(nfs_share) is not None:
+            mnt_flags = self.shares[nfs_share].split()
+        self._remotefsclient.mount(nfs_share, mnt_flags)
 
     def _find_share(self, volume_size_in_gib):
         """Choose NFS share among available ones for given volume size.
-
-        First validation step: ratio of actual space (used_space / total_space)
-        is less than 'nfs_used_ratio'.
-
-        Second validation step: apparent space allocated (differs from actual
-        space used when using sparse files) and compares the apparent available
-        space (total_available * nfs_oversub_ratio) to ensure enough space is
-        available for the new volume.
 
         For instances with more than one share that meets the criteria, the
         share with the least "allocated" space will be selected.
@@ -348,33 +426,11 @@ class NfsDriver(RemoteFsDriver):
         target_share = None
         target_share_reserved = 0
 
-        used_ratio = self.configuration.nfs_used_ratio
-        oversub_ratio = self.configuration.nfs_oversub_ratio
-
-        requested_volume_size = volume_size_in_gib * units.GiB
-
         for nfs_share in self._mounted_shares:
+            if not self._is_share_eligible(nfs_share, volume_size_in_gib):
+                continue
             total_size, total_available, total_allocated = \
                 self._get_capacity_info(nfs_share)
-            apparent_size = max(0, total_size * oversub_ratio)
-            apparent_available = max(0, apparent_size - total_allocated)
-            used = (total_size - total_available) / total_size
-            if used > used_ratio:
-                # NOTE(morganfainberg): We check the used_ratio first since
-                # with oversubscription it is possible to not have the actual
-                # available space but be within our oversubscription limit
-                # therefore allowing this share to still be selected as a valid
-                # target.
-                LOG.debug(_('%s is above nfs_used_ratio'), nfs_share)
-                continue
-            if apparent_available <= requested_volume_size:
-                LOG.debug(_('%s is above nfs_oversub_ratio'), nfs_share)
-                continue
-            if total_allocated / total_size >= oversub_ratio:
-                LOG.debug(_('%s reserved space is above nfs_oversub_ratio'),
-                          nfs_share)
-                continue
-
             if target_share is not None:
                 if target_share_reserved > total_allocated:
                     target_share = nfs_share
@@ -391,17 +447,56 @@ class NfsDriver(RemoteFsDriver):
 
         return target_share
 
+    def _is_share_eligible(self, nfs_share, volume_size_in_gib):
+        """Verifies NFS share is eligible to host volume with given size.
+
+        First validation step: ratio of actual space (used_space / total_space)
+        is less than 'nfs_used_ratio'. Second validation step: apparent space
+        allocated (differs from actual space used when using sparse files)
+        and compares the apparent available
+        space (total_available * nfs_oversub_ratio) to ensure enough space is
+        available for the new volume.
+
+        :param nfs_share: nfs share
+        :param volume_size_in_gib: int size in GB
+        """
+
+        used_ratio = self.configuration.nfs_used_ratio
+        oversub_ratio = self.configuration.nfs_oversub_ratio
+        requested_volume_size = volume_size_in_gib * units.GiB
+
+        total_size, total_available, total_allocated = \
+            self._get_capacity_info(nfs_share)
+        apparent_size = max(0, total_size * oversub_ratio)
+        apparent_available = max(0, apparent_size - total_allocated)
+        used = (total_size - total_available) / total_size
+        if used > used_ratio:
+            # NOTE(morganfainberg): We check the used_ratio first since
+            # with oversubscription it is possible to not have the actual
+            # available space but be within our oversubscription limit
+            # therefore allowing this share to still be selected as a valid
+            # target.
+            LOG.debug(_('%s is above nfs_used_ratio'), nfs_share)
+            return False
+        if apparent_available <= requested_volume_size:
+            LOG.debug(_('%s is above nfs_oversub_ratio'), nfs_share)
+            return False
+        if total_allocated / total_size >= oversub_ratio:
+            LOG.debug(_('%s reserved space is above nfs_oversub_ratio'),
+                      nfs_share)
+            return False
+        return True
+
     def _get_mount_point_for_share(self, nfs_share):
-        """
-        :param nfs_share: example 172.18.194.100:/var/nfs
-        """
-        return os.path.join(self.configuration.nfs_mount_point_base,
-                            self._get_hash_str(nfs_share))
+        """Needed by parent class."""
+        return self._remotefsclient.get_mount_point(nfs_share)
 
     def _get_capacity_info(self, nfs_share):
         """Calculate available space on the NFS share.
+
         :param nfs_share: example 172.18.194.100:/var/nfs
         """
+
         mount_point = self._get_mount_point_for_share(nfs_share)
 
         df, _ = self._execute('stat', '-f', '-c', '%S %b %a', mount_point,
@@ -414,58 +509,3 @@ class NfsDriver(RemoteFsDriver):
                               '*snapshot*', mount_point, run_as_root=True)
         total_allocated = float(du.split()[0])
         return total_size, total_available, total_allocated
-
-    def _mount_nfs(self, nfs_share, mount_path, ensure=False):
-        """Mount NFS share to mount path."""
-        self._execute('mkdir', '-p', mount_path)
-
-        # Construct the NFS mount command.
-        nfs_cmd = ['mount', '-t', 'nfs']
-        if self.configuration.nfs_mount_options is not None:
-            nfs_cmd.extend(['-o', self.configuration.nfs_mount_options])
-        if self.shares.get(nfs_share) is not None:
-            nfs_cmd.extend(self.shares[nfs_share].split())
-        nfs_cmd.extend([nfs_share, mount_path])
-
-        try:
-            self._execute(*nfs_cmd, run_as_root=True)
-        except exception.ProcessExecutionError as exc:
-            if ensure and 'already mounted' in exc.stderr:
-                LOG.warn(_("%s is already mounted"), nfs_share)
-            else:
-                raise
-
-    def get_volume_stats(self, refresh=False):
-        """Get volume status.
-
-        If 'refresh' is True, run update the stats first.
-        """
-        if refresh or not self._stats:
-            self._update_volume_status()
-
-        return self._stats
-
-    def _update_volume_status(self):
-        """Retrieve status info from volume group."""
-
-        data = {}
-        backend_name = self.configuration.safe_get('volume_backend_name')
-        data["volume_backend_name"] = backend_name or 'Generic_NFS'
-        data["vendor_name"] = 'Open Source'
-        data["driver_version"] = VERSION
-        data["storage_protocol"] = 'nfs'
-
-        self._ensure_shares_mounted()
-
-        global_capacity = 0
-        global_free = 0
-        for nfs_share in self._mounted_shares:
-            capacity, free, allocated = self._get_capacity_info(nfs_share)
-            global_capacity += capacity
-            global_free += free
-
-        data['total_capacity_gb'] = global_capacity / float(units.GiB)
-        data['free_capacity_gb'] = global_free / float(units.GiB)
-        data['reserved_percentage'] = 0
-        data['QoS_support'] = False
-        self._stats = data

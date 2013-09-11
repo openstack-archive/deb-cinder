@@ -25,6 +25,7 @@ from cinder.image import image_utils
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume import driver
+from cinder.volume import utils as volutils
 
 
 LOG = logging.getLogger(__name__)
@@ -33,21 +34,18 @@ volume_opts = [
     cfg.ListOpt('available_devices',
                 default=[],
                 help='List of all available devices'),
-    cfg.IntOpt('volume_clear_size',
-               default=0,
-               help='Size in MiB to wipe at start of old volumes. 0 => all'),
-    cfg.StrOpt('volume_clear',
-               default='zero',
-               help='Method used to wipe old volumes (valid options are: '
-                    'none, zero, shred)'),
 ]
+
+CONF = cfg.CONF
+CONF.register_opts(volume_opts)
 
 
 class BlockDeviceDriver(driver.ISCSIDriver):
-    VERSION = '1.0'
+    VERSION = '1.0.0'
 
     def __init__(self, *args, **kwargs):
-        self.tgtadm = iscsi.get_target_admin()
+        root_helper = 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
+        self.tgtadm = iscsi.get_target_admin(root_helper)
 
         super(BlockDeviceDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
@@ -134,7 +132,8 @@ class BlockDeviceDriver(driver.ISCSIDriver):
                 LOG.info(_("Skipping remove_export. No iscsi_target "
                            "provisioned for volume: %s"), volume['id'])
                 return
-            self.tgtadm.remove_iscsi_target(iscsi_target, 0, volume['id'])
+            self.tgtadm.remove_iscsi_target(iscsi_target, 0, volume['id'],
+                                            volume['name'])
             return
         elif not isinstance(self.tgtadm, iscsi.TgtAdm):
             try:
@@ -159,7 +158,8 @@ class BlockDeviceDriver(driver.ISCSIDriver):
             LOG.info(_("Skipping remove_export. No iscsi_target "
                        "is presently exported for volume: %s"), volume['id'])
             return
-        self.tgtadm.remove_iscsi_target(iscsi_target, 0, volume['id'])
+        self.tgtadm.remove_iscsi_target(iscsi_target, 0, volume['id'],
+                                        volume['name'])
 
     def ensure_export(self, context, volume):
         """Synchronously recreates an export for a logical volume.
@@ -274,8 +274,8 @@ class BlockDeviceDriver(driver.ISCSIDriver):
 
         if self.configuration.volume_clear == 'zero':
             if clear_size == 0:
-                return self._copy_volume('/dev/zero', vol_path, size_in_m,
-                                         clearing=True)
+                return volutils.copy_volume('/dev/zero', vol_path, size_in_m,
+                                            sync=True, execute=self._execute)
             else:
                 clear_cmd = ['shred', '-n0', '-z', '-s%dMiB' % clear_size]
         elif self.configuration.volume_clear == 'shred':
@@ -289,27 +289,6 @@ class BlockDeviceDriver(driver.ISCSIDriver):
 
         clear_cmd.append(vol_path)
         self._execute(*clear_cmd, run_as_root=True)
-
-    def _copy_volume(self, srcstr, deststr, size_in_m=None, clearing=False):
-        # Use O_DIRECT to avoid thrashing the system buffer cache
-        extra_flags = ['iflag=direct', 'oflag=direct']
-
-        # Check whether O_DIRECT is supported
-        try:
-            self._execute('dd', 'count=0', 'if=%s' % srcstr, 'of=%s' % deststr,
-                          *extra_flags, run_as_root=True)
-        except exception.ProcessExecutionError:
-            extra_flags = []
-
-        # If the volume is being unprovisioned then
-        # request the data is persisted before returning,
-        # so that it's not discarded from the cache.
-        if clearing and not extra_flags:
-            extra_flags.append('conv=fdatasync')
-            # Perform the copy
-        self._execute('dd', 'if=%s' % srcstr, 'of=%s' % deststr,
-                      'count=%d' % size_in_m, 'bs=1M',
-                      *extra_flags, run_as_root=True)
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
@@ -328,8 +307,9 @@ class BlockDeviceDriver(driver.ISCSIDriver):
     def create_cloned_volume(self, volume, src_vref):
         LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
         device = self.find_appropriate_size_device(src_vref['size'])
-        self._copy_volume(self.local_path(src_vref), device,
-                          self._get_device_size(device) * 2048)
+        volutils.copy_volume(self.local_path(src_vref), device,
+                             self._get_device_size(device) * 2048,
+                             execute=self._execute)
         return {
             'provider_location': self._iscsi_location(None, None, None, None,
                                                       device),
@@ -337,11 +317,11 @@ class BlockDeviceDriver(driver.ISCSIDriver):
 
     def get_volume_stats(self, refresh=False):
         if refresh:
-            self._update_volume_status()
+            self._update_volume_stats()
         return self._stats
 
-    def _update_volume_status(self):
-        """Retrieve status info from volume group."""
+    def _update_volume_stats(self):
+        """Retrieve stats info from volume group."""
         dict_of_devices_sizes = self._devices_sizes()
         used_devices = self._get_used_devices()
         total_size = 0
@@ -351,7 +331,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
                 free_size += size
             total_size += size
 
-        LOG.debug("Updating volume status")
+        LOG.debug("Updating volume stats")
         backend_name = self.configuration.safe_get('volume_backend_name')
         data = {'total_capacity_gb': total_size / 1024,
                 'free_capacity_gb': free_size / 1024,

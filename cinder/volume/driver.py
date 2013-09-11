@@ -21,7 +21,6 @@ Drivers for volumes.
 """
 
 import os
-import socket
 import time
 
 from oslo.config import cfg
@@ -29,8 +28,13 @@ from oslo.config import cfg
 from cinder.brick.initiator import connector as initiator
 from cinder import exception
 from cinder.image import image_utils
+from cinder.openstack.common import excutils
+from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import utils
+from cinder.volume import rpcapi as volume_rpcapi
+from cinder.volume import utils as volume_utils
 
 LOG = logging.getLogger(__name__)
 
@@ -41,39 +45,64 @@ volume_opts = [
     cfg.IntOpt('reserved_percentage',
                default=0,
                help='The percentage of backend capacity is reserved'),
-    cfg.IntOpt('num_iscsi_scan_tries',
-               default=3,
-               help='number of times to rescan iSCSI target to find volume'),
     cfg.IntOpt('iscsi_num_targets',
                default=100,
-               help='Number of iscsi target ids per host'),
+               help='The maximum number of iscsi target ids per host'),
     cfg.StrOpt('iscsi_target_prefix',
                default='iqn.2010-10.org.openstack:',
                help='prefix for iscsi volumes'),
     cfg.StrOpt('iscsi_ip_address',
                default='$my_ip',
-               help='The port that the iSCSI daemon is listening on'),
+               help='The IP address that the iSCSI daemon is listening on'),
     cfg.IntOpt('iscsi_port',
                default=3260,
                help='The port that the iSCSI daemon is listening on'),
+    cfg.IntOpt('num_iser_scan_tries',
+               default=3,
+               help='The maximum number of times to rescan iSER target'
+                    'to find volume'),
+    cfg.IntOpt('iser_num_targets',
+               default=100,
+               help='The maximum number of iser target ids per host'),
+    cfg.StrOpt('iser_target_prefix',
+               default='iqn.2010-10.org.iser.openstack:',
+               help='prefix for iser volumes'),
+    cfg.StrOpt('iser_ip_address',
+               default='$my_ip',
+               help='The IP address that the iSER daemon is listening on'),
+    cfg.IntOpt('iser_port',
+               default=3260,
+               help='The port that the iSER daemon is listening on'),
     cfg.StrOpt('volume_backend_name',
                default=None,
                help='The backend name for a given driver implementation'),
-    cfg.StrOpt('use_multipath_for_image_xfer',
-               default=False,
-               help='Do we attach/detach volumes in cinder using multipath '
-                    'for volume to image and image to volume transfers?'), ]
+    cfg.BoolOpt('use_multipath_for_image_xfer',
+                default=False,
+                help='Do we attach/detach volumes in cinder using multipath '
+                     'for volume to image and image to volume transfers?'),
+    cfg.StrOpt('volume_clear',
+               default='zero',
+               help='Method used to wipe old voumes (valid options are: '
+                    'none, zero, shred)'),
+    cfg.IntOpt('volume_clear_size',
+               default=0,
+               help='Size in MiB to wipe at start of old volumes. 0 => all'), ]
+
 
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
 CONF.import_opt('iscsi_helper', 'cinder.brick.iscsi.iscsi')
+CONF.import_opt('iser_helper', 'cinder.brick.iser.iser')
 
 
 class VolumeDriver(object):
     """Executes commands relating to Volumes."""
+
+    VERSION = "N/A"
+
     def __init__(self, execute=utils.execute, *args, **kwargs):
         # NOTE(vish): db is set by Manager
-        self.db = None
+        self.db = kwargs.get('db')
         self.configuration = kwargs.get('configuration', None)
         if self.configuration:
             self.configuration.append_config_values(volume_opts)
@@ -82,6 +111,10 @@ class VolumeDriver(object):
 
     def set_execute(self, execute):
         self._execute = execute
+
+    def get_version(self):
+        """Get the current version of this driver."""
+        return self.VERSION
 
     def _is_non_recoverable(self, err, non_recoverable_list):
         for item in non_recoverable_list:
@@ -102,7 +135,7 @@ class VolumeDriver(object):
             try:
                 self._execute(*command, **kwargs)
                 return True
-            except exception.ProcessExecutionError as ex:
+            except processutils.ProcessExecutionError as ex:
                 tries = tries + 1
 
                 if tries >= self.configuration.num_shell_tries or\
@@ -167,12 +200,12 @@ class VolumeDriver(object):
         """Disallow connection from connector"""
         raise NotImplementedError()
 
-    def attach_volume(self, context, volume_id, instance_uuid, host_name,
+    def attach_volume(self, context, volume, instance_uuid, host_name,
                       mountpoint):
         """Callback for volume attached to instance or host."""
         pass
 
-    def detach_volume(self, context, volume_id):
+    def detach_volume(self, context, volume):
         """Callback for volume detached."""
         pass
 
@@ -190,51 +223,117 @@ class VolumeDriver(object):
         """Fail if connector doesn't contain all the data needed by driver"""
         pass
 
+    def _copy_volume_data_cleanup(self, context, volume, properties,
+                                  attach_info, remote, force=False):
+        self._detach_volume(attach_info)
+        if remote:
+            rpcapi = volume_rpcapi.VolumeAPI()
+            rpcapi.terminate_connection(context, volume, properties,
+                                        force=force)
+        else:
+            self.terminate_connection(volume, properties, force=False)
+
+    def copy_volume_data(self, context, src_vol, dest_vol, remote=None):
+        """Copy data from src_vol to dest_vol."""
+        LOG.debug(_('copy_data_between_volumes %(src)s -> %(dest)s.')
+                  % {'src': src_vol['name'], 'dest': dest_vol['name']})
+
+        properties = utils.brick_get_connector_properties()
+        dest_remote = True if remote in ['dest', 'both'] else False
+        dest_orig_status = dest_vol['status']
+        try:
+            dest_attach_info = self._attach_volume(context,
+                                                   dest_vol,
+                                                   properties,
+                                                   remote=dest_remote)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                msg = _("Failed to attach volume %(vol)s")
+                LOG.error(msg % {'vol': dest_vol['id']})
+                self.db.volume_update(context, dest_vol['id'],
+                                      {'status': dest_orig_status})
+
+        src_remote = True if remote in ['src', 'both'] else False
+        src_orig_status = src_vol['status']
+        try:
+            src_attach_info = self._attach_volume(context,
+                                                  src_vol,
+                                                  properties,
+                                                  remote=src_remote)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                msg = _("Failed to attach volume %(vol)s")
+                LOG.error(msg % {'vol': src_vol['id']})
+                self.db.volume_update(context, src_vol['id'],
+                                      {'status': src_orig_status})
+                self._copy_volume_data_cleanup(context, dest_vol, properties,
+                                               dest_attach_info, dest_remote,
+                                               force=True)
+
+        try:
+            size_in_mb = int(src_vol['size']) * 1024    # vol size is in GB
+            volume_utils.copy_volume(src_attach_info['device']['path'],
+                                     dest_attach_info['device']['path'],
+                                     size_in_mb)
+            copy_error = False
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                msg = _("Failed to copy volume %(src)s to %(dest)d")
+                LOG.error(msg % {'src': src_vol['id'], 'dest': dest_vol['id']})
+                copy_error = True
+        finally:
+            self._copy_volume_data_cleanup(context, dest_vol, properties,
+                                           dest_attach_info, dest_remote,
+                                           force=copy_error)
+            self._copy_volume_data_cleanup(context, src_vol, properties,
+                                           src_attach_info, src_remote,
+                                           force=copy_error)
+
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
         LOG.debug(_('copy_image_to_volume %s.') % volume['name'])
 
-        properties = initiator.get_connector_properties()
-        connection, device, connector = self._attach_volume(context, volume,
-                                                            properties)
+        properties = utils.brick_get_connector_properties()
+        attach_info = self._attach_volume(context, volume, properties)
 
         try:
             image_utils.fetch_to_raw(context,
                                      image_service,
                                      image_id,
-                                     device['path'])
+                                     attach_info['device']['path'])
         finally:
-            self._detach_volume(connection, device, connector)
+            self._detach_volume(attach_info)
             self.terminate_connection(volume, properties)
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         LOG.debug(_('copy_volume_to_image %s.') % volume['name'])
 
-        properties = initiator.get_connector_properties()
-        connection, device, connector = self._attach_volume(context, volume,
-                                                            properties)
+        properties = utils.brick_get_connector_properties()
+        attach_info = self._attach_volume(context, volume, properties)
 
         try:
             image_utils.upload_volume(context,
                                       image_service,
                                       image_meta,
-                                      device['path'])
+                                      attach_info['device']['path'])
         finally:
-            self._detach_volume(connection, device, connector)
+            self._detach_volume(attach_info)
             self.terminate_connection(volume, properties)
 
-    def _attach_volume(self, context, volume, properties):
+    def _attach_volume(self, context, volume, properties, remote=False):
         """Attach the volume."""
-        host_device = None
-        conn = self.initialize_connection(volume, properties)
+        if remote:
+            rpcapi = volume_rpcapi.VolumeAPI()
+            conn = rpcapi.initialize_connection(context, volume, properties)
+        else:
+            conn = self.initialize_connection(volume, properties)
 
         # Use Brick's code to do attach/detach
         use_multipath = self.configuration.use_multipath_for_image_xfer
         protocol = conn['driver_volume_type']
-        connector = initiator.InitiatorConnector.factory(protocol,
-                                                         use_multipath=
-                                                         use_multipath)
+        connector = utils.brick_get_connector(protocol,
+                                              use_multipath=use_multipath)
         device = connector.connect_volume(conn['data'])
         host_device = device['path']
 
@@ -245,32 +344,72 @@ class VolumeDriver(object):
                                                         "via the path "
                                                         "%(path)s.") %
                                                       {'path': host_device}))
-        return conn, device, connector
+        return {'conn': conn, 'device': device, 'connector': connector}
 
-    def _detach_volume(self, connection, device, connector):
+    def _detach_volume(self, attach_info):
         """Disconnect the volume from the host."""
-        protocol = connection['driver_volume_type']
         # Use Brick's code to do attach/detach
-        connector.disconnect_volume(connection['data'], device)
+        connector = attach_info['connector']
+        connector.disconnect_volume(attach_info['conn']['data'],
+                                    attach_info['device'])
 
-    def clone_image(self, volume, image_location):
+    def clone_image(self, volume, image_location, image_id):
         """Create a volume efficiently from an existing image.
 
         image_location is a string whose format depends on the
         image service backend in use. The driver should use it
         to determine whether cloning is possible.
 
-        Returns a boolean indicating whether cloning occurred
+        image_id is a string which represents id of the image.
+        It can be used by the driver to introspect internal
+        stores or registry to do an efficient image clone.
+
+        Returns a dict of volume properties eg. provider_location,
+        boolean indicating whether cloning occurred
         """
-        return False
+        return None, False
 
     def backup_volume(self, context, backup, backup_service):
         """Create a new backup from an existing volume."""
-        raise NotImplementedError()
+        volume = self.db.volume_get(context, backup['volume_id'])
+
+        LOG.debug(_('Creating a new backup for volume %s.') %
+                  volume['name'])
+
+        root_helper = 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
+        properties = initiator.get_connector_properties(root_helper)
+        attach_info = self._attach_volume(context, volume, properties)
+
+        try:
+            volume_path = attach_info['device']['path']
+            with utils.temporary_chown(volume_path):
+                with fileutils.file_open(volume_path) as volume_file:
+                    backup_service.backup(backup, volume_file)
+
+        finally:
+            self._detach_volume(attach_info)
+            self.terminate_connection(volume, properties)
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
-        raise NotImplementedError()
+        LOG.debug(_('Restoring backup %(backup)s to '
+                    'volume %(volume)s.') %
+                  {'backup': backup['id'],
+                   'volume': volume['name']})
+
+        root_helper = 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
+        properties = initiator.get_connector_properties(root_helper)
+        attach_info = self._attach_volume(context, volume, properties)
+
+        try:
+            volume_path = attach_info['device']['path']
+            with utils.temporary_chown(volume_path):
+                with fileutils.file_open(volume_path, 'wb') as volume_file:
+                    backup_service.restore(backup, volume['id'], volume_file)
+
+        finally:
+            self._detach_volume(attach_info)
+            self.terminate_connection(volume, properties)
 
     def clear_download(self, context, volume):
         """Clean up after an interrupted image copy."""
@@ -279,6 +418,14 @@ class VolumeDriver(object):
     def extend_volume(self, volume, new_size):
         msg = _("Extend volume not implemented")
         raise NotImplementedError(msg)
+
+    def migrate_volume(self, context, volume, host):
+        """Migrate the volume to the specified host.
+
+        Returns a boolean indicating whether the migration occurred, as well as
+        model_update.
+        """
+        return (False, None)
 
 
 class ISCSIDriver(VolumeDriver):
@@ -338,6 +485,9 @@ class ISCSIDriver(VolumeDriver):
             the authentication details. Right now, either auth_method is not
             present meaning no authentication, or auth_method == `CHAP`
             meaning use CHAP with the specified credentials.
+
+        :access_mode:    the volume access mode allow client used
+                         ('rw' or 'ro' currently supported)
         """
 
         properties = {}
@@ -388,6 +538,9 @@ class ISCSIDriver(VolumeDriver):
             properties['physical_block_size'] = physical_block_size
             properties['logical_block_size'] = logical_block_size
 
+        encryption_key_id = volume.get('encryption_key_id', None)
+        properties['encrypted'] = encryption_key_id is not None
+
         return properties
 
     def _run_iscsiadm(self, iscsi_properties, iscsi_command, **kwargs):
@@ -431,6 +584,7 @@ class ISCSIDriver(VolumeDriver):
                     'target_iqn': 'iqn.2010-10.org.openstack:volume-00000001',
                     'target_portal': '127.0.0.0.1:3260',
                     'volume_id': 1,
+                    'access_mode': 'rw'
                 }
             }
 
@@ -466,19 +620,19 @@ class ISCSIDriver(VolumeDriver):
                 return l[l.index('=') + 1:].strip()
 
     def get_volume_stats(self, refresh=False):
-        """Get volume status.
+        """Get volume stats.
 
         If 'refresh' is True, run update the stats first.
         """
         if refresh:
-            self._update_volume_status()
+            self._update_volume_stats()
 
         return self._stats
 
-    def _update_volume_status(self):
-        """Retrieve status info from volume group."""
+    def _update_volume_stats(self):
+        """Retrieve stats info from volume group."""
 
-        LOG.debug(_("Updating volume status"))
+        LOG.debug(_("Updating volume stats"))
         data = {}
         backend_name = self.configuration.safe_get('volume_backend_name')
         data["volume_backend_name"] = backend_name or 'Generic_iSCSI'
@@ -492,7 +646,7 @@ class ISCSIDriver(VolumeDriver):
         data['QoS_support'] = False
         self._stats = data
 
-    def accept_transfer(self, volume):
+    def accept_transfer(self, context, volume, new_user, new_project):
         pass
 
 
@@ -512,7 +666,7 @@ class FakeISCSIDriver(ISCSIDriver):
     def initialize_connection(self, volume, connector):
         return {
             'driver_volume_type': 'iscsi',
-            'data': {}
+            'data': {'access_mode': 'rw'}
         }
 
     def terminate_connection(self, volume, connector, **kwargs):
@@ -522,6 +676,281 @@ class FakeISCSIDriver(ISCSIDriver):
     def fake_execute(cmd, *_args, **_kwargs):
         """Execute that simply logs the command."""
         LOG.debug(_("FAKE ISCSI: %s"), cmd)
+        return (None, None)
+
+
+class ISERDriver(ISCSIDriver):
+    """Executes commands relating to ISER volumes.
+
+    We make use of model provider properties as follows:
+
+    ``provider_location``
+      if present, contains the iSER target information in the same
+      format as an ietadm discovery
+      i.e. '<ip>:<port>,<portal> <target IQN>'
+
+    ``provider_auth``
+      if present, contains a space-separated triple:
+      '<auth method> <auth username> <auth password>'.
+      `CHAP` is the only auth_method in use at the moment.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(ISERDriver, self).__init__(*args, **kwargs)
+
+    def _do_iser_discovery(self, volume):
+        LOG.warn(_("ISER provider_location not stored, using discovery"))
+
+        volume_name = volume['name']
+
+        (out, _err) = self._execute('iscsiadm', '-m', 'discovery',
+                                    '-t', 'sendtargets', '-p', volume['host'],
+                                    run_as_root=True)
+        for target in out.splitlines():
+            if (self.configuration.iser_ip_address in target
+                    and volume_name in target):
+                return target
+        return None
+
+    def _get_iser_properties(self, volume):
+        """Gets iser configuration
+
+        We ideally get saved information in the volume entity, but fall back
+        to discovery if need be. Discovery may be completely removed in future
+        The properties are:
+
+        :target_discovered:    boolean indicating whether discovery was used
+
+        :target_iqn:    the IQN of the iSER target
+
+        :target_portal:    the portal of the iSER target
+
+        :target_lun:    the lun of the iSER target
+
+        :volume_id:    the id of the volume (currently used by xen)
+
+        :auth_method:, :auth_username:, :auth_password:
+
+            the authentication details. Right now, either auth_method is not
+            present meaning no authentication, or auth_method == `CHAP`
+            meaning use CHAP with the specified credentials.
+        """
+
+        properties = {}
+
+        location = volume['provider_location']
+
+        if location:
+            # provider_location is the same format as iSER discovery output
+            properties['target_discovered'] = False
+        else:
+            location = self._do_iser_discovery(volume)
+
+            if not location:
+                msg = (_("Could not find iSER export for volume %s") %
+                        (volume['name']))
+                raise exception.InvalidVolume(reason=msg)
+
+            LOG.debug(_("ISER Discovery: Found %s") % (location))
+            properties['target_discovered'] = True
+
+        results = location.split(" ")
+        properties['target_portal'] = results[0].split(",")[0]
+        properties['target_iqn'] = results[1]
+        try:
+            properties['target_lun'] = int(results[2])
+        except (IndexError, ValueError):
+            if (self.configuration.volume_driver in
+                    ['cinder.volume.drivers.lvm.LVMISERDriver',
+                     'cinder.volume.drivers.lvm.ThinLVMVolumeDriver'] and
+                    self.configuration.iser_helper == 'tgtadm'):
+                properties['target_lun'] = 1
+            else:
+                properties['target_lun'] = 0
+
+        properties['volume_id'] = volume['id']
+
+        auth = volume['provider_auth']
+        if auth:
+            (auth_method, auth_username, auth_secret) = auth.split()
+
+            properties['auth_method'] = auth_method
+            properties['auth_username'] = auth_username
+            properties['auth_password'] = auth_secret
+
+        return properties
+
+    def initialize_connection(self, volume, connector):
+        """Initializes the connection and returns connection info.
+
+        The iser driver returns a driver_volume_type of 'iser'.
+        The format of the driver data is defined in _get_iser_properties.
+        Example return value::
+
+            {
+                'driver_volume_type': 'iser'
+                'data': {
+                    'target_discovered': True,
+                    'target_iqn':
+                    'iqn.2010-10.org.iser.openstack:volume-00000001',
+                    'target_portal': '127.0.0.0.1:3260',
+                    'volume_id': 1,
+                }
+            }
+
+        """
+
+        iser_properties = self._get_iser_properties(volume)
+        return {
+            'driver_volume_type': 'iser',
+            'data': iser_properties
+        }
+
+    def _check_valid_device(self, path):
+        cmd = ('dd', 'if=%(path)s' % {"path": path},
+               'of=/dev/null', 'count=1')
+        out, info = None, None
+        try:
+            out, info = self._execute(*cmd, run_as_root=True)
+        except processutils.ProcessExecutionError as e:
+            LOG.error(_("Failed to access the device on the path "
+                        "%(path)s: %(error)s.") %
+                      {"path": path, "error": e.stderr})
+            return False
+        # If the info is none, the path does not exist.
+        if info is None:
+            return False
+        return True
+
+    def _attach_volume(self, context, volume, connector):
+        """Attach the volume."""
+        iser_properties = None
+        host_device = None
+        init_conn = self.initialize_connection(volume, connector)
+        iser_properties = init_conn['data']
+
+        # code "inspired by" nova/virt/libvirt/volume.py
+        try:
+            self._run_iscsiadm(iser_properties, ())
+        except processutils.ProcessExecutionError as exc:
+            # iscsiadm returns 21 for "No records found" after version 2.0-871
+            if exc.exit_code in [21, 255]:
+                self._run_iscsiadm(iser_properties, ('--op', 'new'))
+            else:
+                raise
+
+        if iser_properties.get('auth_method'):
+            self._iscsiadm_update(iser_properties,
+                                  "node.session.auth.authmethod",
+                                  iser_properties['auth_method'])
+            self._iscsiadm_update(iser_properties,
+                                  "node.session.auth.username",
+                                  iser_properties['auth_username'])
+            self._iscsiadm_update(iser_properties,
+                                  "node.session.auth.password",
+                                  iser_properties['auth_password'])
+
+        host_device = ("/dev/disk/by-path/ip-%s-iser-%s-lun-%s" %
+                       (iser_properties['target_portal'],
+                        iser_properties['target_iqn'],
+                        iser_properties.get('target_lun', 0)))
+
+        out = self._run_iscsiadm_bare(["-m", "session"],
+                                      run_as_root=True,
+                                      check_exit_code=[0, 1, 21])[0] or ""
+
+        portals = [{'portal': p.split(" ")[2], 'iqn': p.split(" ")[3]}
+                   for p in out.splitlines() if p.startswith("iser:")]
+
+        stripped_portal = iser_properties['target_portal'].split(",")[0]
+        length_iqn = [s for s in portals
+                      if stripped_portal ==
+                      s['portal'].split(",")[0] and
+                      s['iqn'] == iser_properties['target_iqn']]
+        if len(portals) == 0 or len(length_iqn) == 0:
+            try:
+                self._run_iscsiadm(iser_properties, ("--login",),
+                                   check_exit_code=[0, 255])
+            except processutils.ProcessExecutionError as err:
+                if err.exit_code in [15]:
+                    self._iscsiadm_update(iser_properties,
+                                          "node.startup",
+                                          "automatic")
+                    return iser_properties, host_device
+                else:
+                    raise
+
+            self._iscsiadm_update(iser_properties,
+                                  "node.startup", "automatic")
+
+            tries = 0
+            while not os.path.exists(host_device):
+                if tries >= self.configuration.num_iser_scan_tries:
+                    raise exception.CinderException(_("iSER device "
+                                                      "not found "
+                                                      "at %s") % (host_device))
+
+                LOG.warn(_("ISER volume not yet found at: %(host_device)s. "
+                           "Will rescan & retry.  Try number: %(tries)s.") %
+                         {'host_device': host_device, 'tries': tries})
+
+                # The rescan isn't documented as being necessary(?),
+                # but it helps
+                self._run_iscsiadm(iser_properties, ("--rescan",))
+
+                tries = tries + 1
+                if not os.path.exists(host_device):
+                    time.sleep(tries ** 2)
+
+            if tries != 0:
+                LOG.debug(_("Found iSER node %(host_device)s "
+                            "(after %(tries)s rescans).") %
+                          {'host_device': host_device,
+                           'tries': tries})
+
+        if not self._check_valid_device(host_device):
+            raise exception.DeviceUnavailable(path=host_device,
+                                              reason=(_("Unable to access "
+                                                        "the backend storage "
+                                                        "via the path "
+                                                        "%(path)s.") %
+                                                      {'path': host_device}))
+        return iser_properties, host_device
+
+    def _update_volume_status(self):
+        """Retrieve status info from volume group."""
+
+        LOG.debug(_("Updating volume status"))
+        data = {}
+        backend_name = self.configuration.safe_get('volume_backend_name')
+        data["volume_backend_name"] = backend_name or 'Generic_iSER'
+        data["vendor_name"] = 'Open Source'
+        data["driver_version"] = '1.0'
+        data["storage_protocol"] = 'iSER'
+
+        data['total_capacity_gb'] = 'infinite'
+        data['free_capacity_gb'] = 'infinite'
+        data['reserved_percentage'] = 100
+        data['QoS_support'] = False
+        self._stats = data
+
+
+class FakeISERDriver(FakeISCSIDriver):
+    """Logs calls instead of executing."""
+    def __init__(self, *args, **kwargs):
+        super(FakeISERDriver, self).__init__(execute=self.fake_execute,
+                                             *args, **kwargs)
+
+    def initialize_connection(self, volume, connector):
+        return {
+            'driver_volume_type': 'iser',
+            'data': {}
+        }
+
+    @staticmethod
+    def fake_execute(cmd, *_args, **_kwargs):
+        """Execute that simply logs the command."""
+        LOG.debug(_("FAKE ISER: %s"), cmd)
         return (None, None)
 
 
@@ -544,6 +973,7 @@ class FibreChannelDriver(VolumeDriver):
                     'target_discovered': True,
                     'target_lun': 1,
                     'target_wwn': '1234567890123',
+                    'access_mode': 'rw'
                 }
             }
 
@@ -555,6 +985,7 @@ class FibreChannelDriver(VolumeDriver):
                     'target_discovered': True,
                     'target_lun': 1,
                     'target_wwn': ['1234567890123', '0987654321321'],
+                    'access_mode': 'rw'
                 }
             }
 

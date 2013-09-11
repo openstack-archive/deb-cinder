@@ -218,14 +218,13 @@ class VolumeTypeExtraSpecsSerializerTest(test.TestCase):
         extra_specs = stub_volume_type_extra_specs()
         text = serializer.serialize(dict(extra_specs=extra_specs))
 
-        print text
         tree = etree.fromstring(text)
 
         self.assertEqual('extra_specs', tree.tag)
         self.assertEqual(len(extra_specs), len(tree))
         seen = set(extra_specs.keys())
         for child in tree:
-            self.assertTrue(child.tag in seen)
+            self.assertIn(child.tag, seen)
             self.assertEqual(extra_specs[child.tag], child.text)
             seen.remove(child.tag)
         self.assertEqual(len(seen), 0)
@@ -236,7 +235,6 @@ class VolumeTypeExtraSpecsSerializerTest(test.TestCase):
         exemplar = dict(key1='value1')
         text = serializer.serialize(exemplar)
 
-        print text
         tree = etree.fromstring(text)
 
         self.assertEqual('key1', tree.tag)

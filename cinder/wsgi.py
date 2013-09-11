@@ -19,6 +19,7 @@
 
 """Utility methods for working with WSGI servers."""
 
+from __future__ import print_function
 
 import errno
 import os
@@ -204,7 +205,8 @@ class Server(object):
                                         backlog=backlog)
         self._server = eventlet.spawn(self._start)
         (self._host, self._port) = self._socket.getsockname()[0:2]
-        LOG.info(_("Started %(name)s on %(_host)s:%(_port)s") % self.__dict__)
+        LOG.info(_("Started %(name)s on %(host)s:%(port)s") %
+                 {'name': self.name, 'host': self.host, 'port': self.port})
 
     @property
     def host(self):
@@ -382,16 +384,16 @@ class Debug(Middleware):
 
     @webob.dec.wsgify(RequestClass=Request)
     def __call__(self, req):
-        print ('*' * 40) + ' REQUEST ENVIRON'
+        print(('*' * 40) + ' REQUEST ENVIRON')
         for key, value in req.environ.items():
-            print key, '=', value
-        print
+            print(key, '=', value)
+        print()
         resp = req.get_response(self.application)
 
-        print ('*' * 40) + ' RESPONSE HEADERS'
+        print(('*' * 40) + ' RESPONSE HEADERS')
         for (key, value) in resp.headers.iteritems():
-            print key, '=', value
-        print
+            print(key, '=', value)
+        print()
 
         resp.app_iter = self.print_generator(resp.app_iter)
 
@@ -400,12 +402,12 @@ class Debug(Middleware):
     @staticmethod
     def print_generator(app_iter):
         """Iterator that prints the contents of a wrapper string."""
-        print ('*' * 40) + ' BODY'
+        print(('*' * 40) + ' BODY')
         for part in app_iter:
             sys.stdout.write(part)
             sys.stdout.flush()
             yield part
-        print
+        print()
 
 
 class Router(object):

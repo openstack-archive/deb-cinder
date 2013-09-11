@@ -21,11 +21,13 @@ Unified driver for NetApp storage systems.
 Supports call to multiple storage systems of different families and protocols.
 """
 
+from oslo.config import cfg
+
 from cinder import exception
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
+from cinder.volume import driver
 from cinder.volume.drivers.netapp.options import netapp_proxy_opts
-from oslo.config import cfg
 
 
 LOG = logging.getLogger(__name__)
@@ -40,18 +42,18 @@ CONF.register_opts(netapp_proxy_opts)
 #No other code modification required.
 netapp_unified_plugin_registry =\
     {'ontap_cluster':
-    {
-        'iscsi':
-        'cinder.volume.drivers.netapp.iscsi.NetAppDirectCmodeISCSIDriver',
-        'nfs': 'cinder.volume.drivers.netapp.nfs.NetAppDirectCmodeNfsDriver'
-    }, 'ontap_7mode':
+     {
+         'iscsi':
+         'cinder.volume.drivers.netapp.iscsi.NetAppDirectCmodeISCSIDriver',
+         'nfs': 'cinder.volume.drivers.netapp.nfs.NetAppDirectCmodeNfsDriver'
+     }, 'ontap_7mode':
         {
             'iscsi':
             'cinder.volume.drivers.netapp.iscsi.NetAppDirect7modeISCSIDriver',
             'nfs':
             'cinder.volume.drivers.netapp.nfs.NetAppDirect7modeNfsDriver'
         },
-    }
+     }
 
 #NOTE(singn): Holds family:protocol information.
 #Protocol represents the default protocol driver option
@@ -110,27 +112,25 @@ class NetAppDriverFactory(object):
                    '%(storage_protocol)s') % fmt)
         storage_family = storage_family.lower()
         family_meta = netapp_unified_plugin_registry.get(storage_family)
-        if not family_meta:
+        if family_meta is None:
             raise exception.InvalidInput(
                 reason=_('Storage family %s is not supported')
                 % storage_family)
-        if not storage_protocol:
+        if storage_protocol is None:
             storage_protocol = netapp_family_default.get(storage_family)
-        if not storage_protocol:
-            msg_fmt = {'storage_family': storage_family}
+            fmt['storage_protocol'] = storage_protocol
+        if storage_protocol is None:
             raise exception.InvalidInput(
                 reason=_('No default storage protocol found'
                          ' for storage family %(storage_family)s')
-                % msg_fmt)
+                % fmt)
         storage_protocol = storage_protocol.lower()
         driver_loc = family_meta.get(storage_protocol)
-        if not driver_loc:
-            msg_fmt = {'storage_protocol': storage_protocol,
-                       'storage_family': storage_family}
+        if driver_loc is None:
             raise exception.InvalidInput(
                 reason=_('Protocol %(storage_protocol)s is not supported'
                          ' for storage family %(storage_family)s')
-                % msg_fmt)
+                % fmt)
         NetAppDriverFactory.check_netapp_driver(driver_loc)
         kwargs = kwargs or {}
         kwargs['netapp_mode'] = 'proxy'
@@ -145,3 +145,37 @@ class NetAppDriverFactory(object):
         if location.find(".netapp.") == -1:
                 raise exception.InvalidInput(
                     reason=_("Only loading netapp drivers supported."))
+
+
+class Deprecated(driver.VolumeDriver):
+    """Deprecated driver for NetApp.
+
+        This driver is used for mapping deprecated
+        drivers to itself in manager. It prevents cinder
+        from getting errored out in case of upgrade scenarios
+        and also suggests further steps.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._log_deprecated_warn()
+
+    def _log_deprecated_warn(self):
+        """Logs appropriate warning and suggestion."""
+
+        link = "https://communities.netapp.com/groups/openstack"
+        msg = _("The configured NetApp driver is deprecated."
+                " Please refer the link to resolve the issue '%s'.")
+        LOG.warn(msg % link)
+
+    def check_for_setup_error(self):
+        pass
+
+    def ensure_export(self, context, volume):
+        pass
+
+    def get_volume_stats(self, refresh=False):
+        """Return the current state of the volume service. If 'refresh' is
+           True, run the update first.
+        """
+        self._log_deprecated_warn()
+        return None

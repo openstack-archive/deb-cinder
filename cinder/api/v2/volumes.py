@@ -16,6 +16,7 @@
 """The volumes api."""
 
 
+import ast
 import webob
 from webob import exc
 
@@ -27,7 +28,7 @@ from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import uuidutils
 from cinder import utils
-from cinder import volume
+from cinder import volume as cinder_volume
 from cinder.volume import volume_types
 
 
@@ -51,6 +52,7 @@ def make_volume(elem):
     elem.set('availability_zone')
     elem.set('created_at')
     elem.set('name')
+    elem.set('bootable')
     elem.set('description')
     elem.set('volume_type')
     elem.set('snapshot_id')
@@ -150,10 +152,51 @@ class VolumeController(wsgi.Controller):
 
     _view_builder_class = volume_views.ViewBuilder
 
+    _visible_admin_metadata_keys = ['readonly', 'attached_mode']
+
     def __init__(self, ext_mgr):
-        self.volume_api = volume.API()
+        self.volume_api = cinder_volume.API()
         self.ext_mgr = ext_mgr
         super(VolumeController, self).__init__()
+
+    def _add_visible_admin_metadata(self, context, volume):
+        if context is None:
+            return
+
+        visible_admin_meta = {}
+
+        volume_tmp = (volume if context.is_admin else
+                      self.volume_api.get(context.elevated(), volume['id']))
+
+        if volume_tmp.get('volume_admin_metadata'):
+            for item in volume_tmp['volume_admin_metadata']:
+                if item['key'] in self._visible_admin_metadata_keys:
+                    visible_admin_meta[item['key']] = item['value']
+        # avoid circular ref when volume is a Volume instance
+        elif (volume_tmp.get('admin_metadata') and
+                isinstance(volume_tmp.get('admin_metadata'), dict)):
+            for key in self._visible_admin_metadata_keys:
+                if key in volume_tmp['admin_metadata'].keys():
+                    visible_admin_meta[key] = volume_tmp['admin_metadata'][key]
+
+        if not visible_admin_meta:
+            return
+
+        # NOTE(zhiyan): update visible administration metadata to
+        # volume metadata, administration metadata will rewrite existing key.
+        if volume.get('volume_metadata'):
+            orig_meta = volume.get('volume_metadata')
+            for item in orig_meta:
+                if item['key'] in visible_admin_meta.keys():
+                    item['value'] = visible_admin_meta.pop(item['key'])
+            for key, value in visible_admin_meta.iteritems():
+                orig_meta.append({'key': key, 'value': value})
+        # avoid circular ref when vol is a Volume instance
+        elif (volume.get('metadata') and
+                isinstance(volume.get('metadata'), dict)):
+            volume['metadata'].update(visible_admin_meta)
+        else:
+            volume['metadata'] = visible_admin_meta
 
     @wsgi.serializers(xml=VolumeTemplate)
     def show(self, req, id):
@@ -163,7 +206,10 @@ class VolumeController(wsgi.Controller):
         try:
             vol = self.volume_api.get(context, id)
         except exception.NotFound:
-            raise exc.HTTPNotFound()
+            msg = _("Volume could not be found")
+            raise exc.HTTPNotFound(explanation=msg)
+
+        self._add_visible_admin_metadata(context, vol)
 
         return self._view_builder.detail(req, vol)
 
@@ -177,10 +223,11 @@ class VolumeController(wsgi.Controller):
             volume = self.volume_api.get(context, id)
             self.volume_api.delete(context, volume)
         except exception.NotFound:
-            raise exc.HTTPNotFound()
+            msg = _("Volume could not be found")
+            raise exc.HTTPNotFound(explanation=msg)
         except exception.VolumeAttached:
-            explanation = 'Volume cannot be deleted while in attached state'
-            raise exc.HTTPBadRequest(explanation=explanation)
+            msg = _("Volume cannot be deleted while in attached state")
+            raise exc.HTTPBadRequest(explanation=msg)
         return webob.Response(status_int=202)
 
     @wsgi.serializers(xml=VolumesTemplate)
@@ -214,8 +261,15 @@ class VolumeController(wsgi.Controller):
             filters['display_name'] = filters['name']
             del filters['name']
 
+        if 'metadata' in filters:
+            filters['metadata'] = ast.literal_eval(filters['metadata'])
+
         volumes = self.volume_api.get_all(context, marker, limit, sort_key,
                                           sort_dir, filters)
+
+        for volume in volumes:
+            self._add_visible_admin_metadata(context, volume)
+
         limited_list = common.limited(volumes, req)
 
         if is_detail:
@@ -245,7 +299,8 @@ class VolumeController(wsgi.Controller):
     def create(self, req, body):
         """Creates a new volume."""
         if not self.is_valid_body(body, 'volume'):
-            raise exc.HTTPBadRequest()
+            msg = _("Missing required element '%s' in request body") % 'volume'
+            raise exc.HTTPBadRequest(explanation=msg)
 
         LOG.debug('Create volume request body: %s', body)
         context = req.environ['cinder.context']
@@ -269,8 +324,8 @@ class VolumeController(wsgi.Controller):
                 kwargs['volume_type'] = volume_types.get_volume_type(
                     context, req_volume_type)
             except exception.VolumeTypeNotFound:
-                explanation = 'Volume type not found.'
-                raise exc.HTTPNotFound(explanation=explanation)
+                msg = _("Volume type not found")
+                raise exc.HTTPNotFound(explanation=msg)
 
         kwargs['metadata'] = volume.get('metadata', None)
 
@@ -316,13 +371,17 @@ class VolumeController(wsgi.Controller):
         # TODO(vish): Instance should be None at db layer instead of
         #             trying to lazy load, but for now we turn it into
         #             a dict to avoid an error.
-        retval = self._view_builder.summary(req, dict(new_volume.iteritems()))
+        new_volume = dict(new_volume.iteritems())
+
+        self._add_visible_admin_metadata(context, new_volume)
+
+        retval = self._view_builder.summary(req, new_volume)
 
         return retval
 
     def _get_volume_filter_options(self):
         """Return volume search options allowed by non-admin."""
-        return ('name', 'status')
+        return ('name', 'status', 'metadata')
 
     @wsgi.serializers(xml=VolumeTemplate)
     def update(self, req, id, body):
@@ -330,10 +389,12 @@ class VolumeController(wsgi.Controller):
         context = req.environ['cinder.context']
 
         if not body:
-            raise exc.HTTPBadRequest()
+            msg = _("Missing request body")
+            raise exc.HTTPBadRequest(explanation=msg)
 
         if 'volume' not in body:
-            raise exc.HTTPBadRequest()
+            msg = _("Missing required element '%s' in request body") % 'volume'
+            raise exc.HTTPBadRequest(explanation=msg)
 
         volume = body['volume']
         update_dict = {}
@@ -362,9 +423,12 @@ class VolumeController(wsgi.Controller):
             volume = self.volume_api.get(context, id)
             self.volume_api.update(context, volume, update_dict)
         except exception.NotFound:
-            raise exc.HTTPNotFound()
+            msg = _("Volume could not be found")
+            raise exc.HTTPNotFound(explanation=msg)
 
         volume.update(update_dict)
+
+        self._add_visible_admin_metadata(context, volume)
 
         return self._view_builder.detail(req, volume)
 

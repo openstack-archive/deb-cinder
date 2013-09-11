@@ -55,6 +55,8 @@ class ScalityDriver(driver.VolumeDriver):
     devices.
     """
 
+    VERSION = '1.0.0'
+
     def _check_prerequisites(self):
         """Sanity checks before attempting to mount SOFS."""
 
@@ -210,7 +212,7 @@ class ScalityDriver(driver.VolumeDriver):
         """Disallow connection from connector."""
         pass
 
-    def detach_volume(self, context, volume_id):
+    def detach_volume(self, context, volume):
         """Callback for volume detached."""
         pass
 
@@ -221,7 +223,7 @@ class ScalityDriver(driver.VolumeDriver):
         """
         stats = {
             'vendor_name': 'Scality',
-            'driver_version': '1.0',
+            'driver_version': self.VERSION,
             'storage_protocol': 'scality',
             'total_capacity_gb': 'infinite',
             'free_capacity_gb': 'infinite',
@@ -246,13 +248,35 @@ class ScalityDriver(driver.VolumeDriver):
                                   image_meta,
                                   self.local_path(volume))
 
-    def clone_image(self, volume, image_location):
+    def clone_image(self, volume, image_location, image_id):
         """Create a volume efficiently from an existing image.
 
         image_location is a string whose format depends on the
         image service backend in use. The driver should use it
         to determine whether cloning is possible.
 
-        Returns a boolean indicating whether cloning occurred
+        image_id is a string which represents id of the image.
+        It can be used by the driver to introspect internal
+        stores or registry to do an efficient image clone.
+
+        Returns a dict of volume properties eg. provider_location,
+        boolean indicating whether cloning occurred
         """
-        return False
+        return None, False
+
+    def create_cloned_volume(self, volume, src_vref):
+        """Creates a clone of the specified volume."""
+        self.create_volume_from_snapshot(volume, src_vref)
+
+    def extend_volume(self, volume, new_size):
+        """Extend an existing volume."""
+        self._create_file(self.local_path(volume),
+                          self._size_bytes(new_size))
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume."""
+        raise NotImplementedError()
+
+    def restore_backup(self, context, backup, volume, backup_service):
+        """Restore an existing backup to a new or existing volume."""
+        raise NotImplementedError()

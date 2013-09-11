@@ -196,7 +196,7 @@ class TemplateElementTest(test.TestCase):
         # Verify that the child was added
         self.assertEqual(len(elem), 1)
         self.assertEqual(elem[0], child)
-        self.assertEqual('child' in elem, True)
+        self.assertIn('child', elem)
         self.assertEqual(elem['child'], child)
 
         # Ensure that multiple children of the same name are rejected
@@ -222,7 +222,7 @@ class TemplateElementTest(test.TestCase):
         self.assertEqual(len(elem), 3)
         for idx in range(len(elem)):
             self.assertEqual(children[idx], elem[idx])
-            self.assertEqual(children[idx].tag in elem, True)
+            self.assertIn(children[idx].tag, elem)
             self.assertEqual(elem[children[idx].tag], children[idx])
 
         # Ensure that multiple children of the same name are rejected
@@ -260,7 +260,7 @@ class TemplateElementTest(test.TestCase):
         children.insert(1, child)
         for idx in range(len(elem)):
             self.assertEqual(children[idx], elem[idx])
-            self.assertEqual(children[idx].tag in elem, True)
+            self.assertIn(children[idx].tag, elem)
             self.assertEqual(elem[children[idx].tag], children[idx])
 
         # Ensure that multiple children of the same name are rejected
@@ -298,7 +298,7 @@ class TemplateElementTest(test.TestCase):
         self.assertEqual(len(elem), 2)
         self.assertEqual(elem[0], children[0])
         self.assertEqual(elem[1], children[2])
-        self.assertEqual('child2' in elem, False)
+        self.assertNotIn('child2', elem)
 
         # Ensure the child cannot be retrieved by name
         def get_key(elem, key):
@@ -626,6 +626,35 @@ class TemplateTest(test.TestCase):
         self.assertEqual(result[idx].get('id'),
                          str(obj['test']['image']['id']))
         self.assertEqual(result[idx].text, obj['test']['image']['name'])
+
+    def test_serialize_with_delimiter(self):
+        # Our test object to serialize
+        obj = {'test': {'scope0:key1': 'Value1',
+                        'scope0:scope1:key2': 'Value2',
+                        'scope0:scope1:scope2:key3': 'Value3'
+                        }}
+
+        # Set up our master template
+        root = xmlutil.TemplateElement('test', selector='test')
+        key1 = xmlutil.SubTemplateElement(root, 'scope0:key1',
+                                          selector='scope0:key1')
+        key1.text = xmlutil.Selector()
+        key2 = xmlutil.SubTemplateElement(root, 'scope0:scope1:key2',
+                                          selector='scope0:scope1:key2')
+        key2.text = xmlutil.Selector()
+        key3 = xmlutil.SubTemplateElement(root, 'scope0:scope1:scope2:key3',
+                                          selector='scope0:scope1:scope2:key3')
+        key3.text = xmlutil.Selector()
+        serializer = xmlutil.MasterTemplate(root, 1)
+        xml_list = []
+        xml_list.append("<?xmlversion='1.0'encoding='UTF-8'?><test>")
+        xml_list.append("<scope0><key1>Value1</key1><scope1>")
+        xml_list.append("<key2>Value2</key2><scope2><key3>Value3</key3>")
+        xml_list.append("</scope2></scope1></scope0></test>")
+        expected_xml = ''.join(xml_list)
+        result = serializer.serialize(obj)
+        result = result.replace('\n', '').replace(' ', '')
+        self.assertEqual(result, expected_xml)
 
 
 class MasterTemplateBuilder(xmlutil.TemplateBuilder):

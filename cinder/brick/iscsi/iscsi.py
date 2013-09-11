@@ -20,17 +20,19 @@ Helper code for the iSCSI volume driver.
 
 """
 
-
+import contextlib
 import os
 import re
+import stat
 
 from oslo.config import cfg
 
-from cinder import exception
+from cinder.brick import exception
+from cinder.brick import executor
 from cinder.openstack.common import fileutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder import utils
-from cinder.volume import utils as volume_utils
+from cinder.openstack.common import processutils as putils
 
 
 LOG = logging.getLogger(__name__)
@@ -63,32 +65,27 @@ iscsi_helper_opt = [cfg.StrOpt('iscsi_helper',
 
 CONF = cfg.CONF
 CONF.register_opts(iscsi_helper_opt)
-CONF.import_opt('volume_name_template', 'cinder.db')
 
 
-class TargetAdmin(object):
+class TargetAdmin(executor.Executor):
     """iSCSI target administration.
 
     Base class for iSCSI target admin helpers.
     """
 
-    def __init__(self, cmd, execute):
+    def __init__(self, cmd, root_helper, execute):
+        super(TargetAdmin, self).__init__(root_helper, execute=execute)
         self._cmd = cmd
-        self.set_execute(execute)
-
-    def set_execute(self, execute):
-        """Set the function to be used to execute commands."""
-        self._execute = execute
 
     def _run(self, *args, **kwargs):
         self._execute(self._cmd, *args, run_as_root=True, **kwargs)
 
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
-        """Create a iSCSI target and logical unit"""
+        """Create a iSCSI target and logical unit."""
         raise NotImplementedError()
 
-    def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
+    def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
         """Remove a iSCSI target and logical unit"""
         raise NotImplementedError()
 
@@ -116,8 +113,8 @@ class TargetAdmin(object):
 class TgtAdm(TargetAdmin):
     """iSCSI target administration using tgtadm."""
 
-    def __init__(self, execute=utils.execute):
-        super(TgtAdm, self).__init__('tgtadm', execute)
+    def __init__(self, root_helper, execute=putils.execute):
+        super(TgtAdm, self).__init__('tgtadm', root_helper, execute)
 
     def _get_target(self, iqn):
         (out, err) = self._execute('tgt-admin', '--show', run_as_root=True)
@@ -170,7 +167,7 @@ class TgtAdm(TargetAdmin):
                                        '--update',
                                        name,
                                        run_as_root=True)
-        except exception.ProcessExecutionError as e:
+        except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to create iscsi target for volume "
                         "id:%(vol_id)s: %(e)s")
                       % {'vol_id': vol_id, 'e': str(e)})
@@ -195,9 +192,9 @@ class TgtAdm(TargetAdmin):
 
         return tid
 
-    def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
+    def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
         LOG.info(_('Removing iscsi_target for: %s') % vol_id)
-        vol_uuid_file = CONF.volume_name_template % vol_id
+        vol_uuid_file = vol_name
         volume_path = os.path.join(CONF.volumes_dir, vol_uuid_file)
         if os.path.isfile(volume_path):
             iqn = '%s%s' % (CONF.iscsi_target_prefix,
@@ -212,7 +209,7 @@ class TgtAdm(TargetAdmin):
                           '--delete',
                           iqn,
                           run_as_root=True)
-        except exception.ProcessExecutionError as e:
+        except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to remove iscsi target for volume "
                         "id:%(vol_id)s: %(e)s")
                       % {'vol_id': vol_id, 'e': str(e)})
@@ -233,14 +230,38 @@ class TgtAdm(TargetAdmin):
 class IetAdm(TargetAdmin):
     """iSCSI target administration using ietadm."""
 
-    def __init__(self, execute=utils.execute):
-        super(IetAdm, self).__init__('ietadm', execute)
+    def __init__(self, root_helper, execute=putils.execute):
+        super(IetAdm, self).__init__('ietadm', root_helper, execute)
+
+    def _is_block(self, path):
+        mode = os.stat(path).st_mode
+        return stat.S_ISBLK(mode)
 
     def _iotype(self, path):
         if CONF.iscsi_iotype == 'auto':
-            return 'blockio' if volume_utils.is_block(path) else 'fileio'
+            return 'blockio' if self._is_block(path) else 'fileio'
         else:
             return CONF.iscsi_iotype
+
+    @contextlib.contextmanager
+    def temporary_chown(self, path, owner_uid=None):
+        """Temporarily chown a path.
+
+        :params path: The path to chown
+        :params owner_uid: UID of temporary owner (defaults to current user)
+        """
+        if owner_uid is None:
+            owner_uid = os.getuid()
+
+        orig_uid = os.stat(path).st_uid
+
+        if orig_uid != owner_uid:
+            putils.execute('chown', owner_uid, path, run_as_root=True)
+        try:
+            yield
+        finally:
+            if orig_uid != owner_uid:
+                putils.execute('chown', orig_uid, path, run_as_root=True)
 
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
@@ -263,11 +284,11 @@ class IetAdm(TargetAdmin):
                             Lun 0 Path=%s,Type=%s
                 """ % (name, chap_auth, path, self._iotype(path))
 
-                with utils.temporary_chown(conf_file):
+                with self.temporary_chown(conf_file):
                     f = open(conf_file, 'a+')
                     f.write(volume_conf)
                     f.close()
-            except exception.ProcessExecutionError as e:
+            except putils.ProcessExecutionError as e:
                 vol_id = name.split(':')[1]
                 LOG.error(_("Failed to create iscsi target for volume "
                             "id:%(vol_id)s: %(e)s")
@@ -275,14 +296,14 @@ class IetAdm(TargetAdmin):
                 raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
         return tid
 
-    def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
+    def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
         LOG.info(_('Removing iscsi_target for volume: %s') % vol_id)
         self._delete_logicalunit(tid, lun, **kwargs)
         self._delete_target(tid, **kwargs)
-        vol_uuid_file = CONF.volume_name_template % vol_id
+        vol_uuid_file = vol_name
         conf_file = CONF.iet_conf
         if os.path.exists(conf_file):
-            with utils.temporary_chown(conf_file):
+            with self.temporary_chown(conf_file):
                 try:
                     iet_conf_text = open(conf_file, 'r+')
                     full_txt = iet_conf_text.readlines()
@@ -356,12 +377,12 @@ class FakeIscsiHelper(object):
 
 class LioAdm(TargetAdmin):
     """iSCSI target administration for LIO using python-rtslib."""
-    def __init__(self, execute=utils.execute):
-        super(LioAdm, self).__init__('rtstool', execute)
+    def __init__(self, root_helper, execute=putils.execute):
+        super(LioAdm, self).__init__('rtstool', root_helper, execute)
 
         try:
             self._execute('rtstool', 'verify')
-        except (OSError, exception.ProcessExecutionError):
+        except (OSError, putils.ProcessExecutionError):
             LOG.error(_('rtstool is not installed correctly'))
             raise
 
@@ -402,10 +423,10 @@ class LioAdm(TargetAdmin):
                             name,
                             chap_auth_userid,
                             chap_auth_password]
-            if extra_args != []:
-                command_args += extra_args
+            if extra_args:
+                command_args.extend(extra_args)
             self._execute(*command_args, run_as_root=True)
-        except exception.ProcessExecutionError as e:
+        except putils.ProcessExecutionError as e:
                 LOG.error(_("Failed to create iscsi target for volume "
                             "id:%s.") % vol_id)
                 LOG.error("%s" % str(e))
@@ -421,9 +442,9 @@ class LioAdm(TargetAdmin):
 
         return tid
 
-    def remove_iscsi_target(self, tid, lun, vol_id, **kwargs):
+    def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
         LOG.info(_('Removing iscsi_target: %s') % vol_id)
-        vol_uuid_name = 'volume-%s' % vol_id
+        vol_uuid_name = vol_name
         iqn = '%s%s' % (CONF.iscsi_target_prefix, vol_uuid_name)
 
         try:
@@ -431,7 +452,7 @@ class LioAdm(TargetAdmin):
                           'delete',
                           iqn,
                           run_as_root=True)
-        except exception.ProcessExecutionError as e:
+        except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to remove iscsi target for volume "
                         "id:%s.") % vol_id)
             LOG.error("%s" % str(e))
@@ -460,18 +481,18 @@ class LioAdm(TargetAdmin):
                           auth_pass,
                           connector['initiator'],
                           run_as_root=True)
-        except exception.ProcessExecutionError as e:
+        except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to add initiator iqn %s to target") %
                       connector['initiator'])
             raise exception.ISCSITargetAttachFailed(volume_id=volume['id'])
 
 
-def get_target_admin():
+def get_target_admin(root_helper):
     if CONF.iscsi_helper == 'tgtadm':
-        return TgtAdm()
+        return TgtAdm(root_helper)
     elif CONF.iscsi_helper == 'fake':
         return FakeIscsiHelper()
     elif CONF.iscsi_helper == 'lioadm':
-        return LioAdm()
+        return LioAdm(root_helper)
     else:
-        return IetAdm()
+        return IetAdm(root_helper)

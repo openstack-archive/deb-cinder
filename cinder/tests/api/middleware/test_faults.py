@@ -17,12 +17,12 @@
 
 from xml.dom import minidom
 
-import webob
 import webob.dec
 import webob.exc
 
 from cinder.api import common
 from cinder.api.openstack import wsgi
+from cinder.openstack.common import gettextutils
 from cinder.openstack.common import jsonutils
 from cinder import test
 
@@ -94,7 +94,7 @@ class TestFaults(test.TestCase):
         resp = req.get_response(raiser)
         self.assertEqual(resp.content_type, "application/xml")
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('whut?' in resp.body)
+        self.assertIn('whut?', resp.body)
 
     def test_raise_403(self):
         """Ensure the ability to raise :class:`Fault` in WSGI-ified methods."""
@@ -106,8 +106,29 @@ class TestFaults(test.TestCase):
         resp = req.get_response(raiser)
         self.assertEqual(resp.content_type, "application/xml")
         self.assertEqual(resp.status_int, 403)
-        self.assertTrue('resizeNotAllowed' not in resp.body)
-        self.assertTrue('forbidden' in resp.body)
+        self.assertNotIn('resizeNotAllowed', resp.body)
+        self.assertIn('forbidden', resp.body)
+
+    def test_raise_localized_explanation(self):
+        params = ('blah', )
+        expl = gettextutils.Message("String with params: %s" % params, 'test')
+
+        def _mock_translation(msg, locale):
+            return "Mensaje traducido"
+
+        self.stubs.Set(gettextutils,
+                       "get_localized_message", _mock_translation)
+
+        @webob.dec.wsgify
+        def raiser(req):
+            raise wsgi.Fault(webob.exc.HTTPNotFound(explanation=expl))
+
+        req = webob.Request.blank('/.xml')
+        resp = req.get_response(raiser)
+        self.assertEqual(resp.content_type, "application/xml")
+        self.assertEqual(resp.status_int, 404)
+        self.assertIn(("Mensaje traducido"), resp.body)
+        self.stubs.UnsetAll()
 
     def test_fault_has_status_int(self):
         """Ensure the status_int is set correctly on faults"""
@@ -122,7 +143,7 @@ class TestFaults(test.TestCase):
         fault = wsgi.Fault(webob.exc.HTTPBadRequest(explanation='scram'))
         response = request.get_response(fault)
 
-        self.assertTrue(common.XML_NS_V1 in response.body)
+        self.assertIn(common.XML_NS_V1, response.body)
         self.assertEqual(response.content_type, "application/xml")
         self.assertEqual(response.status_int, 400)
 

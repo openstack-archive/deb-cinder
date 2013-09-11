@@ -22,6 +22,7 @@ import tempfile
 
 from cinder import exception
 from cinder.image import image_utils
+from cinder.openstack.common import processutils
 from cinder import test
 from cinder import units
 from cinder.volume.drivers.sheepdog import SheepdogDriver
@@ -68,7 +69,7 @@ class SheepdogTestCase(test.TestCase):
         expected = dict(
             volume_backend_name='sheepdog',
             vendor_name='Open Source',
-            dirver_version='1.0',
+            dirver_version=self.driver.VERSION,
             storage_protocol='sheepdog',
             total_capacity_gb=float(107287605248) / (1024 ** 3),
             free_capacity_gb=float(107287605248 - 3623897354) / (1024 ** 3),
@@ -79,12 +80,12 @@ class SheepdogTestCase(test.TestCase):
 
     def test_update_volume_stats_error(self):
         def fake_stats(*args):
-            raise exception.ProcessExecutionError()
+            raise processutils.ProcessExecutionError()
         self.stubs.Set(self.driver, '_execute', fake_stats)
         expected = dict(
             volume_backend_name='sheepdog',
             vendor_name='Open Source',
-            dirver_version='1.0',
+            dirver_version=self.driver.VERSION,
             storage_protocol='sheepdog',
             total_capacity_gb='unknown',
             free_capacity_gb='unknown',

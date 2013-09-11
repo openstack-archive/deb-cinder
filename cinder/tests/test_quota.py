@@ -415,35 +415,6 @@ class QuotaEngineTestCase(test.TestCase):
                               test_resource2=resources[1],
                               test_resource3=resources[2], ))
 
-    def test_sync_predeclared(self):
-        quota_obj = quota.QuotaEngine()
-
-        def spam(*args, **kwargs):
-            pass
-
-        resource = quota.ReservableResource('test_resource', spam)
-        quota_obj.register_resource(resource)
-
-        self.assertEqual(resource.sync, spam)
-
-    def test_sync_multi(self):
-        quota_obj = quota.QuotaEngine()
-
-        def spam(*args, **kwargs):
-            pass
-
-        resources = [
-            quota.ReservableResource('test_resource1', spam),
-            quota.ReservableResource('test_resource2', spam),
-            quota.ReservableResource('test_resource3', spam),
-            quota.ReservableResource('test_resource4', spam), ]
-        quota_obj.register_resources(resources[:2])
-
-        self.assertEqual(resources[0].sync, spam)
-        self.assertEqual(resources[1].sync, spam)
-        self.assertEqual(resources[2].sync, spam)
-        self.assertEqual(resources[3].sync, spam)
-
     def test_get_by_project(self):
         context = FakeContext('test_project', 'test_class')
         driver = FakeDriver(
@@ -709,6 +680,10 @@ class QuotaEngineTestCase(test.TestCase):
 
 class VolumeTypeQuotaEngineTestCase(test.TestCase):
     def test_default_resources(self):
+        def fake_vtga(context, inactive=False, filters=None):
+            return {}
+        self.stubs.Set(db, 'volume_type_get_all', fake_vtga)
+
         engine = quota.VolumeTypeQuotaEngine()
         self.assertEqual(engine.resource_names,
                          ['gigabytes', 'snapshots', 'volumes'])
@@ -717,6 +692,22 @@ class VolumeTypeQuotaEngineTestCase(test.TestCase):
         ctx = context.RequestContext('admin', 'admin', is_admin=True)
         vtype = db.volume_type_create(ctx, {'name': 'type1'})
         vtype2 = db.volume_type_create(ctx, {'name': 'type_2'})
+
+        def fake_vtga(context, inactive=False, filters=None):
+            return {
+                'type1': {
+                    'id': vtype['id'],
+                    'name': 'type1',
+                    'extra_specs': {},
+                },
+                'type_2': {
+                    'id': vtype['id'],
+                    'name': 'type_2',
+                    'extra_specs': {},
+                },
+            }
+        self.stubs.Set(db, 'volume_type_get_all', fake_vtga)
+
         engine = quota.VolumeTypeQuotaEngine()
         self.assertEqual(engine.resource_names,
                          ['gigabytes', 'gigabytes_type1', 'gigabytes_type_2',
@@ -751,6 +742,7 @@ class DbQuotaDriverTestCase(test.TestCase):
     def test_get_defaults(self):
         # Use our pre-defined resources
         self._stub_quota_class_get_default()
+        self._stub_volume_type_get_all()
         result = self.driver.get_defaults(None, quota.QUOTAS.resources)
 
         self.assertEqual(
@@ -769,6 +761,11 @@ class DbQuotaDriverTestCase(test.TestCase):
                         gigabytes=1000,)
         self.stubs.Set(db, 'quota_class_get_default', fake_qcgd)
 
+    def _stub_volume_type_get_all(self):
+        def fake_vtga(context, inactive=False, filters=None):
+            return {}
+        self.stubs.Set(db, 'volume_type_get_all', fake_vtga)
+
     def _stub_quota_class_get_all_by_name(self):
         # Stub out quota_class_get_all_by_name
         def fake_qcgabn(context, quota_class):
@@ -779,6 +776,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_class_quotas(self):
         self._stub_quota_class_get_all_by_name()
+        self._stub_volume_type_get_all()
         result = self.driver.get_class_quotas(None, quota.QUOTAS.resources,
                                               'test_class')
 
@@ -818,6 +816,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_project_quotas(self):
         self._stub_get_by_project()
+        self._stub_volume_type_get_all()
         result = self.driver.get_project_quotas(
             FakeContext('test_project', 'test_class'),
             quota.QUOTAS.resources, 'test_project')
@@ -838,6 +837,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_project_quotas_alt_context_no_class(self):
         self._stub_get_by_project()
+        self._stub_volume_type_get_all()
         result = self.driver.get_project_quotas(
             FakeContext('other_project', 'other_class'),
             quota.QUOTAS.resources, 'test_project')
@@ -857,6 +857,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_project_quotas_alt_context_with_class(self):
         self._stub_get_by_project()
+        self._stub_volume_type_get_all()
         result = self.driver.get_project_quotas(
             FakeContext('other_project', 'other_class'),
             quota.QUOTAS.resources, 'test_project', quota_class='test_class')
@@ -877,6 +878,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_project_quotas_no_defaults(self):
         self._stub_get_by_project()
+        self._stub_volume_type_get_all()
         result = self.driver.get_project_quotas(
             FakeContext('test_project', 'test_class'),
             quota.QUOTAS.resources, 'test_project', defaults=False)
@@ -898,6 +900,7 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_project_quotas_no_usages(self):
         self._stub_get_by_project()
+        self._stub_volume_type_get_all()
         result = self.driver.get_project_quotas(
             FakeContext('test_project', 'test_class'),
             quota.QUOTAS.resources, 'test_project', usages=False)
@@ -1099,7 +1102,8 @@ class QuotaReserveSqlAlchemyTestCase(test.TestCase):
         self.sync_called = set()
 
         def make_sync(res_name):
-            def sync(context, project_id, session):
+            def fake_sync(context, project_id, volume_type_id=None,
+                          volume_type_name=None, session=None):
                 self.sync_called.add(res_name)
                 if res_name in self.usages:
                     if self.usages[res_name].in_use < 0:
@@ -1107,13 +1111,16 @@ class QuotaReserveSqlAlchemyTestCase(test.TestCase):
                     else:
                         return {res_name: self.usages[res_name].in_use - 1}
                 return {res_name: 0}
-            return sync
+            return fake_sync
 
         self.resources = {}
+        QUOTA_SYNC_FUNCTIONS = {}
         for res_name in ('volumes', 'gigabytes'):
-            res = quota.ReservableResource(res_name, make_sync(res_name))
+            res = quota.ReservableResource(res_name, '_sync_%s' % res_name)
+            QUOTA_SYNC_FUNCTIONS['_sync_%s' % res_name] = make_sync(res_name)
             self.resources[res_name] = res
 
+        self.stubs.Set(sqa_api, 'QUOTA_SYNC_FUNCTIONS', QUOTA_SYNC_FUNCTIONS)
         self.expire = timeutils.utcnow() + datetime.timedelta(seconds=3600)
 
         self.usages = {}

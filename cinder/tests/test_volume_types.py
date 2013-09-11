@@ -27,6 +27,7 @@ from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.tests import conf_fixture
+from cinder.volume import qos_specs
 from cinder.volume import volume_types
 
 
@@ -145,7 +146,7 @@ class VolumeTypeTestCase(test.TestCase):
             search_opts={'extra_specs': {"key1": "val1"}})
         LOG.info("vol_types: %s" % vol_types)
         self.assertEqual(len(vol_types), 1)
-        self.assertTrue("type1" in vol_types.keys())
+        self.assertIn("type1", vol_types.keys())
         self.assertEqual(vol_types['type1']['extra_specs'],
                          {"key1": "val1", "key2": "val2"})
 
@@ -154,15 +155,15 @@ class VolumeTypeTestCase(test.TestCase):
             search_opts={'extra_specs': {"key2": "val2"}})
         LOG.info("vol_types: %s" % vol_types)
         self.assertEqual(len(vol_types), 2)
-        self.assertTrue("type1" in vol_types.keys())
-        self.assertTrue("type2" in vol_types.keys())
+        self.assertIn("type1", vol_types.keys())
+        self.assertIn("type2", vol_types.keys())
 
         vol_types = volume_types.get_all_types(
             self.ctxt,
             search_opts={'extra_specs': {"key3": "val3"}})
         LOG.info("vol_types: %s" % vol_types)
         self.assertEqual(len(vol_types), 1)
-        self.assertTrue("type2" in vol_types.keys())
+        self.assertIn("type2", vol_types.keys())
 
     def test_volume_type_search_by_extra_spec_multiple(self):
         """Ensure volume types get by extra spec returns correct type."""
@@ -181,9 +182,42 @@ class VolumeTypeTestCase(test.TestCase):
                                          "key3": "val3"}})
         LOG.info("vol_types: %s" % vol_types)
         self.assertEqual(len(vol_types), 2)
-        self.assertTrue("type1" in vol_types.keys())
-        self.assertTrue("type3" in vol_types.keys())
+        self.assertIn("type1", vol_types.keys())
+        self.assertIn("type3", vol_types.keys())
         self.assertEqual(vol_types['type1']['extra_specs'],
                          {"key1": "val1", "key2": "val2", "key3": "val3"})
         self.assertEqual(vol_types['type3']['extra_specs'],
                          {"key1": "val1", "key3": "val3", "key4": "val4"})
+
+    def test_is_encrypted(self):
+        volume_type = volume_types.create(self.ctxt, "type1")
+        volume_type_id = volume_type.get('id')
+        self.assertFalse(volume_types.is_encrypted(self.ctxt, volume_type_id))
+
+        encryption = {
+            'control_location': 'front-end',
+            'provider': 'fake_provider',
+        }
+        db_api.volume_type_encryption_update_or_create(self.ctxt,
+                                                       volume_type_id,
+                                                       encryption)
+        self.assertTrue(volume_types.is_encrypted(self.ctxt, volume_type_id))
+
+    def test_get_volume_type_qos_specs(self):
+        qos_ref = qos_specs.create(self.ctxt, 'qos-specs-1', {'k1': 'v1',
+                                                              'k2': 'v2',
+                                                              'k3': 'v3'})
+        type_ref = volume_types.create(self.ctxt, "type1", {"key2": "val2",
+                                                  "key3": "val3"})
+        res = volume_types.get_volume_type_qos_specs(type_ref['id'])
+        self.assertEquals(res['qos_specs'], {})
+        qos_specs.associate_qos_with_type(self.ctxt,
+                                          qos_ref['id'],
+                                          type_ref['id'])
+
+        expected = {'qos_specs': {'consumer': 'back-end',
+                                  'k1': 'v1',
+                                  'k2': 'v2',
+                                  'k3': 'v3'}}
+        res = volume_types.get_volume_type_qos_specs(type_ref['id'])
+        self.assertDictMatch(expected, res)

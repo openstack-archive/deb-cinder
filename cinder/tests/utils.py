@@ -18,15 +18,52 @@
 
 import os
 
-import cinder.context
+from cinder import context
+from cinder import db
 
 
 def get_test_admin_context():
-    return cinder.context.get_admin_context()
+    return context.get_admin_context()
 
 
-def is_cinder_installed():
-    if os.path.exists('../../cinder.cinder.egg-info'):
-        return True
-    else:
-        return False
+def create_volume(ctxt,
+                  host='test_host',
+                  display_name='test_volume',
+                  display_description='this is a test volume',
+                  status='available',
+                  migration_status=None,
+                  size=1,
+                  availability_zone='fake_az',
+                  **kwargs):
+    """Create a volume object in the DB."""
+    vol = {}
+    vol['size'] = size
+    vol['host'] = host
+    vol['user_id'] = ctxt.user_id
+    vol['project_id'] = ctxt.project_id
+    vol['status'] = status
+    vol['migration_status'] = migration_status
+    vol['display_name'] = display_name
+    vol['display_description'] = display_description
+    vol['attach_status'] = 'detached'
+    vol['availability_zone'] = availability_zone
+    for key in kwargs:
+        vol[key] = kwargs[key]
+    return db.volume_create(ctxt, vol)
+
+
+def create_snapshot(ctxt,
+                    volume_id,
+                    display_name='test_snapshot',
+                    display_description='this is a test snapshot',
+                    status='creating'):
+    vol = db.volume_get(ctxt, volume_id)
+    snap = {}
+    snap['volume_id'] = volume_id
+    snap['user_id'] = ctxt.user_id
+    snap['project_id'] = ctxt.project_id
+    snap['status'] = status
+    snap['volume_size'] = vol['size']
+    snap['display_name'] = display_name
+    snap['display_description'] = display_description
+    return db.snapshot_create(ctxt, snap)

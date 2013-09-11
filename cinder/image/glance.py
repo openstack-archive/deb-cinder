@@ -1,6 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2010 OpenStack LLC.
+# Copyright 2013 NTT corp.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -23,11 +24,11 @@ from __future__ import absolute_import
 import copy
 import itertools
 import random
+import shutil
 import sys
 import time
 import urlparse
 
-import glanceclient
 import glanceclient.exc
 from oslo.config import cfg
 
@@ -36,8 +37,15 @@ from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 
-
+glance_opts = [
+    cfg.ListOpt('allowed_direct_url_schemes',
+                default=[],
+                help='A list of url schemes that can be downloaded directly '
+                     'via the direct_url.  Currently supported schemes: '
+                     '[file].'),
+]
 CONF = cfg.CONF
+CONF.register_opts(glance_opts)
 
 LOG = logging.getLogger(__name__)
 
@@ -72,6 +80,8 @@ def _create_glance_client(context, netloc, use_ssl,
         scheme = 'http'
     if CONF.auth_strategy == 'keystone':
         params['token'] = context.auth_token
+    if CONF.glance_request_timeout is not None:
+        params['timeout'] = CONF.glance_request_timeout
     endpoint = '%s://%s' % (scheme, netloc)
     return glanceclient.Client(str(version), endpoint, **params)
 
@@ -237,15 +247,29 @@ class GlanceImageService(object):
 
         return getattr(image_meta, 'direct_url', None)
 
-    def download(self, context, image_id, data):
-        """Calls out to Glance for metadata and data and writes data."""
+    def download(self, context, image_id, data=None):
+        """Calls out to Glance for data and writes data."""
+        if 'file' in CONF.allowed_direct_url_schemes:
+            location = self.get_location(context, image_id)
+            o = urlparse.urlparse(location)
+            if o.scheme == "file":
+                with open(o.path, "r") as f:
+                    # a system call to cp could have significant performance
+                    # advantages, however we do not have the path to files at
+                    # this point in the abstraction.
+                    shutil.copyfileobj(f, data)
+                return
+
         try:
             image_chunks = self._client.call(context, 'data', image_id)
         except Exception:
             _reraise_translated_image_exception(image_id)
 
-        for chunk in image_chunks:
-            data.write(chunk)
+        if not data:
+            return image_chunks
+        else:
+            for chunk in image_chunks:
+                data.write(chunk)
 
     def create(self, context, image_meta, data=None):
         """Store the image data and return the new image object."""
@@ -263,15 +287,22 @@ class GlanceImageService(object):
                image_meta, data=None, purge_props=True):
         """Modify the given image with the new data."""
         image_meta = self._translate_to_glance(image_meta)
-        image_meta['purge_props'] = purge_props
+        #NOTE(dosaboy): see comment in bug 1210467
+        if CONF.glance_api_version == 1:
+            image_meta['purge_props'] = purge_props
         #NOTE(bcwaldon): id is not an editable field, but it is likely to be
         # passed in by calling code. Let's be nice and ignore it.
         image_meta.pop('id', None)
         if data:
             image_meta['data'] = data
         try:
-            image_meta = self._client.call(context, 'update', image_id,
-                                           **image_meta)
+            #NOTE(dosaboy): the v2 api separates update from upload
+            if data and CONF.glance_api_version > 1:
+                image_meta = self._client.call(context, 'upload', image_id,
+                                               image_meta['data'])
+            else:
+                image_meta = self._client.call(context, 'update', image_id,
+                                               **image_meta)
         except Exception:
             _reraise_translated_image_exception(image_id)
         else:

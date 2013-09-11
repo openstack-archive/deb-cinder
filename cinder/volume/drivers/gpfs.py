@@ -21,6 +21,7 @@ GPFS Volume Driver.
 import math
 import os
 import re
+import shutil
 
 from oslo.config import cfg
 
@@ -28,10 +29,12 @@ from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import units
 from cinder.volume import driver
 
-VERSION = 1.0
+GPFS_CLONE_MIN_RELEASE = 1200
+
 LOG = logging.getLogger(__name__)
 
 gpfs_opts = [
@@ -72,6 +75,8 @@ class GPFSDriver(driver.VolumeDriver):
 
     """Implements volume functions using GPFS primitives."""
 
+    VERSION = "1.0.0"
+
     def __init__(self, *args, **kwargs):
         super(GPFSDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(gpfs_opts)
@@ -90,6 +95,32 @@ class GPFSDriver(driver.VolumeDriver):
             exception_message = (_("GPFS is not running - state: %s") %
                                  gpfs_state)
             raise exception.VolumeBackendAPIException(data=exception_message)
+
+    def _get_filesystem_from_path(self, path):
+        (out, _) = self._execute('df', path, run_as_root=True)
+        lines = out.splitlines()
+        fs = lines[1].split()[0]
+        return fs
+
+    def _get_gpfs_filesystem_release_level(self, path):
+        fs = self._get_filesystem_from_path(path)
+        (out, _) = self._execute('mmlsfs', fs, '-V', '-Y',
+                                 run_as_root=True)
+        lines = out.splitlines()
+        value_token = lines[0].split(':').index('data')
+        fs_release_level_str = lines[1].split(':')[value_token]
+        # at this point, release string looks like "13.23 (3.5.0.7)"
+        # extract first token and convert to whole number value
+        fs_release_level = int(float(fs_release_level_str.split()[0]) * 100)
+        return fs, fs_release_level
+
+    def _get_gpfs_cluster_release_level(self):
+        (out, _) = self._execute('mmlsconfig', 'minreleaseLeveldaemon', '-Y',
+                                 run_as_root=True)
+        lines = out.splitlines()
+        value_token = lines[0].split(':').index('value')
+        min_release_level = lines[1].split(':')[value_token]
+        return int(min_release_level)
 
     def _is_gpfs_path(self, directory):
         self._execute('mmlsattr', directory, run_as_root=True)
@@ -131,6 +162,16 @@ class GPFSDriver(driver.VolumeDriver):
             LOG.warn(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
+        _gpfs_cluster_release_level = self._get_gpfs_cluster_release_level()
+        if not _gpfs_cluster_release_level >= GPFS_CLONE_MIN_RELEASE:
+            msg = (_('Downlevel GPFS Cluster Detected.  GPFS Clone feature '
+                     'not enabled in cluster daemon level %(cur)s - must '
+                     'be at least at level %(min)s.') %
+                   {'cur': _gpfs_cluster_release_level,
+                    'min': GPFS_CLONE_MIN_RELEASE})
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+
         for directory in [self.configuration.gpfs_mount_point_base,
                           self.configuration.gpfs_images_dir]:
             if directory is None:
@@ -149,9 +190,20 @@ class GPFSDriver(driver.VolumeDriver):
             try:
                 # check that configured directories are on GPFS
                 self._is_gpfs_path(directory)
-            except exception.ProcessExecutionError:
+            except processutils.ProcessExecutionError:
                 msg = (_('%s is not on GPFS. Perhaps GPFS not mounted.') %
                        directory)
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
+
+            fs, fslevel = self._get_gpfs_filesystem_release_level(directory)
+            if not fslevel >= GPFS_CLONE_MIN_RELEASE:
+                msg = (_('The GPFS filesystem %(fs)s is not at the required '
+                         'release level.  Current level is %(cur)s, must be '
+                         'at least %(min)s.') %
+                       {'fs': fs,
+                        'cur': fslevel,
+                        'min': GPFS_CLONE_MIN_RELEASE})
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
 
@@ -162,8 +214,8 @@ class GPFSDriver(driver.VolumeDriver):
         self._execute('truncate', '-s', sizestr, path, run_as_root=True)
         self._execute('chmod', '666', path, run_as_root=True)
 
-    def _create_regular_file(self, path, size):
-        """Creates regular file of given size."""
+    def _allocate_file_blocks(self, path, size):
+        """Preallocate file blocks by writing zeros."""
 
         block_size_mb = 1
         block_count = size * units.GiB / (block_size_mb * units.MiB)
@@ -172,19 +224,51 @@ class GPFSDriver(driver.VolumeDriver):
                       'bs=%dM' % block_size_mb,
                       'count=%d' % block_count,
                       run_as_root=True)
-        self._execute('chmod', '666', path, run_as_root=True)
+
+    def _gpfs_change_attributes(self, options, path):
+        cmd = ['mmchattr']
+        cmd.extend(options)
+        cmd.append(path)
+        self._execute(*cmd, run_as_root=True)
+
+    def _set_volume_attributes(self, path, metadata):
+        """Set various GPFS attributes for this volume."""
+
+        options = []
+        for item in metadata:
+            if item['key'] == 'data_pool_name':
+                options.extend(['-P', item['value']])
+            elif item['key'] == 'replicas':
+                options.extend(['-r', item['value'], '-m', item['value']])
+            elif item['key'] == 'dio':
+                options.extend(['-D', item['value']])
+            elif item['key'] == 'write_affinity_depth':
+                options.extend(['--write-affinity-depth', item['value']])
+            elif item['key'] == 'block_group_factor':
+                options.extend(['--block-group-factor', item['value']])
+            elif item['key'] == 'write_affinity_failure_group':
+                options.extend(['--write-affinity-failure-group',
+                               item['value']])
+
+        if options:
+            self._gpfs_change_attributes(options, path)
 
     def create_volume(self, volume):
         """Creates a GPFS volume."""
         volume_path = self.local_path(volume)
         volume_size = volume['size']
 
-        if self.configuration.gpfs_sparse_volumes:
-            self._create_sparse_file(volume_path, volume_size)
-        else:
-            self._create_regular_file(volume_path, volume_size)
+        # Create a sparse file first; allocate blocks later if requested
+        self._create_sparse_file(volume_path, volume_size)
 
+        # Set the attributes prior to allocating any blocks so that
+        # they are allocated according to the policy
         v_metadata = volume.get('volume_metadata')
+        self._set_volume_attributes(volume_path, v_metadata)
+
+        if not self.configuration.gpfs_sparse_volumes:
+            self._allocate_file_blocks(volume_path, volume_size)
+
         fstype = None
         fslabel = None
         for item in v_metadata:
@@ -332,25 +416,25 @@ class GPFSDriver(driver.VolumeDriver):
         pass
 
     def get_volume_stats(self, refresh=False):
-        """Get volume status.
+        """Get volume stats.
 
         If 'refresh' is True, or stats have never been updated, run update
         the stats first.
         """
         if not self._stats or refresh:
-            self._update_volume_status()
+            self._update_volume_stats()
 
         return self._stats
 
-    def _update_volume_status(self):
-        """Retrieve status info from volume group."""
+    def _update_volume_stats(self):
+        """Retrieve stats info from volume group."""
 
-        LOG.debug("Updating volume status")
+        LOG.debug("Updating volume stats")
         data = {}
         backend_name = self.configuration.safe_get('volume_backend_name')
         data["volume_backend_name"] = backend_name or 'GPFS'
         data["vendor_name"] = 'IBM'
-        data["driver_version"] = '1.0'
+        data["driver_version"] = self.VERSION
         data["storage_protocol"] = 'file'
         free, capacity = self._get_available_capacity(self.configuration.
                                                       gpfs_mount_point_base)
@@ -365,10 +449,84 @@ class GPFSDriver(driver.VolumeDriver):
             return '100M'
         return '%sG' % size_in_g
 
+    def clone_image(self, volume, image_location, image_id):
+        return self._clone_image(volume, image_location, image_id)
+
+    def _is_cloneable(self, image_id):
+        if not((self.configuration.gpfs_images_dir and
+                self.configuration.gpfs_images_share_mode)):
+            reason = 'glance repository not configured to use GPFS'
+            return False, reason, None
+
+        image_path = os.path.join(self.configuration.gpfs_images_dir, image_id)
+        try:
+            self._is_gpfs_path(image_path)
+        except processutils.ProcessExecutionError:
+            reason = 'image file not in GPFS'
+            return False, reason, None
+
+        return True, None, image_path
+
+    def _clone_image(self, volume, image_location, image_id):
+        """Attempt to create a volume by efficiently copying image to volume.
+
+        If both source and target are backed by gpfs storage and the source
+        image is in raw format move the image to create a volume using either
+        gpfs clone operation or with a file copy. If the image format is not
+        raw, convert it to raw at the volume path.
+        """
+        cloneable_image, reason, image_path = self._is_cloneable(image_id)
+        if not cloneable_image:
+            LOG.debug('Image %(img)s not cloneable: %(reas)s' %
+                      {'img': image_id, 'reas': reason})
+            return (None, False)
+
+        vol_path = self.local_path(volume)
+        # if the image is not already a GPFS snap file make it so
+        if not self._is_gpfs_parent_file(image_path):
+            self._create_gpfs_snap(image_path, modebits='666')
+
+        data = image_utils.qemu_img_info(image_path)
+
+        # if image format is already raw either clone it or
+        # copy it depending on config file settings
+        if data.file_format == 'raw':
+            if (self.configuration.gpfs_images_share_mode ==
+                    'copy_on_write'):
+                LOG.debug('Clone image to vol %s using mmclone' %
+                          volume['id'])
+                self._create_gpfs_copy(image_path, vol_path)
+            elif self.configuration.gpfs_images_share_mode == 'copy':
+                LOG.debug('Clone image to vol %s using copyfile' %
+                          volume['id'])
+                shutil.copyfile(image_path, vol_path)
+                self._execute('chmod', '666', vol_path, run_as_root=True)
+
+        # if image is not raw convert it to raw into vol_path destination
+        else:
+            LOG.debug('Clone image to vol %s using qemu convert' %
+                      volume['id'])
+            image_utils.convert_image(image_path, vol_path, 'raw')
+            self._execute('chmod', '666', vol_path, run_as_root=True)
+
+        image_utils.resize_image(vol_path, volume['size'])
+
+        return {'provider_location': None}, True
+
     def copy_image_to_volume(self, context, volume, image_service, image_id):
-        """Fetch the image from image_service and write it to the volume."""
-        return self._gpfs_fetch_to_raw(context, image_service, image_id,
-                                       self.local_path(volume))
+        """Fetch the image from image_service and write it to the volume.
+
+        Note that cinder.volume.flows.create_volume will attempt to use
+        clone_image to efficiently create volume from image when both
+        source and target are backed by gpfs storage.  If that is not the
+        case, this function is invoked and uses fetch_to_raw to create the
+        volume.
+        """
+        LOG.debug('Copy image to vol %s using image_utils fetch_to_raw' %
+                  volume['id'])
+        image_utils.fetch_to_raw(context, image_service, image_id,
+                                 self.local_path(volume))
+        image_utils.resize_image(self.local_path(volume), volume['size'])
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
@@ -376,6 +534,14 @@ class GPFSDriver(driver.VolumeDriver):
                                   image_service,
                                   image_meta,
                                   self.local_path(volume))
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume."""
+        raise NotImplementedError()
+
+    def restore_backup(self, context, backup, volume, backup_service):
+        """Restore an existing backup to a new or existing volume."""
+        raise NotImplementedError()
 
     def _mkfs(self, volume, fs, label=None):
         if fs == 'swap':
@@ -396,7 +562,7 @@ class GPFSDriver(driver.VolumeDriver):
         cmd.append(path)
         try:
             self._execute(*cmd, run_as_root=True)
-        except exception.ProcessExecutionError as exc:
+        except processutils.ProcessExecutionError as exc:
             exception_message = (_("mkfs failed on volume %(vol)s, "
                                    "error message was: %(err)s")
                                  % {'vol': volume['name'], 'err': exc.stderr})
@@ -412,68 +578,3 @@ class GPFSDriver(driver.VolumeDriver):
         size = int(out.split()[1])
         available = int(out.split()[3])
         return available, size
-
-    def _gpfs_fetch(self, context, image_service, image_id, path, _user_id,
-                    _project_id):
-        if not (self.configuration.gpfs_images_share_mode and
-                self.configuration.gpfs_images_dir and
-                os.path.exists(
-                    os.path.join(self.configuration.gpfs_images_dir,
-                                 image_id))):
-            with fileutils.remove_path_on_error(path):
-                with open(path, "wb") as image_file:
-                    image_service.download(context, image_id, image_file)
-        else:
-            image_path = os.path.join(self.configuration.gpfs_images_dir,
-                                      image_id)
-            if self.configuration.gpfs_images_share_mode == 'copy_on_write':
-                # check if the image is a GPFS snap file
-                if not self._is_gpfs_parent_file(image_path):
-                    self._create_gpfs_snap(image_path, modebits='666')
-                self._execute('ln', '-s', image_path, path, run_as_root=True)
-            else:  # copy
-                self._execute('cp', image_path, path, run_as_root=True)
-                self._execute('chmod', '666', path, run_as_root=True)
-
-    def _gpfs_fetch_to_raw(self, context, image_service, image_id, dest,
-                           user_id=None, project_id=None):
-        if (self.configuration.image_conversion_dir and not
-                os.path.exists(self.configuration.image_conversion_dir)):
-            os.makedirs(self.configuration.image_conversion_dir)
-
-        tmp = "%s.part" % dest
-        with fileutils.remove_path_on_error(tmp):
-            self._gpfs_fetch(context, image_service, image_id, tmp, user_id,
-                             project_id)
-
-            data = image_utils.qemu_img_info(tmp)
-            fmt = data.file_format
-            if fmt is None:
-                msg = _("'qemu-img info' parsing failed.")
-                LOG.error(msg)
-                raise exception.ImageUnacceptable(
-                    reason=msg,
-                    image_id=image_id)
-
-            backing_file = data.backing_file
-            if backing_file is not None:
-                msg = (_("fmt = %(fmt)s backed by: %(backing_file)s") %
-                       {'fmt': fmt, 'backing_file': backing_file})
-                LOG.error(msg)
-                raise exception.ImageUnacceptable(
-                    image_id=image_id,
-                    reason=msg)
-
-            LOG.debug("%s was %s, converting to raw" % (image_id, fmt))
-            image_utils.convert_image(tmp, dest, 'raw')
-
-            data = image_utils.qemu_img_info(dest)
-            if data.file_format != "raw":
-                msg = (_("Converted to raw, but format is now %s") %
-                       data.file_format)
-                LOG.error(msg)
-                raise exception.ImageUnacceptable(
-                    image_id=image_id,
-                    reason=msg)
-            os.unlink(tmp)
-            return {'size': math.ceil(data.virtual_size / 1024.0 ** 3)}

@@ -13,6 +13,7 @@
 #    under the License.
 
 from cinder.openstack.common import log as logging
+from cinder.tests.brick.fake_lvm import FakeBrickLVM
 from cinder.volume import driver
 from cinder.volume.drivers import lvm
 
@@ -25,15 +26,26 @@ class FakeISCSIDriver(lvm.LVMISCSIDriver):
     def __init__(self, *args, **kwargs):
         super(FakeISCSIDriver, self).__init__(execute=self.fake_execute,
                                               *args, **kwargs)
+        self.vg = FakeBrickLVM('cinder-volumes', False,
+                               None, 'default',
+                               self.fake_execute)
 
     def check_for_setup_error(self):
         """No setup necessary in fake mode."""
         pass
 
     def initialize_connection(self, volume, connector):
+        volume_metadata = {}
+        for metadata in volume['volume_admin_metadata']:
+            volume_metadata[metadata['key']] = metadata['value']
+        access_mode = volume_metadata.get('attached_mode')
+        if access_mode is None:
+            access_mode = ('ro'
+                           if volume_metadata.get('readonly') == 'True'
+                           else 'rw')
         return {
             'driver_volume_type': 'iscsi',
-            'data': {}
+            'data': {'access_mode': access_mode}
         }
 
     def terminate_connection(self, volume, connector, **kwargs):
@@ -43,6 +55,25 @@ class FakeISCSIDriver(lvm.LVMISCSIDriver):
     def fake_execute(cmd, *_args, **_kwargs):
         """Execute that simply logs the command."""
         LOG.debug(_("FAKE ISCSI: %s"), cmd)
+        return (None, None)
+
+
+class FakeISERDriver(FakeISCSIDriver):
+    """Logs calls instead of executing."""
+    def __init__(self, *args, **kwargs):
+        super(FakeISERDriver, self).__init__(execute=self.fake_execute,
+                                             *args, **kwargs)
+
+    def initialize_connection(self, volume, connector):
+        return {
+            'driver_volume_type': 'iser',
+            'data': {}
+        }
+
+    @staticmethod
+    def fake_execute(cmd, *_args, **_kwargs):
+        """Execute that simply logs the command."""
+        LOG.debug(_("FAKE ISER: %s"), cmd)
         return (None, None)
 
 
@@ -63,7 +94,7 @@ class LoggingVolumeDriver(driver.VolumeDriver):
         self.log_action('clear_volume', volume)
 
     def local_path(self, volume):
-        print "local_path not implemented"
+        LOG.error(_("local_path not implemented"))
         raise NotImplementedError()
 
     def ensure_export(self, context, volume):

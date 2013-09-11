@@ -44,13 +44,12 @@ def _quota_reserve(context, project_id):
     quotas = {}
     resources = {}
     deltas = {}
-    for i in range(3):
-        resource = 'res%d' % i
-        quotas[resource] = db.quota_create(context, project_id, resource, i)
-        resources[resource] = ReservableResource(
-            resource,
-            get_sync(resource, i), 'quota_res_%d' % i)
-        deltas[resource] = i
+    for i, resource in enumerate(('volumes', 'gigabytes')):
+        quotas[resource] = db.quota_create(context, project_id,
+                                           resource, i + 1)
+        resources[resource] = ReservableResource(resource,
+                                                 '_sync_%s' % resource)
+        deltas[resource] = i + 1
     return db.quota_reserve(
         context, resources, quotas, deltas,
         datetime.datetime.utcnow(), datetime.datetime.utcnow(),
@@ -358,6 +357,17 @@ class DBAPIVolumeTestCase(BaseTest):
         self._assertEqualListsOfObjects(volumes, db.volume_get_all(
                                         self.ctxt, None, None, 'host', None))
 
+    def test_volume_get_all_marker_passed(self):
+        volumes = [
+            db.volume_create(self.ctxt, {'id': 1}),
+            db.volume_create(self.ctxt, {'id': 2}),
+            db.volume_create(self.ctxt, {'id': 3}),
+            db.volume_create(self.ctxt, {'id': 4}),
+        ]
+
+        self._assertEqualListsOfObjects(volumes[2:], db.volume_get_all(
+                                        self.ctxt, 2, 2, 'id', None))
+
     def test_volume_get_all_by_host(self):
         volumes = []
         for i in xrange(3):
@@ -412,6 +422,150 @@ class DBAPIVolumeTestCase(BaseTest):
         self.assertRaises(exception.VolumeNotFound, db.volume_update,
                           self.ctxt, 42, {})
 
+    def test_volume_metadata_get(self):
+        metadata = {'a': 'b', 'c': 'd'}
+        db.volume_create(self.ctxt, {'id': 1, 'metadata': metadata})
+
+        self.assertEquals(metadata, db.volume_metadata_get(self.ctxt, 1))
+
+    def test_volume_metadata_update(self):
+        metadata1 = {'a': '1', 'c': '2'}
+        metadata2 = {'a': '3', 'd': '5'}
+        should_be = {'a': '3', 'c': '2', 'd': '5'}
+
+        db.volume_create(self.ctxt, {'id': 1, 'metadata': metadata1})
+        db.volume_metadata_update(self.ctxt, 1, metadata2, False)
+
+        self.assertEquals(should_be, db.volume_metadata_get(self.ctxt, 1))
+
+    def test_volume_metadata_update_delete(self):
+        metadata1 = {'a': '1', 'c': '2'}
+        metadata2 = {'a': '3', 'd': '4'}
+        should_be = metadata2
+
+        db.volume_create(self.ctxt, {'id': 1, 'metadata': metadata1})
+        db.volume_metadata_update(self.ctxt, 1, metadata2, True)
+
+        self.assertEquals(should_be, db.volume_metadata_get(self.ctxt, 1))
+
+
+class DBAPISnapshotTestCase(BaseTest):
+    def test_snapshot_metadata_get(self):
+        metadata = {'a': 'b', 'c': 'd'}
+        db.volume_create(self.ctxt, {'id': 1})
+        db.snapshot_create(self.ctxt,
+                           {'id': 1, 'volume_id': 1, 'metadata': metadata})
+
+        self.assertEquals(metadata, db.snapshot_metadata_get(self.ctxt, 1))
+
+    def test_snapshot_metadata_update(self):
+        metadata1 = {'a': '1', 'c': '2'}
+        metadata2 = {'a': '3', 'd': '5'}
+        should_be = {'a': '3', 'c': '2', 'd': '5'}
+
+        db.volume_create(self.ctxt, {'id': 1})
+        db.snapshot_create(self.ctxt,
+                           {'id': 1, 'volume_id': 1, 'metadata': metadata1})
+        db.snapshot_metadata_update(self.ctxt, 1, metadata2, False)
+
+        self.assertEquals(should_be, db.snapshot_metadata_get(self.ctxt, 1))
+
+    def test_snapshot_metadata_update_delete(self):
+        metadata1 = {'a': '1', 'c': '2'}
+        metadata2 = {'a': '3', 'd': '5'}
+        should_be = metadata2
+
+        db.volume_create(self.ctxt, {'id': 1})
+        db.snapshot_create(self.ctxt,
+                           {'id': 1, 'volume_id': 1, 'metadata': metadata1})
+        db.snapshot_metadata_update(self.ctxt, 1, metadata2, True)
+
+        self.assertEquals(should_be, db.snapshot_metadata_get(self.ctxt, 1))
+
+    def test_snapshot_metadata_delete(self):
+        metadata = {'a': '1', 'c': '2'}
+        should_be = {'a': '1'}
+
+        db.volume_create(self.ctxt, {'id': 1})
+        db.snapshot_create(self.ctxt,
+                           {'id': 1, 'volume_id': 1, 'metadata': metadata})
+        db.snapshot_metadata_delete(self.ctxt, 1, 'c')
+
+        self.assertEquals(should_be, db.snapshot_metadata_get(self.ctxt, 1))
+
+
+class DBAPIEncryptionTestCase(BaseTest):
+
+    """Tests for the db.api.volume_type_encryption_* methods."""
+
+    _ignored_keys = [
+        'deleted',
+        'deleted_at',
+        'created_at',
+        'updated_at',
+    ]
+
+    def setUp(self):
+        super(DBAPIEncryptionTestCase, self).setUp()
+        self.created = \
+            [db.volume_type_encryption_update_or_create(self.ctxt, 'fake_type',
+                                                        values)
+             for values in self._get_values()]
+
+    def _get_values(self, one=False):
+        base_values = {
+            'cipher': 'fake_cipher',
+            'key_size': 256,
+            'provider': 'fake_provider',
+            'volume_type_id': 'fake_type',
+            'control_location': 'front-end',
+        }
+        if one:
+            return base_values
+
+        def compose(val, step):
+            if isinstance(val, str):
+                step = str(step)
+            return val + step
+
+        return [dict([(k, compose(v, i)) for k, v in base_values.items()])
+                for i in range(1, 4)]
+
+    def test_volume_type_encryption_update_or_create(self):
+        values = self._get_values()
+        for i, encryption in enumerate(self.created):
+            self._assertEqualObjects(values[i], encryption,
+                                     self._ignored_keys)
+
+    def test_volume_type_encryption_get(self):
+        for encryption in self.created:
+            encryption_get = \
+                db.volume_type_encryption_get(self.ctxt,
+                                              encryption['volume_type_id'])
+            self._assertEqualObjects(encryption, encryption_get,
+                                     self._ignored_keys)
+
+    def test_volume_type_encryption_delete(self):
+        values = {
+            'cipher': 'fake_cipher',
+            'key_size': 256,
+            'provider': 'fake_provider',
+            'volume_type_id': 'fake_type',
+            'control_location': 'front-end',
+        }
+
+        encryption = db.volume_type_encryption_update_or_create(self.ctxt,
+                                                                'fake_type',
+                                                                values)
+        self._assertEqualObjects(values, encryption, self._ignored_keys)
+
+        db.volume_type_encryption_delete(self.ctxt,
+                                         encryption['volume_type_id'])
+        encryption_get = \
+            db.volume_type_encryption_get(self.ctxt,
+                                          encryption['volume_type_id'])
+        self.assertEqual(None, encryption_get)
+
 
 class DBAPIReservationTestCase(BaseTest):
 
@@ -452,9 +606,9 @@ class DBAPIReservationTestCase(BaseTest):
     def test_reservation_commit(self):
         reservations = _quota_reserve(self.ctxt, 'project1')
         expected = {'project_id': 'project1',
-                    'res0': {'reserved': 0, 'in_use': 0},
-                    'res1': {'reserved': 1, 'in_use': 1},
-                    'res2': {'reserved': 2, 'in_use': 2}}
+                    'volumes': {'reserved': 1, 'in_use': 0},
+                    'gigabytes': {'reserved': 2, 'in_use': 0},
+                    }
         self.assertEqual(expected,
                          db.quota_usage_get_all_by_project(
                              self.ctxt, 'project1'))
@@ -465,9 +619,9 @@ class DBAPIReservationTestCase(BaseTest):
                           self.ctxt,
                           reservations[0])
         expected = {'project_id': 'project1',
-                    'res0': {'reserved': 0, 'in_use': 0},
-                    'res1': {'reserved': 0, 'in_use': 2},
-                    'res2': {'reserved': 0, 'in_use': 4}}
+                    'volumes': {'reserved': 0, 'in_use': 1},
+                    'gigabytes': {'reserved': 0, 'in_use': 2},
+                    }
         self.assertEqual(expected,
                          db.quota_usage_get_all_by_project(
                              self.ctxt,
@@ -476,9 +630,9 @@ class DBAPIReservationTestCase(BaseTest):
     def test_reservation_rollback(self):
         reservations = _quota_reserve(self.ctxt, 'project1')
         expected = {'project_id': 'project1',
-                    'res0': {'reserved': 0, 'in_use': 0},
-                    'res1': {'reserved': 1, 'in_use': 1},
-                    'res2': {'reserved': 2, 'in_use': 2}}
+                    'volumes': {'reserved': 1, 'in_use': 0},
+                    'gigabytes': {'reserved': 2, 'in_use': 0},
+                    }
         self.assertEqual(expected,
                          db.quota_usage_get_all_by_project(
                              self.ctxt,
@@ -490,9 +644,9 @@ class DBAPIReservationTestCase(BaseTest):
                           self.ctxt,
                           reservations[0])
         expected = {'project_id': 'project1',
-                    'res0': {'reserved': 0, 'in_use': 0},
-                    'res1': {'reserved': 0, 'in_use': 1},
-                    'res2': {'reserved': 0, 'in_use': 2}}
+                    'volumes': {'reserved': 0, 'in_use': 0},
+                    'gigabytes': {'reserved': 0, 'in_use': 0},
+                    }
         self.assertEqual(expected,
                          db.quota_usage_get_all_by_project(
                              self.ctxt,
@@ -505,9 +659,8 @@ class DBAPIReservationTestCase(BaseTest):
         db.reservation_expire(self.ctxt)
 
         expected = {'project_id': 'project1',
-                    'res0': {'reserved': 0, 'in_use': 0},
-                    'res1': {'reserved': 0, 'in_use': 1},
-                    'res2': {'reserved': 0, 'in_use': 2}}
+                    'gigabytes': {'reserved': 0, 'in_use': 0},
+                    'volumes': {'reserved': 0, 'in_use': 0}}
         self.assertEqual(expected,
                          db.quota_usage_get_all_by_project(
                              self.ctxt,
@@ -565,11 +718,11 @@ class DBAPIQuotaTestCase(BaseTest):
 
     def test_quota_reserve(self):
         reservations = _quota_reserve(self.ctxt, 'project1')
-        self.assertEqual(len(reservations), 3)
-        res_names = ['res0', 'res1', 'res2']
+        self.assertEqual(len(reservations), 2)
+        res_names = ['gigabytes', 'volumes']
         for uuid in reservations:
             reservation = db.reservation_get(self.ctxt, uuid)
-            self.assertTrue(reservation.resource in res_names)
+            self.assertIn(reservation.resource, res_names)
             res_names.remove(reservation.resource)
 
     def test_quota_destroy_all_by_project(self):
@@ -595,18 +748,17 @@ class DBAPIQuotaTestCase(BaseTest):
 
     def test_quota_usage_get(self):
         reservations = _quota_reserve(self.ctxt, 'p1')
-        quota_usage = db.quota_usage_get(self.ctxt, 'p1', 'res0')
-        expected = {'resource': 'res0', 'project_id': 'p1',
-                    'in_use': 0, 'reserved': 0, 'total': 0}
+        quota_usage = db.quota_usage_get(self.ctxt, 'p1', 'gigabytes')
+        expected = {'resource': 'gigabytes', 'project_id': 'p1',
+                    'in_use': 0, 'reserved': 2, 'total': 2}
         for key, value in expected.iteritems():
-            self.assertEqual(value, quota_usage[key])
+            self.assertEqual(value, quota_usage[key], key)
 
     def test_quota_usage_get_all_by_project(self):
         reservations = _quota_reserve(self.ctxt, 'p1')
         expected = {'project_id': 'p1',
-                    'res0': {'in_use': 0, 'reserved': 0},
-                    'res1': {'in_use': 1, 'reserved': 1},
-                    'res2': {'in_use': 2, 'reserved': 2}}
+                    'volumes': {'in_use': 0, 'reserved': 1},
+                    'gigabytes': {'in_use': 0, 'reserved': 2}}
         self.assertEqual(expected, db.quota_usage_get_all_by_project(
                          self.ctxt, 'p1'))
 

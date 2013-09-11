@@ -54,15 +54,13 @@
   CLI interface for cinder management.
 """
 
+from __future__ import print_function
+
 
 import os
 import sys
-import uuid
 
 from oslo.config import cfg
-from sqlalchemy import create_engine, MetaData, Table
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 
 
 # If ../cinder/__init__.py exists, add ../ to Python search path, so that
@@ -80,7 +78,6 @@ from cinder.common import config  # Need to register global_opts
 from cinder import context
 from cinder import db
 from cinder.db import migration
-from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import rpc
 from cinder.openstack.common import uuidutils
@@ -184,10 +181,10 @@ class ShellCommands(object):
 
 
 def _db_error(caught_exception):
-    print caught_exception
-    print _("The above error may show that the database has not "
+    print('%s' % caught_exception)
+    print(_("The above error may show that the database has not "
             "been created.\nPlease create a database using "
-            "'cinder-manage db sync' before running this command.")
+            "'cinder-manage db sync' before running this command."))
     exit(1)
 
 
@@ -200,8 +197,8 @@ class HostCommands(object):
         """Show a list of all physical hosts. Filter by zone.
         args: [zone]
         """
-        print "%-25s\t%-15s" % (_('host'),
-                                _('zone'))
+        print("%-25s\t%-15s" % (_('host'),
+                                _('zone')))
         ctxt = context.get_admin_context()
         services = db.service_get_all(ctxt)
         if zone:
@@ -212,7 +209,7 @@ class HostCommands(object):
                 hosts.append(srv)
 
         for h in hosts:
-            print "%-25s\t%-15s" % (h['host'], h['availability_zone'])
+            print("%-25s\t%-15s" % (h['host'], h['availability_zone']))
 
 
 class DbCommands(object):
@@ -229,7 +226,7 @@ class DbCommands(object):
 
     def version(self):
         """Print the current database version."""
-        print migration.db_version()
+        print(migration.db_version())
 
 
 class VersionCommands(object):
@@ -259,14 +256,14 @@ class VolumeCommands(object):
         host = volume['host']
 
         if not host:
-            print "Volume not yet assigned to host."
-            print "Deleting volume from database and skipping rpc."
+            print("Volume not yet assigned to host.")
+            print("Deleting volume from database and skipping rpc.")
             db.volume_destroy(ctxt, param2id(volume_id))
             return
 
         if volume['status'] == 'in-use':
-            print "Volume is in-use."
-            print "Detach volume from instance and then try again."
+            print("Volume is in-use.")
+            print("Detach volume from instance and then try again.")
             return
 
         rpc.cast(ctxt,
@@ -284,7 +281,7 @@ class VolumeCommands(object):
         ctxt = context.get_admin_context()
         volume = db.volume_get(ctxt, param2id(volume_id))
         if not volume['instance_id']:
-            print "volume is not attached to an instance"
+            print("volume is not attached to an instance")
             return
         instance = db.instance_get(ctxt, volume['instance_id'])
         host = instance['host']
@@ -294,154 +291,6 @@ class VolumeCommands(object):
                   "args": {"instance_id": instance['id'],
                            "volume_id": volume['id'],
                            "mountpoint": volume['mountpoint']}})
-
-
-class StorageManagerCommands(object):
-    """Class for mangaging Storage Backends and Flavors."""
-
-    @args('flavor', nargs='?',
-          help='flavor to be listed')
-    def flavor_list(self, flavor=None):
-        ctxt = context.get_admin_context()
-
-        try:
-            if flavor is None:
-                flavors = db.sm_flavor_get_all(ctxt)
-            else:
-                flavors = db.sm_flavor_get(ctxt, flavor)
-        except exception.NotFound as ex:
-            print "error: %s" % ex
-            sys.exit(2)
-
-        print "%-18s\t%-20s\t%s" % (_('id'),
-                                    _('Label'),
-                                    _('Description'))
-
-        for flav in flavors:
-            print "%-18s\t%-20s\t%s" % (
-                flav['id'],
-                flav['label'],
-                flav['description'])
-
-    @args('label', help='flavor label')
-    @args('desc', help='flavor description')
-    def flavor_create(self, label, desc):
-        # TODO(renukaapte) flavor name must be unique
-        try:
-            db.sm_flavor_create(context.get_admin_context(),
-                                dict(label=label,
-                                     description=desc))
-        except exception.DBError as e:
-            _db_error(e)
-
-    @args('label', help='label of flavor to be deleted')
-    def flavor_delete(self, label):
-        try:
-            db.sm_flavor_delete(context.get_admin_context(), label)
-
-        except exception.DBError as e:
-            _db_error(e)
-
-    def _splitfun(self, item):
-        i = item.split("=")
-        return i[0:2]
-
-    @args('backend_conf_id', nargs='?', default=None)
-    def backend_list(self, backend_conf_id=None):
-        ctxt = context.get_admin_context()
-
-        try:
-            if backend_conf_id is None:
-                backends = db.sm_backend_conf_get_all(ctxt)
-            else:
-                backends = db.sm_backend_conf_get(ctxt, backend_conf_id)
-
-        except exception.NotFound as ex:
-            print "error: %s" % ex
-            sys.exit(2)
-
-        print "%-5s\t%-10s\t%-40s\t%-10s\t%s" % (_('id'),
-                                                 _('Flavor id'),
-                                                 _('SR UUID'),
-                                                 _('SR Type'),
-                                                 _('Config Parameters'),)
-
-        for b in backends:
-            print "%-5s\t%-10s\t%-40s\t%-10s\t%s" % (b['id'],
-                                                     b['flavor_id'],
-                                                     b['sr_uuid'],
-                                                     b['sr_type'],
-                                                     b['config_params'],)
-
-    @args('flavor_label')
-    @args('sr_type')
-    @args('args', nargs='*')
-    def backend_add(self, flavor_label, sr_type, *args):
-        # TODO(renukaapte) Add backend_introduce.
-        ctxt = context.get_admin_context()
-        params = dict(map(self._splitfun, args))
-        sr_uuid = uuid.uuid4()
-
-        if flavor_label is None:
-            print "error: backend needs to be associated with flavor"
-            sys.exit(2)
-
-        try:
-            flavors = db.sm_flavor_get(ctxt, flavor_label)
-
-        except exception.NotFound as ex:
-            print "error: %s" % ex
-            sys.exit(2)
-
-        config_params = " ".join(
-            ['%s=%s' % (key, params[key]) for key in params])
-
-        if 'sr_uuid' in params:
-            sr_uuid = params['sr_uuid']
-            try:
-                backend = db.sm_backend_conf_get_by_sr(ctxt, sr_uuid)
-            except exception.DBError as e:
-                _db_error(e)
-
-            if backend:
-                print 'Backend config found. Would you like to recreate this?'
-                print '(WARNING:Recreating will destroy all VDIs on backend!!)'
-                c = raw_input('Proceed? (y/n) ')
-                if c == 'y' or c == 'Y':
-                    try:
-                        db.sm_backend_conf_update(
-                            ctxt, backend['id'],
-                            dict(created=False,
-                                 flavor_id=flavors['id'],
-                                 sr_type=sr_type,
-                                 config_params=config_params))
-                    except exception.DBError as e:
-                        _db_error(e)
-                return
-
-            else:
-                print 'Backend config not found. Would you like to create it?'
-
-        print '(WARNING: Creating will destroy all data on backend!!!)'
-        c = raw_input('Proceed? (y/n) ')
-        if c == 'y' or c == 'Y':
-            try:
-                db.sm_backend_conf_create(ctxt,
-                                          dict(flavor_id=flavors['id'],
-                                               sr_uuid=sr_uuid,
-                                               sr_type=sr_type,
-                                               config_params=config_params))
-            except exception.DBError as e:
-                _db_error(e)
-
-    @args('backend_conf_id')
-    def backend_remove(self, backend_conf_id):
-        try:
-            db.sm_backend_conf_delete(context.get_admin_context(),
-                                      backend_conf_id)
-
-        except exception.DBError as e:
-            _db_error(e)
 
 
 class ConfigCommands(object):
@@ -462,10 +311,10 @@ class ConfigCommands(object):
         """
         param = param and param.strip()
         if param:
-            print '%s = %s' % (param, CONF.get(param))
+            print('%s = %s' % (param, CONF.get(param)))
         else:
             for key, value in CONF.iteritems():
-                print '%s = %s' % (key, value)
+                print('%s = %s' % (key, value))
 
 
 class GetLogCommands(object):
@@ -485,11 +334,11 @@ class GetLogCommands(object):
                     if line.find(" ERROR ") > 0:
                         error_found += 1
                         if print_name == 0:
-                            print log_file + ":-"
+                            print(log_file + ":-")
                             print_name = 1
-                        print "Line %d : %s" % (len(lines) - index, line)
+                        print("Line %d : %s" % (len(lines) - index, line))
         if error_found == 0:
-            print "No errors in logfiles!"
+            print("No errors in logfiles!")
 
     @args('num_entries', nargs='?', type=int, default=10,
           help='Number of entries to list (default: %(default)d)')
@@ -503,20 +352,20 @@ class GetLogCommands(object):
         elif os.path.exists('/var/log/messages'):
             log_file = '/var/log/messages'
         else:
-            print "Unable to find system log file!"
+            print("Unable to find system log file!")
             sys.exit(1)
         lines = [line.strip() for line in open(log_file, "r")]
         lines.reverse()
-        print "Last %s cinder syslog entries:-" % (entries)
+        print("Last %s cinder syslog entries:-" % (entries))
         for line in lines:
             if line.find("cinder") > 0:
                 count += 1
-                print "%s" % (line)
+                print("%s" % (line))
             if count == entries:
                 break
 
         if count == 0:
-            print "No cinder entries in syslog!"
+            print("No cinder entries in syslog!")
 
 
 class BackupCommands(object):
@@ -530,7 +379,7 @@ class BackupCommands(object):
         backups = db.backup_get_all(ctxt)
 
         hdr = "%-32s\t%-32s\t%-32s\t%-24s\t%-24s\t%-12s\t%-12s\t%-12s\t%-12s"
-        print hdr % (_('ID'),
+        print(hdr % (_('ID'),
                      _('User ID'),
                      _('Project ID'),
                      _('Host'),
@@ -538,14 +387,14 @@ class BackupCommands(object):
                      _('Container'),
                      _('Status'),
                      _('Size'),
-                     _('Object Count'))
+                     _('Object Count')))
 
         res = "%-32s\t%-32s\t%-32s\t%-24s\t%-24s\t%-12s\t%-12s\t%-12d\t%-12d"
         for backup in backups:
             object_count = 0
             if backup['object_count'] is not None:
                 object_count = backup['object_count']
-            print res % (backup['id'],
+            print(res % (backup['id'],
                          backup['user_id'],
                          backup['project_id'],
                          backup['host'],
@@ -553,7 +402,7 @@ class BackupCommands(object):
                          backup['container'],
                          backup['status'],
                          backup['size'],
-                         object_count)
+                         object_count))
 
 
 class ServiceCommands(object):
@@ -563,21 +412,21 @@ class ServiceCommands(object):
         ctxt = context.get_admin_context()
         services = db.service_get_all(ctxt)
         print_format = "%-16s %-36s %-16s %-10s %-5s %-10s"
-        print print_format % (_('Binary'),
+        print(print_format % (_('Binary'),
                               _('Host'),
                               _('Zone'),
                               _('Status'),
                               _('State'),
-                              _('Updated At'))
+                              _('Updated At')))
         for svc in services:
             alive = utils.service_is_up(svc)
             art = ":-)" if alive else "XXX"
             status = 'enabled'
             if svc['disabled']:
                 status = 'disabled'
-            print print_format % (svc['binary'], svc['host'].partition('.')[0],
+            print(print_format % (svc['binary'], svc['host'].partition('.')[0],
                                   svc['availability_zone'], status, art,
-                                  svc['updated_at'])
+                                  svc['updated_at']))
 
 
 CATEGORIES = {
@@ -588,7 +437,6 @@ CATEGORIES = {
     'logs': GetLogCommands,
     'service': ServiceCommands,
     'shell': ShellCommands,
-    'sm': StorageManagerCommands,
     'version': VersionCommands,
     'volume': VolumeCommands,
 }
@@ -663,10 +511,10 @@ def main():
     if len(sys.argv) < 2:
         print(_("\nOpenStack Cinder version: %(version)s\n") %
               {'version': version.version_string()})
-        print script_name + " category action [<args>]"
-        print _("Available categories:")
+        print(script_name + " category action [<args>]")
+        print (_("Available categories:"))
         for category in CATEGORIES:
-            print "\t%s" % category
+            print("\t%s" % category)
         sys.exit(2)
 
     try:
@@ -677,13 +525,13 @@ def main():
         cfgfile = CONF.config_file[-1] if CONF.config_file else None
         if cfgfile and not os.access(cfgfile, os.R_OK):
             st = os.stat(cfgfile)
-            print _("Could not read %s. Re-running with sudo") % cfgfile
+            print(_("Could not read %s. Re-running with sudo") % cfgfile)
             try:
                 os.execvp('sudo', ['sudo', '-u', '#%s' % st.st_uid] + sys.argv)
             except Exception:
-                print _('sudo failed, continuing as if nothing happened')
+                print(_('sudo failed, continuing as if nothing happened'))
 
-        print _('Please re-run cinder-manage as root.')
+        print(_('Please re-run cinder-manage as root.'))
         sys.exit(2)
 
     fn = CONF.category.action_fn

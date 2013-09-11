@@ -27,6 +27,7 @@ from oslo.config import cfg
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import units
 from cinder.volume import driver
 
@@ -39,6 +40,8 @@ CONF.import_opt("image_conversion_dir", "cinder.image.image_utils")
 
 class SheepdogDriver(driver.VolumeDriver):
     """Executes commands relating to Sheepdog Volumes"""
+
+    VERSION = "1.0.0"
 
     def __init__(self, *args, **kwargs):
         super(SheepdogDriver, self).__init__(*args, **kwargs)
@@ -57,7 +60,7 @@ class SheepdogDriver(driver.VolumeDriver):
                 raise exception.VolumeBackendAPIException(
                     data=exception_message)
 
-        except exception.ProcessExecutionError:
+        except processutils.ProcessExecutionError:
             exception_message = _("Sheepdog is not working")
             raise exception.VolumeBackendAPIException(data=exception_message)
 
@@ -157,7 +160,7 @@ class SheepdogDriver(driver.VolumeDriver):
             backend_name = self.configuration.safe_get('volume_backend_name')
         stats["volume_backend_name"] = backend_name or 'sheepdog'
         stats['vendor_name'] = 'Open Source'
-        stats['dirver_version'] = '1.0'
+        stats['dirver_version'] = self.VERSION
         stats['storage_protocol'] = 'sheepdog'
         stats['total_capacity_gb'] = 'unknown'
         stats['free_capacity_gb'] = 'unknown'
@@ -171,7 +174,7 @@ class SheepdogDriver(driver.VolumeDriver):
             used = float(m.group(2))
             stats['total_capacity_gb'] = total / (1024 ** 3)
             stats['free_capacity_gb'] = (total - used) / (1024 ** 3)
-        except exception.ProcessExecutionError:
+        except processutils.ProcessExecutionError:
             LOG.exception(_('error refreshing volume stats'))
 
         self._stats = stats
@@ -196,3 +199,11 @@ class SheepdogDriver(driver.VolumeDriver):
 
         LOG.debug(_("Extend volume from %(old_size) to %(new_size)"),
                   {'old_size': old_size, 'new_size': new_size})
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume."""
+        raise NotImplementedError()
+
+    def restore_backup(self, context, backup, volume, backup_service):
+        """Restore an existing backup to a new or existing volume."""
+        raise NotImplementedError()

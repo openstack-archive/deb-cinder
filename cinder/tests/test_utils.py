@@ -19,16 +19,20 @@ import __builtin__
 import datetime
 import hashlib
 import os
-import paramiko
+import socket
 import StringIO
 import tempfile
 import uuid
 
 import mox
 from oslo.config import cfg
+import paramiko
 
 import cinder
+from cinder.brick.initiator import connector
+from cinder.brick.initiator import linuxfc
 from cinder import exception
+from cinder.openstack.common import processutils as putils
 from cinder.openstack.common import timeutils
 from cinder import test
 from cinder import utils
@@ -65,7 +69,7 @@ exit 1
 ''')
             fp.close()
             os.chmod(tmpfilename, 0o755)
-            self.assertRaises(exception.ProcessExecutionError,
+            self.assertRaises(putils.ProcessExecutionError,
                               utils.execute,
                               tmpfilename, tmpfilename2, attempts=10,
                               process_input='foo',
@@ -84,14 +88,14 @@ exit 1
             os.unlink(tmpfilename2)
 
     def test_unknown_kwargs_raises_error(self):
-        self.assertRaises(exception.Error,
+        self.assertRaises(putils.UnknownArgumentError,
                           utils.execute,
                           '/usr/bin/env', 'true',
                           this_is_not_a_valid_kwarg=True)
 
     def test_check_exit_code_boolean(self):
         utils.execute('/usr/bin/env', 'false', check_exit_code=False)
-        self.assertRaises(exception.ProcessExecutionError,
+        self.assertRaises(putils.ProcessExecutionError,
                           utils.execute,
                           '/usr/bin/env', 'false', check_exit_code=True)
 
@@ -355,7 +359,7 @@ class GenericUtilsTestCase(test.TestCase):
     def test_read_file_as_root(self):
         def fake_execute(*args, **kwargs):
             if args[1] == 'bad':
-                raise exception.ProcessExecutionError
+                raise putils.ProcessExecutionError
             return 'fakecontents', None
 
         self.stubs.Set(utils, 'execute', fake_execute)
@@ -363,11 +367,6 @@ class GenericUtilsTestCase(test.TestCase):
         self.assertEqual(contents, 'fakecontents')
         self.assertRaises(exception.FileNotFound,
                           utils.read_file_as_root, 'bad')
-
-    def test_strcmp_const_time(self):
-        self.assertTrue(utils.strcmp_const_time('abc123', 'abc123'))
-        self.assertFalse(utils.strcmp_const_time('a', 'aaaaa'))
-        self.assertFalse(utils.strcmp_const_time('ABC123', 'abc123'))
 
     def test_temporary_chown(self):
         def fake_execute(*args, **kwargs):
@@ -454,6 +453,34 @@ class GenericUtilsTestCase(test.TestCase):
         h1 = utils.hash_file(flo)
         h2 = hashlib.sha1(data).hexdigest()
         self.assertEquals(h1, h2)
+
+    def test_check_ssh_injection(self):
+        cmd_list = ['ssh', '-D', 'my_name@name_of_remote_computer']
+        self.assertEqual(utils.check_ssh_injection(cmd_list), None)
+
+    def test_check_ssh_injection_on_error(self):
+        with_space = ['shh', 'my_name@      name_of_remote_computer']
+        with_danger_char = ['||', 'my_name@name_of_remote_computer']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          with_space)
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          with_danger_char)
+
+    def test_create_channel(self):
+        client = paramiko.SSHClient()
+        channel = paramiko.Channel(123)
+        self.mox.StubOutWithMock(client, 'invoke_shell')
+        self.mox.StubOutWithMock(channel, 'resize_pty')
+
+        client.invoke_shell().AndReturn(channel)
+        channel.resize_pty(600, 800)
+
+        self.mox.ReplayAll()
+        utils.create_channel(client, 600, 800)
+
+        self.mox.VerifyAll()
 
 
 class MonkeyPatchTestCase(test.TestCase):
@@ -726,3 +753,60 @@ class SSHPoolTestCase(test.TestCase):
             third_id = ssh.id
 
         self.assertNotEqual(first_id, third_id)
+
+
+class BrickUtils(test.TestCase):
+    """Unit test to test the brick utility
+    wrapper functions.
+    """
+
+    def test_brick_get_connector_properties(self):
+
+        self.mox.StubOutWithMock(socket, 'gethostname')
+        socket.gethostname().AndReturn('fakehost')
+
+        self.mox.StubOutWithMock(connector.ISCSIConnector, 'get_initiator')
+        connector.ISCSIConnector.get_initiator().AndReturn('fakeinitiator')
+
+        self.mox.StubOutWithMock(linuxfc.LinuxFibreChannel, 'get_fc_wwpns')
+        linuxfc.LinuxFibreChannel.get_fc_wwpns().AndReturn(None)
+
+        self.mox.StubOutWithMock(linuxfc.LinuxFibreChannel, 'get_fc_wwnns')
+        linuxfc.LinuxFibreChannel.get_fc_wwnns().AndReturn(None)
+
+        props = {'initiator': 'fakeinitiator',
+                 'host': 'fakehost',
+                 'ip': CONF.my_ip,
+                 }
+
+        self.mox.ReplayAll()
+        props_actual = utils.brick_get_connector_properties()
+        self.assertEqual(props, props_actual)
+        self.mox.VerifyAll()
+
+    def test_brick_get_connector(self):
+
+        root_helper = utils.get_root_helper()
+
+        self.mox.StubOutClassWithMocks(connector, 'ISCSIConnector')
+        connector.ISCSIConnector(execute=putils.execute,
+                                 driver=None,
+                                 root_helper=root_helper,
+                                 use_multipath=False)
+
+        self.mox.StubOutClassWithMocks(connector, 'FibreChannelConnector')
+        connector.FibreChannelConnector(execute=putils.execute,
+                                        driver=None,
+                                        root_helper=root_helper,
+                                        use_multipath=False)
+
+        self.mox.StubOutClassWithMocks(connector, 'AoEConnector')
+        connector.AoEConnector(execute=putils.execute,
+                               driver=None,
+                               root_helper=root_helper)
+
+        self.mox.ReplayAll()
+        utils.brick_get_connector('iscsi')
+        utils.brick_get_connector('fibre_channel')
+        utils.brick_get_connector('aoe')
+        self.mox.VerifyAll()

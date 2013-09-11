@@ -1,15 +1,34 @@
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+import ast
 import shutil
 import tempfile
 import webob
 
+from oslo.config import cfg
+
+from cinder.brick.local_dev import lvm as brick_lvm
 from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.openstack.common import jsonutils
+from cinder.openstack.common import timeutils
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
 from cinder.volume import api as volume_api
+
+CONF = cfg.CONF
 
 
 def app():
@@ -28,6 +47,7 @@ class AdminActionsTest(test.TestCase):
         self.flags(rpc_backend='cinder.openstack.common.rpc.impl_fake')
         self.flags(lock_path=self.tempdir)
         self.volume_api = volume_api.API()
+        self.stubs.Set(brick_lvm.LVM, '_vg_exists', lambda x: True)
 
     def tearDown(self):
         shutil.rmtree(self.tempdir)
@@ -274,9 +294,9 @@ class AdminActionsTest(test.TestCase):
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
         self.volume_api.reserve_volume(ctx, volume)
-        self.volume_api.initialize_connection(ctx, volume, connector)
         mountpoint = '/dev/vbd'
-        self.volume_api.attach(ctx, volume, stubs.FAKE_UUID, None, mountpoint)
+        self.volume_api.attach(ctx, volume, stubs.FAKE_UUID, None,
+                               mountpoint, 'rw')
         # volume is attached
         volume = db.volume_get(ctx, volume['id'])
         self.assertEquals(volume['status'], 'in-use')
@@ -284,6 +304,15 @@ class AdminActionsTest(test.TestCase):
         self.assertEquals(volume['attached_host'], None)
         self.assertEquals(volume['mountpoint'], mountpoint)
         self.assertEquals(volume['attach_status'], 'attached')
+        admin_metadata = volume['volume_admin_metadata']
+        self.assertEquals(len(admin_metadata), 2)
+        self.assertEquals(admin_metadata[0]['key'], 'readonly')
+        self.assertEquals(admin_metadata[0]['value'], 'False')
+        self.assertEquals(admin_metadata[1]['key'], 'attached_mode')
+        self.assertEquals(admin_metadata[1]['value'], 'rw')
+        conn_info = self.volume_api.initialize_connection(ctx,
+                                                          volume, connector)
+        self.assertEquals(conn_info['data']['access_mode'], 'rw')
         # build request to force detach
         req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
         req.method = 'POST'
@@ -300,8 +329,13 @@ class AdminActionsTest(test.TestCase):
         # status changed to 'available'
         self.assertEquals(volume['status'], 'available')
         self.assertEquals(volume['instance_uuid'], None)
+        self.assertEquals(volume['attached_host'], None)
         self.assertEquals(volume['mountpoint'], None)
         self.assertEquals(volume['attach_status'], 'detached')
+        admin_metadata = volume['volume_admin_metadata']
+        self.assertEquals(len(admin_metadata), 1)
+        self.assertEquals(admin_metadata[0]['key'], 'readonly')
+        self.assertEquals(admin_metadata[0]['value'], 'False')
         # cleanup
         svc.stop()
 
@@ -315,10 +349,9 @@ class AdminActionsTest(test.TestCase):
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
         self.volume_api.reserve_volume(ctx, volume)
-        self.volume_api.initialize_connection(ctx, volume, connector)
         mountpoint = '/dev/vbd'
         host_name = 'fake-host'
-        self.volume_api.attach(ctx, volume, None, host_name, mountpoint)
+        self.volume_api.attach(ctx, volume, None, host_name, mountpoint, 'ro')
         # volume is attached
         volume = db.volume_get(ctx, volume['id'])
         self.assertEquals(volume['status'], 'in-use')
@@ -326,6 +359,15 @@ class AdminActionsTest(test.TestCase):
         self.assertEquals(volume['attached_host'], host_name)
         self.assertEquals(volume['mountpoint'], mountpoint)
         self.assertEquals(volume['attach_status'], 'attached')
+        admin_metadata = volume['volume_admin_metadata']
+        self.assertEquals(len(admin_metadata), 2)
+        self.assertEquals(admin_metadata[0]['key'], 'readonly')
+        self.assertEquals(admin_metadata[0]['value'], 'False')
+        self.assertEquals(admin_metadata[1]['key'], 'attached_mode')
+        self.assertEquals(admin_metadata[1]['value'], 'ro')
+        conn_info = self.volume_api.initialize_connection(ctx,
+                                                          volume, connector)
+        self.assertEquals(conn_info['data']['access_mode'], 'ro')
         # build request to force detach
         req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
         req.method = 'POST'
@@ -345,6 +387,10 @@ class AdminActionsTest(test.TestCase):
         self.assertEquals(volume['attached_host'], None)
         self.assertEquals(volume['mountpoint'], None)
         self.assertEquals(volume['attach_status'], 'detached')
+        admin_metadata = volume['volume_admin_metadata']
+        self.assertEquals(len(admin_metadata), 1)
+        self.assertEquals(admin_metadata[0]['key'], 'readonly')
+        self.assertEquals(admin_metadata[0]['value'], 'False')
         # cleanup
         svc.stop()
 
@@ -359,16 +405,28 @@ class AdminActionsTest(test.TestCase):
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
         self.volume_api.reserve_volume(ctx, volume)
-        self.volume_api.initialize_connection(ctx, volume, connector)
         mountpoint = '/dev/vbd'
-        self.volume_api.attach(ctx, volume, stubs.FAKE_UUID, None, mountpoint)
+        self.volume_api.attach(ctx, volume, stubs.FAKE_UUID, None,
+                               mountpoint, 'rw')
+        conn_info = self.volume_api.initialize_connection(ctx,
+                                                          volume, connector)
+        self.assertEquals(conn_info['data']['access_mode'], 'rw')
         self.assertRaises(exception.InvalidVolume,
                           self.volume_api.attach,
                           ctx,
                           volume,
                           fakes.get_fake_uuid(),
                           None,
-                          mountpoint)
+                          mountpoint,
+                          'rw')
+        self.assertRaises(exception.InvalidVolume,
+                          self.volume_api.attach,
+                          ctx,
+                          volume,
+                          fakes.get_fake_uuid(),
+                          None,
+                          mountpoint,
+                          'ro')
         # cleanup
         svc.stop()
 
@@ -383,17 +441,28 @@ class AdminActionsTest(test.TestCase):
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
         self.volume_api.reserve_volume(ctx, volume)
-        self.volume_api.initialize_connection(ctx, volume, connector)
         mountpoint = '/dev/vbd'
         host_name = 'fake_host'
-        self.volume_api.attach(ctx, volume, None, host_name, mountpoint)
+        self.volume_api.attach(ctx, volume, None, host_name, mountpoint, 'rw')
+        conn_info = self.volume_api.initialize_connection(ctx,
+                                                          volume, connector)
+        conn_info['data']['access_mode'] = 'rw'
         self.assertRaises(exception.InvalidVolume,
                           self.volume_api.attach,
                           ctx,
                           volume,
                           None,
                           host_name,
-                          mountpoint)
+                          mountpoint,
+                          'rw')
+        self.assertRaises(exception.InvalidVolume,
+                          self.volume_api.attach,
+                          ctx,
+                          volume,
+                          None,
+                          host_name,
+                          mountpoint,
+                          'ro')
         # cleanup
         svc.stop()
 
@@ -415,15 +484,12 @@ class AdminActionsTest(test.TestCase):
 
     def test_attach_attaching_volume_with_different_instance(self):
         """Test that attaching volume reserved for another instance fails."""
-        # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
         volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
                                         'provider_location': ''})
-        connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
-        self.volume_api.initialize_connection(ctx, volume, connector)
         values = {'status': 'attaching',
                   'instance_uuid': fakes.get_fake_uuid()}
         db.volume_update(ctx, volume['id'], values)
@@ -434,6 +500,188 @@ class AdminActionsTest(test.TestCase):
                           volume,
                           stubs.FAKE_UUID,
                           None,
-                          mountpoint)
+                          mountpoint,
+                          'rw')
         # cleanup
         svc.stop()
+
+    def test_attach_attaching_volume_with_different_mode(self):
+        """Test that attaching volume reserved for another mode fails."""
+        # admin context
+        ctx = context.RequestContext('admin', 'fake', True)
+        # current status is available
+        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
+                                        'provider_location': ''})
+        # start service to handle rpc messages for attach requests
+        svc = self.start_service('volume', host='test')
+        values = {'status': 'attaching',
+                  'instance_uuid': fakes.get_fake_uuid()}
+        db.volume_update(ctx, volume['id'], values)
+        db.volume_admin_metadata_update(ctx, volume['id'],
+                                        {"attached_mode": 'rw'}, False)
+        mountpoint = '/dev/vbd'
+        self.assertRaises(exception.InvalidVolume,
+                          self.volume_api.attach,
+                          ctx,
+                          volume,
+                          values['instance_uuid'],
+                          None,
+                          mountpoint,
+                          'ro')
+        # cleanup
+        svc.stop()
+
+    def _migrate_volume_prep(self):
+        admin_ctx = context.get_admin_context()
+        # create volume's current host and the destination host
+        db.service_create(admin_ctx,
+                          {'host': 'test',
+                           'topic': CONF.volume_topic,
+                           'created_at': timeutils.utcnow()})
+        db.service_create(admin_ctx,
+                          {'host': 'test2',
+                           'topic': CONF.volume_topic,
+                           'created_at': timeutils.utcnow()})
+        # current status is available
+        volume = db.volume_create(admin_ctx,
+                                  {'status': 'available',
+                                   'host': 'test',
+                                   'provider_location': '',
+                                   'attach_status': ''})
+        return volume
+
+    def _migrate_volume_exec(self, ctx, volume, host, expected_status):
+        admin_ctx = context.get_admin_context()
+        # build request to migrate to host
+        req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
+        req.method = 'POST'
+        req.headers['content-type'] = 'application/json'
+        req.body = jsonutils.dumps({'os-migrate_volume': {'host': host}})
+        req.environ['cinder.context'] = ctx
+        resp = req.get_response(app())
+        # verify status
+        self.assertEquals(resp.status_int, expected_status)
+        volume = db.volume_get(admin_ctx, volume['id'])
+        return volume
+
+    def test_migrate_volume_success(self):
+        expected_status = 202
+        host = 'test2'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        volume = self._migrate_volume_exec(ctx, volume, host, expected_status)
+        self.assertEquals(volume['migration_status'], 'starting')
+
+    def test_migrate_volume_as_non_admin(self):
+        expected_status = 403
+        host = 'test2'
+        ctx = context.RequestContext('fake', 'fake')
+        volume = self._migrate_volume_prep()
+        self._migrate_volume_exec(ctx, volume, host, expected_status)
+
+    def test_migrate_volume_host_no_exist(self):
+        expected_status = 400
+        host = 'test3'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        self._migrate_volume_exec(ctx, volume, host, expected_status)
+
+    def test_migrate_volume_same_host(self):
+        expected_status = 400
+        host = 'test'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        self._migrate_volume_exec(ctx, volume, host, expected_status)
+
+    def test_migrate_volume_migrating(self):
+        expected_status = 400
+        host = 'test2'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        model_update = {'migration_status': 'migrating'}
+        volume = db.volume_update(ctx, volume['id'], model_update)
+        self._migrate_volume_exec(ctx, volume, host, expected_status)
+
+    def test_migrate_volume_with_snap(self):
+        expected_status = 400
+        host = 'test2'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        db.snapshot_create(ctx, {'volume_id': volume['id']})
+        self._migrate_volume_exec(ctx, volume, host, expected_status)
+
+    def _migrate_volume_comp_exec(self, ctx, volume, new_volume, error,
+                                  expected_status, expected_id):
+        admin_ctx = context.get_admin_context()
+        req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
+        req.method = 'POST'
+        req.headers['content-type'] = 'application/json'
+        body_dict = {'new_volume': new_volume['id'], 'error': error}
+        req.body = jsonutils.dumps({'os-migrate_volume_completion': body_dict})
+        req.environ['cinder.context'] = ctx
+        resp = req.get_response(app())
+        resp_dict = ast.literal_eval(resp.body)
+        # verify status
+        self.assertEquals(resp.status_int, expected_status)
+        if expected_id:
+            self.assertEquals(resp_dict['save_volume_id'], expected_id)
+        else:
+            self.assertNotIn('save_volume_id', resp_dict)
+
+    def test_migrate_volume_comp_as_non_admin(self):
+        admin_ctx = context.get_admin_context()
+        volume = db.volume_create(admin_ctx, {'id': 'fake1'})
+        new_volume = db.volume_create(admin_ctx, {'id': 'fake2'})
+        expected_status = 403
+        expected_id = None
+        ctx = context.RequestContext('fake', 'fake')
+        volume = self._migrate_volume_comp_exec(ctx, volume, new_volume, False,
+                                                expected_status, expected_id)
+
+    def test_migrate_volume_comp_no_mig_status(self):
+        admin_ctx = context.get_admin_context()
+        volume1 = db.volume_create(admin_ctx, {'id': 'fake1',
+                                               'migration_status': 'foo'})
+        volume2 = db.volume_create(admin_ctx, {'id': 'fake2',
+                                               'migration_status': None})
+        expected_status = 400
+        expected_id = None
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_comp_exec(ctx, volume1, volume2, False,
+                                                expected_status, expected_id)
+        volume = self._migrate_volume_comp_exec(ctx, volume2, volume1, False,
+                                                expected_status, expected_id)
+
+    def test_migrate_volume_comp_bad_mig_status(self):
+        admin_ctx = context.get_admin_context()
+        volume1 = db.volume_create(admin_ctx,
+                                   {'id': 'fake1',
+                                    'migration_status': 'migrating'})
+        volume2 = db.volume_create(admin_ctx,
+                                   {'id': 'fake2',
+                                    'migration_status': 'target:foo'})
+        expected_status = 400
+        expected_id = None
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_comp_exec(ctx, volume1, volume2, False,
+                                                expected_status, expected_id)
+
+    def test_migrate_volume_comp_from_nova(self):
+        admin_ctx = context.get_admin_context()
+        volume = db.volume_create(admin_ctx,
+                                  {'id': 'fake1',
+                                   'status': 'in-use',
+                                   'host': 'test',
+                                   'migration_status': None,
+                                   'attach_status': 'attached'})
+        new_volume = db.volume_create(admin_ctx,
+                                      {'id': 'fake2',
+                                       'status': 'available',
+                                       'host': 'test',
+                                       'migration_status': None,
+                                       'attach_status': 'detached'})
+        expected_status = 200
+        expected_id = 'fake2'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_comp_exec(ctx, volume, new_volume, False,
+                                                expected_status, expected_id)
