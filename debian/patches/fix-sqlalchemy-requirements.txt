@@ -1,0 +1,16 @@
+Description: Fixes wrong sqlalchemy requirements
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: no
+Last-Update: 2013-09-24
+
+--- cinder-2013.2~b3.orig/requirements.txt
++++ cinder-2013.2~b3/requirements.txt
+@@ -19,7 +19,7 @@ python-keystoneclient>=0.3.0
+ python-swiftclient>=1.5
+ Routes>=1.12.3
+ six
+-SQLAlchemy>=0.7.8,<=0.7.99
++SQLAlchemy>=0.7.8
+ sqlalchemy-migrate>=0.7.2
+ stevedore>=0.10
+ suds>=0.4
