@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2012-11-28 11:58+0000\n"
+"POT-Creation-Date: 2013-09-25 17:10+0800\n"
 "PO-Revision-Date: 2013-04-13 19:01+0100\n"
 "Last-Translator: Pedro Ribeiro <p.m42.ribeiro@gmail.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
@@ -29,7 +29,8 @@ msgid ""
 "Please choose whether you want to start Cinder services when the machine is "
 "booted up."
 msgstr ""
-"Por favor escolha se pretende iniciar os serviços Cinder quando a máquina é ligada."
+"Por favor escolha se pretende iniciar os serviços Cinder quando a máquina é "
+"ligada."
 
 #. Type: boolean
 #. Description
@@ -45,7 +46,7 @@ msgid ""
 "now, please make sure you have all needed information:"
 msgstr ""
 "Não foi definida nenhuma base de dados para uso do Cinder. Se quer criar uma "
-"agora, certifique-se que tem toda a informação necessária:" 
+"agora, certifique-se que tem toda a informação necessária:"
 
 #. Type: boolean
 #. Description
@@ -56,10 +57,10 @@ msgid ""
 " * a username and password to access the database;\n"
 " * the type of database management software you want to use."
 msgstr ""
-" * o nome da máquina servidor de base de dados (que tem que permitir\n "
-"   ligações TCP a partir desta máquina);\n"
-" * um nome de utilizador e password com permissão para aceder à base de\n "
-"   dados;\n"
+" * o nome da máquina servidor de base de dados (que tem que permitir\n"
+"    ligações TCP a partir desta máquina);\n"
+" * um nome de utilizador e password com permissão para aceder à base de\n"
+"    dados;\n"
 " * o tipo de software de gestão de base de dados que quer usar."
 
 #. Type: boolean
@@ -132,6 +133,55 @@ msgstr ""
 "Indique por favor o nome do grupo LVM (vg) no qual o Cinder irá criar "
 "partições."
 
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "IP address of your RabbitMQ host:"
+msgstr ""
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../cinder-common.templates:8001 ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
+msgid ""
+"In order to interoperate with other components of OpenStack, this package "
+"needs to connect to a central RabbitMQ server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "Please specify the IP address of that server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Username for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Please specify the username used to connect to the RabbitMQ server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Password for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Please specify the password used to connect to the RabbitMQ server."
+msgstr ""
+
 #. Type: boolean
 #. Description
 #: ../cinder-api.templates:1001
@@ -146,9 +196,9 @@ msgid ""
 "accessible. This is done using \"keystone service-create\" and \"keystone "
 "endpoint-create\". Select if you want to run these commands now."
 msgstr ""
-"Cada serviço Openstack (cada API) deve ser registado de modo a ser acessível. "
-"Isto é feito através do \"keystone service-create\" e \"keystone endpoint-"
-"create\". Indique se quer correr estes comandos agora."
+"Cada serviço Openstack (cada API) deve ser registado de modo a ser "
+"acessível. Isto é feito através do \"keystone service-create\" e \"keystone "
+"endpoint-create\". Indique se quer correr estes comandos agora."
 
 #. Type: boolean
 #. Description
@@ -157,8 +207,8 @@ msgid ""
 "Note that you will need to have an up and running keystone server on which "
 "to connect using the Keystone auth token."
 msgstr ""
-"Note que irá precisar de ter um servidor keystone a correr para se autenticar "
-"com um token de autenticação Keystone."
+"Note que irá precisar de ter um servidor keystone a correr para se "
+"autenticar com um token de autenticação Keystone."
 
 #. Type: string
 #. Description
@@ -216,8 +266,9 @@ msgid ""
 "service, so if you are installing a public cloud, this should be a public IP "
 "address."
 msgstr ""
-"Este endereço IP deverá ser acessível a partir dos clientes que usarão o serviço, "
-"portanto se está a instalar uma cloud pública, este deve ser um endereço IP público."
+"Este endereço IP deverá ser acessível a partir dos clientes que usarão o "
+"serviço, portanto se está a instalar uma cloud pública, este deve ser um "
+"endereço IP público."
 
 #. Type: string
 #. Description

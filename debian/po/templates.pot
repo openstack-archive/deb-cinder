@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2012-11-28 11:58+0000\n"
+"POT-Creation-Date: 2013-09-25 17:10+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -115,6 +115,55 @@ msgstr ""
 msgid ""
 "Please specify the name of the LVM volume group (vg) on which Cinder will "
 "create partitions."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "IP address of your RabbitMQ host:"
+msgstr ""
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../cinder-common.templates:8001 ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
+msgid ""
+"In order to interoperate with other components of OpenStack, this package "
+"needs to connect to a central RabbitMQ server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "Please specify the IP address of that server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Username for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Please specify the username used to connect to the RabbitMQ server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Password for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
 
 #. Type: boolean

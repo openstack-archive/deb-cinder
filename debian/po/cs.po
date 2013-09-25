@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder 2013.1.2-4\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2012-11-28 11:58+0000\n"
+"POT-Creation-Date: 2013-09-25 17:10+0800\n"
 "PO-Revision-Date: 2013-08-28 12:31+0200\n"
 "Last-Translator: Michal Simunek <michal.simunek@gmail.com>\n"
 "Language-Team: Czech <debian-l10n-czech@lists.debian.org>\n"
@@ -95,8 +95,8 @@ msgid ""
 "Please specify the URL of your Cinder authentication server. Typically  this "
 "is also the URL of your OpenStack Identity Service (Keystone)."
 msgstr ""
-"Zadejte prosím URL autentizačního serveru pro Cinder. Většinou je to také URL "
-"OpenStack Identity Service (Keystone)."
+"Zadejte prosím URL autentizačního serveru pro Cinder. Většinou je to také "
+"URL OpenStack Identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -129,8 +129,57 @@ msgid ""
 "Please specify the name of the LVM volume group (vg) on which Cinder will "
 "create partitions."
 msgstr ""
-"Zadejte prosím název skupiny LVM svazků (vg), na které bude Cinder "
-"vytvářet oddíly."
+"Zadejte prosím název skupiny LVM svazků (vg), na které bude Cinder vytvářet "
+"oddíly."
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "IP address of your RabbitMQ host:"
+msgstr ""
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../cinder-common.templates:8001 ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
+msgid ""
+"In order to interoperate with other components of OpenStack, this package "
+"needs to connect to a central RabbitMQ server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "Please specify the IP address of that server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Username for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Please specify the username used to connect to the RabbitMQ server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Password for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Please specify the password used to connect to the RabbitMQ server."
+msgstr ""
 
 #. Type: boolean
 #. Description
@@ -148,7 +197,8 @@ msgid ""
 msgstr ""
 "Aby byla každá služba Openstack (každé API) přístupná, musí být "
 "zaregistrována. To se provádí pomocí příkazů \"keystone service-create\" a "
-"\"keystone endpoint-create\". Zvolte si, zda-li se tyto příkazy mají nyní spustit."
+"\"keystone endpoint-create\". Zvolte si, zda-li se tyto příkazy mají nyní "
+"spustit."
 
 #. Type: boolean
 #. Description
@@ -173,8 +223,8 @@ msgid ""
 "Enter the IP address of your keystone server, so that cinder-api can contact "
 "Keystone to do the Cinder service and endpoint creation."
 msgstr ""
-"Zadejte IP adresu serveru keystone, aby se mohlo cinder-api spojit s Keystone "
-"a provozovat službu Cinder a vytvářet koncové body."
+"Zadejte IP adresu serveru keystone, aby se mohlo cinder-api spojit s "
+"Keystone a provozovat službu Cinder a vytvářet koncové body."
 
 #. Type: password
 #. Description
@@ -205,8 +255,8 @@ msgid ""
 "Enter the IP address that will be used to contact Cinder (eg: the Cinder "
 "endpoint IP address)."
 msgstr ""
-"Zadejte IP adresu, která se bude používat ke spojení s Cinder (např: "
-"IP adresa koncového bodu Cinder)."
+"Zadejte IP adresu, která se bude používat ke spojení s Cinder (např: IP "
+"adresa koncového bodu Cinder)."
 
 #. Type: string
 #. Description
@@ -217,8 +267,8 @@ msgid ""
 "address."
 msgstr ""
 "Tato IP adresa musí být přístupná z klientů, kteří budou tuto službu "
-"používat, takže pokud instalujete veřejný cloud, musí to být veřejná "
-"IP adresa."
+"používat, takže pokud instalujete veřejný cloud, musí to být veřejná IP "
+"adresa."
 
 #. Type: string
 #. Description
