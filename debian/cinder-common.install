@@ -1,5 +1,3 @@
-debian/cinder.conf			/usr/share/cinder-common
-debian/logging.conf 			/etc/cinder
 etc/cinder/api-paste.ini		/usr/share/cinder-common
 etc/cinder/policy.json			/etc/cinder
 etc/cinder/rootwrap.conf		/etc/cinder

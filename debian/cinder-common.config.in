@@ -26,6 +26,7 @@ CINDER_ENABLE=${CINDER_ENABLE}" >${CINDER_COM_DEF}
 
 pkgos_var_user_group cinder
 pkgos_dbc_read_conf -pkg cinder-common ${CINDER_CONF} DEFAULT sql_connection cinder $@
+pkgos_rabbit_read_conf ${CINDER_CONF} DEFAULT cinder
 pkgos_read_admin_creds ${CINDER_API} filter:authtoken cinder
 manage_cinder_enable
 
