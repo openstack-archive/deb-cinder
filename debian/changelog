@@ -1,4 +1,4 @@
-cinder (2013.2~b3-1) experimental; urgency=low
+cinder (2013.2~rc1-1) experimental; urgency=low
 
   * New upstream release.
   * Reviewed (build-)dependencies.
