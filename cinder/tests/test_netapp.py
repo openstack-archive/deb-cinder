@@ -136,7 +136,7 @@ class FakeDirectCMODEServerHandler(FakeHTTPRequestHandler):
                 </is-space-reservation-enabled>
                 <mapped>false</mapped><multiprotocol-type>linux
                 </multiprotocol-type>
-                <online>true</online><path>/vol/navneet/lun2</path>
+                <online>true</online><path>/vol/navneet/lun1</path>
                 <prefix-size>0</prefix-size><qtree></qtree><read-only>
                 false</read-only><serial-number>2FfGI$APyN68</serial-number>
                 <share-state>none</share-state><size>20971520</size>
@@ -389,6 +389,28 @@ class FakeDirectCMODEServerHandler(FakeHTTPRequestHandler):
                           <num-records>1</num-records></results>"""
         elif 'ems-autosupport-log' == api:
                 body = """<results status="passed"/>"""
+        elif 'lun-resize' == api:
+                body = """<results status="passed"/>"""
+        elif 'lun-get-geometry' == api:
+                body = """<results status="passed">
+                          <size>1</size>
+                          <bytes-per-sector>2</bytes-per-sector>
+                          <sectors-per-track>8</sectors-per-track>
+                          <tracks-per-cylinder>2</tracks-per-cylinder>
+                          <cylinders>4</cylinders>
+                          <max-resize-size>5</max-resize-size>
+                          </results>"""
+        elif 'volume-options-list-info' == api:
+                body = """<results status="passed">
+                          <options>
+                          <option>
+                          <name>compression</name>
+                          <value>off</value>
+                          </option>
+                          </options>
+                          </results>"""
+        elif 'lun-move' == api:
+                body = """<results status="passed"/>"""
         else:
                 # Unknown API
                 s.send_response(500)
@@ -477,12 +499,18 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
                   'id': 'lun1', 'provider_auth': None, 'project_id': 'project',
                   'display_name': None, 'display_description': 'lun1',
                   'volume_type_id': None}
-    volume_clone_fail = {'name': 'cl_fail', 'size': 1, 'volume_name': 'fail',
-                         'os_type': 'linux', 'provider_location': 'cl_fail',
-                         'id': 'lun1', 'provider_auth': None,
-                         'project_id': 'project', 'display_name': None,
-                         'display_description': 'lun1',
-                         'volume_type_id': None}
+    volume_clone = {'name': 'cl_sm', 'size': 3, 'volume_name': 'lun1',
+                    'os_type': 'linux', 'provider_location': 'cl_sm',
+                    'id': 'lun1', 'provider_auth': None,
+                    'project_id': 'project', 'display_name': None,
+                    'display_description': 'lun1',
+                    'volume_type_id': None}
+    volume_clone_large = {'name': 'cl_lg', 'size': 6, 'volume_name': 'lun1',
+                          'os_type': 'linux', 'provider_location': 'cl_lg',
+                          'id': 'lun1', 'provider_auth': None,
+                          'project_id': 'project', 'display_name': None,
+                          'display_description': 'lun1',
+                          'volume_type_id': None}
     connector = {'initiator': 'iqn.1993-08.org.debian:01:10'}
     vol_fail = {'name': 'lun_fail', 'size': 10000, 'volume_name': 'lun1',
                 'os_type': 'linux', 'provider_location': 'lun1',
@@ -567,33 +595,11 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
         self.driver.terminate_connection(self.volume, self.connector)
         self.driver.delete_volume(self.volume)
 
-    def test_fail_vol_from_snapshot_creation(self):
-        self.driver.create_volume(self.volume)
-        try:
-            self.driver.create_volume_from_snapshot(self.volume,
-                                                    self.snapshot_fail)
-            raise AssertionError()
-        except exception.VolumeBackendAPIException:
-            pass
-        finally:
-            self.driver.delete_volume(self.volume)
-
     def test_cloned_volume_destroy(self):
         self.driver.create_volume(self.volume)
         self.driver.create_cloned_volume(self.snapshot, self.volume)
         self.driver.delete_volume(self.snapshot)
         self.driver.delete_volume(self.volume)
-
-    def test_fail_cloned_volume_creation(self):
-        self.driver.create_volume(self.volume)
-        try:
-            self.driver.create_cloned_volume(self.volume_clone_fail,
-                                             self.volume)
-            raise AssertionError()
-        except exception.VolumeBackendAPIException:
-            pass
-        finally:
-            self.driver.delete_volume(self.volume)
 
     def test_map_by_creating_igroup(self):
         self.driver.create_volume(self.volume)
@@ -614,6 +620,22 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
 
     def test_vol_stats(self):
         self.driver.get_volume_stats(refresh=True)
+
+    def test_create_vol_snapshot_diff_size_resize(self):
+        self.driver.create_volume(self.volume)
+        self.driver.create_snapshot(self.snapshot)
+        self.driver.create_volume_from_snapshot(
+            self.volume_clone, self.snapshot)
+        self.driver.delete_snapshot(self.snapshot)
+        self.driver.delete_volume(self.volume)
+
+    def test_create_vol_snapshot_diff_size_subclone(self):
+        self.driver.create_volume(self.volume)
+        self.driver.create_snapshot(self.snapshot)
+        self.driver.create_volume_from_snapshot(
+            self.volume_clone_large, self.snapshot)
+        self.driver.delete_snapshot(self.snapshot)
+        self.driver.delete_volume(self.volume)
 
 
 class NetAppDriverNegativeTestCase(test.TestCase):
@@ -691,7 +713,7 @@ class FakeDirect7MODEServerHandler(FakeHTTPRequestHandler):
     <are-vols-busy>false</are-vols-busy>
     <luns>
       <lun-info>
-        <path>/vol/vol1/clone1</path>
+        <path>/vol/vol1/lun1</path>
         <size>20971520</size>
         <online>true</online>
         <mapped>false</mapped>
@@ -997,6 +1019,28 @@ class FakeDirect7MODEServerHandler(FakeHTTPRequestHandler):
                 body = """<results status="passed"/>"""
         elif 'ems-autosupport-log' == api:
                 body = """<results status="passed"/>"""
+        elif 'lun-resize' == api:
+                body = """<results status="passed"/>"""
+        elif 'lun-get-geometry' == api:
+                body = """<results status="passed">
+                          <size>1</size>
+                          <bytes-per-sector>2</bytes-per-sector>
+                          <sectors-per-track>8</sectors-per-track>
+                          <tracks-per-cylinder>2</tracks-per-cylinder>
+                          <cylinders>4</cylinders>
+                          <max-resize-size>5</max-resize-size>
+                          </results>"""
+        elif 'volume-options-list-info' == api:
+                body = """<results status="passed">
+                          <options>
+                          <option>
+                          <name>compression</name>
+                          <value>off</value>
+                          </option>
+                          </options>
+                          </results>"""
+        elif 'lun-move' == api:
+                body = """<results status="passed"/>"""
         else:
                 # Unknown API
                 s.send_response(500)
@@ -1066,7 +1110,7 @@ class NetAppDirect7modeISCSIDriverTestCase_NV(
                        FakeDirect7modeHTTPConnection)
         driver.do_setup(context='')
         client = driver.client
-        client.set_api_version(1, 7)
+        client.set_api_version(1, 9)
         self.driver = driver
 
     def _set_config(self, configuration):
@@ -1098,6 +1142,20 @@ class NetAppDirect7modeISCSIDriverTestCase_NV(
         if not success:
             raise AssertionError('Failed creating on selected volumes')
 
+    def test_check_for_setup_error_version(self):
+        drv = self.driver
+        delattr(drv.client, '_api_version')
+
+        # check exception raises when version not found
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          drv.check_for_setup_error)
+
+        drv.client.set_api_version(1, 8)
+
+        # check exception raises when not supported version
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          drv.check_for_setup_error)
+
 
 class NetAppDirect7modeISCSIDriverTestCase_WV(
         NetAppDirect7modeISCSIDriverTestCase_NV):
@@ -1114,7 +1172,7 @@ class NetAppDirect7modeISCSIDriverTestCase_WV(
                        FakeDirect7modeHTTPConnection)
         driver.do_setup(context='')
         client = driver.client
-        client.set_api_version(1, 7)
+        client.set_api_version(1, 9)
         self.driver = driver
 
     def _set_config(self, configuration):

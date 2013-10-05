@@ -20,10 +20,7 @@ Handles all requests to Nova.
 from novaclient import extension
 from novaclient import service_catalog
 from novaclient.v1_1 import client as nova_client
-try:
-    from novaclient.v1_1.contrib import assisted_volume_snapshots
-except ImportError:
-    assisted_volume_snapshots = None
+from novaclient.v1_1.contrib import assisted_volume_snapshots
 from oslo.config import cfg
 
 from cinder.db import base
@@ -77,8 +74,8 @@ def novaclient(context, admin=False):
     nova_catalog_info = CONF.nova_catalog_info
 
     if admin:
-            nova_endpoint_template = CONF.nova_endpoint_admin_template
-            nova_catalog_info = CONF.nova_catalog_admin_info
+        nova_endpoint_template = CONF.nova_endpoint_admin_template
+        nova_catalog_info = CONF.nova_catalog_admin_info
 
     if nova_endpoint_template:
         url = nova_endpoint_template % context.to_dict()
@@ -100,9 +97,7 @@ def novaclient(context, admin=False):
 
     LOG.debug(_('Novaclient connection created using URL: %s') % url)
 
-    extensions = []
-    if assisted_volume_snapshots:
-        extensions.append(assisted_volume_snapshots)
+    extensions = [assisted_volume_snapshots]
 
     c = nova_client.Client(context.user_id,
                            context.auth_token,

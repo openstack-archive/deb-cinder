@@ -127,8 +127,8 @@ class BackupsAPITestCase(test.TestCase):
         backup = dom.getElementsByTagName('backup')
         name = backup.item(0).getAttribute('name')
         container_name = backup.item(0).getAttribute('container')
-        self.assertEquals(container_name.strip(), "volumebackups")
-        self.assertEquals(name.strip(), "test_backup")
+        self.assertEqual(container_name.strip(), "volumebackups")
+        self.assertEqual(name.strip(), "test_backup")
         db.backup_destroy(context.get_admin_context(), backup_id)
         db.volume_destroy(context.get_admin_context(), volume_id)
 
@@ -496,63 +496,82 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(res_dict['computeFault']['message'],
                          'Service cinder-backup could not be found.')
 
-    def test_check_backup_service(self):
+        volume = self.volume_api.get(context.get_admin_context(), volume_id)
+        self.assertEqual(volume['status'], 'available')
+
+    def test_is_backup_service_enabled(self):
         def empty_service(ctxt, topic):
             return []
 
+        test_host = 'test_host'
+        alt_host = 'strange_host'
+
         #service host not match with volume's host
         def host_not_match(context, topic):
-            return [{'availability_zone': "fake_az", 'host': 'strange_host',
+            return [{'availability_zone': "fake_az", 'host': alt_host,
                      'disabled': 0, 'updated_at': timeutils.utcnow()}]
 
         #service az not match with volume's az
         def az_not_match(context, topic):
-            return [{'availability_zone': "strange_az", 'host': 'test_host',
+            return [{'availability_zone': "strange_az", 'host': test_host,
                      'disabled': 0, 'updated_at': timeutils.utcnow()}]
 
         #service disabled
         def disabled_service(context, topic):
-            return [{'availability_zone': "fake_az", 'host': 'test_host',
+            return [{'availability_zone': "fake_az", 'host': test_host,
                      'disabled': 1, 'updated_at': timeutils.utcnow()}]
 
         #dead service that last reported at 20th centry
         def dead_service(context, topic):
-            return [{'availability_zone': "fake_az", 'host': 'strange_host',
+            return [{'availability_zone': "fake_az", 'host': alt_host,
                      'disabled': 0, 'updated_at': '1989-04-16 02:55:44'}]
 
         #first service's host not match but second one works.
         def multi_services(context, topic):
-            return [{'availability_zone': "fake_az", 'host': 'strange_host',
+            return [{'availability_zone': "fake_az", 'host': alt_host,
                      'disabled': 0, 'updated_at': timeutils.utcnow()},
-                    {'availability_zone': "fake_az", 'host': 'test_host',
+                    {'availability_zone': "fake_az", 'host': test_host,
                      'disabled': 0, 'updated_at': timeutils.utcnow()}]
 
-        volume_id = utils.create_volume(self.context, size=2)['id']
+        volume_id = utils.create_volume(self.context, size=2,
+                                        host=test_host)['id']
         volume = self.volume_api.get(context.get_admin_context(), volume_id)
 
         #test empty service
         self.stubs.Set(cinder.db, 'service_get_all_by_topic', empty_service)
-        self.assertEqual(self.backup_api._check_backup_service(volume), False)
+        self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
+                                                                    test_host),
+                         False)
 
         #test host not match service
         self.stubs.Set(cinder.db, 'service_get_all_by_topic', host_not_match)
-        self.assertEqual(self.backup_api._check_backup_service(volume), False)
+        self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
+                                                                    test_host),
+                         False)
 
         #test az not match service
         self.stubs.Set(cinder.db, 'service_get_all_by_topic', az_not_match)
-        self.assertEqual(self.backup_api._check_backup_service(volume), False)
+        self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
+                                                                    test_host),
+                         False)
 
         #test disabled service
         self.stubs.Set(cinder.db, 'service_get_all_by_topic', disabled_service)
-        self.assertEqual(self.backup_api._check_backup_service(volume), False)
+        self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
+                                                                    test_host),
+                         False)
 
         #test dead service
         self.stubs.Set(cinder.db, 'service_get_all_by_topic', dead_service)
-        self.assertEqual(self.backup_api._check_backup_service(volume), False)
+        self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
+                                                                    test_host),
+                         False)
 
         #test multi services and the last service matches
         self.stubs.Set(cinder.db, 'service_get_all_by_topic', multi_services)
-        self.assertEqual(self.backup_api._check_backup_service(volume), True)
+        self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
+                                                                    test_host),
+                         True)
 
     def test_delete_backup_available(self):
         backup_id = self._create_backup(status='available')

@@ -40,32 +40,37 @@ LOG = logging.getLogger(__name__)
 gpfs_opts = [
     cfg.StrOpt('gpfs_mount_point_base',
                default=None,
-               help='Path to the directory on GPFS mount point where '
-                    'volumes are stored'),
+               help='Specifies the path of the GPFS directory where Block '
+                    'Storage volume and snapshot files are stored.'),
     cfg.StrOpt('gpfs_images_dir',
                default=None,
-               help='Path to GPFS Glance repository as mounted on '
-                    'Nova nodes'),
+               help='Specifies the path of the Image service repository in '
+                    'GPFS.  Leave undefined if not storing images in GPFS.'),
     cfg.StrOpt('gpfs_images_share_mode',
                default=None,
-               help='Set this if Glance image repo is on GPFS as well '
-                    'so that the image bits can be transferred efficiently '
-                    'between Glance and Cinder.  Valid values are copy or '
-                    'copy_on_write. copy performs a full copy of the image, '
-                    'copy_on_write efficiently shares unmodified blocks of '
-                    'the image.'),
+               help='Specifies the type of image copy to be used.  Set this '
+                    'when the Image service repository also uses GPFS so '
+                    'that image files can be transferred efficiently from '
+                    'the Image service to the Block Storage service. There '
+                    'are two valid values: "copy" specifies that a full copy '
+                    'of the image is made; "copy_on_write" specifies that '
+                    'copy-on-write optimization strategy is used and '
+                    'unmodified blocks of the image file are shared '
+                    'efficiently.'),
     cfg.IntOpt('gpfs_max_clone_depth',
                default=0,
-               help='A lengthy chain of copy-on-write snapshots or clones '
-                    'could have impact on performance.  This option limits '
-                    'the number of indirections required to reach a specific '
-                    'block. 0 indicates unlimited.'),
+               help='Specifies an upper limit on the number of indirections '
+                    'required to reach a specific block due to snapshots or '
+                    'clones.  A lengthy chain of copy-on-write snapshots or '
+                    'clones can have a negative impact on performance, but '
+                    'improves space utilization.  0 indicates unlimited '
+                    'clone depth.'),
     cfg.BoolOpt('gpfs_sparse_volumes',
                 default=True,
-                help=('Create volumes as sparse files which take no space. '
-                      'If set to False volume is created as regular file. '
-                      'In this case volume creation may take a significantly '
-                      'longer time.')),
+                help=('Specifies that volumes are created as sparse files '
+                      'which initially consume no space. If set to False, the '
+                      'volume is created as a fully allocated file, in which '
+                      'case, creation may take a significantly longer time.')),
 ]
 CONF = cfg.CONF
 CONF.register_opts(gpfs_opts)
@@ -323,7 +328,7 @@ class GPFSDriver(driver.VolumeDriver):
         # would succeed and the snapshot is deleted.
         if not os.path.exists(fchild) and fparent:
             fpbase = os.path.basename(fparent)
-            if (fpbase.startswith('snapshot-') or fpbase.endswith('.snap')):
+            if (fpbase.endswith('.snap') or fpbase.endswith('.ts')):
                 self._delete_gpfs_file(fparent)
 
     def delete_volume(self, volume):
@@ -381,11 +386,20 @@ class GPFSDriver(driver.VolumeDriver):
         volume_path = os.path.join(self.configuration.gpfs_mount_point_base,
                                    snapshot['volume_name'])
         self._create_gpfs_snap(src=volume_path, dest=snapshot_path)
+        self._gpfs_redirect(volume_path)
 
     def delete_snapshot(self, snapshot):
         """Deletes a GPFS snapshot."""
-        # A snapshot file is deleted as a part of delete_volume when
-        # all volumes derived from it are deleted.
+        # Rename the deleted snapshot to indicate it no longer exists in
+        # cinder db. Attempt to delete the snapshot.  If the snapshot has
+        # clone children, the delete will fail silently. When volumes that
+        # are clone children are deleted in the future, the remaining ts
+        # snapshots will also be deleted.
+        snapshot_path = self.local_path(snapshot)
+        snapshot_ts_path = '%s.ts' % snapshot_path
+        os.rename(snapshot_path, snapshot_ts_path)
+        self._execute('rm', '-f', snapshot_ts_path,
+                      check_exit_code=False, run_as_root=True)
 
     def local_path(self, volume):
         return os.path.join(self.configuration.gpfs_mount_point_base,

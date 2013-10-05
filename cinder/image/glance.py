@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2010 OpenStack LLC.
+# Copyright 2010 OpenStack Foundation
 # Copyright 2013 NTT corp.
 # All Rights Reserved.
 #
@@ -162,23 +162,20 @@ class GlanceClientWrapper(object):
                 extra = "retrying"
                 error_msg = _("Error contacting glance server "
                               "'%(netloc)s' for '%(method)s', "
-                              "%(extra)s.") % {
-                                  'netloc': netloc,
-                                  'method': method,
-                                  'extra': extra,
-                              }
+                              "%(extra)s.") % {'netloc': netloc,
+                                               'method': method,
+                                               'extra': extra,
+                                               }
                 if attempt == num_attempts:
                     extra = 'done trying'
                     error_msg = _("Error contacting glance server "
                                   "'%(netloc)s' for '%(method)s', "
-                                  "%(extra)s.") % {
-                                      'netloc': netloc,
-                                      'method': method,
-                                      'extra': extra,
-                                  }
+                                  "%(extra)s.") % {'netloc': netloc,
+                                                   'method': method,
+                                                   'extra': extra,
+                                                   }
                     LOG.exception(error_msg)
-                    raise exception.GlanceConnectionFailed(netloc=netloc,
-                                                           reason=str(e))
+                    raise exception.GlanceConnectionFailed(reason=str(e))
                 LOG.exception(error_msg)
                 time.sleep(1)
 
@@ -237,7 +234,8 @@ class GlanceImageService(object):
         or None if this attribute is not shown by Glance.
         """
         try:
-            client = GlanceClientWrapper()
+            # direct_url is returned by v2 api
+            client = GlanceClientWrapper(version=2)
             image_meta = client.call(context, 'get', image_id)
         except Exception:
             _reraise_translated_image_exception(image_id)
@@ -245,7 +243,11 @@ class GlanceImageService(object):
         if not self._is_image_available(context, image_meta):
             raise exception.ImageNotFound(image_id=image_id)
 
-        return getattr(image_meta, 'direct_url', None)
+        # some glance stores like nfs only meta data
+        # is stored and returned as locations.
+        # so composite of two needs to be returned.
+        return (getattr(image_meta, 'direct_url', None),
+                getattr(image_meta, 'locations', None))
 
     def download(self, context, image_id, data=None):
         """Calls out to Glance for data and writes data."""

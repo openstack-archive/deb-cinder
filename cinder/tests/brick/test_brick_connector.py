@@ -57,24 +57,24 @@ class ConnectorTestCase(test.TestCase):
 
     def test_factory(self):
         obj = connector.InitiatorConnector.factory('iscsi', None)
-        self.assertTrue(obj.__class__.__name__,
-                        "ISCSIConnector")
+        self.assertEqual(obj.__class__.__name__, "ISCSIConnector")
 
         obj = connector.InitiatorConnector.factory('fibre_channel', None)
-        self.assertTrue(obj.__class__.__name__,
-                        "FibreChannelConnector")
+        self.assertEqual(obj.__class__.__name__, "FibreChannelConnector")
 
         obj = connector.InitiatorConnector.factory('aoe', None)
-        self.assertTrue(obj.__class__.__name__,
-                        "AoEConnector")
+        self.assertEqual(obj.__class__.__name__, "AoEConnector")
 
-        obj = connector.InitiatorConnector.factory('nfs', None)
-        self.assertTrue(obj.__class__.__name__,
-                        "RemoteFsConnector")
+        obj = connector.InitiatorConnector.factory(
+            'nfs', None, nfs_mount_point_base='/mnt/test')
+        self.assertEqual(obj.__class__.__name__, "RemoteFsConnector")
 
-        obj = connector.InitiatorConnector.factory('glusterfs', None)
-        self.assertTrue(obj.__class__.__name__,
-                        "RemoteFsConnector")
+        obj = connector.InitiatorConnector.factory(
+            'glusterfs', None, glusterfs_mount_point_base='/mnt/test')
+        self.assertEqual(obj.__class__.__name__, "RemoteFsConnector")
+
+        obj = connector.InitiatorConnector.factory('local', None)
+        self.assertEqual(obj.__class__.__name__, "LocalConnector")
 
         self.assertRaises(ValueError,
                           connector.InitiatorConnector.factory,
@@ -112,7 +112,7 @@ class HostDriverTestCase(test.TestCase):
         expected = ['/dev/disk/by-path/' + dev for dev in self.devlist]
         driver = host_driver.HostDriver()
         actual = driver.get_all_block_devices()
-        self.assertEquals(expected, actual)
+        self.assertEqual(expected, actual)
 
 
 class ISCSIConnectorTestCase(ConnectorTestCase):
@@ -157,10 +157,10 @@ class ISCSIConnectorTestCase(ConnectorTestCase):
 
         self.stubs.Set(self.connector, '_execute', initiator_no_file)
         initiator = self.connector.get_initiator()
-        self.assertEquals(initiator, None)
+        self.assertEqual(initiator, None)
         self.stubs.Set(self.connector, '_execute', initiator_get_text)
         initiator = self.connector.get_initiator()
-        self.assertEquals(initiator, 'iqn.1234-56.foo.bar:01:23456789abc')
+        self.assertEqual(initiator, 'iqn.1234-56.foo.bar:01:23456789abc')
 
     @test.testtools.skipUnless(os.path.exists('/dev/disk/by-path'),
                                'Test requires /dev/disk/by-path')
@@ -173,8 +173,8 @@ class ISCSIConnectorTestCase(ConnectorTestCase):
         connection_info = self.iscsi_connection(vol, location, iqn)
         device = self.connector.connect_volume(connection_info['data'])
         dev_str = '/dev/disk/by-path/ip-%s-iscsi-%s-lun-1' % (location, iqn)
-        self.assertEquals(device['type'], 'block')
-        self.assertEquals(device['path'], dev_str)
+        self.assertEqual(device['type'], 'block')
+        self.assertEqual(device['path'], dev_str)
 
         self.connector.disconnect_volume(connection_info['data'], device)
         expected_commands = [('iscsiadm -m node -T %s -p %s' %
@@ -408,8 +408,8 @@ class FibreChannelConnectorTestCase(ConnectorTestCase):
             exp_wwn = wwn[0] if isinstance(wwn, list) else wwn
             dev_str = ('/dev/disk/by-path/pci-0000:05:00.2-fc-0x%s-lun-1' %
                        exp_wwn)
-            self.assertEquals(dev_info['type'], 'block')
-            self.assertEquals(dev_info['path'], dev_str)
+            self.assertEqual(dev_info['type'], 'block')
+            self.assertEqual(dev_info['path'], dev_str)
 
             self.connector.disconnect_volume(connection_info['data'], dev_info)
             expected_commands = []
@@ -565,9 +565,8 @@ class RemoteFsConnectorTestCase(ConnectorTestCase):
         self.connection_properties = {
             'export': self.TEST_DEV,
             'name': '9c592d52-ce47-4263-8c21-4ecf3c029cdb'}
-        self.connector = connector.RemoteFsConnector('nfs', root_helper='sudo')
-        self.connector._remotefsclient._mount_options = None
-        self.connector._remotefsclient._mount_base = '/mnt/test'
+        self.connector = connector.RemoteFsConnector(
+            'nfs', root_helper='sudo', nfs_mount_point_base='/mnt/test')
 
     def tearDown(self):
         self.mox.VerifyAll()
@@ -593,3 +592,24 @@ class RemoteFsConnectorTestCase(ConnectorTestCase):
     def test_disconnect_volume(self):
         """Nothing should happen here -- make sure it doesn't blow up."""
         self.connector.disconnect_volume(self.connection_properties, {})
+
+
+class LocalConnectorTestCase(test.TestCase):
+
+    def setUp(self):
+        super(LocalConnectorTestCase, self).setUp()
+        self.connection_properties = {'name': 'foo',
+                                      'device_path': '/tmp/bar'}
+
+    def test_connect_volume(self):
+        self.connector = connector.LocalConnector(None)
+        cprops = self.connection_properties
+        dev_info = self.connector.connect_volume(cprops)
+        self.assertTrue(dev_info['type'] == 'local')
+        self.assertTrue(dev_info['path'] == cprops['device_path'])
+
+    def test_connect_volume_with_invalid_connection_data(self):
+        self.connector = connector.LocalConnector(None)
+        cprops = {}
+        self.assertRaises(ValueError,
+                          self.connector.connect_volume, cprops)

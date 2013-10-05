@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2011 Zadara Storage Inc.
-# Copyright (c) 2011 OpenStack LLC.
+# Copyright (c) 2011 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -97,6 +97,13 @@ class VolumeTypesManageController(wsgi.Controller):
             notifier_api.notify(context, 'volumeType',
                                 'volume_type.delete',
                                 notifier_api.INFO, notifier_info)
+        except exception.VolumeTypeInUse as err:
+            notifier_err = dict(id=id, error_message=str(err))
+            self._notify_voloume_type_error(context,
+                                            'volume_type.delete',
+                                            notifier_err)
+            msg = 'Target volume type is still in use.'
+            raise webob.exc.HTTPBadRequest(explanation=msg)
         except exception.NotFound as err:
             notifier_err = dict(id=id, error_message=str(err))
             self._notify_voloume_type_error(context,

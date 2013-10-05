@@ -27,6 +27,8 @@ from cinder.image import image_utils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import test
+from cinder.tests.backup.fake_rados import mock_rados
+from cinder.tests.backup.fake_rados import mock_rbd
 from cinder.tests.image import fake as fake_image
 from cinder.tests.test_volume import DriverTestCase
 from cinder import units
@@ -100,6 +102,7 @@ class RBDTestCase(test.TestCase):
                                        configuration=self.configuration,
                                        rados=self.rados,
                                        rbd=self.rbd)
+        self.driver.set_initialized()
 
     def test_create_volume(self):
         name = u'volume-00000001'
@@ -111,11 +114,11 @@ class RBDTestCase(test.TestCase):
         driver.RADOSClient(self.driver).AndReturn(mock_client)
         mock_client.__enter__().AndReturn(mock_client)
         self.rbd.RBD_FEATURE_LAYERING = 1
-        mock_rbd = self.mox.CreateMockAnything()
-        self.rbd.RBD().AndReturn(mock_rbd)
-        mock_rbd.create(mox.IgnoreArg(), str(name), size * 1024 ** 3,
-                        old_format=False,
-                        features=self.rbd.RBD_FEATURE_LAYERING)
+        _mock_rbd = self.mox.CreateMockAnything()
+        self.rbd.RBD().AndReturn(_mock_rbd)
+        _mock_rbd.create(mox.IgnoreArg(), str(name), size * 1024 ** 3,
+                         old_format=False,
+                         features=self.rbd.RBD_FEATURE_LAYERING)
         mock_client.__exit__(None, None, None).AndReturn(None)
 
         self.mox.ReplayAll()
@@ -125,21 +128,31 @@ class RBDTestCase(test.TestCase):
     def test_delete_volume(self):
         name = u'volume-00000001'
         volume = dict(name=name)
-        mock_client = self.mox.CreateMockAnything()
-        self.mox.StubOutWithMock(driver, 'RADOSClient')
-        self.stubs.Set(self.driver, '_get_backup_snaps', lambda *args: None)
 
-        driver.RADOSClient(self.driver).AndReturn(mock_client)
-        mock_client.__enter__().AndReturn(mock_client)
-        mock_image = self.mox.CreateMockAnything()
-        self.rbd.Image(mox.IgnoreArg(), str(name)).AndReturn(mock_image)
-        mock_image.close()
-        mock_rbd = self.mox.CreateMockAnything()
-        self.rbd.RBD().AndReturn(mock_rbd)
-        mock_rbd.remove(mox.IgnoreArg(), str(name))
-        mock_client.__exit__(None, None, None).AndReturn(None)
+        # Setup librbd stubs
+        self.stubs.Set(self.driver, 'rados', mock_rados)
+        self.stubs.Set(self.driver, 'rbd', mock_rbd)
 
-        self.mox.ReplayAll()
+        class mock_client(object):
+            def __init__(self, *args, **kwargs):
+                self.ioctx = None
+
+            def __enter__(self, *args, **kwargs):
+                return self
+
+            def __exit__(self, type_, value, traceback):
+                pass
+
+        self.stubs.Set(driver, 'RADOSClient', mock_client)
+
+        self.stubs.Set(self.driver, '_get_backup_snaps',
+                       lambda *args: None)
+        self.stubs.Set(self.driver.rbd.Image, 'list_snaps',
+                       lambda *args: [])
+        self.stubs.Set(self.driver.rbd.Image, 'parent_info',
+                       lambda *args: (None, None, None))
+        self.stubs.Set(self.driver.rbd.Image, 'unprotect_snap',
+                       lambda *args: None)
 
         self.driver.delete_volume(volume)
 
@@ -184,17 +197,35 @@ class RBDTestCase(test.TestCase):
     def test_create_cloned_volume(self):
         src_name = u'volume-00000001'
         dst_name = u'volume-00000002'
-        mock_proxy = self.mox.CreateMockAnything()
-        mock_proxy.ioctx = self.mox.CreateMockAnything()
-        self.mox.StubOutWithMock(driver, 'RBDVolumeProxy')
 
-        driver.RBDVolumeProxy(self.driver, src_name, read_only=True) \
-            .AndReturn(mock_proxy)
-        mock_proxy.__enter__().AndReturn(mock_proxy)
-        mock_proxy.copy(mock_proxy.ioctx, str(dst_name))
-        mock_proxy.__exit__(None, None, None).AndReturn(None)
+        # Setup librbd stubs
+        self.stubs.Set(self.driver, 'rados', mock_rados)
+        self.stubs.Set(self.driver, 'rbd', mock_rbd)
 
-        self.mox.ReplayAll()
+        self.driver.rbd.RBD_FEATURE_LAYERING = 1
+
+        class mock_client(object):
+            def __init__(self, *args, **kwargs):
+                self.ioctx = None
+
+            def __enter__(self, *args, **kwargs):
+                return self
+
+            def __exit__(self, type_, value, traceback):
+                pass
+
+        self.stubs.Set(driver, 'RADOSClient', mock_client)
+
+        def mock_clone(*args, **kwargs):
+            pass
+
+        self.stubs.Set(self.driver.rbd.RBD, 'clone', mock_clone)
+        self.stubs.Set(self.driver.rbd.Image, 'list_snaps',
+                       lambda *args: [{'name': 'snap1'}, {'name': 'snap2'}])
+        self.stubs.Set(self.driver.rbd.Image, 'parent_info',
+                       lambda *args: (None, None, None))
+        self.stubs.Set(self.driver.rbd.Image, 'protect_snap',
+                       lambda *args: None)
 
         self.driver.create_cloned_volume(dict(name=dst_name),
                                          dict(name=src_name))
@@ -468,6 +499,7 @@ class ManagedRBDTestCase(DriverTestCase):
     def setUp(self):
         super(ManagedRBDTestCase, self).setUp()
         fake_image.stub_out_image_service(self.stubs)
+        self.volume.driver.set_initialized()
 
     def _clone_volume_from_image(self, expected_status,
                                  clone_works=True):
@@ -528,12 +560,13 @@ class ManagedRBDTestCase(DriverTestCase):
         expected = ({}, False)
 
         self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: False)
-        actual = self.volume.driver.clone_image(object(), object(), object())
-        self.assertEquals(expected, actual)
+        image_loc = (object(), object())
+        actual = self.volume.driver.clone_image(object(), image_loc, object())
+        self.assertEqual(expected, actual)
 
         self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: True)
-        self.assertEquals(expected,
-                          self.volume.driver.clone_image(object(), None, None))
+        self.assertEqual(expected,
+                         self.volume.driver.clone_image(object(), None, None))
 
         # Test Success Case(s)
         expected = ({'provider_location': None}, True)
@@ -543,8 +576,8 @@ class ManagedRBDTestCase(DriverTestCase):
 
         self.stubs.Set(self.volume.driver, '_clone', lambda *args: None)
         self.stubs.Set(self.volume.driver, '_resize', lambda *args: None)
-        actual = self.volume.driver.clone_image(object(), object(), object())
-        self.assertEquals(expected, actual)
+        actual = self.volume.driver.clone_image(object(), image_loc, object())
+        self.assertEqual(expected, actual)
 
     def test_clone_success(self):
         self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: True)

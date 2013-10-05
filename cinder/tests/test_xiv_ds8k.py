@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2013 IBM Corp.
-# Copyright (c) 2013 OpenStack LLC.
+# Copyright (c) 2013 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -103,7 +103,9 @@ class XIVDS8KFakeProxyDriver(object):
         if not self.volume_exists(volume):
             raise self.exception.VolumeNotFound(volume_id=volume['id'])
         if not self.is_volume_attached(volume, connector):
-            raise self.exception.VolumeNotFoundForInstance(instance_id='fake')
+            raise self.exception.NotFound(_('Volume not found for '
+                                            'instance %(instance_id)s.')
+                                          % {'instance_id': 'fake'})
         del self.volumes[volume['name']]['attached']
 
     def is_volume_attached(self, volume, connector):
@@ -137,16 +139,16 @@ class XIVDS8KVolumeDriverTest(test.TestCase):
     def test_initialized_should_set_xiv_ds8k_info(self):
         """Test that the san flags are passed to the IBM proxy."""
 
-        self.assertEquals(
+        self.assertEqual(
             self.driver.xiv_ds8k_proxy.xiv_ds8k_info['xiv_ds8k_user'],
             self.driver.configuration.san_login)
-        self.assertEquals(
+        self.assertEqual(
             self.driver.xiv_ds8k_proxy.xiv_ds8k_info['xiv_ds8k_pass'],
             self.driver.configuration.san_password)
-        self.assertEquals(
+        self.assertEqual(
             self.driver.xiv_ds8k_proxy.xiv_ds8k_info['xiv_ds8k_address'],
             self.driver.configuration.san_ip)
-        self.assertEquals(
+        self.assertEqual(
             self.driver.xiv_ds8k_proxy.xiv_ds8k_info['xiv_ds8k_vol_pool'],
             self.driver.configuration.san_clustername)
 
@@ -248,16 +250,3 @@ class XIVDS8KVolumeDriverTest(test.TestCase):
                           self.driver.terminate_connection,
                           VOLUME,
                           CONNECTOR)
-
-    def test_terminate_connection_should_fail_on_non_attached_volume(self):
-        """Test that terminate won't work for volumes that are not attached."""
-
-        self.driver.do_setup(None)
-        self.driver.create_volume(VOLUME)
-
-        self.assertRaises(exception.VolumeNotFoundForInstance,
-                          self.driver.terminate_connection,
-                          VOLUME,
-                          CONNECTOR)
-
-        self.driver.delete_volume(VOLUME)

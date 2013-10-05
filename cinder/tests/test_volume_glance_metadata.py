@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2011 Zadara Storage Inc.
-# Copyright (c) 2011 OpenStack LLC.
+# Copyright (c) 2011 OpenStack Foundation
 # Copyright 2011 University of Southern California
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -109,7 +109,7 @@ class VolumeGlanceMetadataTestCase(test.TestCase):
 
         for meta in db.volume_snapshot_glance_metadata_get(ctxt, 100):
             for (key, value) in expected_meta.items():
-                self.assertEquals(meta[key], value)
+                self.assertEqual(meta[key], value)
 
     def test_vol_glance_metadata_copy_to_volume(self):
         ctxt = context.get_admin_context()
@@ -124,4 +124,4 @@ class VolumeGlanceMetadataTestCase(test.TestCase):
 
         for meta in db.volume_glance_metadata_get(ctxt, 100):
             for (key, value) in expected_meta.items():
-                self.assertEquals(meta[key], value)
+                self.assertEqual(meta[key], value)

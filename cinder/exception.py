@@ -106,7 +106,7 @@ class CinderException(Exception):
 
 
 class GlanceConnectionFailed(CinderException):
-    message = _("Connection to glance failed") + ": %(reason)s"
+    message = _("Connection to glance failed: %(reason)s")
 
 
 class NotAuthorized(CinderException):
@@ -126,17 +126,17 @@ class ImageNotAuthorized(CinderException):
     message = _("Not authorized for image %(image_id)s.")
 
 
+class DriverNotInitialized(CinderException):
+    message = _("Volume driver '%(driver)s' not initialized.")
+
+
 class Invalid(CinderException):
     message = _("Unacceptable parameters.")
     code = 400
 
 
 class InvalidSnapshot(Invalid):
-    message = _("Invalid snapshot") + ": %(reason)s"
-
-
-class InvalidSourceVolume(Invalid):
-    message = _("Invalid source volume %(reason)s.")
+    message = _("Invalid snapshot: %(reason)s")
 
 
 class InvalidVolumeAttachMode(Invalid):
@@ -152,24 +152,20 @@ class SfJsonEncodeFailure(CinderException):
     message = _("Failed to load data into json format")
 
 
-class InvalidRequest(Invalid):
-    message = _("The request is invalid.")
-
-
 class InvalidResults(Invalid):
     message = _("The results are invalid.")
 
 
 class InvalidInput(Invalid):
-    message = _("Invalid input received") + ": %(reason)s"
+    message = _("Invalid input received: %(reason)s")
 
 
 class InvalidVolumeType(Invalid):
-    message = _("Invalid volume type") + ": %(reason)s"
+    message = _("Invalid volume type: %(reason)s")
 
 
 class InvalidVolume(Invalid):
-    message = _("Invalid volume") + ": %(reason)s"
+    message = _("Invalid volume: %(reason)s")
 
 
 class InvalidContentType(Invalid):
@@ -177,7 +173,7 @@ class InvalidContentType(Invalid):
 
 
 class InvalidHost(Invalid):
-    message = _("Invalid host") + ": %(reason)s"
+    message = _("Invalid host: %(reason)s")
 
 
 # Cannot be templated as the error syntax varies.
@@ -187,7 +183,12 @@ class InvalidParameterValue(Invalid):
 
 
 class InvalidAuthKey(Invalid):
-    message = _("Invalid auth key") + ": %(reason)s"
+    message = _("Invalid auth key: %(reason)s")
+
+
+class InvalidConfigurationValue(Invalid):
+    message = _('Value "%(value)s" is not valid for '
+                'configuration option "%(option)s"')
 
 
 class ServiceUnavailable(Invalid):
@@ -212,10 +213,6 @@ class NotFound(CinderException):
     safe = True
 
 
-class PersistentVolumeFileNotFound(NotFound):
-    message = _("Volume %(volume_id)s persistence file could not be found.")
-
-
 class VolumeNotFound(NotFound):
     message = _("Volume %(volume_id)s could not be found.")
 
@@ -223,10 +220,6 @@ class VolumeNotFound(NotFound):
 class SfAccountNotFound(NotFound):
     message = _("Unable to locate account %(account_name)s on "
                 "Solidfire device")
-
-
-class VolumeNotFoundForInstance(VolumeNotFound):
-    message = _("Volume not found for instance %(instance_id)s.")
 
 
 class VolumeMetadataNotFound(NotFound):
@@ -240,24 +233,16 @@ class VolumeAdminMetadataNotFound(NotFound):
 
 
 class InvalidVolumeMetadata(Invalid):
-    message = _("Invalid metadata") + ": %(reason)s"
+    message = _("Invalid metadata: %(reason)s")
 
 
 class InvalidVolumeMetadataSize(Invalid):
-    message = _("Invalid metadata size") + ": %(reason)s"
+    message = _("Invalid metadata size: %(reason)s")
 
 
 class SnapshotMetadataNotFound(NotFound):
     message = _("Snapshot %(snapshot_id)s has no metadata with "
                 "key %(metadata_key)s.")
-
-
-class InvalidSnapshotMetadata(Invalid):
-    message = _("Invalid metadata") + ": %(reason)s"
-
-
-class InvalidSnapshotMetadataSize(Invalid):
-    message = _("Invalid metadata size") + ": %(reason)s"
 
 
 class VolumeTypeNotFound(NotFound):
@@ -272,6 +257,11 @@ class VolumeTypeNotFoundByName(VolumeTypeNotFound):
 class VolumeTypeExtraSpecsNotFound(NotFound):
     message = _("Volume Type %(volume_type_id)s has no extra specs with "
                 "key %(extra_specs_key)s.")
+
+
+class VolumeTypeInUse(CinderException):
+    message = _("Volume Type %(volume_type_id)s deletion is not allowed with "
+                "volumes present with the type.")
 
 
 class SnapshotNotFound(NotFound):
@@ -289,10 +279,6 @@ class SnapshotIsBusy(CinderException):
 
 class ISCSITargetNotFoundForVolume(NotFound):
     message = _("No target id found for volume %(volume_id)s.")
-
-
-class DiskNotFound(NotFound):
-    message = _("No disk at %(location)s")
 
 
 class InvalidImageRef(Invalid):
@@ -364,30 +350,13 @@ class MigrationNotFound(NotFound):
     message = _("Migration %(migration_id)s could not be found.")
 
 
-class MigrationNotFoundByStatus(MigrationNotFound):
-    message = _("Migration not found for instance %(instance_id)s "
-                "with status %(status)s.")
-
-
 class FileNotFound(NotFound):
     message = _("File %(file_path)s could not be found.")
-
-
-class ClassNotFound(NotFound):
-    message = _("Class %(class_name)s could not be found: %(exception)s")
-
-
-class NotAllowed(CinderException):
-    message = _("Action not allowed.")
 
 
 #TODO(bcwaldon): EOL this exception!
 class Duplicate(CinderException):
     pass
-
-
-class KeyPairExists(Duplicate):
-    message = _("Key pair %(key_name)s already exists.")
 
 
 class VolumeTypeExists(Duplicate):
@@ -396,10 +365,6 @@ class VolumeTypeExists(Duplicate):
 
 class VolumeTypeEncryptionExists(Invalid):
     message = _("Volume type encryption for type %(type_id)s already exists.")
-
-
-class MigrationError(CinderException):
-    message = _("Migration error") + ": %(reason)s"
 
 
 class MalformedRequestBody(CinderException):
@@ -427,7 +392,7 @@ class WillNotSchedule(CinderException):
 
 
 class QuotaError(CinderException):
-    message = _("Quota exceeded") + ": code=%(code)s"
+    message = _("Quota exceeded: code=%(code)s")
     code = 413
     headers = {'Retry-After': 0}
     safe = True
@@ -436,10 +401,6 @@ class QuotaError(CinderException):
 class VolumeSizeExceedsAvailableQuota(QuotaError):
     message = _("Requested volume or snapshot exceeds "
                 "allowed Gigabytes quota")
-
-
-class VolumeSizeExceedsQuota(QuotaError):
-    message = _("Maximum volume/snapshot size exceeded")
 
 
 class VolumeLimitExceeded(QuotaError):
@@ -452,10 +413,6 @@ class SnapshotLimitExceeded(QuotaError):
 
 class DuplicateSfVolumeNames(Duplicate):
     message = _("Detected more than one volume with name %(vol_name)s")
-
-
-class Duplicate3PARHost(CinderException):
-    message = _("3PAR Host already exists: %(err)s.  %(info)s")
 
 
 class Invalid3PARDomain(CinderException):
@@ -585,12 +542,12 @@ class BackupRBDOperationFailed(Invalid):
     message = _("Backup RBD operation failed")
 
 
-class BackupVolumeInvalidType(Invalid):
-    message = _("Backup volume %(volume_id)s type not recognised.")
-
-
 class BackupNotFound(NotFound):
     message = _("Backup %(backup_id)s could not be found.")
+
+
+class BackupFailedToGetVolumeBackend(NotFound):
+    message = _("Failed to identify volume backend.")
 
 
 class InvalidBackup(Invalid):
@@ -598,7 +555,7 @@ class InvalidBackup(Invalid):
 
 
 class SwiftConnectionFailed(CinderException):
-    message = _("Connection to swift failed") + ": %(reason)s"
+    message = _("Connection to swift failed: %(reason)s")
 
 
 class TransferNotFound(NotFound):
@@ -606,15 +563,11 @@ class TransferNotFound(NotFound):
 
 
 class VolumeMigrationFailed(CinderException):
-    message = _("Volume migration failed") + ": %(reason)s"
-
-
-class ProtocolNotSupported(CinderException):
-    message = _("Connect to volume via protocol %(protocol)s not supported.")
+    message = _("Volume migration failed: %(reason)s")
 
 
 class SSHInjectionThreat(CinderException):
-    message = _("SSH command injection detected") + ": %(command)s"
+    message = _("SSH command injection detected: %(command)s")
 
 
 class CoraidException(CinderException):
@@ -679,8 +632,12 @@ class QoSSpecsKeyNotFound(NotFound):
 
 
 class InvalidQoSSpecs(Invalid):
-    message = _("Invalid qos specs") + ": %(reason)s"
+    message = _("Invalid qos specs: %(reason)s")
 
 
 class QoSSpecsInUse(CinderException):
     message = _("QoS Specs %(specs_id)s is still associated with entities.")
+
+
+class KeyManagerError(CinderException):
+    msg_fmt = _("key manager error: %(reason)s")

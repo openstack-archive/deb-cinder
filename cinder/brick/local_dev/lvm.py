@@ -250,10 +250,8 @@ class LVM(executor.Executor):
         :returns: List of Dictionaries with VG info
 
         """
-        cmd = ['vgs', '--noheadings',
-               '--unit=g', '-o',
-               'name,size,free,lv_count,uuid',
-               '--separator', ':']
+        cmd = ['env', 'LC_ALL=C', 'LANG=C', 'vgs', '--noheadings', '--unit=g',
+               '-o', 'name,size,free,lv_count,uuid', '--separator', ':']
 
         if no_suffix:
             cmd.append('--nosuffix')
@@ -410,10 +408,26 @@ class LVM(executor.Executor):
         :param name: Name of LV to delete
 
         """
-        self._execute('lvremove',
-                      '-f',
-                      '%s/%s' % (self.vg_name, name),
-                      root_helper=self._root_helper, run_as_root=True)
+        try:
+            self._execute('lvremove',
+                          '-f',
+                          '%s/%s' % (self.vg_name, name),
+                          root_helper=self._root_helper, run_as_root=True)
+        except putils.ProcessExecutionError as err:
+            mesg = (_('Error reported running lvremove: CMD: %(command)s, '
+                    'RESPONSE: %(response)s') %
+                    {'command': err.cmd, 'response': err.stderr})
+            LOG.error(mesg)
+
+            LOG.warning(_('Attempting udev settle and retry of lvremove...'))
+            self._execute('udevadm', 'settle',
+                          root_helper=self._root_helper,
+                          run_as_root=True)
+
+            self._execute('lvremove',
+                          '-f',
+                          '%s/%s' % (self.vg_name, name),
+                          root_helper=self._root_helper, run_as_root=True)
 
     def revert(self, snapshot_name):
         """Revert an LV from snapshot.
@@ -436,3 +450,18 @@ class LVM(executor.Executor):
             if (out[0] == 'o') or (out[0] == 'O'):
                 return True
         return False
+
+    def extend_volume(self, lv_name, new_size):
+        """Extend the size of an existing volume."""
+
+        try:
+            self._execute('lvextend', '-L', new_size,
+                          '%s/%s' % (self.vg_name, lv_name),
+                          root_helper=self._root_helper,
+                          run_as_root=True)
+        except putils.ProcessExecutionError as err:
+            LOG.exception(_('Error extending Volume'))
+            LOG.error(_('Cmd     :%s') % err.cmd)
+            LOG.error(_('StdOut  :%s') % err.stdout)
+            LOG.error(_('StdErr  :%s') % err.stderr)
+            raise

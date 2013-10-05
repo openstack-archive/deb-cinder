@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2011 Zadara Storage Inc.
-# Copyright (c) 2011 OpenStack LLC.
+# Copyright (c) 2011 OpenStack Foundation
 # Copyright 2011 University of Southern California
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -55,7 +55,7 @@ class VolumeTypeExtraSpecsTestCase(test.TestCase):
         actual_specs = db.volume_type_extra_specs_get(
             context.get_admin_context(),
             self.volume_type1_id)
-        self.assertEquals(expected_specs, actual_specs)
+        self.assertEqual(expected_specs, actual_specs)
 
     def test_volume_type_extra_specs_delete(self):
         expected_specs = self.vol_type1_specs.copy()
@@ -66,7 +66,7 @@ class VolumeTypeExtraSpecsTestCase(test.TestCase):
         actual_specs = db.volume_type_extra_specs_get(
             context.get_admin_context(),
             self.volume_type1_id)
-        self.assertEquals(expected_specs, actual_specs)
+        self.assertEqual(expected_specs, actual_specs)
 
     def test_volume_type_extra_specs_update(self):
         expected_specs = self.vol_type1_specs.copy()
@@ -78,7 +78,7 @@ class VolumeTypeExtraSpecsTestCase(test.TestCase):
         actual_specs = db.volume_type_extra_specs_get(
             context.get_admin_context(),
             self.volume_type1_id)
-        self.assertEquals(expected_specs, actual_specs)
+        self.assertEqual(expected_specs, actual_specs)
 
     def test_volume_type_extra_specs_create(self):
         expected_specs = self.vol_type1_specs.copy()
@@ -92,39 +92,37 @@ class VolumeTypeExtraSpecsTestCase(test.TestCase):
         actual_specs = db.volume_type_extra_specs_get(
             context.get_admin_context(),
             self.volume_type1_id)
-        self.assertEquals(expected_specs, actual_specs)
+        self.assertEqual(expected_specs, actual_specs)
 
     def test_volume_type_get_with_extra_specs(self):
         volume_type = db.volume_type_get(
             context.get_admin_context(),
             self.volume_type1_id)
-        self.assertEquals(volume_type['extra_specs'],
-                          self.vol_type1_specs)
+        self.assertEqual(volume_type['extra_specs'], self.vol_type1_specs)
 
         volume_type = db.volume_type_get(
             context.get_admin_context(),
             self.vol_type2_id)
-        self.assertEquals(volume_type['extra_specs'], {})
+        self.assertEqual(volume_type['extra_specs'], {})
 
     def test_volume_type_get_by_name_with_extra_specs(self):
         volume_type = db.volume_type_get_by_name(
             context.get_admin_context(),
             self.vol_type1['name'])
-        self.assertEquals(volume_type['extra_specs'],
-                          self.vol_type1_specs)
+        self.assertEqual(volume_type['extra_specs'], self.vol_type1_specs)
 
         volume_type = db.volume_type_get_by_name(
             context.get_admin_context(),
             self.vol_type2_noextra['name'])
-        self.assertEquals(volume_type['extra_specs'], {})
+        self.assertEqual(volume_type['extra_specs'], {})
 
     def test_volume_type_get_all(self):
         expected_specs = self.vol_type1_specs.copy()
 
         types = db.volume_type_get_all(context.get_admin_context())
 
-        self.assertEquals(
+        self.assertEqual(
             types[self.vol_type1['name']]['extra_specs'], expected_specs)
 
-        self.assertEquals(
+        self.assertEqual(
             types[self.vol_type2_noextra['name']]['extra_specs'], {})

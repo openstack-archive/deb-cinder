@@ -22,7 +22,7 @@ Helper methods to deal with images.
 
 This is essentially a copy from nova.virt.images.py
 Some slight modifications, but at some point
-we should look at maybe pushign this up to OSLO
+we should look at maybe pushing this up to Oslo
 """
 
 
@@ -36,15 +36,17 @@ from oslo.config import cfg
 from cinder import exception
 from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder.openstack.common import strutils
 from cinder import utils
-
+from cinder.volume import utils as volume_utils
 
 LOG = logging.getLogger(__name__)
 
 image_helper_opt = [cfg.StrOpt('image_conversion_dir',
-                    default='/tmp',
-                    help='parent dir for tempdir used for image conversion'), ]
+                    default='$state_path/conversion',
+                    help='Directory used for temporary storage '
+                         'during image conversion'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(image_helper_opt)
@@ -254,15 +256,54 @@ def fetch_to_volume_format(context, image_service,
             os.path.exists(CONF.image_conversion_dir)):
         os.makedirs(CONF.image_conversion_dir)
 
+    no_qemu_img = False
+    image_meta = image_service.show(context, image_id)
+
     # NOTE(avishay): I'm not crazy about creating temp files which may be
     # large and cause disk full errors which would confuse users.
     # Unfortunately it seems that you can't pipe to 'qemu-img convert' because
     # it seeks. Maybe we can think of something for a future version.
     with temporary_file() as tmp:
+        # We may be on a system that doesn't have qemu-img installed.  That
+        # is ok if we are working with a RAW image.  This logic checks to see
+        # if qemu-img is installed.  If not we make sure the image is RAW and
+        # throw an exception if not.  Otherwise we stop before needing
+        # qemu-img.  Systems with qemu-img will always progress through the
+        # whole function.
+        try:
+            # Use the empty tmp file to make sure qemu_img_info works.
+            qemu_img_info(tmp)
+        except processutils.ProcessExecutionError:
+            no_qemu_img = True
+            if image_meta:
+                if image_meta['disk_format'] != 'raw':
+                    raise exception.ImageUnacceptable(
+                        reason=_("qemu-img is not installed and image is of "
+                                 "type %s.  Only RAW images can be used if "
+                                 "qemu-img is not installed.") %
+                        image_meta['disk_format'],
+                        image_id=image_id)
+            else:
+                raise exception.ImageUnacceptable(
+                    reason=_("qemu-img is not installed and the disk "
+                             "format is not specified.  Only RAW images "
+                             "can be used if qemu-img is not installed."),
+                    image_id=image_id)
+
         fetch(context, image_service, image_id, tmp, user_id, project_id)
 
         if is_xenserver_image(context, image_service, image_id):
             replace_xenserver_image_with_coalesced_vhd(tmp)
+
+        if no_qemu_img:
+            # qemu-img is not installed but we do have a RAW image.  As a
+            # result we only need to copy the image to the destination and then
+            # return.
+            LOG.debug(_('Copying image from %(tmp)s to volume %(dest)s - '
+                        'size: %(size)s') % {'tmp': tmp, 'dest': dest,
+                                             'size': image_meta['size']})
+            volume_utils.copy_volume(tmp, dest, image_meta['size'])
+            return
 
         data = qemu_img_info(tmp)
         fmt = data.file_format
@@ -275,11 +316,8 @@ def fetch_to_volume_format(context, image_service,
         if backing_file is not None:
             raise exception.ImageUnacceptable(
                 image_id=image_id,
-                reason=_("fmt=%(fmt)s backed by:"
-                         "%(backing_file)s") % {
-                             'fmt': fmt,
-                             'backing_file': backing_file,
-                         })
+                reason=_("fmt=%(fmt)s backed by:%(backing_file)s")
+                % {'fmt': fmt, 'backing_file': backing_file, })
 
         # NOTE(jdg): I'm using qemu-img convert to write
         # to the volume regardless if it *needs* conversion or not
@@ -308,12 +346,13 @@ def upload_volume(context, image_service, image_meta, volume_path,
     if (image_meta['disk_format'] == volume_format):
         LOG.debug("%s was %s, no need to convert to %s" %
                   (image_id, volume_format, image_meta['disk_format']))
-        if os.name == 'nt':
+        if os.name == 'nt' or os.access(volume_path, os.R_OK):
             with fileutils.file_open(volume_path) as image_file:
                 image_service.update(context, image_id, {}, image_file)
-        with utils.temporary_chown(volume_path):
-            with fileutils.file_open(volume_path) as image_file:
-                image_service.update(context, image_id, {}, image_file)
+        else:
+            with utils.temporary_chown(volume_path):
+                with fileutils.file_open(volume_path) as image_file:
+                    image_service.update(context, image_id, {}, image_file)
         return
 
     if (CONF.image_conversion_dir and not

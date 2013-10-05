@@ -172,6 +172,10 @@
 # (integer value)
 #backup_ceph_stripe_count=0
 
+# If True, always discard excess bytes when restoring volumes.
+# (boolean value)
+#restore_discard_excess_bytes=true
+
 
 #
 # Options defined in cinder.backup.drivers.swift
@@ -228,66 +232,6 @@
 
 # Driver to use for backups. (string value)
 #backup_driver=cinder.backup.drivers.swift
-
-
-#
-# Options defined in cinder.brick.initiator.connector
-#
-
-# The maximum number of times to rescan targetsto find volume
-# (integer value)
-#num_volume_device_scan_tries=3
-
-
-#
-# Options defined in cinder.brick.iscsi.iscsi
-#
-
-# iscsi target user-land tool to use (string value)
-#iscsi_helper=tgtadm
-
-# Volume configuration file storage directory (string value)
-#volumes_dir=$state_path/volumes
-
-# IET configuration file (string value)
-#iet_conf=/etc/iet/ietd.conf
-
-# Comma-separatd list of initiator IQNs allowed to connect to
-# the iSCSI target. (From Nova compute nodes.) (string value)
-#lio_initiator_iqns=
-
-# Sets the behavior of the iSCSI target to either perform
-# blockio or fileio optionally, auto can be set and Cinder
-# will autodetect type of backing device (string value)
-#iscsi_iotype=fileio
-
-
-#
-# Options defined in cinder.brick.iser.iser
-#
-
-# iser target user-land tool to use (string value)
-#iser_helper=tgtadm
-
-# Volume configuration file storage directory (string value)
-#volumes_dir=$state_path/volumes
-
-
-#
-# Options defined in cinder.brick.remotefs.remotefs
-#
-
-# Base dir containing mount points for nfs shares (string
-# value)
-#nfs_mount_point_base=$state_path/mnt
-
-# Mount options passed to the nfs client. See section of the
-# nfs man page for details (string value)
-#nfs_mount_options=<None>
-
-# Base dir containing mount points for gluster shares (string
-# value)
-#glusterfs_mount_point_base=$state_path/mnt
 
 
 #
@@ -394,6 +338,12 @@
 # availability zone of this node (string value)
 #storage_availability_zone=nova
 
+# default availability zone to use when creating a new volume.
+# If this is not set then we use the value from the
+# storage_availability_zone option as the default
+# availability_zone for new volumes. (string value)
+#default_availability_zone=<None>
+
 # Memcached servers or None for in process cache. (list value)
 #memcached_servers=<None>
 
@@ -410,9 +360,9 @@
 
 # Path to the rootwrap configuration file to use for running
 # commands as root (string value)
-#rootwrap_config=<None>
+#rootwrap_config=/etc/cinder/rootwrap.conf
 
-# Whether to log monkey patching (boolean value)
+# Enable monkey patching (boolean value)
 #monkey_patch=false
 
 # List of modules/decorators to monkey patch (list value)
@@ -537,9 +487,9 @@
 # Options defined in cinder.image.image_utils
 #
 
-# parent dir for tempdir used for image conversion (string
-# value)
-#image_conversion_dir=/tmp
+# Directory used for temporary storage during image conversion
+# (string value)
+#image_conversion_dir=$state_path/conversion
 
 
 #
@@ -548,7 +498,16 @@
 
 # The full class name of the key manager API class (string
 # value)
-#keymgr_api_class=cinder.keymgr.not_implemented_key_mgr.NotImplementedKeyManager
+#api_class=cinder.keymgr.conf_key_mgr.ConfKeyManager
+
+
+#
+# Options defined in cinder.keymgr.conf_key_mgr
+#
+
+# Fixed key returned by key manager, specified in hex (string
+# value)
+#fixed_key=<None>
 
 
 #
@@ -776,7 +735,7 @@
 
 # Modules of exceptions that are permitted to be recreatedupon
 # receiving exception data from an rpc call. (list value)
-#allowed_rpc_exception_modules=cinder.openstack.common.exception,nova.exception,cinder.exception,exceptions
+#allowed_rpc_exception_modules=nova.exception,cinder.exception,exceptions
 
 # If passed, use a fake RabbitMQ provider (boolean value)
 #fake_rabbit=false
@@ -1074,6 +1033,10 @@
 # value)
 #iscsi_port=3260
 
+# The maximum number of times to rescan targets to find volume
+# (integer value)
+#num_volume_device_scan_tries=3
+
 # The maximum number of times to rescan iSER targetto find
 # volume (integer value)
 #num_iser_scan_tries=3
@@ -1093,6 +1056,9 @@
 # value)
 #iser_port=3260
 
+# iser target user-land tool to use (string value)
+#iser_helper=tgtadm
+
 # The backend name for a given driver implementation (string
 # value)
 #volume_backend_name=<None>
@@ -1109,6 +1075,24 @@
 # Size in MiB to wipe at start of old volumes. 0 => all
 # (integer value)
 #volume_clear_size=0
+
+# iscsi target user-land tool to use (string value)
+#iscsi_helper=tgtadm
+
+# Volume configuration file storage directory (string value)
+#volumes_dir=$state_path/volumes
+
+# IET configuration file (string value)
+#iet_conf=/etc/iet/ietd.conf
+
+# Comma-separated list of initiator IQNs allowed to connect to
+# the iSCSI target. (From Nova compute nodes.) (string value)
+#lio_initiator_iqns=
+
+# Sets the behavior of the iSCSI target to either perform
+# blockio or fileio optionally, auto can be set and Cinder
+# will autodetect type of backing device (string value)
+#iscsi_iotype=fileio
 
 
 #
@@ -1142,6 +1126,33 @@
 
 
 #
+# Options defined in cinder.volume.drivers.eqlx
+#
+
+# Group name to use for creating volumes (string value)
+#eqlx_group_name=group-0
+
+# Timeout for the Group Manager cli command execution (integer
+# value)
+#eqlx_cli_timeout=30
+
+# Maximum retry count for reconnection (integer value)
+#eqlx_cli_max_retries=5
+
+# Use CHAP authentificaion for targets? (boolean value)
+#eqlx_use_chap=false
+
+# Existing CHAP account name (string value)
+#eqlx_chap_login=admin
+
+# Password for specified CHAP account name (string value)
+#eqlx_chap_password=password
+
+# Pool in which volumes will be created (string value)
+#eqlx_pool=default
+
+
+#
 # Options defined in cinder.volume.drivers.glusterfs
 #
 
@@ -1161,36 +1172,46 @@
 # (boolean value)
 #glusterfs_qcow2_volumes=false
 
+# Base dir containing mount points for gluster shares. (string
+# value)
+#glusterfs_mount_point_base=$state_path/mnt
+
 
 #
 # Options defined in cinder.volume.drivers.gpfs
 #
 
-# Path to the directory on GPFS mount point where volumes are
-# stored (string value)
+# Specifies the path of the GPFS directory where Block Storage
+# volume and snapshot files are stored. (string value)
 #gpfs_mount_point_base=<None>
 
-# Path to GPFS Glance repository as mounted on Nova nodes
-# (string value)
+# Specifies the path of the Image service repository in GPFS.
+# Leave undefined if not storing images in GPFS. (string
+# value)
 #gpfs_images_dir=<None>
 
-# Set this if Glance image repo is on GPFS as well so that the
-# image bits can be transferred efficiently between Glance and
-# Cinder.  Valid values are copy or copy_on_write. copy
-# performs a full copy of the image, copy_on_write efficiently
-# shares unmodified blocks of the image. (string value)
+# Specifies the type of image copy to be used.  Set this when
+# the Image service repository also uses GPFS so that image
+# files can be transferred efficiently from the Image service
+# to the Block Storage service. There are two valid values:
+# "copy" specifies that a full copy of the image is made;
+# "copy_on_write" specifies that copy-on-write optimization
+# strategy is used and unmodified blocks of the image file are
+# shared efficiently. (string value)
 #gpfs_images_share_mode=<None>
 
-# A lengthy chain of copy-on-write snapshots or clones could
-# have impact on performance.  This option limits the number
-# of indirections required to reach a specific block. 0
-# indicates unlimited. (integer value)
+# Specifies an upper limit on the number of indirections
+# required to reach a specific block due to snapshots or
+# clones.  A lengthy chain of copy-on-write snapshots or
+# clones can have a negative impact on performance, but
+# improves space utilization.  0 indicates unlimited clone
+# depth. (integer value)
 #gpfs_max_clone_depth=0
 
-# Create volumes as sparse files which take no space. If set
-# to False volume is created as regular file. In this case
-# volume creation may take a significantly longer time.
-# (boolean value)
+# Specifies that volumes are created as sparse files which
+# initially consume no space. If set to False, the volume is
+# created as a fully allocated file, in which case, creation
+# may take a significantly longer time. (boolean value)
 #gpfs_sparse_volumes=true
 
 
@@ -1254,6 +1275,18 @@
 
 # Port number for the storage controller (integer value)
 #netapp_server_port=80
+
+# Threshold available percent to start cache cleaning.
+# (integer value)
+#thres_avl_size_perc_start=20
+
+# Threshold available percent to stop cache cleaning. (integer
+# value)
+#thres_avl_size_perc_stop=60
+
+# Threshold minutes after which cache file can be cleaned.
+# (integer value)
+#expiry_thres_minutes=720
 
 # Volume size multiplier to ensure while creation (floating
 # point value)
@@ -1365,6 +1398,14 @@
 # destination will no longer be valid. (floating point value)
 #nfs_oversub_ratio=1.0
 
+# Base dir containing mount points for nfs shares. (string
+# value)
+#nfs_mount_point_base=$state_path/mnt
+
+# Mount options passed to the nfs client. See section of the
+# nfs man page for details. (string value)
+#nfs_mount_options=<None>
+
 
 #
 # Options defined in cinder.volume.drivers.rbd
@@ -1392,6 +1433,11 @@
 # where to store temporary image files if the volume driver
 # does not write them directly to the volume (string value)
 #volume_tmp_dir=<None>
+
+# maximum number of nested clones that can be taken of a
+# volume before enforcing a flatten prior to next clone. A
+# value of zero disables cloning (integer value)
+#rbd_max_clone_depth=5
 
 
 #
@@ -1557,6 +1603,10 @@
 # Connection protocol (iSCSI/FC) (string value)
 #storwize_svc_connection_protocol=iSCSI
 
+# Configure CHAP authentication for iSCSI connections
+# (Default: Enabled) (boolean value)
+#storwize_svc_iscsi_chap_enabled=true
+
 # Connect with multipath (FC only; iSCSI multipath is
 # controlled by Nova) (boolean value)
 #storwize_svc_multipath_enabled=false
@@ -1601,6 +1651,12 @@
 # Timeout in seconds for VMDK volume transfer between Cinder
 # and Glance. (integer value)
 #vmware_image_transfer_timeout_secs=7200
+
+# Max number of objects to be retrieved per batch. Query
+# results will be obtained in batches from the server and not
+# in one shot. Server may still limit the count to something
+# less than the configured value. (integer value)
+#vmware_max_objects_retrieval=100
 
 
 #
@@ -1714,4 +1770,4 @@
 #volume_dd_blocksize=1M
 
 
-# Total option count: 366
+# Total option count: 381

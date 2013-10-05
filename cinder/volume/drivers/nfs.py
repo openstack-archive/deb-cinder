@@ -26,6 +26,7 @@ from cinder.image import image_utils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils as putils
 from cinder import units
+from cinder import utils
 from cinder.volume import driver
 
 VERSION = '1.1.0'
@@ -50,7 +51,14 @@ volume_opts = [
                  default=1.0,
                  help=('This will compare the allocated to available space on '
                        'the volume destination.  If the ratio exceeds this '
-                       'number, the destination will no longer be valid.'))
+                       'number, the destination will no longer be valid.')),
+    cfg.StrOpt('nfs_mount_point_base',
+               default='$state_path/mnt',
+               help=('Base dir containing mount points for nfs shares.')),
+    cfg.StrOpt('nfs_mount_options',
+               default=None,
+               help=('Mount options passed to the nfs client. See section '
+                     'of the nfs man page for details.')),
 ]
 
 
@@ -62,6 +70,9 @@ class RemoteFsDriver(driver.VolumeDriver):
     """Common base for drivers that work like NFS."""
 
     VERSION = "0.0.0"
+
+    def __init__(self, *args, **kwargs):
+        super(RemoteFsDriver, self).__init__(*args, **kwargs)
 
     def check_for_setup_error(self):
         """Just to override parent behavior."""
@@ -359,7 +370,17 @@ class NfsDriver(RemoteFsDriver):
         self._remotefsclient = None
         super(NfsDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
-        self._remotefsclient = remotefs.RemoteFsClient('nfs', execute)
+        root_helper = utils.get_root_helper()
+        base = getattr(self.configuration,
+                       'nfs_mount_point_base',
+                       CONF.nfs_mount_point_base)
+        opts = getattr(self.configuration,
+                       'nfs_mount_options',
+                       CONF.nfs_mount_options)
+        self._remotefsclient = remotefs.RemoteFsClient(
+            'nfs', root_helper, execute=execute,
+            nfs_mount_point_base=base,
+            nfs_mount_options=opts)
 
     def set_execute(self, execute):
         super(NfsDriver, self).set_execute(execute)
@@ -397,13 +418,14 @@ class NfsDriver(RemoteFsDriver):
 
         self.shares = {}  # address : options
 
+        # Check if mount.nfs is installed
         try:
-            self._execute('mount.nfs', check_exit_code=False)
+            self._execute('mount.nfs', check_exit_code=False, run_as_root=True)
         except OSError as exc:
             if exc.errno == errno.ENOENT:
                 raise exception.NfsException('mount.nfs is not installed')
             else:
-                raise
+                raise exc
 
     def _ensure_share_mounted(self, nfs_share):
         mnt_flags = []

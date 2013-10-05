@@ -14,15 +14,16 @@
 #    under the License.
 """ Tests for create_volume TaskFlow """
 
-import mock
 import time
+
+import mock
 
 from cinder import context
 from cinder import test
 from cinder.volume.flows import create_volume
 
 
-class fake_sheduler_rpc_api(object):
+class fake_scheduler_rpc_api(object):
     def __init__(self, expected_spec, test_inst):
         self.expected_spec = expected_spec
         self.test_inst = test_inst
@@ -31,7 +32,7 @@ class fake_sheduler_rpc_api(object):
                       image_id=None, request_spec=None,
                       filter_properties=None):
 
-        self.test_inst.assertEquals(self.expected_spec, request_spec)
+        self.test_inst.assertEqual(self.expected_spec, request_spec)
 
 
 class fake_volume_api(object):
@@ -45,13 +46,10 @@ class fake_volume_api(object):
                       snapshot_id=None, image_id=None,
                       source_volid=None):
 
-        self.test_inst.assertEquals(self.expected_spec, request_spec)
-        self.test_inst.assertEquals(request_spec['source_volid'],
-                                    source_volid)
-        self.test_inst.assertEquals(request_spec['snapshot_id'],
-                                    snapshot_id)
-        self.test_inst.assertEquals(request_spec['image_id'],
-                                    image_id)
+        self.test_inst.assertEqual(self.expected_spec, request_spec)
+        self.test_inst.assertEqual(request_spec['source_volid'], source_volid)
+        self.test_inst.assertEqual(request_spec['snapshot_id'], snapshot_id)
+        self.test_inst.assertEqual(request_spec['image_id'], image_id)
 
 
 class fake_db(object):
@@ -82,6 +80,27 @@ class CreateVolumeFlowTestCase(test.TestCase):
         self.counter = float(0)
         self.stubs.Set(time, 'time', self.time_inc)
 
+    def test_exception_to_unicode(self):
+        class FakeException(Exception):
+            def __str__(self):
+                raise UnicodeError()
+
+        exc = Exception('error message')
+        ret = create_volume._exception_to_unicode(exc)
+        self.assertEqual(unicode, type(ret))
+        self.assertEqual(ret, 'error message')
+
+        exc = Exception('\xa5 error message')
+        ret = create_volume._exception_to_unicode(exc)
+        self.assertEqual(unicode, type(ret))
+        self.assertEqual(ret, ' error message')
+
+        unicodeExc = FakeException('\xa5 error message')
+        ret = create_volume._exception_to_unicode(unicodeExc)
+        self.assertEqual(unicode, type(ret))
+        self.assertEqual(ret, _("Caught '%(exception)s' exception.") %
+                         {'exception': 'FakeException'})
+
     def test_cast_create_volume(self):
 
         props = {}
@@ -90,7 +109,7 @@ class CreateVolumeFlowTestCase(test.TestCase):
                 'snapshot_id': None,
                 'image_id': None}
 
-        task = create_volume.VolumeCastTask(fake_sheduler_rpc_api(spec, self),
+        task = create_volume.VolumeCastTask(fake_scheduler_rpc_api(spec, self),
                                             fake_volume_api(spec, self),
                                             fake_db())
 
@@ -101,7 +120,7 @@ class CreateVolumeFlowTestCase(test.TestCase):
                 'snapshot_id': 3,
                 'image_id': 4}
 
-        task = create_volume.VolumeCastTask(fake_sheduler_rpc_api(spec, self),
+        task = create_volume.VolumeCastTask(fake_scheduler_rpc_api(spec, self),
                                             fake_volume_api(spec, self),
                                             fake_db())
 

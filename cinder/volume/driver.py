@@ -26,6 +26,8 @@ import time
 from oslo.config import cfg
 
 from cinder.brick.initiator import connector as initiator
+from cinder.brick.iscsi import iscsi
+from cinder.brick.iser import iser
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import excutils
@@ -57,6 +59,11 @@ volume_opts = [
     cfg.IntOpt('iscsi_port',
                default=3260,
                help='The port that the iSCSI daemon is listening on'),
+    cfg.IntOpt('num_volume_device_scan_tries',
+               deprecated_name='num_iscsi_scan_tries',
+               default=3,
+               help='The maximum number of times to rescan targets'
+                    ' to find volume'),
     cfg.IntOpt('num_iser_scan_tries',
                default=3,
                help='The maximum number of times to rescan iSER target'
@@ -73,6 +80,9 @@ volume_opts = [
     cfg.IntOpt('iser_port',
                default=3260,
                help='The port that the iSER daemon is listening on'),
+    cfg.StrOpt('iser_helper',
+               default='tgtadm',
+               help='iser target user-land tool to use'),
     cfg.StrOpt('volume_backend_name',
                default=None,
                help='The backend name for a given driver implementation'),
@@ -86,13 +96,32 @@ volume_opts = [
                     'none, zero, shred)'),
     cfg.IntOpt('volume_clear_size',
                default=0,
-               help='Size in MiB to wipe at start of old volumes. 0 => all'), ]
+               help='Size in MiB to wipe at start of old volumes. 0 => all'),
+    cfg.StrOpt('iscsi_helper',
+               default='tgtadm',
+               help='iscsi target user-land tool to use'),
+    cfg.StrOpt('volumes_dir',
+               default='$state_path/volumes',
+               help='Volume configuration file storage '
+               'directory'),
+    cfg.StrOpt('iet_conf',
+               default='/etc/iet/ietd.conf',
+               help='IET configuration file'),
+    cfg.StrOpt('lio_initiator_iqns',
+               default='',
+               help=('Comma-separated list of initiator IQNs '
+                     'allowed to connect to the '
+                     'iSCSI target. (From Nova compute nodes.)')),
+    cfg.StrOpt('iscsi_iotype',
+               default='fileio',
+               help=('Sets the behavior of the iSCSI target '
+                     'to either perform blockio or fileio '
+                     'optionally, auto can be set and Cinder '
+                     'will autodetect type of backing device'))]
 
 
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
-CONF.import_opt('iscsi_helper', 'cinder.brick.iscsi.iscsi')
-CONF.import_opt('iser_helper', 'cinder.brick.iser.iser')
 
 
 class VolumeDriver(object):
@@ -109,8 +138,18 @@ class VolumeDriver(object):
         self.set_execute(execute)
         self._stats = {}
 
+        # set True by manager after succesful check_for_setup
+        self._initialized = False
+
     def set_execute(self, execute):
         self._execute = execute
+
+    def set_initialized(self):
+        self._initialized = True
+
+    @property
+    def initialized(self):
+        return self._initialized
 
     def get_version(self):
         """Get the current version of this driver."""
@@ -331,9 +370,12 @@ class VolumeDriver(object):
 
         # Use Brick's code to do attach/detach
         use_multipath = self.configuration.use_multipath_for_image_xfer
+        device_scan_attempts = self.configuration.num_volume_device_scan_tries
         protocol = conn['driver_volume_type']
         connector = utils.brick_get_connector(protocol,
-                                              use_multipath=use_multipath)
+                                              use_multipath=use_multipath,
+                                              device_scan_attempts=
+                                              device_scan_attempts)
         device = connector.connect_volume(conn['data'])
         host_device = device['path']
 
@@ -376,8 +418,7 @@ class VolumeDriver(object):
         LOG.debug(_('Creating a new backup for volume %s.') %
                   volume['name'])
 
-        root_helper = 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
-        properties = initiator.get_connector_properties(root_helper)
+        properties = utils.brick_get_connector_properties()
         attach_info = self._attach_volume(context, volume, properties)
 
         try:
@@ -397,8 +438,7 @@ class VolumeDriver(object):
                   {'backup': backup['id'],
                    'volume': volume['name']})
 
-        root_helper = 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
-        properties = initiator.get_connector_properties(root_helper)
+        properties = utils.brick_get_connector_properties()
         attach_info = self._attach_volume(context, volume, properties)
 
         try:
@@ -648,6 +688,22 @@ class ISCSIDriver(VolumeDriver):
 
     def accept_transfer(self, context, volume, new_user, new_project):
         pass
+
+    def get_target_admin(self):
+        root_helper = utils.get_root_helper()
+
+        if CONF.iscsi_helper == 'tgtadm':
+            return iscsi.TgtAdm(root_helper,
+                                CONF.volumes_dir,
+                                CONF.iscsi_target_prefix)
+        elif CONF.iscsi_helper == 'fake':
+            return iscsi.FakeIscsiHelper()
+        elif CONF.iscsi_helper == 'lioadm':
+            return iscsi.LioAdm(root_helper,
+                                CONF.lio_initiator_iqns,
+                                CONF.iscsi_target_prefix)
+        else:
+            return iscsi.IetAdm(root_helper, CONF.iet_conf, CONF.iscsi_iotype)
 
 
 class FakeISCSIDriver(ISCSIDriver):
@@ -933,6 +989,15 @@ class ISERDriver(ISCSIDriver):
         data['reserved_percentage'] = 100
         data['QoS_support'] = False
         self._stats = data
+
+    def get_target_admin(self):
+        root_helper = utils.get_root_helper()
+
+        if CONF.iser_helper == 'fake':
+            return iser.FakeIserHelper()
+        else:
+            return iser.TgtAdm(root_helper,
+                               CONF.volumes_dir)
 
 
 class FakeISERDriver(FakeISCSIDriver):

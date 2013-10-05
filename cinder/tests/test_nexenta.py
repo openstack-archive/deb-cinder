@@ -205,7 +205,7 @@ class TestNexentaDriver(test.TestCase):
             'prefix': self.configuration.nexenta_target_prefix,
             'volume': self.TEST_VOLUME_NAME
         }
-        self.assertEquals(retval, {'provider_location': location})
+        self.assertEqual(retval, {'provider_location': location})
 
     def __get_test(i):
         def _test_create_export_fail(self):
@@ -262,11 +262,11 @@ class TestNexentaDriver(test.TestCase):
             'health|size|used|available').AndReturn(stats)
         self.mox.ReplayAll()
         stats = self.drv.get_volume_stats(True)
-        self.assertEquals(stats['storage_protocol'], 'iSCSI')
-        self.assertEquals(stats['total_capacity_gb'], 5368709120.0)
-        self.assertEquals(stats['free_capacity_gb'], 5368709120.0)
-        self.assertEquals(stats['reserved_percentage'], 0)
-        self.assertEquals(stats['QoS_support'], False)
+        self.assertEqual(stats['storage_protocol'], 'iSCSI')
+        self.assertEqual(stats['total_capacity_gb'], 5368709120.0)
+        self.assertEqual(stats['free_capacity_gb'], 5368709120.0)
+        self.assertEqual(stats['reserved_percentage'], 0)
+        self.assertEqual(stats['QoS_support'], False)
 
 
 class TestNexentaJSONRPC(test.TestCase):
@@ -300,7 +300,7 @@ class TestNexentaJSONRPC(test.TestCase):
             '{"error": null, "result": "the result"}')
         self.mox.ReplayAll()
         result = self.proxy('arg1', 'arg2')
-        self.assertEquals("the result", result)
+        self.assertEqual("the result", result)
 
     def test_call_deep(self):
         urllib2.Request(
@@ -313,7 +313,7 @@ class TestNexentaJSONRPC(test.TestCase):
             '{"error": null, "result": "the result"}')
         self.mox.ReplayAll()
         result = self.proxy.obj1.subobj.meth('arg1', 'arg2')
-        self.assertEquals("the result", result)
+        self.assertEqual("the result", result)
 
     def test_call_auto(self):
         urllib2.Request(
@@ -330,7 +330,7 @@ class TestNexentaJSONRPC(test.TestCase):
         urllib2.urlopen(self.REQUEST).AndReturn(self.resp_mock)
         self.mox.ReplayAll()
         result = self.proxy('arg1', 'arg2')
-        self.assertEquals("the result", result)
+        self.assertEqual("the result", result)
 
     def test_call_error(self):
         urllib2.Request(
@@ -381,12 +381,13 @@ class TestNexentaNfsDriver(test.TestCase):
 
     def setUp(self):
         super(TestNexentaNfsDriver, self).setUp()
-        self.stubs = stubout.StubOutForTesting()
         self.configuration = mox_lib.MockObject(conf.Configuration)
         self.configuration.nexenta_shares_config = None
         self.configuration.nexenta_mount_point_base = '$state_path/mnt'
         self.configuration.nexenta_sparsed_volumes = True
         self.configuration.nexenta_volume_compression = 'on'
+        self.configuration.nfs_mount_point_base = '/mnt/test'
+        self.configuration.nfs_mount_options = None
         self.nms_mock = self.mox.CreateMockAnything()
         for mod in ('appliance', 'folder', 'server', 'volume', 'netstorsvc'):
             setattr(self.nms_mock, mod, self.mox.CreateMockAnything())
@@ -451,8 +452,8 @@ class TestNexentaNfsDriver(test.TestCase):
 
         compression = self.configuration.nexenta_volume_compression
         self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
-        self.nms_mock.folder.create('stack', 'share/volume-1',
-                                    '-o compression=%s' % compression)
+        self.nms_mock.folder.create_with_props(
+            'stack', 'share/volume-1', {'compression': compression})
         self.nms_mock.netstorsvc.share_folder(self.TEST_SHARE_SVC,
                                               'stack/share/volume-1',
                                               self.TEST_SHARE_OPTS)
@@ -470,8 +471,8 @@ class TestNexentaNfsDriver(test.TestCase):
         self.mox.ResetAll()
 
         self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
-        self.nms_mock.folder.create('stack', 'share/volume-1',
-                                    '-o compression=%s' % compression)
+        self.nms_mock.folder.create_with_props(
+            'stack', 'share/volume-1', {'compression': compression})
         self.nms_mock.netstorsvc.share_folder(
             self.TEST_SHARE_SVC, 'stack/share/volume-1',
             self.TEST_SHARE_OPTS).AndRaise(nexenta.NexentaException('-'))

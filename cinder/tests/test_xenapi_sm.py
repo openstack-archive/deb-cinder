@@ -89,7 +89,7 @@ class DriverTestCase(test.TestCase):
         drv.do_setup('context')
         mock.VerifyAll()
 
-        self.assertEquals(nfsops, drv.nfs_ops)
+        self.assertEqual(nfsops, drv.nfs_ops)
 
     def test_create_volume(self):
         mock = mox.Mox()
@@ -110,7 +110,7 @@ class DriverTestCase(test.TestCase):
             size=1, display_name='name', display_description='desc'))
         mock.VerifyAll()
 
-        self.assertEquals(dict(provider_location='sr_uuid/vdi_uuid'), result)
+        self.assertEqual(dict(provider_location='sr_uuid/vdi_uuid'), result)
 
     def test_delete_volume(self):
         mock = mox.Mox()
@@ -151,7 +151,7 @@ class DriverTestCase(test.TestCase):
         )
         mock.VerifyAll()
 
-        self.assertEquals(
+        self.assertEqual(
             dict(
                 driver_volume_type='xensm',
                 data=dict(
@@ -183,7 +183,7 @@ class DriverTestCase(test.TestCase):
         )
         mock.VerifyAll()
 
-        self.assertEquals(
+        self.assertEqual(
             dict(
                 driver_volume_type='xensm',
                 data=dict(
@@ -233,7 +233,7 @@ class DriverTestCase(test.TestCase):
         mock.ReplayAll()
         result = drv.create_snapshot(snapshot)
         mock.VerifyAll()
-        self.assertEquals(
+        self.assertEqual(
             dict(provider_location="copied-sr/copied-vdi"),
             result)
 
@@ -254,7 +254,7 @@ class DriverTestCase(test.TestCase):
         result = drv.create_volume_from_snapshot(volume, snapshot)
         mock.VerifyAll()
 
-        self.assertEquals(
+        self.assertEqual(
             dict(provider_location='copied-sr/copied-vdi'), result)
 
     def test_delete_snapshot(self):
@@ -287,7 +287,7 @@ class DriverTestCase(test.TestCase):
 
         result = drv.copy_volume_to_image(
             context, "volume", "image_service", "image_meta")
-        self.assertEquals('result', result)
+        self.assertEqual('result', result)
 
         mock.VerifyAll()
 
@@ -308,7 +308,7 @@ class DriverTestCase(test.TestCase):
 
         result = drv.copy_volume_to_image(
             context, "volume", "image_service", "image_meta")
-        self.assertEquals('result', result)
+        self.assertEqual('result', result)
 
         mock.VerifyAll()
 
@@ -368,7 +368,7 @@ class DriverTestCase(test.TestCase):
         mock.ReplayAll()
         result = drv.copy_image_to_volume(
             context, "volume", "image_service", "image_id")
-        self.assertEquals('result', result)
+        self.assertEqual('result', result)
         mock.VerifyAll()
 
     def test_copy_image_to_volume_non_xenserver_case(self):
@@ -477,21 +477,21 @@ class DriverTestCase(test.TestCase):
 
         stats = drv.get_volume_stats()
 
-        self.assertEquals('unknown', stats['free_capacity_gb'])
+        self.assertEqual('unknown', stats['free_capacity_gb'])
 
     def test_reported_driver_type(self):
         drv = get_configured_driver()
 
         stats = drv.get_volume_stats()
 
-        self.assertEquals('xensm', stats['storage_protocol'])
+        self.assertEqual('xensm', stats['storage_protocol'])
 
 
 class ToolsTest(test.TestCase):
     @mock.patch('cinder.volume.drivers.xenapi.tools._stripped_first_line_of')
     def test_get_this_vm_uuid(self, mock_read_first_line):
         mock_read_first_line.return_value = 'someuuid'
-        self.assertEquals('someuuid', tools.get_this_vm_uuid())
+        self.assertEqual('someuuid', tools.get_this_vm_uuid())
         mock_read_first_line.assert_called_once_with('/sys/hypervisor/uuid')
 
     def test_stripped_first_line_of(self):
@@ -502,7 +502,7 @@ class ToolsTest(test.TestCase):
         mock_open = mock.Mock(return_value=mock_context_manager)
 
         with mock.patch('__builtin__.open', mock_open):
-            self.assertEquals(
+            self.assertEqual(
                 'blah', tools._stripped_first_line_of('/somefile'))
 
         mock_open.assert_called_once_with('/somefile', 'rb')

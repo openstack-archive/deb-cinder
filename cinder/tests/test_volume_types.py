@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2011 Zadara Storage Inc.
-# Copyright (c) 2011 OpenStack LLC.
+# Copyright (c) 2011 OpenStack Foundation
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -18,9 +18,11 @@ Unit Tests for volume types code
 """
 
 
+import datetime
 import time
 
 from cinder import context
+from cinder import db
 from cinder.db.sqlalchemy import api as db_api
 from cinder.db.sqlalchemy import models
 from cinder import exception
@@ -103,6 +105,19 @@ class VolumeTypeTestCase(test.TestCase):
         """Ensures that volume type creation fails with invalid args."""
         self.assertRaises(exception.VolumeTypeNotFound,
                           volume_types.destroy, self.ctxt, "sfsfsdfdfs")
+
+    def test_volume_type_with_volumes_shouldnt_delete(self):
+        """Ensures volume type deletion with associated volumes fail."""
+        type_ref = volume_types.create(self.ctxt, self.vol_type1_name)
+        db.volume_create(self.ctxt,
+                         {'id': '1',
+                          'updated_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                          'display_description': 'Test Desc',
+                          'size': 20,
+                          'status': 'available',
+                          'volume_type_id': type_ref['id']})
+        self.assertRaises(exception.VolumeTypeInUse,
+                          volume_types.destroy, self.ctxt, type_ref['id'])
 
     def test_repeated_vol_types_shouldnt_raise(self):
         """Ensures that volume duplicates don't raise."""
@@ -210,14 +225,17 @@ class VolumeTypeTestCase(test.TestCase):
         type_ref = volume_types.create(self.ctxt, "type1", {"key2": "val2",
                                                   "key3": "val3"})
         res = volume_types.get_volume_type_qos_specs(type_ref['id'])
-        self.assertEquals(res['qos_specs'], {})
+        self.assertEqual(res['qos_specs'], None)
         qos_specs.associate_qos_with_type(self.ctxt,
                                           qos_ref['id'],
                                           type_ref['id'])
 
-        expected = {'qos_specs': {'consumer': 'back-end',
-                                  'k1': 'v1',
-                                  'k2': 'v2',
-                                  'k3': 'v3'}}
+        expected = {'qos_specs': {'id': qos_ref['id'],
+                                  'name': 'qos-specs-1',
+                                  'consumer': 'back-end',
+                                  'specs': {
+                                      'k1': 'v1',
+                                      'k2': 'v2',
+                                      'k3': 'v3'}}}
         res = volume_types.get_volume_type_qos_specs(type_ref['id'])
         self.assertDictMatch(expected, res)

@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 eBay Inc.
-# Copyright (c) 2013 OpenStack LLC.
+# Copyright (c) 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -26,6 +26,7 @@ from cinder.api import xmlutil
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier_api
+from cinder.openstack.common import strutils
 from cinder.volume import qos_specs
 
 
@@ -34,24 +35,39 @@ LOG = logging.getLogger(__name__)
 authorize = extensions.extension_authorizer('volume', 'qos_specs_manage')
 
 
+def make_qos_specs(elem):
+    elem.set('id')
+    elem.set('name')
+    elem.set('consumer')
+    elem.append(SpecsTemplate())
+
+
+def make_associations(elem):
+    elem.set('association_type')
+    elem.set('name')
+    elem.set('id')
+
+
+class SpecsTemplate(xmlutil.TemplateBuilder):
+    def construct(self):
+        return xmlutil.MasterTemplate(xmlutil.make_flat_dict('specs'), 1)
+
+
 class QoSSpecsTemplate(xmlutil.TemplateBuilder):
     def construct(self):
-        root = xmlutil.make_flat_dict('qos_specs', selector='qos_specs')
+        root = xmlutil.TemplateElement('qos_specs')
+        elem = xmlutil.SubTemplateElement(root, 'qos_spec',
+                                          selector='qos_specs')
+        make_qos_specs(elem)
         return xmlutil.MasterTemplate(root, 1)
 
 
-class QoSSpecTemplate(xmlutil.TemplateBuilder):
-    # FIXME(zhiteng) Need to handle consumer
+class AssociationsTemplate(xmlutil.TemplateBuilder):
     def construct(self):
-        tagname = xmlutil.Selector('key')
-
-        def qosspec_sel(obj, do_raise=False):
-            # Have to extract the key and value for later use...
-            key, value = obj.items()[0]
-            return dict(key=key, value=value)
-
-        root = xmlutil.TemplateElement(tagname, selector=qosspec_sel)
-        root.text = 'value'
+        root = xmlutil.TemplateElement('qos_associations')
+        elem = xmlutil.SubTemplateElement(root, 'associations',
+                                          selector='qos_associations')
+        make_associations(elem)
         return xmlutil.MasterTemplate(root, 1)
 
 
@@ -157,6 +173,7 @@ class QoSSpecsController(wsgi.Controller):
                                          'qos_specs.update',
                                          notifier_err)
             raise webob.exc.HTTPInternalServerError(explanation=str(err))
+
         return body
 
     @wsgi.serializers(xml=QoSSpecsTemplate)
@@ -179,11 +196,12 @@ class QoSSpecsController(wsgi.Controller):
 
         force = req.params.get('force', None)
 
+        #convert string to bool type in strict manner
+        force = strutils.bool_from_string(force)
         LOG.debug("Delete qos_spec: %(id)s, force: %(force)s" %
                   {'id': id, 'force': force})
 
         try:
-            qos_specs.get_qos_specs(context, id)
             qos_specs.delete(context, id, force)
             notifier_info = dict(id=id)
             notifier_api.notify(context, 'QoSSpecs',
@@ -208,7 +226,41 @@ class QoSSpecsController(wsgi.Controller):
 
         return webob.Response(status_int=202)
 
-    @wsgi.serializers(xml=QoSSpecsTemplate)
+    def delete_keys(self, req, id, body):
+        """Deletes specified keys in qos specs."""
+        context = req.environ['cinder.context']
+        authorize(context)
+
+        if not (body and 'keys' in body
+                and isinstance(body.get('keys'), list)):
+            raise webob.exc.HTTPBadRequest()
+
+        keys = body['keys']
+        LOG.debug("Delete_key spec: %(id)s, keys: %(keys)s" %
+                  {'id': id, 'keys': keys})
+
+        try:
+            qos_specs.delete_keys(context, id, keys)
+            notifier_info = dict(id=id)
+            notifier_api.notify(context, 'QoSSpecs',
+                                'qos_specs.delete_keys',
+                                notifier_api.INFO, notifier_info)
+        except exception.QoSSpecsNotFound as err:
+            notifier_err = dict(id=id, error_message=str(err))
+            self._notify_qos_specs_error(context,
+                                         'qos_specs.delete_keys',
+                                         notifier_err)
+            raise webob.exc.HTTPNotFound(explanation=str(err))
+        except exception.QoSSpecsKeyNotFound as err:
+            notifier_err = dict(id=id, error_message=str(err))
+            self._notify_qos_specs_error(context,
+                                         'qos_specs.delete_keys',
+                                         notifier_err)
+            raise webob.exc.HTTPBadRequest(explanation=str(err))
+
+        return webob.Response(status_int=202)
+
+    @wsgi.serializers(xml=AssociationsTemplate)
     def associations(self, req, id):
         """List all associations of given qos specs."""
         context = req.environ['cinder.context']
@@ -255,7 +307,6 @@ class QoSSpecsController(wsgi.Controller):
                   {'id': id, 'type_id': type_id})
 
         try:
-            qos_specs.get_qos_specs(context, id)
             qos_specs.associate_qos_with_type(context, id, type_id)
             notifier_info = dict(id=id, type_id=type_id)
             notifier_api.notify(context, 'QoSSpecs',
@@ -273,6 +324,15 @@ class QoSSpecsController(wsgi.Controller):
                                          'qos_specs.associate',
                                          notifier_err)
             raise webob.exc.HTTPNotFound(explanation=str(err))
+        except exception.InvalidVolumeType as err:
+            notifier_err = dict(id=id, error_message=str(err))
+            self._notify_qos_specs_error(context,
+                                         'qos_specs.associate',
+                                         notifier_err)
+            self._notify_qos_specs_error(context,
+                                         'qos_specs.associate',
+                                         notifier_err)
+            raise webob.exc.HTTPBadRequest(explanation=str(err))
         except exception.QoSSpecsAssociateFailed as err:
             notifier_err = dict(id=id, error_message=str(err))
             self._notify_qos_specs_error(context,
@@ -300,7 +360,6 @@ class QoSSpecsController(wsgi.Controller):
                   {'id': id, 'type_id': type_id})
 
         try:
-            qos_specs.get_qos_specs(context, id)
             qos_specs.disassociate_qos_specs(context, id, type_id)
             notifier_info = dict(id=id, type_id=type_id)
             notifier_api.notify(context, 'QoSSpecs',
@@ -335,7 +394,6 @@ class QoSSpecsController(wsgi.Controller):
         LOG.debug("Disassociate qos_spec: %s from all." % id)
 
         try:
-            qos_specs.get_qos_specs(context, id)
             qos_specs.disassociate_all(context, id)
             notifier_info = dict(id=id)
             notifier_api.notify(context, 'QoSSpecs',
@@ -373,7 +431,8 @@ class Qos_specs_manage(extensions.ExtensionDescriptor):
             member_actions={"associations": "GET",
                             "associate": "GET",
                             "disassociate": "GET",
-                            "disassociate_all": "GET"})
+                            "disassociate_all": "GET",
+                            "delete_keys": "PUT"})
 
         resources.append(res)
 

@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 Huawei Technologies Co., Ltd.
-# Copyright (c) 2013 OpenStack LLC.
+# Copyright (c) 2013 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -329,6 +329,9 @@ class FakeHVSCommon(rest_common.HVSCommon):
                                    "ISFREE":"True"}}"""
 
             if url == "iscsi_initiator/":
+                data = """{"error":{"code":0}}"""
+
+            if url == "iscsi_initiator":
                 data = """{"error":{"code":0}}"""
 
             if url == "mappingview":

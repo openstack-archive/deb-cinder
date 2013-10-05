@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 Huawei Technologies Co., Ltd.
-# Copyright (c) 2012 OpenStack LLC.
+# Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -18,7 +18,7 @@
 """
 Provide a unified driver class for users.
 
-The product type and the protocol should be specified in confige file before.
+The product type and the protocol should be specified in config file before.
 """
 
 from oslo.config import cfg

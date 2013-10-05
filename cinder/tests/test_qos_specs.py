@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 eBay Inc.
-# Copyright (c) 2013 OpenStack LLC.
+# Copyright (c) 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -145,6 +145,47 @@ class QoSSpecsTestCase(test.TestCase):
         # able to delete in-use qos specs if force=True
         qos_specs.delete(self.ctxt, 'InUse', force=True)
 
+    def test_delete_keys(self):
+        def fake_db_qos_delete_key(context, id, key):
+            if key == 'NotFound':
+                raise exception.QoSSpecsKeyNotFound(specs_id=id,
+                                                    specs_key=key)
+            else:
+                pass
+
+        def fake_qos_specs_get(context, id):
+            if id == 'NotFound':
+                raise exception.QoSSpecsNotFound(specs_id=id)
+            else:
+                pass
+
+        value = dict(consumer='front-end',
+                     foo='Foo', bar='Bar', zoo='tiger')
+        specs_id = self._create_qos_specs('QoSName', value)
+        qos_specs.delete_keys(self.ctxt, specs_id, ['foo', 'bar'])
+        del value['consumer']
+        del value['foo']
+        del value['bar']
+        expected = {'name': 'QoSName',
+                    'id': specs_id,
+                    'consumer': 'front-end',
+                    'specs': value}
+        specs = qos_specs.get_qos_specs(self.ctxt, specs_id)
+        self.assertDictMatch(expected, specs)
+
+        self.stubs.Set(qos_specs, 'get_qos_specs', fake_qos_specs_get)
+        self.stubs.Set(db, 'qos_specs_item_delete', fake_db_qos_delete_key)
+        self.assertRaises(exception.InvalidQoSSpecs,
+                          qos_specs.delete_keys, self.ctxt, None, [])
+        self.assertRaises(exception.QoSSpecsNotFound,
+                          qos_specs.delete_keys, self.ctxt, 'NotFound', [])
+        self.assertRaises(exception.QoSSpecsKeyNotFound,
+                          qos_specs.delete_keys, self.ctxt,
+                          'Found', ['NotFound'])
+        self.assertRaises(exception.QoSSpecsKeyNotFound,
+                          qos_specs.delete_keys, self.ctxt, 'Found',
+                          ['foo', 'bar', 'NotFound'])
+
     def test_get_associations(self):
         def fake_db_associate_get(context, id):
             if id == 'Trouble':
@@ -169,6 +210,12 @@ class QoSSpecsTestCase(test.TestCase):
                           'Trouble')
 
     def test_associate_qos_with_type(self):
+        def fake_qos_specs_get(context, id):
+            if id == 'NotFound':
+                raise exception.QoSSpecsNotFound(specs_id=id)
+            else:
+                pass
+
         def fake_db_associate(context, id, type_id):
             if id == 'Trouble':
                 raise db_exc.DBError()
@@ -176,26 +223,47 @@ class QoSSpecsTestCase(test.TestCase):
                 raise exception.VolumeTypeNotFound(volume_type_id=type_id)
             pass
 
+        def fake_vol_type_qos_get(type_id):
+            if type_id == 'Invalid':
+                return {'qos_specs': {'id': 'Invalid'}}
+            else:
+                return {'qos_specs': None}
+
         type_ref = volume_types.create(self.ctxt, 'TypeName')
         specs_id = self._create_qos_specs('QoSName')
 
         qos_specs.associate_qos_with_type(self.ctxt, specs_id,
                                           type_ref['id'])
         res = qos_specs.get_associations(self.ctxt, specs_id)
-        self.assertEquals(len(res), 1)
-        self.assertEquals('TypeName', res[0]['name'])
-        self.assertEquals(type_ref['id'], res[0]['id'])
+        self.assertEqual(len(res), 1)
+        self.assertEqual('TypeName', res[0]['name'])
+        self.assertEqual(type_ref['id'], res[0]['id'])
 
         self.stubs.Set(db, 'qos_specs_associate',
                        fake_db_associate)
+        self.stubs.Set(qos_specs, 'get_qos_specs', fake_qos_specs_get)
+        self.stubs.Set(volume_types, 'get_volume_type_qos_specs',
+                       fake_vol_type_qos_get)
         self.assertRaises(exception.VolumeTypeNotFound,
                           qos_specs.associate_qos_with_type,
                           self.ctxt, 'specs-id', 'NotFound')
         self.assertRaises(exception.QoSSpecsAssociateFailed,
                           qos_specs.associate_qos_with_type,
                           self.ctxt, 'Trouble', 'id')
+        self.assertRaises(exception.QoSSpecsNotFound,
+                          qos_specs.associate_qos_with_type,
+                          self.ctxt, 'NotFound', 'id')
+        self.assertRaises(exception.InvalidVolumeType,
+                          qos_specs.associate_qos_with_type,
+                          self.ctxt, 'specs-id', 'Invalid')
 
     def test_disassociate_qos_specs(self):
+        def fake_qos_specs_get(context, id):
+            if id == 'NotFound':
+                raise exception.QoSSpecsNotFound(specs_id=id)
+            else:
+                pass
+
         def fake_db_disassociate(context, id, type_id):
             if id == 'Trouble':
                 raise db_exc.DBError()
@@ -209,14 +277,16 @@ class QoSSpecsTestCase(test.TestCase):
         qos_specs.associate_qos_with_type(self.ctxt, specs_id,
                                           type_ref['id'])
         res = qos_specs.get_associations(self.ctxt, specs_id)
-        self.assertEquals(len(res), 1)
+        self.assertEqual(len(res), 1)
 
         qos_specs.disassociate_qos_specs(self.ctxt, specs_id, type_ref['id'])
         res = qos_specs.get_associations(self.ctxt, specs_id)
-        self.assertEquals(len(res), 0)
+        self.assertEqual(len(res), 0)
 
         self.stubs.Set(db, 'qos_specs_disassociate',
                        fake_db_disassociate)
+        self.stubs.Set(qos_specs, 'get_qos_specs',
+                       fake_qos_specs_get)
         self.assertRaises(exception.VolumeTypeNotFound,
                           qos_specs.disassociate_qos_specs,
                           self.ctxt, 'specs-id', 'NotFound')
@@ -230,6 +300,12 @@ class QoSSpecsTestCase(test.TestCase):
                 raise db_exc.DBError()
             pass
 
+        def fake_qos_specs_get(context, id):
+            if id == 'NotFound':
+                raise exception.QoSSpecsNotFound(specs_id=id)
+            else:
+                pass
+
         type1_ref = volume_types.create(self.ctxt, 'TypeName1')
         type2_ref = volume_types.create(self.ctxt, 'TypeName2')
         specs_id = self._create_qos_specs('QoSName')
@@ -239,14 +315,16 @@ class QoSSpecsTestCase(test.TestCase):
         qos_specs.associate_qos_with_type(self.ctxt, specs_id,
                                           type2_ref['id'])
         res = qos_specs.get_associations(self.ctxt, specs_id)
-        self.assertEquals(len(res), 2)
+        self.assertEqual(len(res), 2)
 
         qos_specs.disassociate_all(self.ctxt, specs_id)
         res = qos_specs.get_associations(self.ctxt, specs_id)
-        self.assertEquals(len(res), 0)
+        self.assertEqual(len(res), 0)
 
         self.stubs.Set(db, 'qos_specs_disassociate_all',
                        fake_db_disassociate_all)
+        self.stubs.Set(qos_specs, 'get_qos_specs',
+                       fake_qos_specs_get)
         self.assertRaises(exception.QoSSpecsDisassociateFailed,
                           qos_specs.disassociate_all,
                           self.ctxt, 'Trouble')
@@ -288,7 +366,7 @@ class QoSSpecsTestCase(test.TestCase):
                  'consumer': 'both'}
         id = self._create_qos_specs('Specs1', input)
         specs = qos_specs.get_qos_specs(self.ctxt, id)
-        self.assertEquals(specs['specs']['key1'], one_time_value)
+        self.assertEqual(specs['specs']['key1'], one_time_value)
 
         self.assertRaises(exception.InvalidQoSSpecs,
                           qos_specs.get_qos_specs, self.ctxt, None)
@@ -302,7 +380,7 @@ class QoSSpecsTestCase(test.TestCase):
         id = self._create_qos_specs(one_time_value, input)
         specs = qos_specs.get_qos_specs_by_name(self.ctxt,
                                                 one_time_value)
-        self.assertEquals(specs['specs']['key1'], one_time_value)
+        self.assertEqual(specs['specs']['key1'], one_time_value)
 
         self.assertRaises(exception.InvalidQoSSpecs,
                           qos_specs.get_qos_specs_by_name, self.ctxt, None)

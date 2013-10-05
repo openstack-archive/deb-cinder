@@ -121,6 +121,59 @@ class TestUtils(test.TestCase):
 
         inf = image_utils.qemu_img_info(TEST_PATH)
 
+        self.assertEqual(inf.image, 'qemu.qcow2')
+        self.assertEqual(inf.backing_file, 'qemu.qcow2')
+        self.assertEqual(inf.file_format, 'qcow2')
+        self.assertEqual(inf.virtual_size, 52428800)
+        self.assertEqual(inf.cluster_size, 65536)
+        self.assertEqual(inf.disk_size, 200704)
+
+        self.assertEqual(inf.snapshots[0]['id'], '1')
+        self.assertEqual(inf.snapshots[0]['tag'], 'snap1')
+        self.assertEqual(inf.snapshots[0]['vm_size'], '1.7G')
+        self.assertEqual(inf.snapshots[0]['date'], '2011-10-04')
+        self.assertEqual(inf.snapshots[0]['vm_clock'], '19:04:00 32:06:34.974')
+
+        self.assertEqual(str(inf), TEST_STR)
+
+    def test_qemu_img_info_alt(self):
+        """Test a slightly different variation of qemu-img output.
+
+           (Based on Fedora 19's qemu-img 1.4.2.)
+        """
+
+        TEST_PATH = "img/qemu.qcow2"
+        TEST_RETURN = "image: qemu.qcow2\n"\
+                      "backing file: qemu.qcow2 (actual path: qemu.qcow2)\n"\
+                      "file format: qcow2\n"\
+                      "virtual size: 50M (52428800 bytes)\n"\
+                      "cluster_size: 65536\n"\
+                      "disk size: 196K (200704 bytes)\n"\
+                      "Snapshot list:\n"\
+                      "ID TAG  VM SIZE DATE VM CLOCK\n"\
+                      "1  snap1 1.7G 2011-10-04 19:04:00 32:06:34.974"
+        TEST_STR = "image: qemu.qcow2\n"\
+                   "file_format: qcow2\n"\
+                   "virtual_size: 52428800\n"\
+                   "disk_size: 200704\n"\
+                   "cluster_size: 65536\n"\
+                   "backing_file: qemu.qcow2\n"\
+                   "snapshots: [{'date': '2011-10-04', "\
+                   "'vm_clock': '19:04:00 32:06:34.974', "\
+                   "'vm_size': '1.7G', 'tag': 'snap1', 'id': '1'}]"
+
+        mox = self._mox
+        mox.StubOutWithMock(utils, 'execute')
+
+        cmd = ['env', 'LC_ALL=C', 'LANG=C',
+               'qemu-img', 'info', TEST_PATH]
+        utils.execute(*cmd, run_as_root=True).AndReturn(
+            (TEST_RETURN, 'ignored'))
+
+        mox.ReplayAll()
+
+        inf = image_utils.qemu_img_info(TEST_PATH)
+
         self.assertEquals(inf.image, 'qemu.qcow2')
         self.assertEquals(inf.backing_file, 'qemu.qcow2')
         self.assertEquals(inf.file_format, 'qcow2')
@@ -166,6 +219,12 @@ class TestUtils(test.TestCase):
                 (TEST_RET, 'ignored')
             )
 
+        utils.execute(
+            'env', 'LC_ALL=C', 'LANG=C', 'qemu-img', 'info',
+            self.TEST_DEV_PATH, run_as_root=True).AndReturn(
+                (TEST_RET, 'ignored')
+            )
+
         utils.execute('qemu-img', 'convert', '-O', 'raw',
                       self.TEST_DEV_PATH, self.TEST_DEV_PATH, run_as_root=True)
 
@@ -197,6 +256,12 @@ class TestUtils(test.TestCase):
         image_utils.create_temporary_file().AndReturn(self.TEST_DEV_PATH)
         image_utils.fetch(context, fake_image_service,
                           self.TEST_IMAGE_ID, self.TEST_DEV_PATH, None, None)
+
+        utils.execute(
+            'env', 'LC_ALL=C', 'LANG=C', 'qemu-img', 'info',
+            self.TEST_DEV_PATH, run_as_root=True).AndReturn(
+                (TEST_RET, 'ignored')
+            )
 
         utils.execute(
             'env', 'LC_ALL=C', 'LANG=C', 'qemu-img', 'info',
@@ -236,6 +301,12 @@ class TestUtils(test.TestCase):
                 (TEST_RET, 'ignored')
             )
 
+        utils.execute(
+            'env', 'LC_ALL=C', 'LANG=C', 'qemu-img', 'info',
+            self.TEST_DEV_PATH, run_as_root=True).AndReturn(
+                (TEST_RET, 'ignored')
+            )
+
         mox.ReplayAll()
         self.assertRaises(exception.ImageUnacceptable,
                           image_utils.fetch_to_raw,
@@ -259,6 +330,12 @@ class TestUtils(test.TestCase):
         image_utils.create_temporary_file().AndReturn(self.TEST_DEV_PATH)
         image_utils.fetch(context, fake_image_service,
                           self.TEST_IMAGE_ID, self.TEST_DEV_PATH, None, None)
+
+        utils.execute(
+            'env', 'LC_ALL=C', 'LANG=C', 'qemu-img', 'info',
+            self.TEST_DEV_PATH, run_as_root=True).AndReturn(
+                (TEST_RET, 'ignored')
+            )
 
         utils.execute(
             'env', 'LC_ALL=C', 'LANG=C', 'qemu-img', 'info',
@@ -480,7 +557,7 @@ class TestGetSize(test.TestCase):
         result = image_utils.get_vhd_size('vhdfile')
         mox.VerifyAll()
 
-        self.assertEquals(1024, result)
+        self.assertEqual(1024, result)
 
 
 class TestResize(test.TestCase):
@@ -561,7 +638,7 @@ class TestCoalesceChain(test.TestCase):
         result = image_utils.coalesce_chain(['0.vhd'])
         mox.VerifyAll()
 
-        self.assertEquals('0.vhd', result)
+        self.assertEqual('0.vhd', result)
 
     def test_chain_of_two_vhds(self):
         self.mox.StubOutWithMock(image_utils, 'get_vhd_size')
@@ -578,7 +655,7 @@ class TestCoalesceChain(test.TestCase):
 
         result = image_utils.coalesce_chain(['0.vhd', '1.vhd'])
         self.mox.VerifyAll()
-        self.assertEquals('1.vhd', result)
+        self.assertEqual('1.vhd', result)
 
 
 class TestDiscoverChain(test.TestCase):
@@ -594,7 +671,7 @@ class TestDiscoverChain(test.TestCase):
         result = image_utils.discover_vhd_chain('some/path')
         mox.VerifyAll()
 
-        self.assertEquals(
+        self.assertEqual(
             ['some/path/0.vhd', 'some/path/1.vhd'], result)
 
 

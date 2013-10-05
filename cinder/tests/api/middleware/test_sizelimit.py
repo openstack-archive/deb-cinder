@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC
+# Copyright (c) 2012 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -35,7 +35,7 @@ class TestLimitingReader(test.TestCase):
         for chunk in sizelimit.LimitingReader(data, BYTES):
             bytes_read += len(chunk)
 
-        self.assertEquals(bytes_read, BYTES)
+        self.assertEqual(bytes_read, BYTES)
 
         bytes_read = 0
         data = StringIO.StringIO("*" * BYTES)
@@ -45,7 +45,7 @@ class TestLimitingReader(test.TestCase):
             bytes_read += 1
             byte = reader.read(1)
 
-        self.assertEquals(bytes_read, BYTES)
+        self.assertEqual(bytes_read, BYTES)
 
     def test_limiting_reader_fails(self):
         BYTES = 1024

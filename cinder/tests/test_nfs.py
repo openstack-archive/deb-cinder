@@ -135,10 +135,10 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_sparsed_volumes = True
         self.configuration.nfs_used_ratio = 0.95
         self.configuration.nfs_oversub_ratio = 1.0
+        self.configuration.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
+        self.configuration.nfs_mount_options = None
         self._driver = nfs.NfsDriver(configuration=self.configuration)
         self._driver.shares = {}
-        self._driver._remotefsclient._mount_options = None
-        self._driver._remotefsclient._mount_base = self.TEST_MNT_POINT_BASE
         self.addCleanup(self.stubs.UnsetAll)
         self.addCleanup(self._mox.UnsetStubs)
 
@@ -228,8 +228,8 @@ class NfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
 
-        self.assertEquals((stat_total_size, stat_avail, du_used),
-                          drv._get_capacity_info(self.TEST_NFS_EXPORT1))
+        self.assertEqual((stat_total_size, stat_avail, du_used),
+                         drv._get_capacity_info(self.TEST_NFS_EXPORT1))
 
         mox.VerifyAll()
 
@@ -261,8 +261,8 @@ class NfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
 
-        self.assertEquals((stat_total_size, stat_avail, du_used),
-                          drv._get_capacity_info(self.TEST_NFS_EXPORT_SPACES))
+        self.assertEqual((stat_total_size, stat_avail, du_used),
+                         drv._get_capacity_info(self.TEST_NFS_EXPORT_SPACES))
 
         mox.VerifyAll()
 
@@ -382,7 +382,7 @@ class NfsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(os.path, 'exists')
         os.path.exists(self.TEST_SHARES_CONFIG_FILE).AndReturn(True)
         mox.StubOutWithMock(drv, '_execute')
-        drv._execute('mount.nfs', check_exit_code=False).\
+        drv._execute('mount.nfs', check_exit_code=False, run_as_root=True).\
             AndRaise(OSError(errno.ENOENT, 'No such file or directory'))
 
         mox.ReplayAll()

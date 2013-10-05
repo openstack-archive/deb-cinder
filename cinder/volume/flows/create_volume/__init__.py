@@ -3,7 +3,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 #    Copyright (C) 2013 Yahoo! Inc. All Rights Reserved.
-#    Copyright (c) 2013 OpenStack, LLC.
+#    Copyright (c) 2013 OpenStack Foundation
 #    Copyright 2010 United States Government as represented by the
 #    Administrator of the National Aeronautics and Space Administration.
 #    All Rights Reserved.
@@ -30,6 +30,7 @@ from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier
 from cinder.openstack.common import processutils
+from cinder.openstack.common import strutils
 from cinder.openstack.common import timeutils
 from cinder import policy
 from cinder import quota
@@ -145,6 +146,18 @@ def _error_out_volume(context, db, volume_id, reason=None):
         LOG.exception(_("Failed updating volume %(volume_id)s with"
                         " %(update)s") % {'volume_id': volume_id,
                                           'update': update})
+
+
+def _exception_to_unicode(exc):
+    try:
+        return unicode(exc)
+    except UnicodeError:
+        try:
+            return strutils.safe_decode(str(exc), errors='ignore')
+        except UnicodeError:
+            msg = (_("Caught '%(exception)s' exception.") %
+                   {"exception": exc.__class__.__name__})
+            return strutils.safe_decode(msg, errors='ignore')
 
 
 class ExtractVolumeRequestTask(base.CinderTask):
@@ -360,7 +373,11 @@ class ExtractVolumeRequestTask(base.CinderTask):
                     pass
 
         if availability_zone is None:
-            availability_zone = CONF.storage_availability_zone
+            if CONF.default_availability_zone:
+                availability_zone = CONF.default_availability_zone
+            else:
+                # For backwards compatibility use the storge_availability_zone
+                availability_zone = CONF.storage_availability_zone
         if not self.az_check_functor(availability_zone):
             msg = _("Availability zone '%s' is invalid") % (availability_zone)
             LOG.warn(msg)
@@ -556,9 +573,13 @@ class EntryCreateTask(base.CinderTask):
         # We never produced a result and therefore can't destroy anything.
         if not result:
             return
+        if context.quota_committed:
+            # Committed quota doesn't rollback as the volume has already been
+            # created at this point, and the quota has already been absorbed.
+            return
         vol_id = result['volume_id']
         try:
-            self.db.volume_destroy(context, vol_id)
+            self.db.volume_destroy(context.elevated(), vol_id)
         except exception.CinderException:
             # We are already reverting, therefore we should silence this
             # exception since a second exception being active will be bad.
@@ -634,6 +655,10 @@ class QuotaReserveTask(base.CinderTask):
         # We never produced a result and therefore can't destroy anything.
         if not result:
             return
+        if context.quota_committed:
+            # The reservations have already been commited and can not be
+            # rolled back at this point.
+            return
         # We actually produced an output that we can revert so lets attempt
         # to use said output to rollback the reservation.
         reservations = result['reservations']
@@ -663,10 +688,32 @@ class QuotaCommitTask(base.CinderTask):
 
     def __init__(self):
         super(QuotaCommitTask, self).__init__(addons=[ACTION])
-        self.requires.update(['reservations'])
+        self.requires.update(['reservations', 'volume_properties'])
 
-    def __call__(self, context, reservations):
+    def __call__(self, context, reservations, volume_properties):
         QUOTAS.commit(context, reservations)
+        context.quota_committed = True
+        return {'volume_properties': volume_properties}
+
+    def revert(self, context, result, cause):
+        # We never produced a result and therefore can't destroy anything.
+        if not result:
+            return
+        volume = result['volume_properties']
+        try:
+            reserve_opts = {'volumes': -1, 'gigabytes': -volume['size']}
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
+                                        volume['volume_type_id'])
+            reservations = QUOTAS.reserve(context,
+                                          project_id=context.project_id,
+                                          **reserve_opts)
+            if reservations:
+                QUOTAS.commit(context, reservations,
+                              project_id=context.project_id)
+        except Exception:
+            LOG.exception(_("Failed to update quota for deleting volume: %s"),
+                          volume['id'])
 
 
 class VolumeCastTask(base.CinderTask):
@@ -715,8 +762,8 @@ class VolumeCastTask(base.CinderTask):
                 context,
                 CONF.volume_topic,
                 volume_id,
-                snapshot_id,
-                image_id,
+                snapshot_id=snapshot_id,
+                image_id=image_id,
                 request_spec=request_spec,
                 filter_properties=filter_properties)
         else:
@@ -729,8 +776,8 @@ class VolumeCastTask(base.CinderTask):
                 context,
                 volume_ref,
                 volume_ref['host'],
-                request_spec=request_spec,
-                filter_properties=filter_properties,
+                request_spec,
+                filter_properties,
                 allow_reschedule=False,
                 snapshot_id=snapshot_id,
                 image_id=image_id,
@@ -829,13 +876,21 @@ class OnFailureRescheduleTask(base.CinderTask):
         ]
 
     def _is_reschedulable(self, cause):
-        exc_type, value = cause.exc_info()[:2]
-        if not exc_type and cause.exc:
-            exc_type = type(cause.exc)
-        if not exc_type:
-            return True
-        if exc_type in self.no_reschedule_types:
+        # Figure out the type of the causes exception and compare it against
+        # our black-list of exception types that will not cause rescheduling.
+        exc_type, value = cause.exc_info[:2]
+        # If we don't have a type from exc_info but we do have a exception in
+        # the cause, try to get the type from that instead.
+        if not value:
+            value = cause.exc
+        if not exc_type and value:
+            exc_type = type(value)
+        if exc_type and exc_type in self.no_reschedule_types:
             return False
+        # Couldn't figure it out, by default assume whatever the cause was can
+        # be fixed by rescheduling.
+        #
+        # NOTE(harlowja): Crosses fingers.
         return True
 
     def __call__(self, context, *args, **kwargs):
@@ -860,15 +915,17 @@ class OnFailureRescheduleTask(base.CinderTask):
                     "attempt %(num)d due to %(reason)s") %
                   {'volume_id': volume_id,
                    'method': _make_pretty_name(create_volume),
-                   'num': num_attempts, 'reason': unicode(cause.exc)})
+                   'num': num_attempts,
+                   'reason': _exception_to_unicode(cause.exc)})
 
         if all(cause.exc_info):
             # Stringify to avoid circular ref problem in json serialization
             retry_info['exc'] = traceback.format_exception(*cause.exc_info)
 
         return create_volume(context, CONF.volume_topic, volume_id,
-                             snapshot_id, image_id, request_spec,
-                             filter_properties)
+                             snapshot_id=snapshot_id, image_id=image_id,
+                             request_spec=request_spec,
+                             filter_properties=filter_properties)
 
     def _post_reschedule(self, context, volume_id):
         """Actions that happen after the rescheduling attempt occur here."""
@@ -1310,12 +1367,15 @@ class CreateVolumeFromSpecTask(base.CinderTask):
                         "error: %(error)s") % {'volume_id': volume_id,
                                                'error': ex})
             raise exception.ImageUnacceptable(ex)
-        except exception.CinderException as ex:
+        except Exception as ex:
             LOG.error(_("Failed to copy image %(image_id)s to "
                         "volume: %(volume_id)s, error: %(error)s") %
                       {'volume_id': volume_id, 'error': ex,
                        'image_id': image_id})
-            raise exception.ImageCopyFailure(reason=ex)
+            if not isinstance(ex, exception.ImageCopyFailure):
+                raise exception.ImageCopyFailure(reason=ex)
+            else:
+                raise
 
         LOG.debug(_("Downloaded image %(image_id)s (%(image_location)s)"
                     " to volume %(volume_id)s successfully") %
@@ -1410,6 +1470,12 @@ class CreateVolumeFromSpecTask(base.CinderTask):
         return self.driver.create_volume(volume_ref)
 
     def __call__(self, context, volume_ref, volume_spec):
+        # we can't do anything if the driver didn't init
+        if not self.driver.initialized:
+            LOG.error(_("Unable to create volume, driver not initialized"))
+            driver_name = self.driver.__class__.__name__
+            raise exception.DriverNotInitialized(driver=driver_name)
+
         create_type = volume_spec.pop('type', None)
         create_functor = self._create_func_mapping.get(create_type)
         if not create_functor:

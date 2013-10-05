@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2013 IBM Corp.
-# Copyright 2012 OpenStack LLC.
+# Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -95,6 +95,10 @@ storwize_svc_opts = [
     cfg.StrOpt('storwize_svc_connection_protocol',
                default='iSCSI',
                help='Connection protocol (iSCSI/FC)'),
+    cfg.BoolOpt('storwize_svc_iscsi_chap_enabled',
+                default=True,
+                help='Configure CHAP authentication for iSCSI connections '
+                     '(Default: Enabled)'),
     cfg.BoolOpt('storwize_svc_multipath_enabled',
                 default=False,
                 help='Connect with multipath (FC only; iSCSI multipath is '
@@ -423,8 +427,8 @@ class StorwizeSVCDriver(san.SanDriver):
             return None
 
         host_lines = out.strip().split('\n')
-        self._assert_ssh_return(len(host_lines), '_get_chap_secret_for_host',
-                                ssh_cmd, out, err)
+        if not len(host_lines):
+            return None
 
         header = host_lines.pop(0).split('!')
         self._assert_ssh_return('name' in header, '_get_chap_secret_for_host',
@@ -478,6 +482,11 @@ class StorwizeSVCDriver(san.SanDriver):
             raise exception.NoValidHost(reason=msg)
 
         host_name = str(host_name)
+
+        # Storwize family doesn't like hostname that starts with number.
+        if not re.match('^[A-Za-z]', host_name):
+            host_name = '_' + host_name
+
         return host_name[:55]
 
     def _find_host_from_wwpn(self, connector):
@@ -766,8 +775,12 @@ class StorwizeSVCDriver(san.SanDriver):
 
         if vol_opts['protocol'] == 'iSCSI':
             chap_secret = self._get_chap_secret_for_host(host_name)
-            if chap_secret is None:
+            chap_enabled = self.configuration.storwize_svc_iscsi_chap_enabled
+            if chap_enabled and chap_secret is None:
                 chap_secret = self._add_chapsecret_to_host(host_name)
+            elif not chap_enabled and chap_secret:
+                LOG.warning(_('CHAP secret exists for host but CHAP is '
+                              'disabled'))
 
         volume_attributes = self._get_vdisk_attributes(volume_name)
         lun_id = self._map_vol_to_host(volume_name, host_name)
@@ -823,9 +836,10 @@ class StorwizeSVCDriver(san.SanDriver):
                     ipaddr = preferred_node_entry['ipv6'][0]
                 properties['target_portal'] = '%s:%s' % (ipaddr, '3260')
                 properties['target_iqn'] = preferred_node_entry['iscsi_name']
-                properties['auth_method'] = 'CHAP'
-                properties['auth_username'] = connector['initiator']
-                properties['auth_password'] = chap_secret
+                if chap_secret:
+                    properties['auth_method'] = 'CHAP'
+                    properties['auth_username'] = connector['initiator']
+                    properties['auth_password'] = chap_secret
             else:
                 type_str = 'fibre_channel'
                 conn_wwpns = self._get_conn_fc_wwpns(host_name)
@@ -1162,15 +1176,14 @@ class StorwizeSVCDriver(san.SanDriver):
         src_vdisk_attributes = self._get_vdisk_attributes(src_vdisk)
         if src_vdisk_attributes is None:
             exception_msg = (
-                _('_create_copy: Source vdisk %s does not exist')
-                % src_vdisk)
+                _('_create_copy: Source vdisk %(src_vdisk)s (%(src_id)s) '
+                  'does not exist')
+                % {'src_vdisk': src_vdisk, 'src_id': src_id})
             LOG.error(exception_msg)
             if from_vol:
-                raise exception.VolumeNotFound(exception_msg,
-                                               volume_id=src_id)
+                raise exception.VolumeNotFound(volume_id=src_id)
             else:
-                raise exception.SnapshotNotFound(exception_msg,
-                                                 snapshot_id=src_id)
+                raise exception.SnapshotNotFound(snapshot_id=src_id)
 
         self._driver_assert(
             'capacity' in src_vdisk_attributes,

@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 Huawei Technologies Co., Ltd.
-# Copyright (c) 2012 OpenStack LLC.
+# Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -186,79 +186,9 @@ class FakeChannel():
             reset_error_flg(cmd)
             out = self.command[:-1] + 'ERROR' + '\nadmin:/>'
             return out.replace('\n', '\r\n')
-
-        if cmd == 'showsys':
-            out = self.simu.cli_showsys(params)
-        elif cmd == 'createlun':
-            out = self.simu.cli_createlun(params)
-        elif cmd == 'showlun':
-            out = self.simu.cli_showlun(params)
-        elif cmd == 'dellun':
-            out = self.simu.cli_dellun(params)
-        elif cmd == 'showrg':
-            out = self.simu.cli_showrg(params)
-        elif cmd == 'showpool':
-            out = self.simu.cli_showpool(params)
-        elif cmd == 'createluncopy':
-            out = self.simu.cli_createluncopy(params)
-        elif cmd == 'chgluncopystatus':
-            out = self.simu.cli_chgluncopystatus(params)
-        elif cmd == 'showluncopy':
-            out = self.simu.cli_showluncopy(params)
-        elif cmd == 'delluncopy':
-            out = self.simu.cli_delluncopy(params)
-        elif cmd == 'createsnapshot':
-            out = self.simu.cli_createsnapshot(params)
-        elif cmd == 'actvsnapshot':
-            out = self.simu.cli_activesnapshot(params)
-        elif cmd == 'showsnapshot':
-            out = self.simu.cli_showsnapshot(params)
-        elif cmd == 'disablesnapshot':
-            out = self.simu.cli_disablesnapshot(params)
-        elif cmd == 'delsnapshot':
-            out = self.simu.cli_delsnapshot(params)
-        elif cmd == 'showrespool':
-            out = self.simu.cli_showrespool(params)
-        elif cmd == 'showiscsitgtname':
-            out = self.simu.cli_showiscsitgtname(params)
-        elif cmd == 'showiscsiip':
-            out = self.simu.cli_showiscsiip(params)
-        elif cmd == 'showhostgroup':
-            out = self.simu.cli_showhostgroup(params)
-        elif cmd == 'createhostgroup':
-            out = self.simu.cli_createhostgroup(params)
-        elif cmd == 'showhost':
-            out = self.simu.cli_showhost(params)
-        elif cmd == 'addhost':
-            out = self.simu.cli_addhost(params)
-        elif cmd == 'delhost':
-            out = self.simu.cli_delhost(params)
-        elif cmd == 'showiscsiini':
-            out = self.simu.cli_showiscsiini(params)
-        elif cmd == 'addiscsiini':
-            out = self.simu.cli_addiscsiini(params)
-        elif cmd == 'deliscsiini':
-            out = self.simu.cli_deliscsiini(params)
-        elif cmd == 'showhostport':
-            out = self.simu.cli_showhostport(params)
-        elif cmd == 'addhostport':
-            out = self.simu.cli_addhostport(params)
-        elif cmd == 'delhostport':
-            out = self.simu.cli_delhostport(params)
-        elif cmd == 'showhostmap':
-            out = self.simu.cli_showhostmap(params)
-        elif cmd == 'addhostmap':
-            out = self.simu.cli_addhostmap(params)
-        elif cmd == 'delhostmap':
-            out = self.simu.cli_delhostmap(params)
-        elif cmd == 'showfreeport':
-            out = self.simu.cli_showfreeport(params)
-        elif cmd == 'showhostpath':
-            out = self.simu.cli_showhostpath(params)
-        elif cmd == 'chglun':
-            out = self.simu.cli_chglun(params)
-        elif cmd == 'showfcmode':
-            out = self.simu.cli_showfcmode(params)
+        func_name = 'cli_' + cmd
+        cli_func = getattr(self.simu, func_name)
+        out = cli_func(params)
         out = self.command[:-1] + out + '\nadmin:/>'
         return out.replace('\n', '\r\n')
 
@@ -421,7 +351,6 @@ class HuaweiTCLIResSimulator():
             CLONED_LUN_INFO['Owner Controller'] = 'A'
             CLONED_LUN_INFO['Worker Controller'] = 'A'
             CLONED_LUN_INFO['RAID Group ID'] = POOL_SETTING['ID']
-            CLONED_LUN_INFO['provider_location'] = CLONED_LUN_INFO['ID']
             FAKE_CLONED_VOLUME['provider_location'] = CLONED_LUN_INFO['ID']
         out = 'command operates successfully'
         return out
@@ -610,7 +539,7 @@ class HuaweiTCLIResSimulator():
 """ % (SNAPSHOT_INFO['Name'], SNAPSHOT_INFO['ID'], SNAPSHOT_INFO['Status'])
         return out
 
-    def cli_activesnapshot(self, params):
+    def cli_actvsnapshot(self, params):
         SNAPSHOT_INFO['Status'] = 'Active'
         FAKE_SNAPSHOT['provider_location'] = SNAPSHOT_INFO['ID']
         out = 'command operates successfully'
@@ -663,7 +592,7 @@ class HuaweiTCLIResSimulator():
 ----------------------------------------------------------------------------
   Controller ID   Interface Module ID   Port ID   IP Address   Mask
 ----------------------------------------------------------------------------
-  N               0                     P1        %s           255.255.255.0
+  B               0                     P1        %s           255.255.255.0
 ============================================================================
 -""" % INITIATOR_SETTING['Initiator TargetIP']
         return out
@@ -959,7 +888,7 @@ class HuaweiDorado5100CLIResSimulator(HuaweiTCLIResSimulator):
         LUN_INFO['RAID Group ID'], LUN_INFO['Owner Controller'],
         LUN_INFO['Worker Controller'], LUN_INFO['Lun Type'],
         LUN_INFO['SnapShot ID'], LUN_INFO['LunCopy ID'])
-       if params[params.index('-lun')] == VOLUME_SNAP_ID['vol'] else
+       if params[params.index('-lun') + 1] == VOLUME_SNAP_ID['vol'] else
        (CLONED_LUN_INFO['ID'], CLONED_LUN_INFO['Name'],
         CLONED_LUN_INFO['Visible Capacity'], CLONED_LUN_INFO['RAID Group ID'],
         CLONED_LUN_INFO['Owner Controller'],
@@ -1115,7 +1044,7 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         tmp_configuration = mox.MockObject(conf.Configuration)
         tmp_configuration.cinder_huawei_conf_file = tmp_fonf_file
         tmp_configuration.append_config_values(mox.IgnoreArg())
-        self.assertRaises(exception.ConfigNotFound,
+        self.assertRaises(IOError,
                           HuaweiVolumeDriver,
                           configuration=tmp_configuration)
         # Test Product and Protocol invalid
@@ -1387,10 +1316,10 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertEqual(LUN_INFO['Owner Controller'], 'A')
         ret = self.driver.initialize_connection(FAKE_VOLUME, FAKE_CONNECTOR)
         iscsi_propers = ret['data']
-        self.assertEquals(iscsi_propers['target_iqn'],
-                          INITIATOR_SETTING['TargetIQN-form'])
-        self.assertEquals(iscsi_propers['target_portal'],
-                          INITIATOR_SETTING['Initiator TargetIP'] + ':3260')
+        self.assertEqual(iscsi_propers['target_iqn'],
+                         INITIATOR_SETTING['TargetIQN-form'])
+        self.assertEqual(iscsi_propers['target_portal'],
+                         INITIATOR_SETTING['Initiator TargetIP'] + ':3260')
         self.assertEqual(MAP_INFO["DEV LUN ID"], LUN_INFO['ID'])
         self.assertEqual(MAP_INFO["INI Port Info"],
                          FAKE_CONNECTOR['initiator'])
@@ -1526,8 +1455,8 @@ class HuaweiTFCDriverTestCase(test.TestCase):
         self.driver.create_volume(FAKE_VOLUME)
         ret = self.driver.initialize_connection(FAKE_VOLUME, FAKE_CONNECTOR)
         fc_properties = ret['data']
-        self.assertEquals(fc_properties['target_wwn'],
-                          INITIATOR_SETTING['WWN'])
+        self.assertEqual(fc_properties['target_wwn'],
+                         INITIATOR_SETTING['WWN'])
         self.assertEqual(MAP_INFO["DEV LUN ID"], LUN_INFO['ID'])
 
         self.driver.terminate_connection(FAKE_VOLUME, FAKE_CONNECTOR)
@@ -1659,10 +1588,10 @@ class HuaweiDorado2100G2ISCSIDriverTestCase(HuaweiTISCSIDriverTestCase):
         self.driver.create_volume(FAKE_VOLUME)
         ret = self.driver.initialize_connection(FAKE_VOLUME, FAKE_CONNECTOR)
         iscsi_propers = ret['data']
-        self.assertEquals(iscsi_propers['target_iqn'],
-                          INITIATOR_SETTING['TargetIQN-form'])
-        self.assertEquals(iscsi_propers['target_portal'],
-                          INITIATOR_SETTING['Initiator TargetIP'] + ':3260')
+        self.assertEqual(iscsi_propers['target_iqn'],
+                         INITIATOR_SETTING['TargetIQN-form'])
+        self.assertEqual(iscsi_propers['target_portal'],
+                         INITIATOR_SETTING['Initiator TargetIP'] + ':3260')
         self.assertEqual(MAP_INFO["DEV LUN ID"], LUN_INFO['ID'])
         self.assertEqual(MAP_INFO["INI Port Info"],
                          FAKE_CONNECTOR['initiator'])
@@ -1706,7 +1635,7 @@ class SSHMethodTestCase(test.TestCase):
 
     def test_socket_timeout(self):
         self.stubs.Set(FakeChannel, 'recv', self._fake_recv2)
-        self.assertRaises(exception.CinderException,
+        self.assertRaises(socket.timeout,
                           self.driver.create_volume, FAKE_VOLUME)
 
     def _fake_recv1(self, nbytes):

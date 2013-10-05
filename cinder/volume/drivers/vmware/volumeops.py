@@ -61,8 +61,9 @@ def split_datastore_path(datastore_path):
 class VMwareVolumeOps(object):
     """Manages volume operations."""
 
-    def __init__(self, session):
+    def __init__(self, session, max_objects):
         self._session = session
+        self._max_objects = max_objects
 
     def get_backing(self, name):
         """Get the backing based on name.
@@ -70,11 +71,20 @@ class VMwareVolumeOps(object):
         :param name: Name of the backing
         :return: Managed object reference to the backing
         """
-        vms = self._session.invoke_api(vim_util, 'get_objects',
-                                       self._session.vim, 'VirtualMachine')
-        for vm in vms:
-            if vm.propSet[0].val == name:
-                return vm.obj
+
+        retrieve_result = self._session.invoke_api(vim_util, 'get_objects',
+                                                   self._session.vim,
+                                                   'VirtualMachine',
+                                                   self._max_objects)
+        while retrieve_result:
+            vms = retrieve_result.objects
+            for vm in vms:
+                if vm.propSet[0].val == name:
+                    # We got the result, so cancel further retrieval.
+                    self.cancel_retrieval(retrieve_result)
+                    return vm.obj
+            # Result not obtained, continue retrieving results.
+            retrieve_result = self.continue_retrieval(retrieve_result)
 
         LOG.debug(_("Did not find any backing with name: %s") % name)
 
@@ -108,38 +118,92 @@ class VMwareVolumeOps(object):
         :return: All the hosts from the inventory
         """
         return self._session.invoke_api(vim_util, 'get_objects',
-                                        self._session.vim, 'HostSystem')
+                                        self._session.vim,
+                                        'HostSystem', self._max_objects)
+
+    def continue_retrieval(self, retrieve_result):
+        """Continue retrieval of results if necessary.
+
+        :param retrieve_result: Result from RetrievePropertiesEx
+        """
+
+        return self._session.invoke_api(vim_util, 'continue_retrieval',
+                                        self._session.vim, retrieve_result)
+
+    def cancel_retrieval(self, retrieve_result):
+        """Cancel retrieval of results if necessary.
+
+        :param retrieve_result: Result from RetrievePropertiesEx
+        """
+
+        self._session.invoke_api(vim_util, 'cancel_retrieval',
+                                 self._session.vim, retrieve_result)
+
+    def _is_valid(self, datastore, host):
+        """Check if host's datastore is accessible, mounted and writable.
+
+        :param datastore: Reference to the datastore entity
+        :param host: Reference to the host entity
+        :return: True if datastore can be used for volume creation
+        """
+
+        host_mounts = self._session.invoke_api(vim_util, 'get_object_property',
+                                               self._session.vim, datastore,
+                                               'host')
+        for host_mount in host_mounts.DatastoreHostMount:
+            if host_mount.key.value == host.value:
+                mntInfo = host_mount.mountInfo
+                writable = mntInfo.accessMode == "readWrite"
+                # If mounted attribute is not set, then default is True
+                mounted = True
+                if hasattr(mntInfo, "mounted"):
+                    mounted = mntInfo.mounted
+                if hasattr(mntInfo, "accessible"):
+                    accessible = mntInfo.accessible
+                else:
+                    # If accessible attribute is not set, we look at summary
+                    summary = self.get_summary(datastore)
+                    accessible = summary.accessible
+                return (accessible and mounted and writable)
+        return False
 
     def get_dss_rp(self, host):
-        """Get datastores and resource pool of the host.
+        """Get accessible datastores and resource pool of the host.
 
         :param host: Managed object reference of the host
-        :return: Datastores mounted to the host and resource pool to which
+        :return: Datastores accessible to the host and resource pool to which
                  the host belongs to
         """
+
         props = self._session.invoke_api(vim_util, 'get_object_properties',
                                          self._session.vim, host,
                                          ['datastore', 'parent'])
         # Get datastores and compute resource or cluster compute resource
-        datastores = None
+        datastores = []
         compute_resource = None
         for elem in props:
             for prop in elem.propSet:
-                if prop.name == 'datastore':
+                if prop.name == 'datastore' and prop.val:
+                    # Consider only if datastores are present under host
                     datastores = prop.val.ManagedObjectReference
                 elif prop.name == 'parent':
                     compute_resource = prop.val
+        # Filter datastores based on if it is accessible, mounted and writable
+        valid_dss = []
+        for datastore in datastores:
+            if self._is_valid(datastore, host):
+                valid_dss.append(datastore)
         # Get resource pool from compute resource or cluster compute resource
         resource_pool = self._session.invoke_api(vim_util,
                                                  'get_object_property',
                                                  self._session.vim,
                                                  compute_resource,
                                                  'resourcePool')
-        if not datastores:
-            msg = _("There are no datastores present under %s.")
+        if not valid_dss:
+            msg = _("There are no valid datastores present under %s.")
             LOG.error(msg % host)
             raise error_util.VimException(msg % host)
-        return (datastores, resource_pool)
+        return (valid_dss, resource_pool)
 
     def _get_parent(self, child, parent_type):
         """Get immediate parent of given type via 'parent' property.
@@ -149,6 +213,7 @@ class VMwareVolumeOps(object):
         :return: Immediate parent of specific type up the hierarchy via
                  'parent' property
         """
+
         if not child:
             return None
         if child._type == parent_type:
@@ -547,36 +612,6 @@ class VMwareVolumeOps(object):
         self._session.wait_for_task(task)
         LOG.info(_("Successfully deleted file: %s.") % file_path)
 
-    def copy_backing(self, src_folder_path, dest_folder_path):
-        """Copy the backing folder recursively onto the destination folder.
-
-        This method overwrites all the files at the destination if present
-        by deleting them first.
-
-        :param src_folder_path: Datastore path of the source folder
-        :param dest_folder_path: Datastore path of the destination
-        """
-        LOG.debug(_("Copying backing files from %(src)s to %(dest)s.") %
-                  {'src': src_folder_path, 'dest': dest_folder_path})
-        fileManager = self._session.vim.service_content.fileManager
-        try:
-            task = self._session.invoke_api(self._session.vim,
-                                            'CopyDatastoreFile_Task',
-                                            fileManager,
-                                            sourceName=src_folder_path,
-                                            destinationName=dest_folder_path)
-            LOG.debug(_("Initiated copying of backing via task: %s.") % task)
-            self._session.wait_for_task(task)
-            LOG.info(_("Successfully copied backing to %s.") %
-                     dest_folder_path)
-        except error_util.VimFaultException as excep:
-            if FILE_ALREADY_EXISTS not in excep.fault_list:
-                raise excep
-            # There might be files on datastore due to previous failed attempt
-            # We clean the folder up and retry the copy
-            self.delete_file(dest_folder_path)
-            self.copy_backing(src_folder_path, dest_folder_path)
-
     def get_path_name(self, backing):
         """Get path name of the backing.
 
@@ -586,49 +621,6 @@ class VMwareVolumeOps(object):
         return self._session.invoke_api(vim_util, 'get_object_property',
                                         self._session.vim, backing,
                                         'config.files').vmPathName
-
-    def register_backing(self, path, name, folder, resource_pool):
-        """Register backing to the inventory.
-
-        :param path: Datastore path to the backing
-        :param name: Name with which we register the backing
-        :param folder: Reference to the folder entity
-        :param resource_pool: Reference to the resource pool entity
-        :return: Reference to the backing that is registered
-        """
-        try:
-            LOG.debug(_("Registering backing at path: %s to inventory.") %
-                      path)
-            task = self._session.invoke_api(self._session.vim,
-                                            'RegisterVM_Task', folder,
-                                            path=path, name=name,
-                                            asTemplate=False,
-                                            pool=resource_pool)
-            LOG.debug(_("Initiated registring backing, task: %s.") % task)
-            task_info = self._session.wait_for_task(task)
-            backing = task_info.result
-            LOG.info(_("Successfully registered backing: %s.") % backing)
-            return backing
-        except error_util.VimFaultException as excep:
-            if ALREADY_EXISTS not in excep.fault_list:
-                raise excep
-            # If the vmx is already registered to the inventory that may
-            # happen due to previous failed attempts, then we simply retrieve
-            # the backing moref based on name and return.
-            return self.get_backing(name)
-
-    def revert_to_snapshot(self, snapshot):
-        """Revert backing to a snapshot point.
-
-        :param snapshot: Reference to the snapshot entity
-        """
-        LOG.debug(_("Reverting backing to snapshot: %s.") % snapshot)
-        task = self._session.invoke_api(self._session.vim,
-                                        'RevertToSnapshot_Task',
-                                        snapshot)
-        LOG.debug(_("Initiated reverting snapshot via task: %s.") % task)
-        self._session.wait_for_task(task)
-        LOG.info(_("Successfully reverted to snapshot: %s.") % snapshot)
 
     def get_entity_name(self, entity):
         """Get name of the managed entity.
@@ -683,8 +675,8 @@ class VMwareVolumeOps(object):
                                         force=True)
         LOG.debug(_("Initiated copying disk data via task: %s.") % task)
         self._session.wait_for_task(task)
-        LOG.info(_("Successfully copied disk data to: %s.") %
-                 dest_vmdk_file_path)
+        LOG.info(_("Successfully copied disk at: %(src)s to: %(dest)s.") %
+                 {'src': src_vmdk_file_path, 'dest': dest_vmdk_file_path})
 
     def delete_vmdk_file(self, vmdk_file_path, dc_ref):
         """Delete given vmdk files.

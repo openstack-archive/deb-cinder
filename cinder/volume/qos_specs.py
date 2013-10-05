@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 eBay Inc.
-# Copyright (c) 2013 OpenStack LLC.
+# Copyright (c) 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -25,6 +25,7 @@ from cinder import db
 from cinder import exception
 from cinder.openstack.common.db import exception as db_exc
 from cinder.openstack.common import log as logging
+from cinder.volume import volume_types
 
 
 CONF = cfg.CONF
@@ -123,16 +124,28 @@ def delete(context, qos_specs_id, force=False):
     if qos_specs_id is None:
         msg = _("id cannot be None")
         raise exception.InvalidQoSSpecs(reason=msg)
-    else:
-        # check if there is any entity associated with this
-        # qos specs.
-        res = db.qos_specs_associations_get(context, qos_specs_id)
-        if res and not force:
-            raise exception.QoSSpecsInUse(specs_id=qos_specs_id)
-        elif force:
-            # remove all association
-            disassociate_all(context, qos_specs_id)
-        db.qos_specs_delete(context, qos_specs_id)
+
+    # check if there is any entity associated with this qos specs
+    res = db.qos_specs_associations_get(context, qos_specs_id)
+    if res and not force:
+        raise exception.QoSSpecsInUse(specs_id=qos_specs_id)
+    elif res and force:
+        # remove all association
+        db.qos_specs_disassociate_all(context, qos_specs_id)
+
+    db.qos_specs_delete(context, qos_specs_id)
+
+
+def delete_keys(context, qos_specs_id, keys):
+    """Marks specified key of target qos specs as deleted."""
+    if qos_specs_id is None:
+        msg = _("id cannot be None")
+        raise exception.InvalidQoSSpecs(reason=msg)
+
+    # make sure qos_specs_id is valid
+    get_qos_specs(context, qos_specs_id)
+    for key in keys:
+        db.qos_specs_item_delete(context, qos_specs_id, key)
 
 
 def get_associations(context, specs_id):
@@ -158,9 +171,30 @@ def get_associations(context, specs_id):
 
 
 def associate_qos_with_type(context, specs_id, type_id):
-    """Associate qos_specs from volume type."""
+    """Associate qos_specs with volume type.
+
+    Associate target qos specs with specific volume type. Would raise
+    following exceptions:
+        VolumeTypeNotFound  - if volume type doesn't exist;
+        QoSSpecsNotFound  - if qos specs doesn't exist;
+        InvalidVolumeType  - if volume type is already associated with
+                             qos specs other than given one.
+        QoSSpecsAssociateFailed -  if there was general DB error
+    :param specs_id: qos specs ID to associate with
+    :param type_id: volume type ID to associate with
+    """
     try:
-        db.qos_specs_associate(context, specs_id, type_id)
+        get_qos_specs(context, specs_id)
+        res = volume_types.get_volume_type_qos_specs(type_id)
+        if res.get('qos_specs', None):
+            if res['qos_specs'].get('id') != specs_id:
+                msg = (_("Type %(type_id)s is already associated with another "
+                         "qos specs: %(qos_specs_id)s") %
+                       {'type_id': type_id,
+                        'qos_specs_id': res['qos_specs']['id']})
+                raise exception.InvalidVolumeType(reason=msg)
+        else:
+            db.qos_specs_associate(context, specs_id, type_id)
     except db_exc.DBError as e:
         LOG.exception(_('DB error: %s') % e)
         LOG.warn(_('Failed to associate qos specs '
@@ -173,6 +207,7 @@ def associate_qos_with_type(context, specs_id, type_id):
 def disassociate_qos_specs(context, specs_id, type_id):
     """Disassociate qos_specs from volume type."""
     try:
+        get_qos_specs(context, specs_id)
         db.qos_specs_disassociate(context, specs_id, type_id)
     except db_exc.DBError as e:
         LOG.exception(_('DB error: %s') % e)
@@ -186,6 +221,7 @@ def disassociate_qos_specs(context, specs_id, type_id):
 def disassociate_all(context, specs_id):
     """Disassociate qos_specs from all entities."""
     try:
+        get_qos_specs(context, specs_id)
         db.qos_specs_disassociate_all(context, specs_id)
     except db_exc.DBError as e:
         LOG.exception(_('DB error: %s') % e)

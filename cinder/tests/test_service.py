@@ -94,7 +94,7 @@ class ServiceFlagsTestCase(test.TestCase):
         app.stop()
         ref = db.service_get(context.get_admin_context(), app.service_id)
         db.service_destroy(context.get_admin_context(), app.service_id)
-        self.assert_(not ref['disabled'])
+        self.assertFalse(ref['disabled'])
 
     def test_service_disabled_on_create_based_on_flag(self):
         self.flags(enable_new_services=False)
@@ -105,7 +105,7 @@ class ServiceFlagsTestCase(test.TestCase):
         app.stop()
         ref = db.service_get(context.get_admin_context(), app.service_id)
         db.service_destroy(context.get_admin_context(), app.service_id)
-        self.assert_(ref['disabled'])
+        self.assertTrue(ref['disabled'])
 
 
 class ServiceTestCase(test.TestCase):
@@ -124,7 +124,7 @@ class ServiceTestCase(test.TestCase):
         #             the looping calls are created in StartService.
         app = service.Service.create(host=host, binary=binary, topic=topic)
 
-        self.assert_(app)
+        self.assertTrue(app)
 
     def test_report_state_newly_disconnected(self):
         host = 'foo'
@@ -157,7 +157,7 @@ class ServiceTestCase(test.TestCase):
                                'cinder.tests.test_service.FakeManager')
         serv.start()
         serv.report_state()
-        self.assert_(serv.model_disconnected)
+        self.assertTrue(serv.model_disconnected)
 
     def test_report_state_newly_connected(self):
         host = 'foo'
@@ -194,7 +194,7 @@ class ServiceTestCase(test.TestCase):
         serv.model_disconnected = True
         serv.report_state()
 
-        self.assert_(not serv.model_disconnected)
+        self.assertFalse(serv.model_disconnected)
 
 
 class TestWSGIService(test.TestCase):
@@ -205,7 +205,7 @@ class TestWSGIService(test.TestCase):
 
     def test_service_random_port(self):
         test_service = service.WSGIService("test_service")
-        self.assertEquals(0, test_service.port)
+        self.assertEqual(0, test_service.port)
         test_service.start()
         self.assertNotEqual(0, test_service.port)
         test_service.stop()
@@ -219,8 +219,8 @@ class TestLauncher(test.TestCase):
         self.service = service.WSGIService("test_service")
 
     def test_launch_app(self):
-        self.assertEquals(0, self.service.port)
+        self.assertEqual(0, self.service.port)
         launcher = service.Launcher()
         launcher.launch_server(self.service)
-        self.assertEquals(0, self.service.port)
+        self.assertEqual(0, self.service.port)
         launcher.stop()

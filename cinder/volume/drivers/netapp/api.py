@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 NetApp, Inc.
-# Copyright (c) 2012 OpenStack LLC.
+# Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -125,10 +125,10 @@ class NaServer(object):
         self._refresh_conn = True
 
     def get_api_version(self):
-        """Gets the api version."""
+        """Gets the api version tuple."""
         if hasattr(self, '_api_version'):
-            return self._api_version
-        return self._api_version
+            return (self._api_major_version, self._api_minor_version)
+        return None
 
     def set_port(self, port):
         """Set the server communication port."""

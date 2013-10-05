@@ -1,5 +1,5 @@
 # Copyright (c) 2011 Intel Corporation
-# Copyright (c) 2011 OpenStack, LLC.
+# Copyright (c) 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -80,8 +80,7 @@ class FilterScheduler(driver.Scheduler):
         filter_properties.pop('context', None)
 
         self.volume_rpcapi.create_volume(context, updated_volume, host,
-                                         request_spec=request_spec,
-                                         filter_properties=filter_properties,
+                                         request_spec, filter_properties,
                                          allow_reschedule=True,
                                          snapshot_id=snapshot_id,
                                          image_id=image_id)

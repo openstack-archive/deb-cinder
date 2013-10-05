@@ -1,4 +1,4 @@
-#    Copyright 2012 OpenStack LLC
+#    Copyright 2012 OpenStack Foundation
 #    Copyright (c) 2013 Zelin.io
 #    All Rights Reserved.
 #
@@ -197,7 +197,7 @@ class SheepdogDriver(driver.VolumeDriver):
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-        LOG.debug(_("Extend volume from %(old_size) to %(new_size)"),
+        LOG.debug(_("Extend volume from %(old_size)s GB to %(new_size)s GB."),
                   {'old_size': old_size, 'new_size': new_size})
 
     def backup_volume(self, context, backup, backup_service):

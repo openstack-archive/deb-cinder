@@ -1,4 +1,4 @@
-#    Copyright 2013 OpenStack LLC
+#    Copyright 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -22,7 +22,6 @@ import urllib
 
 from oslo.config import cfg
 
-from cinder.backup.drivers import ceph as ceph_backup
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
@@ -62,7 +61,15 @@ rbd_opts = [
     cfg.StrOpt('volume_tmp_dir',
                default=None,
                help='where to store temporary image files if the volume '
-                    'driver does not write them directly to the volume'), ]
+                    'driver does not write them directly to the volume'),
+    cfg.IntOpt('rbd_max_clone_depth',
+               default=5,
+               help='maximum number of nested clones that can be taken of a '
+                    'volume before enforcing a flatten prior to next clone. '
+                    'A value of zero disables cloning')]
+
+CONF = cfg.CONF
+CONF.register_opts(rbd_opts)
 
 
 def ascii_str(string):
@@ -147,14 +154,14 @@ class RBDImageIOWrapper(io.RawIOBase):
         elif whence == 1:
             new_offset = self._offset + offset
         elif whence == 2:
-            new_offset = self.volume.size() - 1
+            new_offset = self._rbd_meta.image.size()
             new_offset += offset
         else:
-            raise IOError("Invalid argument - whence=%s not supported" %
+            raise IOError(_("Invalid argument - whence=%s not supported") %
                           (whence))
 
         if (new_offset < 0):
-            raise IOError("Invalid argument")
+            raise IOError(_("Invalid argument"))
 
         self._offset = new_offset
 
@@ -173,7 +180,7 @@ class RBDImageIOWrapper(io.RawIOBase):
         Raising IOError is recommended way to notify caller that interface is
         not supported - see http://docs.python.org/2/library/io.html#io.IOBase
         """
-        raise IOError("fileno() not supported by RBD()")
+        raise IOError(_("fileno() not supported by RBD()"))
 
     # NOTE(dosaboy): if IO object is not closed explicitly, Python auto closes
     # it which, if this is not overridden, calls flush() prior to close which
@@ -231,9 +238,6 @@ class RADOSClient(object):
 
     def __exit__(self, type_, value, traceback):
         self.driver._disconnect_from_rados(self.cluster, self.ioctx)
-
-CONF = cfg.CONF
-CONF.register_opts(rbd_opts)
 
 
 class RBDDriver(driver.VolumeDriver):
@@ -295,7 +299,12 @@ class RBDDriver(driver.VolumeDriver):
         There should only ever be one but accept all since they need to be
         deleted before the volume can be.
         """
-        return ceph_backup.CephBackupDriver.get_backup_snaps(rbd_image)
+        # NOTE(dosaboy): we do the import here otherwise we get import conflict
+        # issues between the rbd driver and the ceph backup driver. These
+        # issues only seem to occur when NOT using them together and are
+        # triggered when the ceph backup driver imports the rbd volume driver.
+        from cinder.backup.drivers import ceph
+        return ceph.CephBackupDriver.get_backup_snaps(rbd_image)
 
     def _get_mon_addrs(self):
         args = ['ceph', 'mon', 'dump', '--format=json']
@@ -349,17 +358,114 @@ class RBDDriver(driver.VolumeDriver):
     def _supports_layering(self):
         return hasattr(self.rbd, 'RBD_FEATURE_LAYERING')
 
+    def _get_clone_depth(self, client, volume_name, depth=0):
+        """Returns the number of ancestral clones (if any) of the given volume.
+        """
+        parent_volume = self.rbd.Image(client.ioctx, volume_name)
+        try:
+            pool, parent, snap = self._get_clone_info(parent_volume,
+                                                      volume_name)
+        finally:
+            parent_volume.close()
+
+        if not parent:
+            return depth
+
+        # If clone depth was reached, flatten should have occured so if it has
+        # been exceeded then something has gone wrong.
+        if depth > CONF.rbd_max_clone_depth:
+            raise Exception(_("clone depth exceeds limit of %s") %
+                            (CONF.rbd_max_clone_depth))
+
+        return self._get_clone_depth(client, parent, depth + 1)
+
     def create_cloned_volume(self, volume, src_vref):
-        """Clone a logical volume."""
-        with RBDVolumeProxy(self, src_vref['name'], read_only=True) as vol:
-            vol.copy(vol.ioctx, str(volume['name']))
+        """Create a cloned volume from another volume.
+
+        Since we are cloning from a volume and not a snapshot, we must first
+        create a snapshot of the source volume.
+
+        The user has the option to limit how long a volume's clone chain can be
+        by setting rbd_max_clone_depth. If a clone is made of another clone
+        and that clone has rbd_max_clone_depth clones behind it, the source
+        volume will be flattened.
+        """
+        src_name = str(src_vref['name'])
+        dest_name = str(volume['name'])
+        flatten_parent = False
+
+        # Do full copy if requested
+        if CONF.rbd_max_clone_depth <= 0:
+            with RBDVolumeProxy(self, src_name, read_only=True) as vol:
+                vol.copy(vol.ioctx, dest_name)
+
+            return
+
+        # Otherwise do COW clone.
+        with RADOSClient(self) as client:
+            depth = self._get_clone_depth(client, src_name)
+            # If source volume is a clone and rbd_max_clone_depth reached,
+            # flatten the source before cloning. Zero rbd_max_clone_depth means
+            # infinite is allowed.
+            if depth == CONF.rbd_max_clone_depth:
+                LOG.debug(_("maximum clone depth (%d) has been reached - "
+                            "flattening source volume") %
+                          (CONF.rbd_max_clone_depth))
+                flatten_parent = True
+
+            src_volume = self.rbd.Image(client.ioctx, src_name)
+            try:
+                # First flatten source volume if required.
+                if flatten_parent:
+                    pool, parent, snap = self._get_clone_info(src_volume,
+                                                              src_name)
+                    # Flatten source volume
+                    LOG.debug(_("flattening source volume %s") % (src_name))
+                    src_volume.flatten()
+                    # Delete parent clone snap
+                    parent_volume = self.rbd.Image(client.ioctx, parent)
+                    try:
+                        parent_volume.unprotect_snap(snap)
+                        parent_volume.remove_snap(snap)
+                    finally:
+                        parent_volume.close()
+
+                # Create new snapshot of source volume
+                clone_snap = "%s.clone_snap" % dest_name
+                LOG.debug(_("creating snapshot='%s'") % (clone_snap))
+                src_volume.create_snap(clone_snap)
+                src_volume.protect_snap(clone_snap)
+            except Exception as exc:
+                # Only close if exception since we still need it.
+                src_volume.close()
+                raise exc
+
+            # Now clone source volume snapshot
+            try:
+                LOG.debug(_("cloning '%(src_vol)s@%(src_snap)s' to "
+                            "'%(dest)s'") %
+                          {'src_vol': src_name, 'src_snap': clone_snap,
+                           'dest': dest_name})
+                self.rbd.RBD().clone(client.ioctx, src_name, clone_snap,
+                                     client.ioctx, dest_name,
+                                     features=self.rbd.RBD_FEATURE_LAYERING)
+            except Exception as exc:
+                src_volume.unprotect_snap(clone_snap)
+                src_volume.remove_snap(clone_snap)
+                raise exc
+            finally:
+                src_volume.close()
+
+        LOG.debug(_("clone created successfully"))
 
     def create_volume(self, volume):
         """Creates a logical volume."""
         if int(volume['size']) == 0:
-            size = 100 * 1024 ** 2
+            size = 100 * units.MiB
         else:
-            size = int(volume['size']) * 1024 ** 3
+            size = int(volume['size']) * units.GiB
+
+        LOG.debug(_("creating volume '%s'") % (volume['name']))
 
         old_format = True
         features = 0
@@ -410,23 +516,119 @@ class RBDDriver(driver.VolumeDriver):
         if int(volume['size']):
             self._resize(volume)
 
+    def _delete_backup_snaps(self, client, volume_name):
+        rbd_image = self.rbd.Image(client.ioctx, volume_name)
+        try:
+            backup_snaps = self._get_backup_snaps(rbd_image)
+            if backup_snaps:
+                for snap in backup_snaps:
+                    rbd_image.remove_snap(snap['name'])
+            else:
+                LOG.debug(_("volume has no backup snaps"))
+        finally:
+            rbd_image.close()
+
+    def _get_clone_info(self, volume, volume_name, snap=None):
+        """If volume is a clone, return its parent info.
+
+        Returns a tuple of (pool, parent, snap). A snapshot may optionally be
+        provided for the case where a cloned volume has been flattened but it's
+        snapshot still depends on the parent.
+        """
+        try:
+            snap and volume.set_snap(snap)
+            pool, parent, parent_snap = tuple(volume.parent_info())
+            snap and volume.set_snap(None)
+            # Strip the tag off the end of the volume name since it will not be
+            # in the snap name.
+            if volume_name.endswith('.deleted'):
+                volume_name = volume_name[:-len('.deleted')]
+            # Now check the snap name matches.
+            if parent_snap == "%s.clone_snap" % volume_name:
+                return pool, parent, parent_snap
+        except self.rbd.ImageNotFound:
+            LOG.debug(_("volume %s is not a clone") % volume_name)
+            volume.set_snap(None)
+
+        return (None, None, None)
+
+    def _delete_clone_parent_refs(self, client, parent_name, parent_snap):
+        """Walk back up the clone chain and delete references.
+
+        Deletes references i.e. deleted parent volumes and snapshots.
+        """
+        parent_rbd = self.rbd.Image(client.ioctx, parent_name)
+        parent_has_snaps = False
+        try:
+            # Check for grandparent
+            _pool, g_parent, g_parent_snap = self._get_clone_info(parent_rbd,
+                                                                  parent_name,
+                                                                  parent_snap)
+
+            LOG.debug(_("deleting parent snapshot %s") % (parent_snap))
+            parent_rbd.unprotect_snap(parent_snap)
+            parent_rbd.remove_snap(parent_snap)
+
+            parent_has_snaps = bool(list(parent_rbd.list_snaps()))
+        finally:
+            parent_rbd.close()
+
+        # If parent has been deleted in Cinder, delete the silent reference and
+        # keep walking up the chain if it is itself a clone.
+        if (not parent_has_snaps) and parent_name.endswith('.deleted'):
+            LOG.debug(_("deleting parent %s") % (parent_name))
+            self.rbd.RBD().remove(client.ioctx, parent_name)
+
+            # Now move up to grandparent if there is one
+            if g_parent:
+                self._delete_clone_parent_refs(client, g_parent, g_parent_snap)
+
     def delete_volume(self, volume):
         """Deletes a logical volume."""
+        volume_name = str(volume['name'])
         with RADOSClient(self) as client:
             # Ensure any backup snapshots are deleted
-            rbd_image = self.rbd.Image(client.ioctx, str(volume['name']))
+            self._delete_backup_snaps(client, volume_name)
+
+            # If the volume has non-clone snapshots this delete is expected to
+            # raise VolumeIsBusy so do so straight away.
+            rbd_image = self.rbd.Image(client.ioctx, volume_name)
+            clone_snap = None
+            parent = None
             try:
-                backup_snaps = self._get_backup_snaps(rbd_image)
-                if backup_snaps:
-                    for snap in backup_snaps:
-                        rbd_image.remove_snap(snap['name'])
+                snaps = rbd_image.list_snaps()
+                for snap in snaps:
+                    if snap['name'].endswith('.clone_snap'):
+                        LOG.debug(_("volume has clone snapshot(s)"))
+                        # We grab one of these and use it when fetching parent
+                        # info in case the this volume has been flattened.
+                        clone_snap = snap['name']
+                        break
+
+                    raise exception.VolumeIsBusy(volume_name=volume_name)
+
+                # Determine if this volume is itself a clone
+                pool, parent, parent_snap = self._get_clone_info(rbd_image,
+                                                                 volume_name,
+                                                                 clone_snap)
             finally:
                 rbd_image.close()
 
-            try:
-                self.rbd.RBD().remove(client.ioctx, str(volume['name']))
-            except self.rbd.ImageHasSnapshots:
-                raise exception.VolumeIsBusy(volume_name=volume['name'])
+            if clone_snap is None:
+                LOG.debug(_("deleting rbd volume %s") % (volume_name))
+                self.rbd.RBD().remove(client.ioctx, volume_name)
+
+                # If it is a clone, walk back up the parent chain deleting
+                # references.
+                if parent:
+                    LOG.debug(_("volume is a clone so cleaning references"))
+                    self._delete_clone_parent_refs(client, parent, parent_snap)
+            else:
+                # If the volume has copy-on-write clones we will not be able to
+                # delete it. Instead we will keep it as a silent volume which
+                # will be deleted when it's snapshot and clones are deleted.
+                new_name = "%s.deleted" % (volume_name)
+                self.rbd.RBD().rename(client.ioctx, volume_name, new_name)
 
     def create_snapshot(self, snapshot):
         """Creates an rbd snapshot."""
@@ -522,6 +724,7 @@ class RBDDriver(driver.VolumeDriver):
             return False
 
     def clone_image(self, volume, image_location, image_id):
+        image_location = image_location[0] if image_location else None
         if image_location is None or not self._is_cloneable(image_location):
             return ({}, False)
         prefix, pool, image, snapshot = self._parse_location(image_location)
@@ -575,16 +778,15 @@ class RBDDriver(driver.VolumeDriver):
         """Create a new backup from an existing volume."""
         volume = self.db.volume_get(context, backup['volume_id'])
         pool = self.configuration.rbd_pool
-        volname = volume['name']
 
-        with RBDVolumeProxy(self, volname, pool) as rbd_image:
+        with RBDVolumeProxy(self, volume['name'], pool) as rbd_image:
             rbd_meta = RBDImageMetadata(rbd_image, self.configuration.rbd_pool,
                                         self.configuration.rbd_user,
                                         self.configuration.rbd_ceph_conf)
             rbd_fd = RBDImageIOWrapper(rbd_meta)
             backup_service.backup(backup, rbd_fd)
 
-        LOG.debug("volume backup complete.")
+        LOG.debug(_("volume backup complete."))
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
@@ -597,7 +799,7 @@ class RBDDriver(driver.VolumeDriver):
             rbd_fd = RBDImageIOWrapper(rbd_meta)
             backup_service.restore(backup, volume['id'], rbd_fd)
 
-        LOG.debug("volume restore complete.")
+        LOG.debug(_("volume restore complete."))
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume."""
@@ -612,5 +814,5 @@ class RBDDriver(driver.VolumeDriver):
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-        LOG.debug(_("Extend volume from %(old_size) to %(new_size)"),
+        LOG.debug(_("Extend volume from %(old_size)s GB to %(new_size)s GB."),
                   {'old_size': old_size, 'new_size': new_size})

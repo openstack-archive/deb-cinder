@@ -80,7 +80,13 @@ def _translate_volume_summary_view(context, vol, image_id=None):
     d['size'] = vol['size']
     d['availability_zone'] = vol['availability_zone']
     d['created_at'] = vol['created_at']
-    d['bootable'] = vol['bootable']
+
+    # Need to form the string true/false explicitly here to
+    # maintain our API contract
+    if vol['bootable']:
+        d['bootable'] = 'true'
+    else:
+        d['bootable'] = 'false'
 
     d['attachments'] = []
     if vol['attach_status'] == 'attached':
@@ -222,8 +228,14 @@ class VolumeController(wsgi.Controller):
 
         visible_admin_meta = {}
 
-        volume_tmp = (volume if context.is_admin else
-                      self.volume_api.get(context.elevated(), volume['id']))
+        if context.is_admin:
+            volume_tmp = volume
+        else:
+            try:
+                volume_tmp = self.volume_api.get(context.elevated(),
+                                                 volume['id'])
+            except Exception:
+                return
 
         if volume_tmp.get('volume_admin_metadata'):
             for item in volume_tmp['volume_admin_metadata']:
@@ -242,12 +254,13 @@ class VolumeController(wsgi.Controller):
         # NOTE(zhiyan): update visible administration metadata to
         # volume metadata, administration metadata will rewrite existing key.
         if volume.get('volume_metadata'):
-            orig_meta = volume.get('volume_metadata')
+            orig_meta = list(volume.get('volume_metadata'))
             for item in orig_meta:
                 if item['key'] in visible_admin_meta.keys():
                     item['value'] = visible_admin_meta.pop(item['key'])
             for key, value in visible_admin_meta.iteritems():
                 orig_meta.append({'key': key, 'value': value})
+            volume['volume_metadata'] = orig_meta
         # avoid circular ref when vol is a Volume instance
         elif (volume.get('metadata') and
                 isinstance(volume.get('metadata'), dict)):
@@ -311,6 +324,8 @@ class VolumeController(wsgi.Controller):
                                           sort_key='created_at',
                                           sort_dir='desc', filters=search_opts)
 
+        volumes = [dict(vol.iteritems()) for vol in volumes]
+
         for volume in volumes:
             self._add_visible_admin_metadata(context, volume)
 
@@ -348,21 +363,17 @@ class VolumeController(wsgi.Controller):
 
         req_volume_type = volume.get('volume_type', None)
         if req_volume_type:
-            if not uuidutils.is_uuid_like(req_volume_type):
-                try:
+            try:
+                if not uuidutils.is_uuid_like(req_volume_type):
                     kwargs['volume_type'] = \
                         volume_types.get_volume_type_by_name(
                             context, req_volume_type)
-                except exception.VolumeTypeNotFound:
-                    explanation = 'Volume type not found.'
-                    raise exc.HTTPNotFound(explanation=explanation)
-            else:
-                try:
+                else:
                     kwargs['volume_type'] = volume_types.get_volume_type(
                         context, req_volume_type)
-                except exception.VolumeTypeNotFound:
-                    explanation = 'Volume type not found.'
-                    raise exc.HTTPNotFound(explanation=explanation)
+            except exception.VolumeTypeNotFound:
+                explanation = 'Volume type not found.'
+                raise exc.HTTPNotFound(explanation=explanation)
 
         kwargs['metadata'] = volume.get('metadata', None)
 

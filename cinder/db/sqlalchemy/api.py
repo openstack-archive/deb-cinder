@@ -1046,6 +1046,8 @@ def volume_create(context, values):
         values['volume_admin_metadata'] = \
             _metadata_refs(values.get('admin_metadata'),
                            models.VolumeAdminMetadata)
+    elif values.get('volume_admin_metadata'):
+        del values['volume_admin_metadata']
 
     volume_ref = models.Volume()
     if not values.get('id'):
@@ -1098,28 +1100,27 @@ def volume_data_get_for_project(context, project_id, volume_type_id=None):
 
 @require_admin_context
 def finish_volume_migration(context, src_vol_id, dest_vol_id):
-    """Copy almost all columns from dest to source, then delete dest."""
+    """Copy almost all columns from dest to source."""
     session = get_session()
     with session.begin():
+        src_volume_ref = _volume_get(context, src_vol_id, session=session)
         dest_volume_ref = _volume_get(context, dest_vol_id, session=session)
-        updates = {}
-        if dest_volume_ref['_name_id']:
-            updates['_name_id'] = dest_volume_ref['_name_id']
-        else:
-            updates['_name_id'] = dest_volume_ref['id']
+
+        # NOTE(rpodolyaka): we should copy only column values, while model
+        #                   instances also have relationships attributes, which
+        #                   should be ignored
+        def is_column(inst, attr):
+            return attr in inst.__class__.__table__.columns
+
         for key, value in dest_volume_ref.iteritems():
-            if key in ['id', '_name_id']:
+            if key == 'id' or not is_column(dest_volume_ref, key):
                 continue
-            if key == 'migration_status':
-                updates[key] = None
-                continue
-            updates[key] = value
-        session.query(models.Volume).\
-            filter_by(id=src_vol_id).\
-            update(updates)
-        session.query(models.Volume).\
-            filter_by(id=dest_vol_id).\
-            delete()
+            elif key == 'migration_status':
+                value = None
+            elif key == '_name_id':
+                value = dest_volume_ref['_name_id'] or dest_volume_ref['id']
+
+            setattr(src_volume_ref, key, value)
 
 
 @require_admin_context
@@ -1853,9 +1854,11 @@ def volume_type_qos_specs_get(context, type_id):
                         'id': 'qos-specs-id',
                         'name': 'qos_specs_name',
                         'consumer': 'Consumer',
-                        'key1': 'value1',
-                        'key2': 'value2',
-                        'key3': 'value3'
+                        'specs': {
+                            'key1': 'value1',
+                            'key2': 'value2',
+                            'key3': 'value3'
+                        }
                      }
         }
 
@@ -1870,11 +1873,13 @@ def volume_type_qos_specs_get(context, type_id):
             first()
 
         # row.qos_specs is a list of QualityOfServiceSpecs ref
-        specs = {}
-        for item in row.qos_specs:
-            if item.key == 'QoS_Specs_Name':
-                if item.specs:
-                    specs = _dict_with_children_specs(item.specs)
+        specs = _dict_with_qos_specs(row.qos_specs)
+
+        if not specs:
+            # turn empty list to None
+            specs = None
+        else:
+            specs = specs[0]
 
         return {'qos_specs': specs}
 
@@ -1884,7 +1889,12 @@ def volume_type_destroy(context, id):
     session = get_session()
     with session.begin():
         _volume_type_get(context, id, session)
-
+        results = model_query(context, models.Volume, session=session). \
+            filter_by(volume_type_id=id).all()
+        if results:
+            msg = _('VolumeType %s deletion failed, VolumeType in use.') % id
+            LOG.error(msg)
+            raise exception.VolumeTypeInUse(volume_type_id=id)
         session.query(models.VolumeTypes).\
             filter_by(id=id).\
             update({'deleted': True,
@@ -2072,7 +2082,9 @@ def _dict_with_children_specs(specs):
     """Convert specs list to a dict."""
     result = {}
     for spec in specs:
-        result.update({spec['key']: spec['value']})
+        # Skip deleted keys
+        if not spec['deleted']:
+            result.update({spec['key']: spec['value']})
 
     return result
 
@@ -2194,12 +2206,15 @@ def qos_specs_disassociate_all(context, qos_specs_id):
 
 @require_admin_context
 def qos_specs_item_delete(context, qos_specs_id, key):
-    _qos_specs_get_item(context, qos_specs_id, key)
-    _qos_specs_get_ref(context, qos_specs_id, None). \
-        filter_by(key=key). \
-        update({'deleted': True,
-                'deleted_at': timeutils.utcnow(),
-                'updated_at': literal_column('updated_at')})
+    session = get_session()
+    with session.begin():
+        _qos_specs_get_item(context, qos_specs_id, key)
+        session.query(models.QualityOfServiceSpecs). \
+            filter(models.QualityOfServiceSpecs.key == key). \
+            filter(models.QualityOfServiceSpecs.specs_id == qos_specs_id). \
+            update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')})
 
 
 @require_admin_context

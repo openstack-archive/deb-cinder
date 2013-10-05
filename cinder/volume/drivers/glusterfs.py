@@ -24,12 +24,12 @@ import time
 
 from oslo.config import cfg
 
-from cinder.brick.remotefs import remotefs
 from cinder import compute
 from cinder import db
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder import units
 from cinder.volume.drivers import nfs
 
 LOG = logging.getLogger(__name__)
@@ -49,6 +49,9 @@ volume_opts = [
     cfg.BoolOpt('glusterfs_qcow2_volumes',
                 default=False,
                 help=('Create volumes as QCOW2 files rather than raw files.')),
+    cfg.StrOpt('glusterfs_mount_point_base',
+               default='$state_path/mnt',
+               help='Base dir containing mount points for gluster shares.'),
 ]
 
 CONF = cfg.CONF
@@ -69,7 +72,6 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
     def __init__(self, *args, **kwargs):
         super(GlusterfsDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
-        self.configuration.append_config_values(remotefs.remotefs_client_opts)
         self._nova = None
 
     def do_setup(self, context):
@@ -120,6 +122,20 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
     def _local_path_volume_info(self, volume):
         return '%s%s' % (self._local_path_volume(volume), '.info')
+
+    def _qemu_img_info(self, path):
+        """Sanitize image_utils' qemu_img_info.
+
+        This code expects to deal only with relative filenames.
+        """
+
+        info = image_utils.qemu_img_info(path)
+        if info.image:
+            info.image = os.path.basename(info.image)
+        if info.backing_file:
+            info.backing_file = os.path.basename(info.backing_file)
+
+        return info
 
     def get_active_image_from_info(self, volume):
         """Returns filename of the active image from the info file."""
@@ -219,23 +235,29 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                      'vol': volume['id'],
                      'size': volume_size})
 
-        path_to_disk = self._local_path_volume(snapshot['volume'])
+        info_path = self._local_path_volume_info(snapshot['volume'])
+        snap_info = self._read_info_file(info_path)
+        vol_path = self._local_volume_dir(snapshot['volume'])
+        forward_file = snap_info[snapshot['id']]
+        forward_path = os.path.join(vol_path, forward_file)
+
+        # Find the file which backs this file, which represents the point
+        # when this snapshot was created.
+        img_info = self._qemu_img_info(forward_path)
+        path_to_snap_img = os.path.join(vol_path, img_info.backing_file)
 
         path_to_new_vol = self._local_path_volume(volume)
 
-        LOG.debug(_("will copy from snapshot at %s") % path_to_disk)
+        LOG.debug(_("will copy from snapshot at %s") % path_to_snap_img)
 
         if self.configuration.glusterfs_qcow2_volumes:
             out_format = 'qcow2'
         else:
             out_format = 'raw'
 
-        command = ['qemu-img', 'convert',
-                   '-O', out_format,
-                   path_to_disk,
-                   path_to_new_vol]
-
-        self._execute(*command, run_as_root=True)
+        image_utils.convert_image(path_to_snap_img,
+                                  path_to_new_vol,
+                                  out_format)
 
     def delete_volume(self, volume):
         """Deletes a logical volume."""
@@ -277,6 +299,10 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             attach the volume to a VM at volume-attach time.
             If the volume is attached, the VM will switch to this file as
             part of the snapshot process.
+
+            Note that volume-1234.aaaa represents changes after snapshot
+            'aaaa' was created.  So the data for snapshot 'aaaa' is actually
+            in the backing file(s) of volume-1234.aaaa.
 
             This file has a qcow2 header recording the fact that volume-1234 is
             its backing file.  Delta changes since the snapshot was created are
@@ -437,9 +463,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                    'backing_file=%s' % backing_path_full_path, new_snap_path]
         self._execute(*command, run_as_root=True)
 
-        command = ['qemu-img', 'info', backing_path_full_path]
-        (out, err) = self._execute(*command, run_as_root=True)
-        backing_fmt = self._get_file_format(out)
+        info = self._qemu_img_info(backing_path_full_path)
+        backing_fmt = info.file_format
 
         command = ['qemu-img', 'rebase', '-u',
                    '-b', backing_filename,
@@ -529,9 +554,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         snapshot_path = '%s/%s' % (self._local_volume_dir(snapshot['volume']),
                                    snapshot_file)
 
-        if not os.path.exists(snapshot_path):
-            msg = _('Snapshot file at %s does not exist.') % snapshot_path
-            raise exception.InvalidSnapshot(msg)
+        snapshot_path_img_info = self._qemu_img_info(snapshot_path)
 
         vol_path = self._local_volume_dir(snapshot['volume'])
 
@@ -543,7 +566,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             # Online delete
             context = snapshot['context']
 
-            base_file = self._get_backing_file_for_path(snapshot_path)
+            base_file = snapshot_path_img_info.backing_file
             if base_file is None:
                 # There should always be at least the original volume
                 # file as base.
@@ -582,11 +605,10 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             # (guaranteed to|  (being deleted)  |
             #    exist)     |                   |
 
-            base_file = self._get_backing_file_for_path(snapshot_path)
-            snapshot_file_path = '%s/%s' % (vol_path, snapshot_file)
+            base_file = snapshot_path_img_info.backing_file
 
-            self._qemu_img_commit(snapshot_file_path)
-            self._execute('rm', '-f', snapshot_file_path, run_as_root=True)
+            self._qemu_img_commit(snapshot_path)
+            self._execute('rm', '-f', snapshot_path, run_as_root=True)
 
             # Remove snapshot_file from info
             info_path = self._local_path_volume(snapshot['volume']) + '.info'
@@ -603,7 +625,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             #  exist, not   |                | exist, being   |needs ptr update
             #  used here)   |                | committed down)|     if so)
 
-            backing_chain = self._get_backing_chain_for_path(active_file_path)
+            backing_chain = self._get_backing_chain_for_path(
+                snapshot['volume'], active_file_path)
             # This file is guaranteed to exist since we aren't operating on
             # the active file.
             higher_file = next((os.path.basename(f['filename'])
@@ -642,8 +665,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             self._qemu_img_commit(higher_file_path)
             if highest_file is not None:
                 highest_file_path = '%s/%s' % (vol_path, highest_file)
-                snapshot_file_fmt = self._get_file_format_for_path(
-                    '%s/%s' % (vol_path, snapshot_file))
+                info = self._qemu_img_info(snapshot_path)
+                snapshot_file_fmt = info.file_format
 
                 backing_fmt = ('-F', snapshot_file_fmt)
                 self._execute('qemu-img', 'rebase', '-u',
@@ -753,59 +776,41 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             self._local_volume_dir(snapshot['volume']), file_to_delete)
         self._execute('rm', '-f', path_to_delete, run_as_root=True)
 
-    def _get_backing_file(self, output):
-        for line in output.split('\n'):
-            backing_file = None
+    def _get_backing_chain_for_path(self, volume, path):
+        """Returns list of dicts containing backing-chain information.
 
-            m = re.search(r'(?<=backing\ file: )(.*)', line)
-            if m:
-                backing_file = m.group(0)
+        Includes 'filename', and 'backing-filename' for each
+        applicable entry.
 
-            if backing_file is None:
-                continue
+        Consider converting this to use --backing-chain and --output=json
+        when environment supports qemu-img 1.5.0.
 
-            # Remove "(actual path: /mnt/asdf/a.img)" suffix added when
-            #  running from a different directory
-            backing_file = re.sub(r' \(actual path: .*$', '',
-                                  backing_file, count=1)
+        :param volume: volume reference
+        :param path: path to image file at top of chain
 
-            return os.path.basename(backing_file)
+        """
 
-    def _get_backing_file_for_path(self, path):
-        (out, err) = self._execute('qemu-img', 'info', path,
-                                   run_as_root=True)
-        return self._get_backing_file(out)
+        output = []
 
-    def _get_file_format_for_path(self, path):
-        (out, err) = self._execute('qemu-img', 'info', path,
-                                   run_as_root=True)
-        return self._get_file_format(out)
+        info = self._qemu_img_info(path)
+        new_info = {}
+        new_info['filename'] = os.path.basename(path)
+        new_info['backing-filename'] = info.backing_file
 
-    def _get_backing_chain_for_path(self, path):
-        """Returns dict containing backing-chain information."""
+        output.append(new_info)
 
-        # TODO(eharney): these args aren't available on el6.4's qemu-img
-        #  Need to rewrite
-        #  --backing-chain added in qemu 1.3.0
-        #  --output=json added in qemu 1.5.0
+        while new_info['backing-filename']:
+            filename = new_info['backing-filename']
+            path = os.path.join(self._local_volume_dir(volume), filename)
+            info = self._qemu_img_info(path)
+            backing_filename = info.backing_file
+            new_info = {}
+            new_info['filename'] = filename
+            new_info['backing-filename'] = backing_filename
 
-        (out, err) = self._execute('qemu-img', 'info',
-                                   '--backing-chain',
-                                   '--output=json',
-                                   path)
-        return json.loads(out)
+            output.append(new_info)
 
-    def _get_file_format(self, output):
-        for line in output.split('\n'):
-            m = re.search(r'(?<=file\ format: )(.*)', line)
-            if m:
-                return m.group(0)
-
-    def _get_backing_file_format(self, output):
-        for line in output.split('\n'):
-            m = re.search(r'(?<=backing\ file\ format: )(.*)', line)
-            if m:
-                return m.group(0)
+        return output
 
     def _qemu_img_commit(self, path):
         return self._execute('qemu-img', 'commit', path, run_as_root=True)
@@ -843,9 +848,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             data['options'] = self.shares[volume['provider_location']]
 
         # Test file for raw vs. qcow2 format
-        (out, err) = self._execute('qemu-img', 'info', path,
-                                   run_as_root=True)
-        data['format'] = self._get_file_format(out)
+        info = self._qemu_img_info(path)
+        data['format'] = info.file_format
         if data['format'] not in ['raw', 'qcow2']:
             msg = _('%s must be a valid raw or qcow2 image.') % path
             raise exception.InvalidVolume(msg)
@@ -867,14 +871,14 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         active_file = self.get_active_image_from_info(volume)
         active_file_path = '%s/%s' % (self._local_volume_dir(volume),
                                       active_file)
-        backing_file = self._get_backing_file_for_path(active_file_path)
-        if backing_file is not None:
+        info = self._qemu_img_info(active_file_path)
+        backing_file = info.backing_file
+        if backing_file:
             snapshots_exist = True
         else:
             snapshots_exist = False
 
-        root_file_fmt = self._get_file_format_for_path(
-            self._local_path_volume(volume))
+        root_file_fmt = info.file_format
 
         temp_path = None
 
@@ -912,16 +916,15 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                     ' driver when no snapshots exist.')
             raise exception.InvalidVolume(msg)
 
-        (out, err) = self._execute('qemu-img', 'info', volume_path)
-        backing_fmt = self._get_file_format(out)
+        info = self._qemu_img_info(volume_path)
+        backing_fmt = info.file_format
 
         if backing_fmt not in ['raw', 'qcow2']:
             msg = _('Unrecognized backing format: %s')
             raise exception.InvalidVolume(msg % backing_fmt)
 
         # qemu-img can resize both raw and qcow2 files
-        cmd = ['qemu-img', 'resize', volume_path, '%sG' % size_gb]
-        self._execute(*cmd, run_as_root=True)
+        image_utils.resize_image(volume_path, size_gb)
 
     def _do_create_volume(self, volume):
         """Create a volume on given glusterfs_share.
@@ -990,7 +993,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                 greatest_share = glusterfs_share
                 greatest_size = capacity
 
-        if volume_size_for * 1024 * 1024 * 1024 > greatest_size:
+        if volume_size_for * units.GiB > greatest_size:
             raise exception.GlusterfsNoSuitableShareFound(
                 volume_size=volume_size_for)
         return greatest_share

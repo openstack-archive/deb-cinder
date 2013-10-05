@@ -18,6 +18,7 @@
 
 """Unit tests for `cinder.wsgi`."""
 
+import mock
 import os.path
 import ssl
 import tempfile
@@ -28,8 +29,8 @@ import testtools
 import webob
 import webob.dec
 
-from cinder.api.middleware import fault
 from cinder import exception
+from cinder.openstack.common import gettextutils
 from cinder import test
 from cinder import utils
 import cinder.wsgi
@@ -73,7 +74,7 @@ document_root = /tmp
         self.addCleanup(self.config.close)
 
     def test_config_found(self):
-        self.assertEquals(self.config.name, self.loader.config_path)
+        self.assertEqual(self.config.name, self.loader.config_path)
 
     def test_app_not_found(self):
         self.assertRaises(
@@ -84,7 +85,7 @@ document_root = /tmp
 
     def test_app_found(self):
         url_parser = self.loader.load_app("test_app")
-        self.assertEquals("/tmp", url_parser.directory)
+        self.assertEqual("/tmp", url_parser.directory)
 
 
 class TestWSGIServer(test.TestCase):
@@ -98,7 +99,7 @@ class TestWSGIServer(test.TestCase):
 
     def test_no_app(self):
         server = cinder.wsgi.Server("test_app", None)
-        self.assertEquals("test_app", server.name)
+        self.assertEqual("test_app", server.name)
 
     def test_start_random_port(self):
         server = cinder.wsgi.Server("test_random_port", None, host="127.0.0.1")
@@ -135,7 +136,7 @@ class TestWSGIServer(test.TestCase):
         server.start()
 
         response = urllib2.urlopen('http://127.0.0.1:%d/' % server.port)
-        self.assertEquals(greetings, response.read())
+        self.assertEqual(greetings, response.read())
 
         server.stop()
 
@@ -155,7 +156,7 @@ class TestWSGIServer(test.TestCase):
         server.start()
 
         response = urllib2.urlopen('https://127.0.0.1:%d/' % server.port)
-        self.assertEquals(greetings, response.read())
+        self.assertEqual(greetings, response.read())
 
         server.stop()
 
@@ -180,7 +181,7 @@ class TestWSGIServer(test.TestCase):
         server.start()
 
         response = urllib2.urlopen('https://[::1]:%d/' % server.port)
-        self.assertEquals(greetings, response.read())
+        self.assertEqual(greetings, response.read())
 
         server.stop()
 
@@ -188,6 +189,13 @@ class TestWSGIServer(test.TestCase):
 class ExceptionTest(test.TestCase):
 
     def _wsgi_app(self, inner_app):
+        # NOTE(luisg): In order to test localization, we need to
+        # make sure the lazy _() is installed in the 'fault' module
+        # also we don't want to install the _() system-wide and
+        # potentially break other test cases, so we do it here for this
+        # test suite only.
+        gettextutils.install('', lazy=True)
+        from cinder.api.middleware import fault
         return fault.FaultWrapper(inner_app)
 
     def _do_test_exception_safety_reflected_in_faults(self, expose):
@@ -226,7 +234,7 @@ class ExceptionTest(test.TestCase):
         if hasattr(exception_type, 'headers'):
             for (key, value) in exception_type.headers.iteritems():
                 self.assertIn(key, resp.headers)
-                self.assertEquals(resp.headers[key], value)
+                self.assertEqual(resp.headers[key], value)
 
     def test_quota_error_mapping(self):
         self._do_test_exception_mapping(exception.QuotaError, 'too many used')
@@ -258,3 +266,41 @@ class ExceptionTest(test.TestCase):
         api = self._wsgi_app(fail)
         resp = webob.Request.blank('/').get_response(api)
         self.assertEqual(500, resp.status_int)
+
+    @mock.patch('cinder.openstack.common.gettextutils.get_localized_message')
+    def test_cinder_exception_with_localized_explanation(self, mock_t9n):
+        msg = 'My Not Found'
+        msg_translation = 'Mi No Encontrado'
+        message = gettextutils.Message(msg, '')
+
+        @webob.dec.wsgify
+        def fail(req):
+            class MyVolumeNotFound(exception.NotFound):
+                def __init__(self):
+                    self.msg = message
+                    self.safe = True
+            raise MyVolumeNotFound()
+
+        # Test response without localization
+        def mock_get_non_localized_message(msgid, locale):
+            return msg
+
+        mock_t9n.side_effect = mock_get_non_localized_message
+
+        api = self._wsgi_app(fail)
+        resp = webob.Request.blank('/').get_response(api)
+        self.assertEqual(404, resp.status_int)
+        self.assertIn(msg, resp.body)
+
+        # Test response with localization
+        def mock_get_localized_message(msgid, locale):
+            if isinstance(msgid, gettextutils.Message):
+                return msg_translation
+            return msgid
+
+        mock_t9n.side_effect = mock_get_localized_message
+
+        api = self._wsgi_app(fail)
+        resp = webob.Request.blank('/').get_response(api)
+        self.assertEqual(404, resp.status_int)
+        self.assertIn(msg_translation, resp.body)

@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 Zadara Storage, Inc.
-# Copyright (c) 2012 OpenStack LLC.
+# Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -784,14 +784,14 @@ class ZadaraVPSADriverTestCase(test.TestCase):
         self.assertEqual(data['total_capacity_gb'], 'infinite')
         self.assertEqual(data['free_capacity_gb'], 'infinite')
 
-        self.assertEquals(data,
-                          {'total_capacity_gb': 'infinite',
-                           'free_capacity_gb': 'infinite',
-                           'reserved_percentage':
-                           self.configuration.reserved_percentage,
-                           'QoS_support': False,
-                           'vendor_name': 'Zadara Storage',
-                           'driver_version': self.driver.VERSION,
-                           'storage_protocol': 'iSCSI',
-                           'volume_backend_name': 'ZadaraVPSAISCSIDriver',
-                           })
+        self.assertEqual(data,
+                         {'total_capacity_gb': 'infinite',
+                          'free_capacity_gb': 'infinite',
+                          'reserved_percentage':
+                          self.configuration.reserved_percentage,
+                          'QoS_support': False,
+                          'vendor_name': 'Zadara Storage',
+                          'driver_version': self.driver.VERSION,
+                          'storage_protocol': 'iSCSI',
+                          'volume_backend_name': 'ZadaraVPSAISCSIDriver',
+                          })

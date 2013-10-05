@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 EMC Corporation.
-# Copyright (c) 2012 OpenStack LLC.
+# Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -30,6 +30,7 @@ from xml.dom.minidom import parseString
 
 from cinder import exception
 from cinder.openstack.common import log as logging
+from cinder import units
 
 LOG = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class EMCSMISCommon():
         """Creates a EMC(VMAX/VNX) volume."""
 
         LOG.debug(_('Entering create_volume.'))
-        volumesize = int(volume['size']) * 1073741824
+        volumesize = int(volume['size']) * units.GiB
         volumename = volume['name']
 
         LOG.info(_('Create Volume: %(volume)s  Size: %(size)lu')

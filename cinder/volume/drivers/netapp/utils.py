@@ -1,7 +1,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 NetApp, Inc.
-# Copyright (c) 2012 OpenStack LLC.
+# Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -146,7 +146,7 @@ def invoke_api(na_server, api_name, api_family='cm', query=None,
     record_step = 50
     if not (na_server or isinstance(na_server, NaServer)):
         msg = _("Requires an NaServer instance.")
-        raise exception.InvalidInput(data=msg)
+        raise exception.InvalidInput(reason=msg)
     server = copy.copy(na_server)
     if api_family == 'cm':
         server.set_vserver(tunnel)

@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2012 OpenStack LLC.
+# Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -67,7 +67,8 @@ class ViewBuilder(common.ViewBuilder):
                 'source_volid': volume.get('source_volid'),
                 'metadata': self._get_volume_metadata(volume),
                 'links': self._get_links(request, volume['id']),
-                'user_id': volume.get('user_id')
+                'user_id': volume.get('user_id'),
+                'bootable': str(volume.get('bootable')).lower()
             }
         }
 

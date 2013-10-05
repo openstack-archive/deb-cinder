@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -23,6 +23,7 @@ from cinder.api import xmlutil
 from cinder import db
 from cinder.db.sqlalchemy import api as sqlalchemy_api
 from cinder import exception
+from cinder.openstack.common import strutils
 from cinder import quota
 
 
@@ -50,12 +51,9 @@ class QuotaSetsController(object):
     def _format_quota_set(self, project_id, quota_set):
         """Convert the quota object to a result dict"""
 
-        result = dict(id=str(project_id))
+        quota_set['id'] = str(project_id)
 
-        for resource in QUOTAS.resources:
-            result[resource] = quota_set[resource]
-
-        return dict(quota_set=result)
+        return dict(quota_set=quota_set)
 
     def _validate_quota_limit(self, limit):
         if not isinstance(limit, int):
@@ -79,12 +77,19 @@ class QuotaSetsController(object):
     def show(self, req, id):
         context = req.environ['cinder.context']
         authorize_show(context)
+
+        params = req.params
+        if not hasattr(params, '__call__') and 'usage' in params:
+            usage = strutils.bool_from_string(params['usage'])
+        else:
+            usage = False
+
         try:
             sqlalchemy_api.authorize_project_context(context, id)
         except exception.NotAuthorized:
             raise webob.exc.HTTPForbidden()
 
-        return self._format_quota_set(id, self._get_quotas(context, id))
+        return self._format_quota_set(id, self._get_quotas(context, id, usage))
 
     @wsgi.serializers(xml=QuotaTemplate)
     def update(self, req, id, body):
