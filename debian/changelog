@@ -1,4 +1,4 @@
-cinder (2013.2~rc1-2) UNRELEASED; urgency=low
+cinder (2013.2~rc1-2) experimental; urgency=low
 
   * Updates the templates and translations to really (Closes: #708658).
 
