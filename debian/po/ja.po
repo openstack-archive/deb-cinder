@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-09-25 17:10+0800\n"
+"POT-Creation-Date: 2013-10-09 23:29+0800\n"
 "PO-Revision-Date: 2013-09-02 14:02+0900\n"
 "Last-Translator: victory <victory.deb@gmail.com>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
@@ -18,15 +18,13 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:1001
-#, fuzzy
-#| msgid "Start Cinder services at boot?"
-msgid "Start cinder services at boot?"
+#: ../cinder-common.templates:2001
+msgid "Start Cinder services at boot?"
 msgstr "ブート時に Cinder サービスを開始しますか?"
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:1001
+#: ../cinder-common.templates:2001
 msgid ""
 "Please choose whether you want to start Cinder services when the machine is "
 "booted up."
@@ -34,39 +32,29 @@ msgstr "マシン起動後に Cinder サービスを開始するかどうか選�
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:2001
+#: ../cinder-common.templates:3001
 msgid "Set up a database for Cinder?"
 msgstr "Cinder 用のデータベースを用意しますか?"
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:2001
-#, fuzzy
-#| msgid ""
-#| "No database has been set up for Cinder to use. Before continuing, you "
-#| "should make sure you have the following information:"
+#: ../cinder-common.templates:3001
 msgid ""
-"No database has been set up for Cinder to use. If you want to set one up "
-"now, please make sure you have all needed information:"
+"No database has been set up for Cinder to use. Before continuing, you should "
+"make sure you have the following information:"
 msgstr ""
 "Cinder で利用するデータベースが用意されていません。続ける前に以下の情報が揃っ"
 "ていることを確認してください:"
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:2001
-#, fuzzy
-#| msgid ""
-#| " * the type of database that you want to use;\n"
-#| " * the database server hostname (that server must allow TCP connections "
-#| "from this\n"
-#| "   machine);\n"
-#| " * a username and password to access the database."
+#: ../cinder-common.templates:3001
 msgid ""
-" * the host name of the database server (which must allow TCP\n"
-"   connections from this machine);\n"
-" * a username and password to access the database;\n"
-" * the type of database management software you want to use."
+" * the type of database that you want to use;\n"
+" * the database server hostname (that server must allow TCP connections from "
+"this\n"
+"   machine);\n"
+" * a username and password to access the database."
 msgstr ""
 " - 使いたいデータベースの種類\n"
 " - データベースサーバのホスト名 (このサーバはこのマシンからの\n"
@@ -75,95 +63,109 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:2001
+#: ../cinder-common.templates:3001
 msgid ""
-"If you don't choose this option, no database will be set up and Cinder will "
-"use regular SQLite support."
+"If some of these requirements are missing, do not choose this option and run "
+"with regular SQLite support."
 msgstr ""
+"必要な情報が欠けている場合このオプションを却下して標準の SQLite を利用しま"
+"す。"
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:2001
-#, fuzzy
-#| msgid ""
-#| "You can change this setting later on by running \"dpkg-reconfigure -plow "
-#| "cinder\"."
+#: ../cinder-common.templates:3001
 msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
-"cinder-common\"."
+"cinder\"."
 msgstr ""
 "この設定は後で「dpkg-reconfigure -plow cinder」を実行することにより変更できま"
 "す。"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:3001
-#, fuzzy
-#| msgid "Authentication server hostname:"
-msgid "Auth server hostname:"
+#: ../cinder-common.templates:4001
+msgid "Authentication server hostname:"
 msgstr "認証サーバのホスト名:"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:3001
-#, fuzzy
-#| msgid ""
-#| "Please specify the hostname of the authentication server. Typically this "
-#| "is also the hostname of the OpenStack Identity Service (Keystone)."
+#: ../cinder-common.templates:4001
 msgid ""
-"Please specify the URL of your Cinder authentication server. Typically  this "
-"is also the URL of your OpenStack Identity Service (Keystone)."
+"Please specify the hostname of the authentication server. Typically this is "
+"also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
 "認証サーバのホスト名を指定してください。これは通常 OpenStack Identity "
 "Service (Keystone) のホスト名にもなります。"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:4001
-#, fuzzy
-#| msgid "Authentication server tenant name:"
-msgid "Auth server tenant name:"
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it aside with your translation. Example for French:
+#. proprietaire ("tenant")
+#: ../cinder-common.templates:5001
+msgid "Authentication server tenant name:"
 msgstr "認証サーバの管理用アカウント (tenant) 名"
 
 #. Type: string
 #. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it aside with your translation. Example for French:
+#. proprietaire ("tenant")
 #: ../cinder-common.templates:5001
-#, fuzzy
-#| msgid "Authentication server username:"
-msgid "Auth server username:"
-msgstr "認証サーバのユーザ名:"
-
-#. Type: password
-#. Description
-#: ../cinder-common.templates:6001
-#, fuzzy
-#| msgid "Authentication server password:"
-msgid "Auth server password:"
-msgstr "認証サーバのパスワード:"
+msgid "Please specify the authentication server tenant name."
+msgstr "認証サーバの管理用アカウント (tenant) 名を指定してください。"
 
 #. Type: string
 #. Description
+#: ../cinder-common.templates:6001
+msgid "Authentication server username:"
+msgstr "認証サーバのユーザ名:"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:6001
+msgid "Please specify the username to use with the authentication server."
+msgstr "認証サーバで利用するユーザ名を指定してください。"
+
+#. Type: password
+#. Description
 #: ../cinder-common.templates:7001
+msgid "Authentication server password:"
+msgstr "認証サーバのパスワード:"
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:7001
+msgid "Please specify the password to use with the authentication server."
+msgstr "認証サーバで利用するパスワードを指定してください。"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
 msgid "Cinder volume group:"
 msgstr "Cinder ボリュームグループ:"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:7001
-#, fuzzy
-#| msgid ""
-#| "Please specify the name of the LVM volume group on which Cinder will "
-#| "create partitions."
+#: ../cinder-common.templates:8001
 msgid ""
-"Please specify the name of the LVM volume group (vg) on which Cinder will "
-"create partitions."
+"Please specify the name of the LVM volume group on which Cinder will create "
+"partitions."
 msgstr ""
 "Cinder にパーティションを作成させる LVM ボリュームグループの名前を指定してく"
 "ださい。"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:8001
+#: ../cinder-common.templates:9001
 msgid "IP address of your RabbitMQ host:"
 msgstr ""
 
@@ -173,8 +175,8 @@ msgstr ""
 #. Description
 #. Type: password
 #. Description
-#: ../cinder-common.templates:8001 ../cinder-common.templates:9001
-#: ../cinder-common.templates:10001
+#: ../cinder-common.templates:9001 ../cinder-common.templates:10001
+#: ../cinder-common.templates:11001
 msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
@@ -182,7 +184,7 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:8001
+#: ../cinder-common.templates:9001
 #, fuzzy
 #| msgid "Please specify the password to use with the authentication server."
 msgid "Please specify the IP address of that server."
@@ -190,13 +192,13 @@ msgstr "認証サーバで利用するパスワードを指定してください
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
 msgid "Username for connection to the RabbitMQ server:"
 msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
 #, fuzzy
 #| msgid "Please specify the username to use with the authentication server."
 msgid "Please specify the username used to connect to the RabbitMQ server."
@@ -204,13 +206,13 @@ msgstr "認証サーバで利用するユーザ名を指定してください。
 
 #. Type: password
 #. Description
-#: ../cinder-common.templates:10001
+#: ../cinder-common.templates:11001
 msgid "Password for connection to the RabbitMQ server:"
 msgstr ""
 
 #. Type: password
 #. Description
-#: ../cinder-common.templates:10001
+#: ../cinder-common.templates:11001
 #, fuzzy
 #| msgid "Please specify the password to use with the authentication server."
 msgid "Please specify the password used to connect to the RabbitMQ server."
@@ -218,24 +220,17 @@ msgstr "認証サーバで利用するパスワードを指定してください
 
 #. Type: boolean
 #. Description
-#: ../cinder-api.templates:1001
-#, fuzzy
-#| msgid "Register Cinder in the Keystone endpoint catalog?"
-msgid "Register Cinder in the keystone endpoint catalog?"
+#: ../cinder-api.templates:2001
+msgid "Register Cinder in the Keystone endpoint catalog?"
 msgstr "Cinder を Keystone の端末リストに登録しますか?"
 
 #. Type: boolean
 #. Description
-#: ../cinder-api.templates:1001
-#, fuzzy
-#| msgid ""
-#| "Each OpenStack service (each API) should be registered in order to be "
-#| "accessible. This is done using \"keystone service-create\" and \"keystone "
-#| "endpoint-create\". This can be done automatically now."
+#: ../cinder-api.templates:2001
 msgid ""
-"Each Openstack services (each API) should be registered in order to be "
+"Each OpenStack service (each API) should be registered in order to be "
 "accessible. This is done using \"keystone service-create\" and \"keystone "
-"endpoint-create\". Select if you want to run these commands now."
+"endpoint-create\". This can be done automatically now."
 msgstr ""
 "OpenStack のサービスごと (API ごと) に、アクセスできるようにするため登録すべ"
 "きです。「keystone service-create」と「keystone endpoint-create」を使って登録"
@@ -243,81 +238,61 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-api.templates:1001
-#, fuzzy
-#| msgid ""
-#| "Note that you will need to have an up and running Keystone server on "
-#| "which to connect using the Keystone authentication token."
+#: ../cinder-api.templates:2001
 msgid ""
-"Note that you will need to have an up and running keystone server on which "
-"to connect using the Keystone auth token."
+"Note that you will need to have an up and running Keystone server on which "
+"to connect using the Keystone authentication token."
 msgstr ""
 "Keystone 認証文字列を使って接続する先の Keystone サーバが必要なことに注意して"
 "ください。"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:2001
-#, fuzzy
-#| msgid "Keystone server IP address:"
-msgid "Keystone IP address:"
+#: ../cinder-api.templates:3001
+msgid "Keystone server IP address:"
 msgstr "Keystone サーバの IP アドレス:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:2001
-#, fuzzy
-#| msgid ""
-#| "Please enter the IP address of the Keystone server, so that cinder-api "
-#| "can contact Keystone to do the Cinder service and endpoint creation."
+#: ../cinder-api.templates:3001
 msgid ""
-"Enter the IP address of your keystone server, so that cinder-api can contact "
-"Keystone to do the Cinder service and endpoint creation."
+"Please enter the IP address of the Keystone server, so that cinder-api can "
+"contact Keystone to do the Cinder service and endpoint creation."
 msgstr ""
 "Keystone サーバの IP アドレスを入力してください。それにより cinder-api は "
 "Keystone と通信し、Cinder サービスや端末の作成ができるようになります。"
 
 #. Type: password
 #. Description
-#: ../cinder-api.templates:3001
-#, fuzzy
-#| msgid "Keystone authentication token:"
-msgid "Keystone Auth Token:"
+#: ../cinder-api.templates:4001
+msgid "Keystone authentication token:"
 msgstr "Keystone 認証文字列:"
 
 #. Type: password
 #. Description
-#: ../cinder-api.templates:3001
-#, fuzzy
-#| msgid ""
-#| "To configure its endpoint in Keystone, cinder-api needs the Keystone "
-#| "authentication token."
+#: ../cinder-api.templates:4001
 msgid ""
-"To configure its endpoint in Keystone, cinder-api needs the Keystone auth "
-"token."
+"To configure its endpoint in Keystone, cinder-api needs the Keystone "
+"authentication token."
 msgstr ""
 "Keystone で端末を設定するには、cinder-api は Keystone 認証文字列を必要としま"
 "す。"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:4001
+#: ../cinder-api.templates:5001
 msgid "Cinder endpoint IP address:"
 msgstr "Cinder 端末の IP アドレス:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:4001
-#, fuzzy
-#| msgid "Please enter the IP address that will be used to contact Cinder."
-msgid ""
-"Enter the IP address that will be used to contact Cinder (eg: the Cinder "
-"endpoint IP address)."
+#: ../cinder-api.templates:5001
+msgid "Please enter the IP address that will be used to contact Cinder."
 msgstr "Cinder への通信に利用する IP アドレスを入力してください。"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:4001
+#: ../cinder-api.templates:5001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -329,32 +304,17 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:6001
 msgid "Name of the region to register:"
 msgstr "登録する領域の名前:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
-#, fuzzy
-#| msgid ""
-#| "OpenStack supports using availability zones, with each region "
-#| "representing a location. Please enter the zone that you wish to use when "
-#| "registering the endpoint."
+#: ../cinder-api.templates:6001
 msgid ""
-"Openstack can be used using availability zones, with each region "
-"representing a location. Please enter the zone that you wish to use when "
-"registering the endpoint."
+"OpenStack supports using availability zones, with each region representing a "
+"location. Please enter the zone that you wish to use when registering the "
+"endpoint."
 msgstr ""
 "OpenStack は位置を示す各領域による利用可能区分を利用することができます。端末"
 "の登録時に利用したい区分を入力してください。"
-
-#~ msgid ""
-#~ "If some of these requirements are missing, do not choose this option and "
-#~ "run with regular SQLite support."
-#~ msgstr ""
-#~ "必要な情報が欠けている場合このオプションを却下して標準の SQLite を利用しま"
-#~ "す。"
-
-#~ msgid "Please specify the authentication server tenant name."
-#~ msgstr "認証サーバの管理用アカウント (tenant) 名を指定してください。"
