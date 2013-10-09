@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-09-02 07:02+0200\n"
+"POT-Creation-Date: 2013-10-09 23:08+0800\n"
 "PO-Revision-Date: 2013-09-09 12:42+0000\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
@@ -63,7 +63,6 @@ msgstr ""
 "   forbindelser fra denne maskine)\n"
 " * et brugernavn og en adgangskode til at tilgå databasen"
 
-
 #. Type: boolean
 #. Description
 #: ../cinder-common.templates:3001
@@ -71,8 +70,8 @@ msgid ""
 "If some of these requirements are missing, do not choose this option and run "
 "with regular SQLite support."
 msgstr ""
-"Hvis nogle af disse krav mangler, så vælg ikke denne indstilling og kør "
-"med normal SQLite-understøttelse."
+"Hvis nogle af disse krav mangler, så vælg ikke denne indstilling og kør med "
+"normal SQLite-understøttelse."
 
 #. Type: boolean
 #. Description
@@ -97,8 +96,8 @@ msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"Angiv venligst værtsnavnet for godkendelsesserveren. Typisk er dette "
-"også værtsnavnet for OpenStack Identity Service (Keystone)."
+"Angiv venligst værtsnavnet for godkendelsesserveren. Typisk er dette også "
+"værtsnavnet for OpenStack Identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -108,7 +107,7 @@ msgstr ""
 #. username/password is very helpful in larger organization.
 #. You're advised to either keep "tenant" without translating it
 #. or keep it aside with your translation. Example for French:
-#. propriétaire ("tenant")
+#. proprietaire ("tenant")
 #: ../cinder-common.templates:5001
 msgid "Authentication server tenant name:"
 msgstr "Tenantnavn for godkendelsesserver:"
@@ -121,7 +120,7 @@ msgstr "Tenantnavn for godkendelsesserver:"
 #. username/password is very helpful in larger organization.
 #. You're advised to either keep "tenant" without translating it
 #. or keep it aside with your translation. Example for French:
-#. propriétaire ("tenant")
+#. proprietaire ("tenant")
 #: ../cinder-common.templates:5001
 msgid "Please specify the authentication server tenant name."
 msgstr "Angiv venligst tenantnavn for godkendelseserveren."
@@ -267,5 +266,3 @@ msgstr ""
 "OpenStack understøtter at bruge tilgængelighedszoner, hvor hver region "
 "repræsenterer et sted. Indtast venligst zonen, som du ønsker at bruge, når "
 "du registrerer slutpunktet."
-
-

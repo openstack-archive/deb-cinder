@@ -2,12 +2,12 @@
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the cinder package.
 # victory <victory.deb@gmail.com>, 2013.
-#
+# 
 msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-09-02 07:02+0200\n"
+"POT-Creation-Date: 2013-10-09 23:08+0800\n"
 "PO-Revision-Date: 2013-09-02 14:02+0900\n"
 "Last-Translator: victory <victory.deb@gmail.com>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
@@ -78,8 +78,8 @@ msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "cinder\"."
 msgstr ""
-"この設定は後で「dpkg-reconfigure -plow cinder」を実行することにより"
-"変更できます。"
+"この設定は後で「dpkg-reconfigure -plow cinder」を実行することにより変更できま"
+"す。"
 
 #. Type: string
 #. Description
@@ -94,8 +94,8 @@ msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"認証サーバのホスト名を指定してください。これは通常 OpenStack Identity Service "
-"(Keystone) のホスト名にもなります。"
+"認証サーバのホスト名を指定してください。これは通常 OpenStack Identity "
+"Service (Keystone) のホスト名にもなります。"
 
 #. Type: string
 #. Description
@@ -105,7 +105,7 @@ msgstr ""
 #. username/password is very helpful in larger organization.
 #. You're advised to either keep "tenant" without translating it
 #. or keep it aside with your translation. Example for French:
-#. propriétaire ("tenant")
+#. proprietaire ("tenant")
 #: ../cinder-common.templates:5001
 msgid "Authentication server tenant name:"
 msgstr "認証サーバの管理用アカウント (tenant) 名"
@@ -118,7 +118,7 @@ msgstr "認証サーバの管理用アカウント (tenant) 名"
 #. username/password is very helpful in larger organization.
 #. You're advised to either keep "tenant" without translating it
 #. or keep it aside with your translation. Example for French:
-#. propriétaire ("tenant")
+#. proprietaire ("tenant")
 #: ../cinder-common.templates:5001
 msgid "Please specify the authentication server tenant name."
 msgstr "認証サーバの管理用アカウント (tenant) 名を指定してください。"
@@ -160,8 +160,8 @@ msgid ""
 "Please specify the name of the LVM volume group on which Cinder will create "
 "partitions."
 msgstr ""
-"Cinder にパーティションを作成させる LVM ボリュームグループの名前を指定してくだ"
-"さい。"
+"Cinder にパーティションを作成させる LVM ボリュームグループの名前を指定してく"
+"ださい。"
 
 #. Type: boolean
 #. Description
@@ -177,9 +177,9 @@ msgid ""
 "accessible. This is done using \"keystone service-create\" and \"keystone "
 "endpoint-create\". This can be done automatically now."
 msgstr ""
-"OpenStack のサービスごと (API ごと) に、アクセスできるようにするため登録すべき"
-"です。「keystone service-create」と「keystone endpoint-create」を使って登録す"
-"ることができます。ここで自動的に行うことができます。"
+"OpenStack のサービスごと (API ごと) に、アクセスできるようにするため登録すべ"
+"きです。「keystone service-create」と「keystone endpoint-create」を使って登録"
+"することができます。ここで自動的に行うことができます。"
 
 #. Type: boolean
 #. Description
@@ -243,9 +243,9 @@ msgid ""
 "service, so if you are installing a public cloud, this should be a public IP "
 "address."
 msgstr ""
-"この IP アドレスはこのサービスを利用するクライアントからアクセスできないといけ"
-"ないので、パブリッククラウドをインストールしている場合、これは公開 IP アドレス"
-"を使うようにしてください。"
+"この IP アドレスはこのサービスを利用するクライアントからアクセスできないとい"
+"けないので、パブリッククラウドをインストールしている場合、これは公開 IP アド"
+"レスを使うようにしてください。"
 
 #. Type: string
 #. Description
@@ -261,5 +261,5 @@ msgid ""
 "location. Please enter the zone that you wish to use when registering the "
 "endpoint."
 msgstr ""
-"OpenStack は位置を示す各領域による利用可能区分を利用することができます。端末の"
-"登録時に利用したい区分を入力してください。"
+"OpenStack は位置を示す各領域による利用可能区分を利用することができます。端末"
+"の登録時に利用したい区分を入力してください。"
