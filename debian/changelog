@@ -1,3 +1,11 @@
+cinder (2013.2~rc1-3) UNRELEASED; urgency=low
+
+  * Kills the CEPH_ARGS hack in /etc/default/cinder and cinder-volume.init
+    since that's not needed anymore (upstream code manages this now in the
+    configuration file directly).
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 11 Oct 2013 22:54:46 +0800
+
 cinder (2013.2~rc1-2) experimental; urgency=low
 
   * Updates the templates and translations to really (Closes: #708658).
