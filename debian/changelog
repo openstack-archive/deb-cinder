@@ -3,6 +3,8 @@ cinder (2013.2~rc1-3) UNRELEASED; urgency=low
   * Kills the CEPH_ARGS hack in /etc/default/cinder and cinder-volume.init
     since that's not needed anymore (upstream code manages this now in the
     configuration file directly).
+  * sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" in the default
+    packaged cinder.conf (otherwise it doesn't work by default).
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 11 Oct 2013 22:54:46 +0800
 
