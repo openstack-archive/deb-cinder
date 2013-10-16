@@ -1,3 +1,9 @@
+cinder (2013.2~rc3-2) UNRELEASED; urgency=low
+
+  * Fixed the path to the log files in the init scripts.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 17 Oct 2013 01:02:21 +0800
+
 cinder (2013.2~rc3-1) experimental; urgency=low
 
   * New upstream release.

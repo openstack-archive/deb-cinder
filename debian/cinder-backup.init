@@ -18,7 +18,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Cinder Backup"
 NAME=cinder-backup
 DAEMON=/usr/bin/cinder-backup
-DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf"
+DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf --log-file=/var/log/cinder/cinder-backup.log"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CINDER_USER=cinder

@@ -19,7 +19,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Cinder Volume"
 NAME=cinder-volume
 DAEMON=/usr/bin/cinder-volume
-DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf"
+DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf --log-file=/var/log/cinder/cinder-volume.log"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CINDER_USER=cinder
