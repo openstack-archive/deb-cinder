@@ -1,5 +1,6 @@
-cinder (2013.2~rc1-3) UNRELEASED; urgency=low
+cinder (2013.2~rc3-1) experimental; urgency=low
 
+  * New upstream release.
   * Kills the CEPH_ARGS hack in /etc/default/cinder and cinder-volume.init
     since that's not needed anymore (upstream code manages this now in the
     configuration file directly).
