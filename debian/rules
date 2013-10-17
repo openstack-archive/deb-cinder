@@ -26,6 +26,7 @@ override_dh_install:
 	echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	echo "sql_connection = sqlite:////var/lib/cinder/cinderdb" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	sed -i 's|#state_path=$pybasedir|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 override_dh_fixperms:
 	dh_fixperms -Xcinder_tgt.conf
