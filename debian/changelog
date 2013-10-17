@@ -1,5 +1,7 @@
-cinder (2013.2~rc3-2) UNRELEASED; urgency=low
+cinder (2013.2-1) unstable; urgency=low
 
+  * New upstream release.
+  * Uploading to unstable.
   * Fixed the path to the log files in the init scripts.
   * Fixed the value of the state_path directive to /var/lib/cinder instead of
     somewhere in /usr/lib/python2.x.
