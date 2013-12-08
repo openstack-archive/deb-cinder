@@ -1,3 +1,11 @@
+cinder (2013.2-2) unstable; urgency=medium
+
+  * Updated debconf translations with warm thanks to:
+    - French, Julien Patriarca <leatherface@debian.org> (Closes: #728769).
+    - Russian, Yuri Kozlov <yuray@komyakino.ru> (Closes: #729775).
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 08 Dec 2013 11:21:20 +0800
+
 cinder (2013.2-1) unstable; urgency=low
 
   * New upstream release.
