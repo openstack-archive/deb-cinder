@@ -62,6 +62,11 @@ class QuotaIntegrationTestCase(test.TestCase):
 
         self.stubs.Set(rpc, 'call', rpc_call_wrapper)
 
+        # Destroy the 'default' quota_class in the database to avoid
+        # conflicts with the test cases here that are setting up their own
+        # defaults.
+        db.quota_class_destroy_all_by_name(self.context, 'default')
+
     def tearDown(self):
         db.volume_type_destroy(context.get_admin_context(),
                                self.volume_type['id'])
@@ -166,7 +171,7 @@ class QuotaIntegrationTestCase(test.TestCase):
         # Make sure no reservation was created for snapshot gigabytes.
         reservations = db.reservation_get_all_by_project(self.context,
                                                          self.project_id)
-        self.assertEqual(reservations.get('gigabytes'), None)
+        self.assertIsNone(reservations.get('gigabytes'))
 
         # Make sure the snapshot volume_size isn't included in usage.
         vol_ref2 = volume.API().create(self.context, 10, '', '')
@@ -277,7 +282,7 @@ class BaseResourceTestCase(test.TestCase):
         resource = quota.BaseResource('test_resource')
 
         self.assertEqual(resource.name, 'test_resource')
-        self.assertEqual(resource.flag, None)
+        self.assertIsNone(resource.flag)
         self.assertEqual(resource.default, -1)
 
     def test_with_flag(self):
@@ -371,7 +376,7 @@ class VolumeTypeResourceTestCase(test.TestCase):
         resource = quota.VolumeTypeResource('volumes', volume)
 
         self.assertEqual(resource.name, 'volumes_%s' % volume_type_name)
-        self.assertEqual(resource.flag, None)
+        self.assertIsNone(resource.flag)
         self.assertEqual(resource.default, -1)
 
 

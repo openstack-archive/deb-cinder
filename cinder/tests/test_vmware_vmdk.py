@@ -408,22 +408,44 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         m.UnsetStubs()
         m.VerifyAll()
 
+    def _create_host_mounts(self, access_mode, host, set_accessible=True,
+                            is_accessible=True, mounted=True):
+        """Create host mount value of datastore with single mount info.
+
+        :param access_mode: string specifying the read/write permission
+        :param set_accessible: specify whether accessible property
+                               should be set
+        :param is_accessible: boolean specifying whether the datastore
+                              is accessible to host
+        :param host: managed object reference of the connected
+                     host
+        :return: list of host mount info
+        """
+        mntInfo = FakeObject()
+        mntInfo.accessMode = access_mode
+        if set_accessible:
+            mntInfo.accessible = is_accessible
+        mntInfo.mounted = mounted
+
+        host_mount = FakeObject()
+        host_mount.key = host
+        host_mount.mountInfo = mntInfo
+        host_mounts = FakeObject()
+        host_mounts.DatastoreHostMount = [host_mount]
+
+        return host_mounts
+
     def test_is_valid_with_accessible_attr(self):
         """Test _is_valid with accessible attribute."""
         m = self.mox
         m.StubOutWithMock(api.VMwareAPISession, 'vim')
         self._session.vim = self._vim
         m.StubOutWithMock(self._session, 'invoke_api')
+
         datastore = FakeMor('Datastore', 'my_ds')
-        mntInfo = FakeObject()
-        mntInfo.accessMode = "readWrite"
-        mntInfo.accessible = True
-        host = FakeMor('HostSystem', 'my_host')
-        host_mount = FakeObject()
-        host_mount.key = host
-        host_mount.mountInfo = mntInfo
-        host_mounts = FakeObject()
-        host_mounts.DatastoreHostMount = [host_mount]
+        host = FakeMor('HostSystem', "my_host")
+        host_mounts = self._create_host_mounts("readWrite", host)
+
         self._session.invoke_api(vim_util, 'get_object_property',
                                  self._vim, datastore,
                                  'host').AndReturn(host_mounts)
@@ -439,15 +461,11 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         m.StubOutWithMock(api.VMwareAPISession, 'vim')
         self._session.vim = self._vim
         m.StubOutWithMock(self._session, 'invoke_api')
+
         datastore = FakeMor('Datastore', 'my_ds')
-        mntInfo = FakeObject()
-        mntInfo.accessMode = "readWrite"
-        host = FakeMor('HostSystem', 'my_host')
-        host_mount = FakeObject()
-        host_mount.key = host
-        host_mount.mountInfo = mntInfo
-        host_mounts = FakeObject()
-        host_mounts.DatastoreHostMount = [host_mount]
+        host = FakeMor('HostSystem', "my_host")
+        host_mounts = self._create_host_mounts("readWrite", host, False)
+
         self._session.invoke_api(vim_util, 'get_object_property',
                                  self._vim, datastore,
                                  'host').AndReturn(host_mounts)
@@ -467,16 +485,36 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         m.StubOutWithMock(api.VMwareAPISession, 'vim')
         self._session.vim = self._vim
         m.StubOutWithMock(self._session, 'invoke_api')
-        host = FakeObject()
+
+        datastore = FakeMor('Datastore', 'my_ds')
+        datastore_prop = FakeProp(name='datastore',
+                                  val=FakeManagedObjectReference([datastore]))
+
+        compute_resource = FakeMor('ClusterComputeResource', 'my_cluster')
+        compute_resource_prop = FakeProp(name='parent', val=compute_resource)
+
+        props = [FakeElem(prop_set=[datastore_prop, compute_resource_prop])]
+        host = FakeMor('HostSystem', "my_host")
         self._session.invoke_api(vim_util, 'get_object_properties',
                                  self._vim, host,
-                                 ['datastore', 'parent']).AndReturn([])
+                                 ['datastore', 'parent']).AndReturn(props)
+
+        host_mounts = self._create_host_mounts("readWrite", host)
         self._session.invoke_api(vim_util, 'get_object_property',
-                                 self._vim, mox.IgnoreArg(), 'resourcePool')
+                                 self._vim, datastore,
+                                 'host').AndReturn(host_mounts)
+
+        resource_pool = FakeMor('ResourcePool', 'my_res_pool')
+        self._session.invoke_api(vim_util, 'get_object_property',
+                                 self._vim, compute_resource,
+                                 'resourcePool').AndReturn(resource_pool)
 
         m.ReplayAll()
-        self.assertRaises(error_util.VimException, self._volumeops.get_dss_rp,
-                          host)
+        (datastores_ret, resource_pool_ret) = self._volumeops.get_dss_rp(host)
+        self.assertTrue(len(datastores_ret) == 1)
+        self.assertEqual(datastores_ret[0], datastore)
+        self.assertEqual(resource_pool_ret, resource_pool)
+
         m.UnsetStubs()
         m.VerifyAll()
 
@@ -486,11 +524,11 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         m.StubOutWithMock(api.VMwareAPISession, 'vim')
         self._session.vim = self._vim
         m.StubOutWithMock(self._session, 'invoke_api')
+
         host = FakeObject()
-        props = [FakeElem(prop_set=[FakeProp(name='datastore')])]
         self._session.invoke_api(vim_util, 'get_object_properties',
                                  self._vim, host,
-                                 ['datastore', 'parent']).AndReturn(props)
+                                 ['datastore', 'parent']).AndReturn([])
         self._session.invoke_api(vim_util, 'get_object_property',
                                  self._vim, mox.IgnoreArg(), 'resourcePool')
 
@@ -885,7 +923,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         """Test _get_snapshot_from_tree."""
         volops = volumeops.VMwareVolumeOps
         ret = volops._get_snapshot_from_tree(mox.IgnoreArg(), None)
-        self.assertEqual(ret, None)
+        self.assertIsNone(ret)
         name = 'snapshot_name'
         snapshot = FakeMor('VirtualMachineSnapshot', 'my_snap')
         root = FakeSnapshotTree(name='snapshot_name', snapshot=snapshot)
@@ -1320,7 +1358,8 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         image_id = 'image-id'
         image_meta = FakeObject()
         image_meta['disk_format'] = 'vmdk'
-        image_meta['size'] = 1024 * 1024
+        image_meta['size'] = 1 * units.MiB
+        image_meta['properties'] = {'vmware_disktype': 'preallocated'}
         image_service = m.CreateMock(glance.GlanceImageService)
         image_service.show(mox.IgnoreArg(), image_id).AndReturn(image_meta)
         volume = FakeObject()
@@ -1354,14 +1393,87 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         client.options.transport.cookiejar = cookies
         m.StubOutWithMock(self._vim.__class__, 'client')
         self._vim.client = client
-        m.StubOutWithMock(vmware_images, 'fetch_image')
+        m.StubOutWithMock(vmware_images, 'fetch_flat_image')
         timeout = self._config.vmware_image_transfer_timeout_secs
-        vmware_images.fetch_image(mox.IgnoreArg(), timeout, image_service,
-                                  image_id, host=self.IP,
-                                  data_center_name=datacenter_name,
-                                  datastore_name=datastore_name,
-                                  cookies=cookies,
-                                  file_path=flat_vmdk_path)
+        vmware_images.fetch_flat_image(mox.IgnoreArg(), timeout, image_service,
+                                       image_id, image_size=image_meta['size'],
+                                       host=self.IP,
+                                       data_center_name=datacenter_name,
+                                       datastore_name=datastore_name,
+                                       cookies=cookies,
+                                       file_path=flat_vmdk_path)
+
+        m.ReplayAll()
+        self._driver.copy_image_to_volume(mox.IgnoreArg(), volume,
+                                          image_service, image_id)
+        m.UnsetStubs()
+        m.VerifyAll()
+
+    def test_copy_image_to_volume_stream_optimized(self):
+        """Test copy_image_to_volume.
+
+        Test with an acceptable vmdk disk format and streamOptimized disk type.
+        """
+        m = self.mox
+        m.StubOutWithMock(self._driver.__class__, 'session')
+        self._driver.session = self._session
+        m.StubOutWithMock(api.VMwareAPISession, 'vim')
+        self._session.vim = self._vim
+        m.StubOutWithMock(self._driver.__class__, 'volumeops')
+        self._driver.volumeops = self._volumeops
+
+        image_id = 'image-id'
+        size = 5 * units.GiB
+        size_kb = float(size) / units.KiB
+        size_gb = float(size) / units.GiB
+        # image_service.show call
+        image_meta = FakeObject()
+        image_meta['disk_format'] = 'vmdk'
+        image_meta['size'] = size
+        image_meta['properties'] = {'vmware_disktype': 'streamOptimized'}
+        image_service = m.CreateMock(glance.GlanceImageService)
+        image_service.show(mox.IgnoreArg(), image_id).AndReturn(image_meta)
+        # _select_ds_for_volume call
+        (host, rp, folder, summary) = (FakeObject(), FakeObject(),
+                                       FakeObject(), FakeObject())
+        summary.name = "datastore-1"
+        m.StubOutWithMock(self._driver, '_select_ds_for_volume')
+        self._driver._select_ds_for_volume(size_gb).AndReturn((host, rp,
+                                                               folder,
+                                                               summary))
+        # _get_disk_type call
+        vol_name = 'volume name'
+        volume = FakeObject()
+        volume['name'] = vol_name
+        volume['size'] = size_gb
+        volume['volume_type_id'] = None  # _get_disk_type will return 'thin'
+        disk_type = 'thin'
+        # _get_create_spec call
+        m.StubOutWithMock(self._volumeops, '_get_create_spec')
+        self._volumeops._get_create_spec(vol_name, 0, disk_type,
+                                         summary.name)
+
+        # vim.client.factory.create call
+        class FakeFactory(object):
+            def create(self, name):
+                return mox.MockAnything()
+
+        client = FakeObject()
+        client.factory = FakeFactory()
+        m.StubOutWithMock(self._vim.__class__, 'client')
+        self._vim.client = client
+        # fetch_stream_optimized_image call
+        timeout = self._config.vmware_image_transfer_timeout_secs
+        m.StubOutWithMock(vmware_images, 'fetch_stream_optimized_image')
+        vmware_images.fetch_stream_optimized_image(mox.IgnoreArg(), timeout,
+                                                   image_service, image_id,
+                                                   session=self._session,
+                                                   host=self.IP,
+                                                   resource_pool=rp,
+                                                   vm_folder=folder,
+                                                   vm_create_spec=
+                                                   mox.IgnoreArg(),
+                                                   image_size=size)
 
         m.ReplayAll()
         self._driver.copy_image_to_volume(mox.IgnoreArg(), volume,
@@ -1376,7 +1488,8 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         image_meta['disk_format'] = 'novmdk'
         volume = FakeObject()
         volume['name'] = 'vol-name'
-        volume['status'] = 'available'
+        volume['instance_uuid'] = None
+        volume['attached_host'] = None
 
         m.ReplayAll()
         self.assertRaises(exception.ImageUnacceptable,
@@ -1390,7 +1503,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         """Test copy_volume_to_image when volume is attached."""
         m = self.mox
         volume = FakeObject()
-        volume['status'] = 'in-use'
+        volume['instance_uuid'] = 'my_uuid'
 
         m.ReplayAll()
         self.assertRaises(exception.InvalidVolume,
@@ -1420,8 +1533,12 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         project_id = 'project-owner-id-123'
         volume = FakeObject()
         volume['name'] = vol_name
+        size_gb = 5
+        size = size_gb * units.GiB
+        volume['size'] = size_gb
         volume['project_id'] = project_id
-        volume['status'] = 'available'
+        volume['instance_uuid'] = None
+        volume['attached_host'] = None
         # volumeops.get_backing
         backing = FakeMor("VirtualMachine", "my_vm")
         m.StubOutWithMock(self._volumeops, 'get_backing')
@@ -1432,48 +1549,17 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         vmdk_file_path = '[%s] %s' % (datastore_name, file_path)
         m.StubOutWithMock(self._volumeops, 'get_vmdk_path')
         self._volumeops.get_vmdk_path(backing).AndReturn(vmdk_file_path)
-        tmp_vmdk = '[datastore1] %s.vmdk' % image_id
-        # volumeops.get_host
-        host = FakeMor('Host', 'my_host')
-        m.StubOutWithMock(self._volumeops, 'get_host')
-        self._volumeops.get_host(backing).AndReturn(host)
-        # volumeops.get_dc
-        datacenter_name = 'my_datacenter'
-        datacenter = FakeMor('Datacenter', datacenter_name)
-        m.StubOutWithMock(self._volumeops, 'get_dc')
-        self._volumeops.get_dc(host).AndReturn(datacenter)
-        # volumeops.copy_vmdk_file
-        m.StubOutWithMock(self._volumeops, 'copy_vmdk_file')
-        self._volumeops.copy_vmdk_file(datacenter, vmdk_file_path, tmp_vmdk)
-        # host_ip
-        host_ip = self.IP
-        # volumeops.get_entity_name
-        m.StubOutWithMock(self._volumeops, 'get_entity_name')
-        self._volumeops.get_entity_name(datacenter).AndReturn(datacenter_name)
-        # cookiejar
-        client = FakeObject()
-        client.options = FakeObject()
-        client.options.transport = FakeObject()
-        cookies = FakeObject()
-        client.options.transport.cookiejar = cookies
-        m.StubOutWithMock(self._vim.__class__, 'client')
-        self._vim.client = client
-        # flat_vmdk
-        flat_vmdk_file = '%s-flat.vmdk' % image_id
         # vmware_images.upload_image
         timeout = self._config.vmware_image_transfer_timeout_secs
+        host_ip = self.IP
         m.StubOutWithMock(vmware_images, 'upload_image')
         vmware_images.upload_image(mox.IgnoreArg(), timeout, image_service,
-                                   image_id, project_id, host=host_ip,
-                                   data_center_name=datacenter_name,
-                                   datastore_name=datastore_name,
-                                   cookies=cookies,
-                                   file_path=flat_vmdk_file,
-                                   snapshot_name=image_meta['name'],
+                                   image_id, project_id, session=self._session,
+                                   host=host_ip, vm=backing,
+                                   vmdk_file_path=vmdk_file_path,
+                                   vmdk_size=size,
+                                   image_name=image_id,
                                    image_version=1)
-        # volumeops.delete_vmdk_file
-        m.StubOutWithMock(self._volumeops, 'delete_vmdk_file')
-        self._volumeops.delete_vmdk_file(tmp_vmdk, datacenter)
 
         m.ReplayAll()
         self._driver.copy_volume_to_image(mox.IgnoreArg(), volume,

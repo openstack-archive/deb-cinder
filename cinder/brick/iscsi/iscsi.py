@@ -82,6 +82,17 @@ class TargetAdmin(executor.Executor):
 
 class TgtAdm(TargetAdmin):
     """iSCSI target administration using tgtadm."""
+    VOLUME_CONF = """
+                <target %s>
+                    backing-store %s
+                </target>
+                  """
+    VOLUME_CONF_WITH_CHAP_AUTH = """
+                                <target %s>
+                                    backing-store %s
+                                    %s
+                                </target>
+                                 """
 
     def __init__(self, root_helper, volumes_dir,
                  target_prefix='iqn.2010-10.org.openstack:',
@@ -156,18 +167,10 @@ class TgtAdm(TargetAdmin):
 
         vol_id = name.split(':')[1]
         if chap_auth is None:
-            volume_conf = """
-                <target %s>
-                    backing-store %s
-                </target>
-            """ % (name, path)
+            volume_conf = self.VOLUME_CONF % (name, path)
         else:
-            volume_conf = """
-                <target %s>
-                    backing-store %s
-                    %s
-                </target>
-            """ % (name, path, chap_auth)
+            volume_conf = self.VOLUME_CONF_WITH_CHAP_AUTH % (name,
+                                                             path, chap_auth)
 
         LOG.info(_('Creating iscsi_target for: %s') % vol_id)
         volumes_dir = self.volumes_dir
@@ -204,9 +207,9 @@ class TgtAdm(TargetAdmin):
                                        run_as_root=True)
             LOG.debug("Targets after update: %s" % out)
         except putils.ProcessExecutionError as e:
-            LOG.error(_("Failed to create iscsi target for volume "
+            LOG.warning(_("Failed to create iscsi target for volume "
                         "id:%(vol_id)s: %(e)s")
-                      % {'vol_id': vol_id, 'e': str(e)})
+                        % {'vol_id': vol_id, 'e': str(e)})
 
             #Don't forget to remove the persistent file we created
             os.unlink(volume_path)
@@ -438,7 +441,7 @@ class LioAdm(TargetAdmin):
     def __init__(self, root_helper, lio_initiator_iqns='',
                  iscsi_target_prefix='iqn.2010-10.org.openstack:',
                  execute=putils.execute):
-        super(LioAdm, self).__init__('rtstool', root_helper, execute)
+        super(LioAdm, self).__init__('cinder-rtstool', root_helper, execute)
 
         self.iscsi_target_prefix = iscsi_target_prefix
         self.lio_initiator_iqns = lio_initiator_iqns
@@ -446,13 +449,13 @@ class LioAdm(TargetAdmin):
 
     def _verify_rtstool(self):
         try:
-            self._execute('rtstool', 'verify')
+            self._execute('cinder-rtstool', 'verify')
         except (OSError, putils.ProcessExecutionError):
-            LOG.error(_('rtstool is not installed correctly'))
+            LOG.error(_('cinder-rtstool is not installed correctly'))
             raise
 
     def _get_target(self, iqn):
-        (out, err) = self._execute('rtstool',
+        (out, err) = self._execute('cinder-rtstool',
                                    'get-targets',
                                    run_as_root=True)
         lines = out.split('\n')
@@ -482,7 +485,7 @@ class LioAdm(TargetAdmin):
             extra_args.append(self.lio_initiator_iqns)
 
         try:
-            command_args = ['rtstool',
+            command_args = ['cinder-rtstool',
                             'create',
                             path,
                             name,
@@ -513,7 +516,7 @@ class LioAdm(TargetAdmin):
         iqn = '%s%s' % (self.iscsi_target_prefix, vol_uuid_name)
 
         try:
-            self._execute('rtstool',
+            self._execute('cinder-rtstool',
                           'delete',
                           iqn,
                           run_as_root=True)
@@ -540,7 +543,7 @@ class LioAdm(TargetAdmin):
 
         # Add initiator iqns to target ACL
         try:
-            self._execute('rtstool', 'add-initiator',
+            self._execute('cinder-rtstool', 'add-initiator',
                           volume_iqn,
                           auth_user,
                           auth_pass,
@@ -550,3 +553,25 @@ class LioAdm(TargetAdmin):
             LOG.error(_("Failed to add initiator iqn %s to target") %
                       connector['initiator'])
             raise exception.ISCSITargetAttachFailed(volume_id=volume['id'])
+
+
+class ISERTgtAdm(TgtAdm):
+    VOLUME_CONF = """
+                <target %s>
+                    driver iser
+                    backing-store %s
+                </target>
+                  """
+    VOLUME_CONF_WITH_CHAP_AUTH = """
+                                <target %s>
+                                    driver iser
+                                    backing-store %s
+                                    %s
+                                </target>
+                                 """
+
+    def __init__(self, root_helper, volumes_dir,
+                 target_prefix='iqn.2010-10.org.iser.openstack:',
+                 execute=putils.execute):
+        super(ISERTgtAdm, self).__init__(root_helper, volumes_dir,
+                                         target_prefix, execute)

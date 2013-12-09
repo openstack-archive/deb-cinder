@@ -25,7 +25,7 @@ class RequestTest(test.TestCase):
     def test_content_type_missing(self):
         request = wsgi.Request.blank('/tests/123', method='POST')
         request.body = "<body />"
-        self.assertEqual(None, request.get_content_type())
+        self.assertIsNone(request.get_content_type())
 
     def test_content_type_unsupported(self):
         request = wsgi.Request.blank('/tests/123', method='POST')
@@ -100,12 +100,46 @@ class RequestTest(test.TestCase):
         self.stubs.SmartSet(request.accept_language,
                             'best_match', fake_best_match)
 
-        self.assertEqual(request.best_match_language(), None)
+        self.assertIsNone(request.best_match_language())
         # If accept-language is not included or empty, match should be None
         request.headers = {'Accept-Language': ''}
-        self.assertEqual(request.best_match_language(), None)
+        self.assertIsNone(request.best_match_language())
         request.headers.pop('Accept-Language')
-        self.assertEqual(request.best_match_language(), None)
+        self.assertIsNone(request.best_match_language())
+
+    def test_cache_and_retrieve_resources(self):
+        request = wsgi.Request.blank('/foo')
+        # Test that trying to retrieve a cached object on
+        # an empty cache fails gracefully
+        self.assertIsNone(request.cached_resource())
+        self.assertIsNone(request.cached_resource_by_id('r-0'))
+
+        resources = []
+        for x in xrange(3):
+            resources.append({'id': 'r-%s' % x})
+
+        # Cache an empty list of resources using the default name
+        request.cache_resource([])
+        self.assertEqual({}, request.cached_resource())
+        self.assertIsNone(request.cached_resource('r-0'))
+        # Cache some resources
+        request.cache_resource(resources[:2])
+        # Cache  one resource
+        request.cache_resource(resources[2])
+        # Cache  a different resource name
+        other_resource = {'id': 'o-0'}
+        request.cache_resource(other_resource, name='other-resource')
+
+        self.assertEqual(resources[0], request.cached_resource_by_id('r-0'))
+        self.assertEqual(resources[1], request.cached_resource_by_id('r-1'))
+        self.assertEqual(resources[2], request.cached_resource_by_id('r-2'))
+        self.assertIsNone(request.cached_resource_by_id('r-3'))
+        self.assertEqual({'r-0': resources[0],
+                          'r-1': resources[1],
+                          'r-2': resources[2]}, request.cached_resource())
+        self.assertEqual(other_resource,
+                         request.cached_resource_by_id('o-0',
+                                                       name='other-resource'))
 
 
 class ActionDispatcherTest(test.TestCase):
@@ -352,7 +386,7 @@ class ResourceTest(test.TestCase):
         request.body = 'foo'
 
         content_type, body = resource.get_body(request)
-        self.assertEqual(content_type, None)
+        self.assertIsNone(content_type)
         self.assertEqual(body, '')
 
     def test_get_body_no_content_type(self):
@@ -367,7 +401,7 @@ class ResourceTest(test.TestCase):
         request.body = 'foo'
 
         content_type, body = resource.get_body(request)
-        self.assertEqual(content_type, None)
+        self.assertIsNone(content_type)
         self.assertEqual(body, '')
 
     def test_get_body_no_content_body(self):
@@ -383,7 +417,7 @@ class ResourceTest(test.TestCase):
         request.body = ''
 
         content_type, body = resource.get_body(request)
-        self.assertEqual(content_type, None)
+        self.assertIsNone(content_type)
         self.assertEqual(body, '')
 
     def test_get_body(self):
@@ -594,7 +628,7 @@ class ResourceTest(test.TestCase):
         extensions = [extension1, extension2]
         response, post = resource.pre_process_extensions(extensions, None, {})
         self.assertEqual(called, [])
-        self.assertEqual(response, None)
+        self.assertIsNone(response)
         self.assertEqual(list(post), [extension2, extension1])
 
     def test_pre_process_extensions_generator(self):
@@ -621,7 +655,7 @@ class ResourceTest(test.TestCase):
         response, post = resource.pre_process_extensions(extensions, None, {})
         post = list(post)
         self.assertEqual(called, ['pre1', 'pre2'])
-        self.assertEqual(response, None)
+        self.assertIsNone(response)
         self.assertEqual(len(post), 2)
         self.assertTrue(inspect.isgenerator(post[0]))
         self.assertTrue(inspect.isgenerator(post[1]))
@@ -678,7 +712,7 @@ class ResourceTest(test.TestCase):
         response = resource.post_process_extensions([extension2, extension1],
                                                     None, None, {})
         self.assertEqual(called, [2, 1])
-        self.assertEqual(response, None)
+        self.assertIsNone(response)
 
     def test_post_process_extensions_regular_response(self):
         class Controller(object):
@@ -730,7 +764,7 @@ class ResourceTest(test.TestCase):
                                                     None, None, {})
 
         self.assertEqual(called, [2, 1])
-        self.assertEqual(response, None)
+        self.assertIsNone(response)
 
     def test_post_process_extensions_generator_response(self):
         class Controller(object):

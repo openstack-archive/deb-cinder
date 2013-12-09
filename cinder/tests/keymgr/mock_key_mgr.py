@@ -28,16 +28,18 @@ this class.
 """
 
 import array
+import uuid
 
 from cinder import exception
 from cinder.keymgr import key
 from cinder.keymgr import key_mgr
-from cinder.openstack.common import uuidutils
 from cinder import utils
 
 
 class MockKeyManager(key_mgr.KeyManager):
-    """
+
+    """Mocking manager for integration tests.
+
     This mock key manager implementation supports all the methods specified
     by the key manager interface. This implementation stores keys within a
     dictionary, and as a result, it is not acceptable for use across different
@@ -75,9 +77,9 @@ class MockKeyManager(key_mgr.KeyManager):
         return self.store_key(ctxt, key)
 
     def _generate_key_id(self):
-        key_id = uuidutils.generate_uuid()
+        key_id = str(uuid.uuid4())
         while key_id in self.keys:
-            key_id = uuidutils.generate_uuid()
+            key_id = str(uuid.uuid4())
 
         return key_id
 

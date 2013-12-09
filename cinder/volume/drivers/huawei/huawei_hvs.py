@@ -34,11 +34,11 @@ class HuaweiHVSISCSIDriver(driver.ISCSIDriver):
     def do_setup(self, context):
         """Instantiate common class and log in storage system."""
         self.common = HVSCommon(configuration=self.configuration)
-        self.common.login()
 
     def check_for_setup_error(self):
         """Check configuration  file."""
         self.common._check_conf_file()
+        self.common.login()
 
     def create_volume(self, volume):
         """Create a volume."""
@@ -51,6 +51,10 @@ class HuaweiHVSISCSIDriver(driver.ISCSIDriver):
     def create_cloned_volume(self, volume, src_vref):
         """Create a clone of the specified volume."""
         self.common.create_cloned_volume(volume, src_vref)
+
+    def extend_volume(self, volume, new_size):
+        """Extend a volume."""
+        self.common.extend_volume(volume, new_size)
 
     def delete_volume(self, volume):
         """Delete a volume."""
@@ -122,6 +126,10 @@ class HuaweiHVSFCDriver(driver.FibreChannelDriver):
     def create_cloned_volume(self, volume, src_vref):
         """Create a clone of the specified volume."""
         self.common.create_cloned_volume(volume, src_vref)
+
+    def extend_volume(self, volume, new_size):
+        """Extend a volume."""
+        self.common.extend_volume(volume, new_size)
 
     def delete_volume(self, volume):
         """Delete a volume."""

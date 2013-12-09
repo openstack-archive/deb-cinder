@@ -175,14 +175,15 @@ class NfsDriverTestCase(test.TestCase):
         self.stubs.Set(drv, 'local_path', fake_local_path)
 
         mox.StubOutWithMock(image_utils, 'fetch_to_raw')
-        image_utils.fetch_to_raw(None, None, None, TEST_IMG_SOURCE)
+        image_utils.fetch_to_raw(None, None, None, TEST_IMG_SOURCE,
+                                 size=self.TEST_SIZE_IN_GB)
 
         mox.StubOutWithMock(image_utils, 'resize_image')
         image_utils.resize_image(TEST_IMG_SOURCE, self.TEST_SIZE_IN_GB)
 
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
         data = mox_lib.MockAnything()
-        data.virtual_size = 1024 ** 3
+        data.virtual_size = 1 * units.GiB
         image_utils.qemu_img_info(TEST_IMG_SOURCE).AndReturn(data)
 
         mox.ReplayAll()
@@ -398,7 +399,7 @@ class NfsDriverTestCase(test.TestCase):
 
         drv._mounted_shares = []
 
-        self.assertRaises(exception.NotFound, drv._find_share,
+        self.assertRaises(exception.NfsNoSharesMounted, drv._find_share,
                           self.TEST_SIZE_IN_GB)
 
     def test_find_share(self):

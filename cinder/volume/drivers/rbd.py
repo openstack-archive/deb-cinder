@@ -339,8 +339,8 @@ class RBDDriver(driver.VolumeDriver):
         try:
             with RADOSClient(self) as client:
                 new_stats = client.cluster.get_cluster_stats()
-            stats['total_capacity_gb'] = new_stats['kb'] / 1024 ** 2
-            stats['free_capacity_gb'] = new_stats['kb_avail'] / 1024 ** 2
+            stats['total_capacity_gb'] = new_stats['kb'] / units.MiB
+            stats['free_capacity_gb'] = new_stats['kb_avail'] / units.MiB
         except self.rados.Error:
             # just log and return unknown capacities
             LOG.exception(_('error refreshing volume stats'))
@@ -371,7 +371,7 @@ class RBDDriver(driver.VolumeDriver):
         if not parent:
             return depth
 
-        # If clone depth was reached, flatten should have occured so if it has
+        # If clone depth was reached, flatten should have occurred so if it has
         # been exceeded then something has gone wrong.
         if depth > CONF.rbd_max_clone_depth:
             raise Exception(_("clone depth exceeds limit of %s") %
@@ -587,21 +587,28 @@ class RBDDriver(driver.VolumeDriver):
         """Deletes a logical volume."""
         volume_name = str(volume['name'])
         with RADOSClient(self) as client:
+            try:
+                rbd_image = self.rbd.Image(client.ioctx, volume_name)
+            except self.rbd.ImageNotFound:
+                LOG.info(_("volume %s no longer exists in backend")
+                         % (volume_name))
+                return
+
+            clone_snap = None
+            parent = None
+
             # Ensure any backup snapshots are deleted
             self._delete_backup_snaps(client, volume_name)
 
             # If the volume has non-clone snapshots this delete is expected to
             # raise VolumeIsBusy so do so straight away.
-            rbd_image = self.rbd.Image(client.ioctx, volume_name)
-            clone_snap = None
-            parent = None
             try:
                 snaps = rbd_image.list_snaps()
                 for snap in snaps:
                     if snap['name'].endswith('.clone_snap'):
                         LOG.debug(_("volume has clone snapshot(s)"))
                         # We grab one of these and use it when fetching parent
-                        # info in case the this volume has been flattened.
+                        # info in case the volume has been flattened.
                         clone_snap = snap['name']
                         break
 
@@ -743,7 +750,7 @@ class RBDDriver(driver.VolumeDriver):
 
         with tempfile.NamedTemporaryFile(dir=tmp_dir) as tmp:
             image_utils.fetch_to_raw(context, image_service, image_id,
-                                     tmp.name)
+                                     tmp.name, size=volume['size'])
 
             self.delete_volume(volume)
 

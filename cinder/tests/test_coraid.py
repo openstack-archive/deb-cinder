@@ -787,7 +787,8 @@ class CoraidDriverImageTestCases(CoraidDriverTestCase):
 
         utils.brick_get_connector('aoe',
                                   device_scan_attempts=3,
-                                  use_multipath=False).\
+                                  use_multipath=False,
+                                  conn=mox.IgnoreArg()).\
             AndReturn(aoe_initiator)
 
         aoe_initiator\
@@ -827,7 +828,8 @@ class CoraidDriverImageTestCases(CoraidDriverTestCase):
         image_utils.fetch_to_raw({},
                                  fake_image_service,
                                  fake_image_id,
-                                 self.fake_dev_path)
+                                 self.fake_dev_path,
+                                 size=fake_volume_size)
 
         self.mox.ReplayAll()
 

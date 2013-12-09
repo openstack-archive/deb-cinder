@@ -714,7 +714,6 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
             self.ssc_enabled = True
             LOG.info(_("Shares on vserver %s will only"
                        " be used for provisioning.") % (self.vserver))
-            ssc_utils.refresh_cluster_ssc(self, self._client, self.vserver)
         else:
             self.ssc_enabled = False
             LOG.warn(_("No vserver set in config. SSC will be disabled."))
@@ -881,6 +880,12 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
 
     def _update_cluster_vol_stats(self, data):
         """Updates vol stats with cluster config."""
+        if self.ssc_enabled:
+            sync = True if self.ssc_vols is None else False
+            ssc_utils.refresh_cluster_ssc(self, self._client, self.vserver,
+                                          synchronous=sync)
+        else:
+            LOG.warn(_("No vserver set in config. SSC will be disabled."))
         if self.ssc_vols:
             data['netapp_mirrored'] = 'true'\
                 if self.ssc_vols['mirrored'] else 'false'
@@ -893,7 +898,7 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
                 if len(self.ssc_vols['all']) >\
                 len(self.ssc_vols['dedup']) else 'false'
             data['netapp_compression'] = 'true'\
-                if self.ssc_vols['compression'] else False
+                if self.ssc_vols['compression'] else 'false'
             data['netapp_nocompression'] = 'true'\
                 if len(self.ssc_vols['all']) >\
                 len(self.ssc_vols['compression']) else 'false'
@@ -902,18 +907,18 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
             data['netapp_thick_provisioned'] = 'true'\
                 if len(self.ssc_vols['all']) >\
                 len(self.ssc_vols['thin']) else 'false'
-            vol_max = max(self.ssc_vols['all'])
-            data['total_capacity_gb'] =\
-                int(vol_max.space['size_total_bytes']) / units.GiB
-            data['free_capacity_gb'] =\
-                int(vol_max.space['size_avl_bytes']) / units.GiB
+            if self.ssc_vols['all']:
+                vol_max = max(self.ssc_vols['all'])
+                data['total_capacity_gb'] =\
+                    int(vol_max.space['size_total_bytes']) / units.GiB
+                data['free_capacity_gb'] =\
+                    int(vol_max.space['size_avl_bytes']) / units.GiB
+            else:
+                data['total_capacity_gb'] = 0
+                data['free_capacity_gb'] = 0
         elif self.ssc_enabled:
             LOG.warn(_("No cluster ssc stats found."
                        " Wait for next volume stats update."))
-        if self.ssc_enabled:
-            ssc_utils.refresh_cluster_ssc(self, self._client, self.vserver)
-        else:
-            LOG.warn(_("No vserver set in config. SSC will be disabled."))
 
     @utils.synchronized('update_stale')
     def _update_stale_vols(self, volume=None, reset=False):
@@ -1045,7 +1050,7 @@ class NetAppDirect7modeNfsDriver (NetAppDirectNfsDriver):
         client.set_api_version(major, minor)
 
     def check_for_setup_error(self):
-        """Checks if setup occured properly."""
+        """Checks if setup occurred properly."""
         api_version = self._client.get_api_version()
         if api_version:
             major, minor = api_version

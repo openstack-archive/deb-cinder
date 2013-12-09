@@ -61,7 +61,10 @@ test_snap = {'name': 'volume-21ec7341-9256-497b-97d9-ef48edcf0635',
 FakeConnector = {'initiator': 'iqn.1993-08.debian:01:ec2bff7ac3a3',
                  'wwpns': ['10000090fa0d6754'],
                  'wwnns': ['10000090fa0d6755'],
-                 'host': 'fakehost'}
+                 'host': 'fakehost',
+                 'ip': '10.10.0.1'}
+
+volume_size = 3
 
 
 def Fake_sleep(time):
@@ -465,6 +468,10 @@ class FakeHVSCommon(rest_common.HVSCommon):
             if url == "ioclass/0":
                 data = """{"error":{"code":0}}"""
 
+            if url == "lun/expand":
+                data = """{"error":{"code":0}}"""
+                self.lun_id = '0'
+
         else:
             data = """{"error":{"code":31755596}}"""
 
@@ -516,7 +523,7 @@ class HVSRESTiSCSIDriverTestCase(test.TestCase):
 
     def test_log_in_success(self):
         deviceid = self.driver.common.login()
-        self.assertNotEqual(deviceid, None)
+        self.assertIsNotNone(deviceid)
 
     def test_log_out_success(self):
         self.driver.common.login()
@@ -527,6 +534,11 @@ class HVSRESTiSCSIDriverTestCase(test.TestCase):
         self.driver.create_volume(test_volume)
         self.assertEqual(self.driver.common.lun_id, "0")
 
+    def test_extend_volume_success(self):
+        self.driver.common.login()
+        self.driver.extend_volume(test_volume, volume_size)
+        self.assertEqual(self.driver.common.lun_id, "0")
+
     def test_create_snapshot_success(self):
         self.driver.common.login()
         self.driver.create_snapshot(test_volume)
@@ -535,12 +547,12 @@ class HVSRESTiSCSIDriverTestCase(test.TestCase):
     def test_delete_volume_success(self):
         self.driver.common.login()
         self.driver.delete_volume(test_volume)
-        self.assertEqual(self.driver.common.lun_id, None)
+        self.assertIsNone(self.driver.common.lun_id)
 
     def test_delete_snapshot_success(self):
         self.driver.common.login()
         self.driver.delete_snapshot(test_snap)
-        self.assertEqual(self.driver.common.snapshot_id, None)
+        self.assertIsNone(self.driver.common.snapshot_id)
 
     def test_colone_volume_success(self):
         self.driver.common.login()
@@ -577,7 +589,7 @@ class HVSRESTiSCSIDriverTestCase(test.TestCase):
     def test_get_volume_stats(self):
         self.driver.common.login()
         status = self.driver.get_volume_stats()
-        self.assertNotEqual(status['free_capacity_gb'], None)
+        self.assertIsNotNone(status['free_capacity_gb'])
 
     def test_create_snapshot_fail(self):
         self.driver.common.login()
@@ -624,10 +636,10 @@ class HVSRESTiSCSIDriverTestCase(test.TestCase):
         product.appendChild(product_text)
         storage.appendChild(product)
 
-        protocal = doc.createElement('Protocol')
-        protocal_text = doc.createTextNode('iSCSI')
-        protocal.appendChild(protocal_text)
-        storage.appendChild(protocal)
+        protocol = doc.createElement('Protocol')
+        protocol_text = doc.createTextNode('iSCSI')
+        protocol.appendChild(protocol_text)
+        storage.appendChild(protocol)
 
         username = doc.createElement('UserName')
         username_text = doc.createTextNode('admin')
@@ -705,11 +717,16 @@ class HVSRESTFCDriverTestCase(test.TestCase):
 
     def test_log_in_Success(self):
         deviceid = self.driver.common.login()
-        self.assertNotEqual(deviceid, None)
+        self.assertIsNotNone(deviceid)
 
     def test_create_volume_success(self):
         self.driver.common.login()
         self.driver.create_volume(test_volume)
+        self.assertEqual(self.driver.common.lun_id, "0")
+
+    def test_extend_volume_success(self):
+        self.driver.common.login()
+        self.driver.extend_volume(test_volume, volume_size)
         self.assertEqual(self.driver.common.lun_id, "0")
 
     def test_create_snapshot_success(self):
@@ -720,12 +737,12 @@ class HVSRESTFCDriverTestCase(test.TestCase):
     def test_delete_volume_success(self):
         self.driver.common.login()
         self.driver.delete_volume(test_volume)
-        self.assertEqual(self.driver.common.lun_id, None)
+        self.assertIsNone(self.driver.common.lun_id)
 
     def test_delete_snapshot_success(self):
         self.driver.common.login()
         self.driver.delete_snapshot(test_snap)
-        self.assertEqual(self.driver.common.snapshot_id, None)
+        self.assertIsNone(self.driver.common.snapshot_id)
 
     def test_colone_volume_success(self):
         self.driver.common.login()
@@ -762,7 +779,7 @@ class HVSRESTFCDriverTestCase(test.TestCase):
     def test_get_volume_stats(self):
         self.driver.common.login()
         status = self.driver.get_volume_stats()
-        self.assertNotEqual(status['free_capacity_gb'], None)
+        self.assertIsNotNone(status['free_capacity_gb'])
 
     def test_create_snapshot_fail(self):
         self.driver.common.login()
@@ -802,10 +819,10 @@ class HVSRESTFCDriverTestCase(test.TestCase):
         product.appendChild(product_text)
         storage.appendChild(product)
 
-        protocal = doc.createElement('Protocol')
-        protocal_text = doc.createTextNode('FC')
-        protocal.appendChild(protocal_text)
-        storage.appendChild(protocal)
+        protocol = doc.createElement('Protocol')
+        protocol_text = doc.createTextNode('FC')
+        protocol.appendChild(protocol_text)
+        storage.appendChild(protocol)
 
         username = doc.createElement('UserName')
         username_text = doc.createTextNode('admin')

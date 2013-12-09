@@ -32,6 +32,7 @@ from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder import units
 from cinder import utils
+from cinder.volume.drivers.huawei import huawei_utils
 from cinder.volume import volume_types
 
 
@@ -48,6 +49,7 @@ class HVSCommon():
         self.configuration = configuration
         self.cookie = cookielib.CookieJar()
         self.url = None
+        self.xml_conf = self.configuration.cinder_huawei_conf_file
 
     def call(self, url=False, data=None, method=None):
         """Send requests to HVS server.
@@ -72,7 +74,7 @@ class HVSCommon():
             res = urllib2.urlopen(req).read().decode("utf-8")
             LOG.debug(_('HVS Response Data: %(res)s') % {'res': res})
         except Exception as err:
-            err_msg = _('Bad reponse from server: %s') % err
+            err_msg = _('Bad response from server: %s') % err
             LOG.error(err_msg)
             raise err
 
@@ -170,9 +172,9 @@ class HVSCommon():
 
     def _assert_data_in_result(self, result, msg):
         if "data" not in result:
-            msg = _('%s "data" was not in result.') % msg
-            LOG.error(msg)
-            raise exception.CinderException(msg)
+            err_msg = _('%s "data" was not in result.') % msg
+            LOG.error(err_msg)
+            raise exception.CinderException(err_msg)
 
     def _create_volume(self, lun_param):
         url = self.url + "/lun"
@@ -216,7 +218,7 @@ class HVSCommon():
     def _get_volume_size(self, poolinfo, volume):
         """Calculate the volume size.
 
-        We should devide the given volume size by 512 for the HVS system
+        We should divide the given volume size by 512 for the HVS system
         caculates volume size with sectors, which is 512 bytes.
         """
 
@@ -266,17 +268,6 @@ class HVSCommon():
         result = self.call(url, data, "DELETE")
         self._assert_rest_result(result, 'delete lun error')
 
-    def _read_xml(self):
-        """Open xml file and parse the content."""
-        filename = self.configuration.cinder_huawei_conf_file
-        try:
-            tree = ET.parse(filename)
-            root = tree.getroot()
-        except Exception as err:
-            LOG.error(_('_read_xml:%s') % err)
-            raise err
-        return root
-
     def _encode_name(self, name):
         uuid_str = name.replace("-", "")
         vol_uuid = uuid.UUID('urn:uuid:%s' % uuid_str)
@@ -285,7 +276,7 @@ class HVSCommon():
         return newuuid
 
     def _find_pool_info(self):
-        root = self._read_xml()
+        root = huawei_utils.parse_xml_file(self.xml_conf)
         pool_name = root.findtext('LUN/StoragePool')
         if not pool_name:
             err_msg = _("Invalid resource pool: %s") % pool_name
@@ -455,7 +446,7 @@ class HVSCommon():
 
         return result['data']['ID']
 
-    def _add_host_into_hostgroup(self, host_name):
+    def _add_host_into_hostgroup(self, host_name, host_ip):
         """Associate host to hostgroup.
 
         If host group doesn't exist, create one.
@@ -468,7 +459,9 @@ class HVSCommon():
 
         hostid = self._find_host(host_name)
         if hostid is None:
-            hostid = self._add_host(host_name)
+            os_type = huawei_utils.get_conf_host_os_type(host_ip,
+                                                         self.xml_conf)
+            hostid = self._add_host(host_name, os_type)
             self._associate_host_to_hostgroup(hostgroup_id, hostid)
 
         return hostid, hostgroup_id
@@ -515,17 +508,18 @@ class HVSCommon():
     def initialize_connection_iscsi(self, volume, connector):
         """Map a volume to a host and return target iSCSI information."""
         initiator_name = connector['initiator']
-        host_name = connector['host']
         volume_name = self._encode_name(volume['id'])
 
         LOG.debug(_('initiator name:%(initiator_name)s, '
                     'volume name:%(volume)s.')
                   % {'initiator_name': initiator_name,
                      'volume': volume_name})
+
         (iscsi_iqn, target_ip) = self._get_iscsi_params(connector)
 
         #create host_goup if not exist
-        hostid, hostgroup_id = self._add_host_into_hostgroup(host_name)
+        hostid, hostgroup_id = self._add_host_into_hostgroup(connector['host'],
+                                                             connector['ip'])
         self._ensure_initiator_added(initiator_name, hostid)
 
         # Mapping lungooup and hostgoup to view
@@ -546,7 +540,6 @@ class HVSCommon():
 
     def initialize_connection_fc(self, volume, connector):
         wwns = connector['wwpns']
-        host_name = connector['host']
         volume_name = self._encode_name(volume['id'])
 
         LOG.debug(_('initiator name:%(initiator_name)s, '
@@ -554,8 +547,9 @@ class HVSCommon():
                   % {'initiator_name': wwns,
                      'volume': volume_name})
 
-        # Create host goup if not exist
-        hostid, hostgroup_id = self._add_host_into_hostgroup(host_name)
+        # Create host group if not exist
+        hostid, hostgroup_id = self._add_host_into_hostgroup(connector['host'],
+                                                             connector['ip'])
 
         free_wwns = self._get_connected_free_wwns()
         LOG.debug(_("the free wwns %s") % free_wwns)
@@ -713,12 +707,12 @@ class HVSCommon():
                     break
         return host_id
 
-    def _add_host(self, hostname):
+    def _add_host(self, hostname, type):
         """Add a new host."""
         url = self.url + "/host"
         data = json.dumps({"TYPE": "21",
                            "NAME": hostname,
-                           "OPERATIONSYSTEM": "0"})
+                           "OPERATIONSYSTEM": type})
         result = self.call(url, data)
         self._assert_rest_result(result, 'Add new host error.')
 
@@ -931,7 +925,7 @@ class HVSCommon():
                       'PrefetchValue': '0',
                       'PrefetchTimes': '0'}
 
-        root = self._read_xml()
+        root = huawei_utils.parse_xml_file(self.xml_conf)
         luntype = root.findtext('LUN/LUNType')
         if luntype:
             if luntype.strip() in ['Thick', 'Thin']:
@@ -1060,12 +1054,19 @@ class HVSCommon():
                 iscsi_port_info = item['LOCATION']
                 break
 
+        if not iscsi_port_info:
+            msg = (_('_get_iscsi_port_info: Failed to get iscsi port info '
+                     'through config IP %(ip)s, please check config file.')
+                   % {'ip': ip})
+            LOG.error(msg)
+            raise exception.InvalidInput(reason=msg)
+
         return iscsi_port_info
 
     def _get_iscsi_conf(self):
         """Get iSCSI info from config file."""
         iscsiinfo = {}
-        root = self._read_xml()
+        root = huawei_utils.parse_xml_file(self.xml_conf)
         iscsiinfo['DefaultTargetIP'] = \
             root.findtext('iSCSI/DefaultTargetIP').strip()
         initiator_list = []
@@ -1084,28 +1085,23 @@ class HVSCommon():
         LOG.debug(_('_get_tgt_iqn: iSCSI IP is %s.') % iscsiip)
         ip_info = self._get_iscsi_port_info(iscsiip)
         iqn_prefix = self._get_iscsi_tgt_port()
-        LOG.debug(_('request ip info is %s.') % ip_info)
+
         split_list = ip_info.split(".")
         newstr = split_list[1] + split_list[2]
-        LOG.debug(_('new str info is %s.') % newstr)
-
-        if ip_info:
-            if newstr[0] == 'A':
-                ctr = "0"
-            elif newstr[0] == 'B':
-                ctr = "1"
-            interface = '0' + newstr[1]
-            port = '0' + newstr[3]
-            iqn_suffix = ctr + '02' + interface + port
-            for i in range(0, len(iqn_suffix)):
-                if iqn_suffix[i] != '0':
-                    iqn_suffix = iqn_suffix[i:]
-                    break
-            iqn = iqn_prefix + ':' + iqn_suffix + ':' + iscsiip
-            LOG.debug(_('_get_tgt_iqn: iSCSI target iqn is %s') % iqn)
-            return iqn
-        else:
-            return None
+        if newstr[0] == 'A':
+            ctr = "0"
+        elif newstr[0] == 'B':
+            ctr = "1"
+        interface = '0' + newstr[1]
+        port = '0' + newstr[3]
+        iqn_suffix = ctr + '02' + interface + port
+        for i in range(0, len(iqn_suffix)):
+            if iqn_suffix[i] != '0':
+                iqn_suffix = iqn_suffix[i:]
+                break
+        iqn = iqn_prefix + ':' + iqn_suffix + ':' + iscsiip
+        LOG.debug(_('_get_tgt_iqn: iSCSI target iqn is %s') % iqn)
+        return iqn
 
     def _get_fc_target_wwpns(self, wwn):
         url = (self.url +
@@ -1237,23 +1233,34 @@ class HVSCommon():
 
     def _check_conf_file(self):
         """Check the config file, make sure the essential items are set."""
-        root = self._read_xml()
-        hvsurl = root.findtext('Storage/HVSURL')
-        username = root.findtext('Storage/UserName')
-        pwd = root.findtext('Storage/UserPassword')
-        pool_node = root.findall('LUN/StoragePool')
+        root = huawei_utils.parse_xml_file(self.xml_conf)
+        check_list = ['Storage/HVSURL', 'Storage/UserName',
+                      'Storage/UserPassword']
+        for item in check_list:
+            if not huawei_utils.is_xml_item_exist(root, item):
+                err_msg = (_('_check_conf_file: Config file invalid. '
+                             '%s must be set.') % item)
+                LOG.error(err_msg)
+                raise exception.InvalidInput(reason=err_msg)
 
-        if (not hvsurl) or (not username) or (not pwd):
-            err_msg = (_('_check_conf_file: Config file invalid. HVSURL,'
-                         ' UserName and UserPassword must be set.'))
+        # make sure storage pool is set
+        if not huawei_utils.is_xml_item_exist(root, 'LUN/StoragePool'):
+            err_msg = _('_check_conf_file: Config file invalid. '
+                        'StoragePool must be set.')
             LOG.error(err_msg)
             raise exception.InvalidInput(reason=err_msg)
 
-        if not pool_node:
-            err_msg = (_('_check_conf_file: Config file invalid. '
-                         'StoragePool must be set.'))
-            LOG.error(err_msg)
-            raise exception.InvalidInput(reason=err_msg)
+        # make sure host os type valid
+        if huawei_utils.is_xml_item_exist(root, 'Host', 'OSType'):
+            os_list = huawei_utils.os_type.keys()
+            if not huawei_utils.is_xml_item_valid(root, 'Host', os_list,
+                                                  'OSType'):
+                err_msg = (_('_check_conf_file: Config file invalid. '
+                             'Host OSType invalid.\n'
+                             'The valid values are: %(os_list)s')
+                           % {'os_list': os_list})
+                LOG.error(err_msg)
+                raise exception.InvalidInput(reason=err_msg)
 
     def _get_iscsi_params(self, connector):
         """Get target iSCSI params, including iqn, IP."""
@@ -1279,3 +1286,17 @@ class HVSCommon():
         target_iqn = self._get_tgt_iqn(target_ip)
 
         return (target_iqn, target_ip)
+
+    def extend_volume(self, volume, new_size):
+        name = self._encode_name(volume['id'])
+        lun_id = self._get_volume_by_name(name)
+        if lun_id:
+            url = self.url + "/lun/expand"
+            capacity = int(new_size) * units.GiB / 512
+            data = json.dumps({"TYPE": "11",
+                               "ID": lun_id,
+                               "CAPACITY": capacity})
+            result = self.call(url, data, "PUT")
+            self._assert_rest_result(result, 'Extend lun error.')
+        else:
+            LOG.warn(_('Can not find lun in array'))

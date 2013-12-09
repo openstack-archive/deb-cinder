@@ -549,6 +549,11 @@ def volume_glance_metadata_create(context, volume_id, key, value):
                                               value)
 
 
+def volume_glance_metadata_get_all(context):
+    """Return the glance metadata for all volumes."""
+    return IMPL.volume_glance_metadata_get_all(context)
+
+
 def volume_glance_metadata_get(context, volume_id):
     """Return the glance metadata for a volume."""
     return IMPL.volume_glance_metadata_get(context, volume_id)
@@ -560,20 +565,21 @@ def volume_snapshot_glance_metadata_get(context, snapshot_id):
 
 
 def volume_glance_metadata_copy_to_snapshot(context, snapshot_id, volume_id):
-    """
-    Update the Glance metadata for a snapshot by copying all of the key:value
-    pairs from the originating volume. This is so that a volume created from
-    the snapshot will retain the original metadata.
+    """Update the Glance metadata for a snapshot.
+
+    This will copy all of the key:value pairs from the originating volume,
+    to ensure that a volume created from the snapshot will retain the
+    original metadata.
     """
     return IMPL.volume_glance_metadata_copy_to_snapshot(context, snapshot_id,
                                                         volume_id)
 
 
 def volume_glance_metadata_copy_to_volume(context, volume_id, snapshot_id):
-    """
-    Update the Glance metadata from a volume (created from a snapshot) by
-    copying all of the key:value pairs from the originating snapshot. This is
-    so that the Glance metadata from the original volume is retained.
+    """Update the Glance metadata from a volume (created from a snapshot).
+
+    This will copy all of the key:value pairs from the originating snapshot,
+    to ensure that the Glance metadata from the original volume is retained.
     """
     return IMPL.volume_glance_metadata_copy_to_volume(context, volume_id,
                                                       snapshot_id)
@@ -592,10 +598,11 @@ def volume_glance_metadata_delete_by_snapshot(context, snapshot_id):
 def volume_glance_metadata_copy_from_volume_to_volume(context,
                                                       src_volume_id,
                                                       volume_id):
-    """
-    Update the Glance metadata for a volume by copying all of the key:value
-    pairs from the originating volume. This is so that a volume created from
-    the volume (clone) will retain the original metadata.
+    """Update the Glance metadata for a volume by copying all of the key:value
+    pairs from the originating volume.
+
+    This is so that a volume created from the volume (clone) will retain the
+    original metadata.
     """
     return IMPL.volume_glance_metadata_copy_from_volume_to_volume(
         context,
@@ -670,13 +677,6 @@ def quota_class_destroy_all_by_name(context, class_name):
 
 
 ###################
-
-
-def quota_usage_create(context, project_id, resource, in_use, reserved,
-                       until_refresh):
-    """Create a quota usage for the given project and resource."""
-    return IMPL.quota_usage_create(context, project_id, resource,
-                                   in_use, reserved, until_refresh)
 
 
 def quota_usage_get(context, project_id, resource):
@@ -775,8 +775,7 @@ def backup_get_all_by_project(context, project_id):
 
 
 def backup_update(context, backup_id, values):
-    """
-    Set the given properties on a backup and update it.
+    """Set the given properties on a backup and update it.
 
     Raises NotFound if backup does not exist.
     """

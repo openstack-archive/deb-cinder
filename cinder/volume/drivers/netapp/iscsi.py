@@ -30,6 +30,7 @@ import uuid
 from cinder import exception
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import timeutils
 from cinder import units
 from cinder import utils
 from cinder.volume import driver
@@ -45,6 +46,7 @@ from cinder.volume.drivers.netapp.options import netapp_transport_opts
 from cinder.volume.drivers.netapp import ssc_utils
 from cinder.volume.drivers.netapp.utils import get_volume_extra_specs
 from cinder.volume.drivers.netapp.utils import provide_ems
+from cinder.volume.drivers.netapp.utils import set_safe_attr
 from cinder.volume.drivers.netapp.utils import validate_instantiation
 from cinder.volume import volume_types
 from oslo.config import cfg
@@ -779,7 +781,6 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
         self.client.set_api_version(major, minor)
         self.ssc_vols = None
         self.stale_vols = set()
-        ssc_utils.refresh_cluster_ssc(self, self.client, self.vserver)
 
     def _create_lun_on_eligible_vol(self, name, size, metadata,
                                     extra_specs=None):
@@ -1055,6 +1056,9 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
 
     def _update_cluster_vol_stats(self, data):
         """Updates vol stats with cluster config."""
+        sync = True if self.ssc_vols is None else False
+        ssc_utils.refresh_cluster_ssc(self, self.client, self.vserver,
+                                      synchronous=sync)
         if self.ssc_vols:
             data['netapp_mirrored'] = 'true'\
                 if self.ssc_vols['mirrored'] else 'false'
@@ -1067,7 +1071,7 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
                 if len(self.ssc_vols['all']) > len(self.ssc_vols['dedup'])\
                 else 'false'
             data['netapp_compression'] = 'true'\
-                if self.ssc_vols['compression'] else False
+                if self.ssc_vols['compression'] else 'false'
             data['netapp_nocompression'] = 'true'\
                 if len(self.ssc_vols['all']) >\
                 len(self.ssc_vols['compression'])\
@@ -1077,14 +1081,17 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
             data['netapp_thick_provisioned'] = 'true'\
                 if len(self.ssc_vols['all']) >\
                 len(self.ssc_vols['thin']) else 'false'
-            vol_max = max(self.ssc_vols['all'])
-            data['total_capacity_gb'] =\
-                int(vol_max.space['size_total_bytes']) / units.GiB
-            data['free_capacity_gb'] =\
-                int(vol_max.space['size_avl_bytes']) / units.GiB
+            if self.ssc_vols['all']:
+                vol_max = max(self.ssc_vols['all'])
+                data['total_capacity_gb'] =\
+                    int(vol_max.space['size_total_bytes']) / units.GiB
+                data['free_capacity_gb'] =\
+                    int(vol_max.space['size_avl_bytes']) / units.GiB
+            else:
+                data['total_capacity_gb'] = 0
+                data['free_capacity_gb'] = 0
         else:
             LOG.warn(_("Cluster ssc is not updated. No volume stats found."))
-        ssc_utils.refresh_cluster_ssc(self, self.client, self.vserver)
 
     @utils.synchronized('update_stale')
     def _update_stale_vols(self, volume=None, reset=False):
@@ -1120,6 +1127,14 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         self.client.set_api_version(major, minor)
         if self.vfiler:
             self.client.set_vfiler(self.vfiler)
+        self.vol_refresh_time = None
+        self.vol_refresh_interval = 1800
+        self.vol_refresh_running = False
+        self.vol_refresh_voluntary = False
+        # Setting it infinite at set up
+        # This will not rule out backend from scheduling
+        self.total_gb = 'infinite'
+        self.free_gb = 'infinite'
 
     def check_for_setup_error(self):
         """Check that the driver is working and can communicate."""
@@ -1148,13 +1163,22 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         metadata['Path'] = '/vol/%s/%s' % (volume['name'], name)
         metadata['Volume'] = volume['name']
         metadata['Qtree'] = None
+        self.vol_refresh_voluntary = True
+
+    def _get_filer_volumes(self, volume=None):
+        """Returns list of filer volumes in api format."""
+        vol_request = NaElement('volume-list-info')
+        if volume:
+            vol_request.add_new_child('volume', volume)
+        res = self.client.invoke_successfully(vol_request, True)
+        volumes = res.get_child_by_name('volumes')
+        if volumes:
+            return volumes.get_children()
+        return []
 
     def _get_avl_volume_by_size(self, size):
         """Get the available volume by size."""
-        vol_request = NaElement('volume-list-info')
-        res = self.client.invoke_successfully(vol_request, True)
-        volumes = res.get_child_by_name('volumes')
-        vols = volumes.get_children()
+        vols = self._get_filer_volumes()
         for vol in vols:
             avl_size = vol.get_child_content('size-available')
             state = vol.get_child_content('state')
@@ -1310,6 +1334,7 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         clone_id = cl_id_info.get_child_content('clone-op-id')
         if vol_uuid:
             self._check_clone_status(clone_id, vol_uuid, name, new_name)
+        self.vol_refresh_voluntary = True
         luns = self._get_lun_by_args(path=clone_path)
         if luns:
             cloned_lun = luns[0]
@@ -1396,11 +1421,9 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         data["vendor_name"] = 'NetApp'
         data["driver_version"] = self.VERSION
         data["storage_protocol"] = 'iSCSI'
-
-        data['total_capacity_gb'] = 'infinite'
-        data['free_capacity_gb'] = 'infinite'
         data['reserved_percentage'] = 0
         data['QoS_support'] = False
+        self._get_capacity_info(data)
         provide_ems(self, self.client, data, netapp_backend,
                     server_type="7mode")
         self._stats = data
@@ -1416,3 +1439,53 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
             if major == 1 and minor < 15:
                 bs = bs - 1
         return bs
+
+    def _get_capacity_info(self, data):
+        """Calculates the capacity information for the filer."""
+        if (self.vol_refresh_time is None or self.vol_refresh_voluntary or
+                timeutils.is_newer_than(self.vol_refresh_time,
+                                        self.vol_refresh_interval)):
+            try:
+                job_set = set_safe_attr(self, 'vol_refresh_running', True)
+                if not job_set:
+                    LOG.warn(
+                        _("Volume refresh job already running. Returning..."))
+                    return
+                self.vol_refresh_voluntary = False
+                self._refresh_capacity_info()
+                self.vol_refresh_time = timeutils.utcnow()
+            except Exception as e:
+                LOG.warn(_("Error refreshing vol capacity. Message: %s"), e)
+            finally:
+                set_safe_attr(self, 'vol_refresh_running', False)
+        data['total_capacity_gb'] = self.total_gb
+        data['free_capacity_gb'] = self.free_gb
+
+    def _refresh_capacity_info(self):
+        """Gets the latest capacity information."""
+        LOG.info(_("Refreshing capacity info for %s."), self.client)
+        total_bytes = 0
+        free_bytes = 0
+        vols = self._get_filer_volumes()
+        for vol in vols:
+            volume = vol.get_child_content('name')
+            if self.volume_list and not volume in self.volume_list:
+                continue
+            state = vol.get_child_content('state')
+            inconsistent = vol.get_child_content('is-inconsistent')
+            invalid = vol.get_child_content('is-invalid')
+            if (state == 'online' and inconsistent == 'false'
+                    and invalid == 'false'):
+                total_size = vol.get_child_content('size-total')
+                if total_size:
+                    total_bytes = total_bytes + int(total_size)
+                avl_size = vol.get_child_content('size-available')
+                if avl_size:
+                    free_bytes = free_bytes + int(avl_size)
+        self.total_gb = total_bytes / units.GiB
+        self.free_gb = free_bytes / units.GiB
+
+    def delete_volume(self, volume):
+        """Driver entry point for destroying existing volumes."""
+        super(NetAppDirect7modeISCSIDriver, self).delete_volume(volume)
+        self.vol_refresh_voluntary = True

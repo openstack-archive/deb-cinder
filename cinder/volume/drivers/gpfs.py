@@ -192,14 +192,8 @@ class GPFSDriver(driver.VolumeDriver):
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
 
-            try:
-                # check that configured directories are on GPFS
-                self._is_gpfs_path(directory)
-            except processutils.ProcessExecutionError:
-                msg = (_('%s is not on GPFS. Perhaps GPFS not mounted.') %
-                       directory)
-                LOG.error(msg)
-                raise exception.VolumeBackendAPIException(data=msg)
+            # Check if GPFS is mounted
+            self._verify_gpfs_path_state(directory)
 
             fs, fslevel = self._get_gpfs_filesystem_release_level(directory)
             if not fslevel >= GPFS_CLONE_MIN_RELEASE:
@@ -260,6 +254,9 @@ class GPFSDriver(driver.VolumeDriver):
 
     def create_volume(self, volume):
         """Creates a GPFS volume."""
+        # Check if GPFS is mounted
+        self._verify_gpfs_path_state(self.configuration.gpfs_mount_point_base)
+
         volume_path = self.local_path(volume)
         volume_size = volume['size']
 
@@ -290,15 +287,15 @@ class GPFSDriver(driver.VolumeDriver):
         snapshot_path = self.local_path(snapshot)
         self._create_gpfs_copy(src=snapshot_path, dest=volume_path)
         self._gpfs_redirect(volume_path)
-        data = image_utils.qemu_img_info(volume_path)
-        return {'size': math.ceil(data.virtual_size / 1024.0 ** 3)}
+        virt_size = self._resize_volume_file(volume, volume['size'])
+        return {'size': math.ceil(virt_size / units.GiB)}
 
     def create_cloned_volume(self, volume, src_vref):
         src = self.local_path(src_vref)
         dest = self.local_path(volume)
         self._create_gpfs_clone(src, dest)
-        data = image_utils.qemu_img_info(dest)
-        return {'size': math.ceil(data.virtual_size / 1024.0 ** 3)}
+        virt_size = self._resize_volume_file(volume, volume['size'])
+        return {'size': math.ceil(virt_size / units.GiB)}
 
     def _delete_gpfs_file(self, fchild):
         if not os.path.exists(fchild):
@@ -333,6 +330,9 @@ class GPFSDriver(driver.VolumeDriver):
 
     def delete_volume(self, volume):
         """Deletes a logical volume."""
+        # Check if GPFS is mounted
+        self._verify_gpfs_path_state(self.configuration.gpfs_mount_point_base)
+
         volume_path = self.local_path(volume)
         self._delete_gpfs_file(volume_path)
 
@@ -397,7 +397,7 @@ class GPFSDriver(driver.VolumeDriver):
         # snapshots will also be deleted.
         snapshot_path = self.local_path(snapshot)
         snapshot_ts_path = '%s.ts' % snapshot_path
-        os.rename(snapshot_path, snapshot_ts_path)
+        self._execute('mv', snapshot_path, snapshot_ts_path, run_as_root=True)
         self._execute('rm', '-f', snapshot_ts_path,
                       check_exit_code=False, run_as_root=True)
 
@@ -452,8 +452,8 @@ class GPFSDriver(driver.VolumeDriver):
         data["storage_protocol"] = 'file'
         free, capacity = self._get_available_capacity(self.configuration.
                                                       gpfs_mount_point_base)
-        data['total_capacity_gb'] = math.ceil(capacity / 1024.0 ** 3)
-        data['free_capacity_gb'] = math.ceil(free / 1024.0 ** 3)
+        data['total_capacity_gb'] = math.ceil(capacity / units.GiB)
+        data['free_capacity_gb'] = math.ceil(free / units.GiB)
         data['reserved_percentage'] = 0
         data['QoS_support'] = False
         self._stats = data
@@ -489,6 +489,9 @@ class GPFSDriver(driver.VolumeDriver):
         gpfs clone operation or with a file copy. If the image format is not
         raw, convert it to raw at the volume path.
         """
+        # Check if GPFS is mounted
+        self._verify_gpfs_path_state(self.configuration.gpfs_mount_point_base)
+
         cloneable_image, reason, image_path = self._is_cloneable(image_id)
         if not cloneable_image:
             LOG.debug('Image %(img)s not cloneable: %(reas)s' %
@@ -523,7 +526,7 @@ class GPFSDriver(driver.VolumeDriver):
             image_utils.convert_image(image_path, vol_path, 'raw')
             self._execute('chmod', '666', vol_path, run_as_root=True)
 
-        image_utils.resize_image(vol_path, volume['size'])
+        self._resize_volume_file(volume, volume['size'])
 
         return {'provider_location': None}, True
 
@@ -536,11 +539,33 @@ class GPFSDriver(driver.VolumeDriver):
         case, this function is invoked and uses fetch_to_raw to create the
         volume.
         """
+        # Check if GPFS is mounted
+        self._verify_gpfs_path_state(self.configuration.gpfs_mount_point_base)
+
         LOG.debug('Copy image to vol %s using image_utils fetch_to_raw' %
                   volume['id'])
         image_utils.fetch_to_raw(context, image_service, image_id,
-                                 self.local_path(volume))
-        image_utils.resize_image(self.local_path(volume), volume['size'])
+                                 self.local_path(volume), size=volume['size'])
+        self._resize_volume_file(volume, volume['size'])
+
+    def _resize_volume_file(self, volume, new_size):
+        """Resize volume file to new size."""
+        vol_path = self.local_path(volume)
+        try:
+            image_utils.resize_image(vol_path, new_size)
+        except processutils.ProcessExecutionError as exc:
+            LOG.error(_("Failed to resize volume "
+                        "%(volume_id)s, error: %(error)s") %
+                      {'volume_id': volume['id'],
+                       'error': exc.stderr})
+            raise exception.VolumeBackendAPIException(data=exc.stderr)
+
+        data = image_utils.qemu_img_info(vol_path)
+        return data.virtual_size
+
+    def extend_volume(self, volume, new_size):
+        """Extend an existing volume."""
+        self._resize_volume_file(volume, new_size)
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
@@ -586,9 +611,31 @@ class GPFSDriver(driver.VolumeDriver):
 
     def _get_available_capacity(self, path):
         """Calculate available space on path."""
+        # Check if GPFS is mounted
+        try:
+            self._verify_gpfs_path_state(path)
+            mounted = True
+        except exception.VolumeBackendAPIException:
+            mounted = False
+
+        # If GPFS is not mounted, return zero capacity. So that the volume
+        # request can be scheduled to another volume service.
+        if not mounted:
+            return 0, 0
+
         out, _ = self._execute('df', '-P', '-B', '1', path,
                                run_as_root=True)
         out = out.splitlines()[1]
         size = int(out.split()[1])
         available = int(out.split()[3])
         return available, size
+
+    def _verify_gpfs_path_state(self, path):
+        """Examine if GPFS is active and file system is mounted or not."""
+        try:
+            self._is_gpfs_path(path)
+        except processutils.ProcessExecutionError:
+            msg = (_('%s cannot be accessed. Verify that GPFS is active and '
+                     'file system is mounted.') % path)
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)

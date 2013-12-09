@@ -21,6 +21,7 @@ Handles all requests relating to volumes.
 """
 
 
+import collections
 import functools
 
 from oslo.config import cfg
@@ -99,7 +100,7 @@ class API(base.Base):
         self.key_manager = keymgr.API()
         super(API, self).__init__(db_driver)
 
-    def _valid_availabilty_zone(self, availability_zone):
+    def _valid_availability_zone(self, availability_zone):
         #NOTE(bcwaldon): This approach to caching fails to handle the case
         # that an availability zone is disabled/removed.
         if availability_zone in self.availability_zone_names:
@@ -138,7 +139,7 @@ class API(base.Base):
 
         def check_volume_az_zone(availability_zone):
             try:
-                return self._valid_availabilty_zone(availability_zone)
+                return self._valid_availability_zone(availability_zone)
             except exception.CinderException:
                 LOG.exception(_("Unable to query if %s is in the "
                                 "availability zone set"), availability_zone)
@@ -463,7 +464,7 @@ class API(base.Base):
 
         if volume['migration_status'] != None:
             # Volume is migrating, wait until done
-            msg = _("Volume cannot be deleted while migrating")
+            msg = _("Snapshot cannot be created while volume is migrating")
             raise exception.InvalidVolume(reason=msg)
 
         if ((not force) and (volume['status'] != "available")):
@@ -496,7 +497,10 @@ class API(base.Base):
                                     's_size': volume['size'],
                                     'd_consumed': _consumed(over),
                                     'd_quota': quotas[over]})
-                    raise exception.VolumeSizeExceedsAvailableQuota()
+                    raise exception.VolumeSizeExceedsAvailableQuota(
+                        requested=volume['size'],
+                        consumed=_consumed('gigabytes'),
+                        quota=quotas['gigabytes'])
                 elif 'snapshots' in over:
                     msg = _("Quota exceeded for %(s_pid)s, tried to create "
                             "snapshot (%(d_consumed)d snapshots "
@@ -597,10 +601,10 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
-        orig_meta = self.get_volume_metadata(context, volume)
         if delete:
             _metadata = metadata
         else:
+            orig_meta = self.get_volume_metadata(context, volume)
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
@@ -642,10 +646,10 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
-        orig_meta = self.get_volume_admin_metadata(context, volume)
         if delete:
             _metadata = metadata
         else:
+            orig_meta = self.get_volume_admin_metadata(context, volume)
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
@@ -676,10 +680,10 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
-        orig_meta = self.get_snapshot_metadata(context, snapshot)
         if delete:
             _metadata = metadata
         else:
+            orig_meta = self.get_snapshot_metadata(context, snapshot)
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
@@ -696,6 +700,15 @@ class API(base.Base):
 
     def get_snapshot_metadata_value(self, snapshot, key):
         pass
+
+    def get_volumes_image_metadata(self, context):
+        check_policy(context, 'get_volumes_image_metadata')
+        db_data = self.db.volume_glance_metadata_get_all(context)
+        results = collections.defaultdict(dict)
+        for meta_entry in db_data:
+            results[meta_entry['volume_id']].update({meta_entry['key']:
+                                                     meta_entry['value']})
+        return results
 
     @wrap_check_policy
     def get_volume_image_metadata(self, context, volume):

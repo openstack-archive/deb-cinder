@@ -74,7 +74,7 @@ class FakeImageService:
 
 class TestUtil(test.TestCase):
     def test_ascii_str(self):
-        self.assertEqual(None, driver.ascii_str(None))
+        self.assertIsNone(driver.ascii_str(None))
         self.assertEqual('foo', driver.ascii_str('foo'))
         self.assertEqual('foo', driver.ascii_str(u'foo'))
         self.assertRaises(UnicodeEncodeError,
@@ -116,7 +116,7 @@ class RBDTestCase(test.TestCase):
         self.rbd.RBD_FEATURE_LAYERING = 1
         _mock_rbd = self.mox.CreateMockAnything()
         self.rbd.RBD().AndReturn(_mock_rbd)
-        _mock_rbd.create(mox.IgnoreArg(), str(name), size * 1024 ** 3,
+        _mock_rbd.create(mox.IgnoreArg(), str(name), size * units.GiB,
                          old_format=False,
                          features=self.rbd.RBD_FEATURE_LAYERING)
         mock_client.__exit__(None, None, None).AndReturn(None)
@@ -293,9 +293,13 @@ class RBDTestCase(test.TestCase):
                 def __init__(self, name):
                     self.name = name
             yield FakeTmp('test')
+
+        def fake_fetch_to_raw(ctx, image_service, image_id, path, size=None):
+            pass
+
         self.stubs.Set(tempfile, 'NamedTemporaryFile', fake_temp_file)
         self.stubs.Set(os.path, 'exists', lambda x: True)
-        self.stubs.Set(image_utils, 'fetch_to_raw', lambda w, x, y, z: None)
+        self.stubs.Set(image_utils, 'fetch_to_raw', fake_fetch_to_raw)
         self.stubs.Set(self.driver, 'delete_volume', lambda x: None)
         self.stubs.Set(self.driver, '_resize', lambda x: None)
         self.driver.copy_image_to_volume(None, {'name': 'test',

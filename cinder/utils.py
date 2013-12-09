@@ -30,6 +30,7 @@ import pyclbr
 import random
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -149,10 +150,21 @@ def check_ssh_injection(cmd_list):
     # Check whether injection attacks exist
     for arg in cmd_list:
         arg = arg.strip()
-        # First, check no space in the middle of arg
-        arg_len = len(arg.split())
-        if arg_len > 1:
-            raise exception.SSHInjectionThreat(command=str(cmd_list))
+
+        # Check for matching quotes on the ends
+        is_quoted = re.match('^(?P<quote>[\'"])(?P<quoted>.*)(?P=quote)$', arg)
+        if is_quoted:
+            # Check for unescaped quotes within the quoted argument
+            quoted = is_quoted.group('quoted')
+            if quoted:
+                if (re.match('[\'"]', quoted) or
+                        re.search('[^\\\\][\'"]', quoted)):
+                    raise exception.SSHInjectionThreat(command=str(cmd_list))
+        else:
+            # We only allow spaces within quoted arguments, and that
+            # is the only special character allowed within quotes
+            if len(arg.split()) > 1:
+                raise exception.SSHInjectionThreat(command=str(cmd_list))
 
         # Second, check whether danger character in command. So the shell
         # special operator must be a single argument.
@@ -209,7 +221,7 @@ class SSHPool(pools.Pool):
                 raise exception.CinderException(msg)
 
             # Paramiko by default sets the socket timeout to 0.1 seconds,
-            # ignoring what we set thru the sshclient. This doesn't help for
+            # ignoring what we set through the sshclient. This doesn't help for
             # keeping long lived connections. Hence we have to bypass it, by
             # overriding it after the transport is initialized. We are setting
             # the sockettimeout to None and setting a keepalive packet so that,
@@ -226,11 +238,12 @@ class SSHPool(pools.Pool):
             raise paramiko.SSHException(msg)
 
     def get(self):
-        """
-        Return an item from the pool, when one is available.  This may
-        cause the calling greenthread to block. Check if a connection is active
-        before returning it. For dead connections create and return a new
-        connection.
+        """Return an item from the pool, when one is available.
+
+        This may cause the calling greenthread to block. Check if a
+        connection is active before returning it.
+
+        For dead connections create and return a new connection.
         """
         conn = super(SSHPool, self).get()
         if conn:
@@ -783,7 +796,8 @@ def brick_get_connector_properties():
 def brick_get_connector(protocol, driver=None,
                         execute=processutils.execute,
                         use_multipath=False,
-                        device_scan_attempts=3):
+                        device_scan_attempts=3,
+                        *args, **kwargs):
     """Wrapper to get a brick connector object.
     This automatically populates the required protocol as well
     as the root_helper needed to execute commands.
@@ -795,7 +809,8 @@ def brick_get_connector(protocol, driver=None,
                                                 execute=execute,
                                                 use_multipath=use_multipath,
                                                 device_scan_attempts=
-                                                device_scan_attempts)
+                                                device_scan_attempts,
+                                                *args, **kwargs)
 
 
 def require_driver_initialized(func):
@@ -807,3 +822,13 @@ def require_driver_initialized(func):
             raise exception.DriverNotInitialized(driver=driver_name)
         return func(self, *args, **kwargs)
     return wrapper
+
+
+def get_file_mode(path):
+    """This primarily exists to make unit testing easier."""
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
+def get_file_gid(path):
+    """This primarily exists to make unit testing easier."""
+    return os.stat(path).st_gid

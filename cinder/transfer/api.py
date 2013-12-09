@@ -59,9 +59,7 @@ class API(base.Base):
         return dict(rv.iteritems())
 
     def delete(self, context, transfer_id):
-        """
-        Make the RPC call to delete a volume transfer.
-        """
+        """Make the RPC call to delete a volume transfer."""
         volume_api.check_policy(context, 'delete_transfer')
         transfer = self.db.transfer_get(context, transfer_id)
 
@@ -162,7 +160,10 @@ class API(base.Base):
                                 's_size': vol_ref['size'],
                                 'd_consumed': _consumed('gigabytes'),
                                 'd_quota': quotas['gigabytes']})
-                raise exception.VolumeSizeExceedsAvailableQuota()
+                raise exception.VolumeSizeExceedsAvailableQuota(
+                    requested=vol_ref['size'],
+                    consumed=_consumed('gigabytes'),
+                    quota=quotas['gigabytes'])
             elif 'volumes' in overs:
                 msg = _("Quota exceeded for %(s_pid)s, tried to create "
                         "volume (%(d_consumed)d volumes "

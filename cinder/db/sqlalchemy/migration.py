@@ -19,48 +19,15 @@
 
 import os
 
-import distutils.version as dist_version
-import migrate
-from migrate.versioning import util as migrate_util
-import sqlalchemy
-
-from cinder.db import migration
-from cinder.db.sqlalchemy.api import get_engine
-from cinder import exception
-from cinder.openstack.common import log as logging
-
-
-LOG = logging.getLogger(__name__)
-
-
-@migrate_util.decorator
-def patched_with_engine(f, *a, **kw):
-    url = a[0]
-    engine = migrate_util.construct_engine(url, **kw)
-
-    try:
-        kw['engine'] = engine
-        return f(*a, **kw)
-    finally:
-        if isinstance(engine, migrate_util.Engine) and engine is not url:
-            migrate_util.log.debug('Disposing SQLAlchemy engine %s', engine)
-            engine.dispose()
-
-
-# TODO(jkoelker) When migrate 0.7.3 is released and cinder depends
-#                on that version or higher, this can be removed
-MIN_PKG_VERSION = dist_version.StrictVersion('0.7.3')
-if (not hasattr(migrate, '__version__') or
-        dist_version.StrictVersion(migrate.__version__) < MIN_PKG_VERSION):
-    migrate_util.with_engine = patched_with_engine
-
-
-# NOTE(jkoelker) Delay importing migrate until we are patched
 from migrate import exceptions as versioning_exceptions
 from migrate.versioning import api as versioning_api
 from migrate.versioning.repository import Repository
+import sqlalchemy
 
+from cinder.db.sqlalchemy.api import get_engine
+from cinder import exception
 
+INIT_VERSION = 000
 _REPOSITORY = None
 
 
@@ -93,10 +60,14 @@ def db_version():
         meta.reflect(bind=engine)
         tables = meta.tables
         if len(tables) == 0:
-            db_version_control(migration.INIT_VERSION)
+            db_version_control(INIT_VERSION)
             return versioning_api.db_version(get_engine(), repository)
         else:
             raise exception.Error(_("Upgrade DB using Essex release first."))
+
+
+def db_initial_version():
+    return INIT_VERSION
 
 
 def db_version_control(version=None):

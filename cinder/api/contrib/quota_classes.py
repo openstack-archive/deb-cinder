@@ -42,7 +42,7 @@ class QuotaClassTemplate(xmlutil.TemplateBuilder):
         return xmlutil.MasterTemplate(root, 1)
 
 
-class QuotaClassSetsController(object):
+class QuotaClassSetsController(wsgi.Controller):
 
     def _format_quota_set(self, quota_class, quota_set):
         """Convert the quota object to a result dict"""
@@ -68,9 +68,22 @@ class QuotaClassSetsController(object):
         context = req.environ['cinder.context']
         authorize(context)
         quota_class = id
+        if not self.is_valid_body(body, 'quota_class_set'):
+            msg = (_("Missing required element quota_class_set"
+                     " in request body."))
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
         for key in body['quota_class_set'].keys():
             if key in QUOTAS:
-                value = int(body['quota_class_set'][key])
+                try:
+                    value = int(body['quota_class_set'][key])
+                except ValueError:
+                    msg = _("Quota class limit must be specified as an"
+                            " integer value.")
+                    raise webob.exc.HTTPBadRequest(explanation=msg)
+                if value < -1:
+                    msg = _("Quota class limit must be -1 or greater.")
+                    raise webob.exc.HTTPBadRequest(explanation=msg)
                 try:
                     db.quota_class_update(context, quota_class, key, value)
                 except exception.QuotaClassNotFound:

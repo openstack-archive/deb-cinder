@@ -56,6 +56,7 @@ class BrickLvmTestCase(test.TestCase):
         return ("  LVM version:     2.03.00 (2012-03-06)\n", "")
 
     def fake_old_lvm_version(obj, *cmd, **kwargs):
+        # Does not support thin prov or snap activation
         return ("  LVM version:     2.02.65(2) (2012-03-06)\n", "")
 
     def fake_customised_lvm_version(obj, *cmd, **kwargs):
@@ -67,21 +68,23 @@ class BrickLvmTestCase(test.TestCase):
 
         if 'vgs, --noheadings, --unit=g, -o, name' == cmd_string:
             data = "  fake-volumes\n"
-        elif 'vgs, --noheadings, -o, name' == cmd_string:
+            data += "  some-other-vg\n"
+        elif 'vgs, --noheadings, -o, name, fake-volumes' == cmd_string:
             data = "  fake-volumes\n"
-        if 'vgs, --version' in cmd_string:
+        elif 'vgs, --version' in cmd_string:
             data = "  LVM version:     2.02.95(2) (2012-03-06)\n"
         elif 'vgs, --noheadings, -o uuid, fake-volumes' in cmd_string:
             data = "  kVxztV-dKpG-Rz7E-xtKY-jeju-QsYU-SLG6Z1\n"
-        elif 'vgs, --noheadings, --unit=g, -o, name,size,free,lv_count,uuid'\
-                in cmd_string:
-            data = "  fake-volumes:10.00g:10.00g:0:"\
+        elif 'vgs, --noheadings, --unit=g, ' \
+             '-o, name,size,free,lv_count,uuid, ' \
+             '--separator, :, --nosuffix' in cmd_string:
+            data = "  fake-volumes:10.00:10.00:0:"\
                    "kVxztV-dKpG-Rz7E-xtKY-jeju-QsYU-SLG6Z1\n"
             if 'fake-volumes' in cmd_string:
                 return (data, "")
-            data += "  fake-volumes-2:10.00g:10.00g:0:"\
+            data += "  fake-volumes-2:10.00:10.00:0:"\
                     "lWyauW-dKpG-Rz7E-xtKY-jeju-QsYU-SLG7Z2\n"
-            data += "  fake-volumes-3:10.00g:10.00g:0:"\
+            data += "  fake-volumes-3:10.00:10.00:0:"\
                     "mXzbuX-dKpG-Rz7E-xtKY-jeju-QsYU-SLG8Z3\n"
         elif 'lvs, --noheadings, --unit=g, -o, vg_name,name,size'\
                 in cmd_string:
@@ -99,7 +102,7 @@ class BrickLvmTestCase(test.TestCase):
             data += "  fake-volumes-2:/dev/sdb:10.00g:8.99g\n"
             data += "  fake-volumes-3:/dev/sdc:10.00g:8.99g\n"
         else:
-            pass
+            raise AssertionError('unexpected command called: %s' % cmd_string)
 
         return (data, "")
 
@@ -152,6 +155,65 @@ class BrickLvmTestCase(test.TestCase):
                        self.fake_customised_lvm_version)
         self.assertTrue(self.vg.supports_thin_provisioning('sudo'))
 
+    def test_snapshot_lv_activate_support(self):
+        self.vg._supports_snapshot_lv_activation = None
+        self.stubs.Set(processutils, 'execute', self.fake_execute)
+        self.assertTrue(self.vg.supports_snapshot_lv_activation)
+
+        self.vg._supports_snapshot_lv_activation = None
+        self.stubs.Set(processutils, 'execute', self.fake_old_lvm_version)
+        self.assertFalse(self.vg.supports_snapshot_lv_activation)
+
+        self.vg._supports_snapshot_lv_activation = None
+
+    def test_lvchange_ignskipact_support_yes(self):
+        """Tests the ability to test support for lvchange -K
+
+        Stubs provide output for "lvchange --help".
+        """
+
+        def lvchange_ign_yes(obj, *args, **kwargs):
+            return ("""
+              WARNING: Running as a non-root user. Functionality may be
+              unavailable.
+              lvchange: Change the attributes of logical volume(s)
+
+            lvchange
+                [-A|--autobackup y|n]
+                [-k|--setactivationskip {y|n}]
+                [-K|--ignoreactivationskip]
+                [-y|--yes]
+                [-Z|--zero {y|n}]
+                LogicalVolume[Path] [LogicalVolume[Path]...]
+            """, "")
+
+        self.vg._supports_lvchange_ignoreskipactivation = None
+        self.stubs.Set(self.vg, '_execute', lvchange_ign_yes)
+        self.assertTrue(self.vg.supports_lvchange_ignoreskipactivation)
+
+        self.vg._supports_lvchange_ignoreskipactivation = None
+
+    def test_lvchange_ignskipact_support_no(self):
+        def lvchange_ign_no(obj, *args, **kwargs):
+            return ("""
+              WARNING: Running as a non-root user. Functionality may be
+              unavailable.
+              lvchange: Change the attributes of logical volume(s)
+
+            lvchange
+                [-A|--autobackup y|n]
+                [-k|--setactivationskip {y|n}]
+                [-y|--yes]
+                [-Z|--zero {y|n}]
+                LogicalVolume[Path] [LogicalVolume[Path]...]
+            """, "")
+
+        self.vg._supports_lvchange_ignoreskipactivation = None
+        self.stubs.Set(self.vg, '_execute', lvchange_ign_no)
+        self.assertFalse(self.vg.supports_lvchange_ignoreskipactivation)
+
+        self.vg._supports_lvchange_ignoreskipactivation = None
+
     def test_volume_create_after_thin_creation(self):
         """Test self.vg.vg_thin_pool is set to pool_name
 
@@ -174,3 +236,17 @@ class BrickLvmTestCase(test.TestCase):
     def test_lv_has_snapshot(self):
         self.assertTrue(self.vg.lv_has_snapshot('fake-volumes'))
         self.assertFalse(self.vg.lv_has_snapshot('test-volumes'))
+
+    def test_activate_lv(self):
+        self._mox.StubOutWithMock(self.vg, '_execute')
+        self.vg._supports_lvchange_ignoreskipactivation = True
+
+        self.vg._execute('lvchange', '-a', 'y', '--yes', '-K',
+                         'fake-volumes/my-lv',
+                         root_helper='sudo', run_as_root=True)
+
+        self._mox.ReplayAll()
+
+        self.vg.activate_lv('my-lv')
+
+        self._mox.VerifyAll()

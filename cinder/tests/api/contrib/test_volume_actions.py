@@ -15,6 +15,7 @@
 #   under the License.
 
 import datetime
+import json
 import uuid
 import webob
 
@@ -78,6 +79,21 @@ class VolumeActionsTest(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(res.status_int, 200)
 
+    def test_initialize_connection_without_connector(self):
+        def fake_initialize_connection(*args, **kwargs):
+            return {}
+        self.stubs.Set(volume.API, 'initialize_connection',
+                       fake_initialize_connection)
+
+        body = {'os-initialize_connection': {}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 400)
+
     def test_terminate_connection(self):
         def fake_terminate_connection(*args, **kwargs):
             return {}
@@ -92,6 +108,21 @@ class VolumeActionsTest(test.TestCase):
 
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(res.status_int, 202)
+
+    def test_terminate_connection_without_connector(self):
+        def fake_terminate_connection(*args, **kwargs):
+            return {}
+        self.stubs.Set(volume.API, 'terminate_connection',
+                       fake_terminate_connection)
+
+        body = {'os-terminate_connection': {}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 400)
 
     def test_attach_to_instance(self):
         body = {'os-attach': {'instance_uuid': 'fake',
@@ -209,14 +240,26 @@ class VolumeActionsTest(test.TestCase):
         self.stubs.Set(volume.API, 'update_readonly_flag',
                        fake_update_readonly_flag)
 
-        body = {'os-update_readonly_flag': {'readonly': True}}
-        req = webob.Request.blank('/v2/fake/volumes/1/action')
-        req.method = "POST"
-        req.body = jsonutils.dumps(body)
-        req.headers["content-type"] = "application/json"
+        def make_update_readonly_flag_test(self, readonly, return_code):
+            body = {"os-update_readonly_flag": {"readonly": readonly}}
+            if readonly is None:
+                body = {"os-update_readonly_flag": {}}
+            req = webob.Request.blank('/v2/fake/volumes/1/action')
+            req.method = "POST"
+            req.body = jsonutils.dumps(body)
+            req.headers["content-type"] = "application/json"
+            res = req.get_response(fakes.wsgi_app())
+            self.assertEqual(res.status_int, return_code)
 
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 202)
+        make_update_readonly_flag_test(self, True, 202)
+        make_update_readonly_flag_test(self, False, 202)
+        make_update_readonly_flag_test(self, '1', 202)
+        make_update_readonly_flag_test(self, '0', 202)
+        make_update_readonly_flag_test(self, 'true', 202)
+        make_update_readonly_flag_test(self, 'false', 202)
+        make_update_readonly_flag_test(self, 'tt', 400)
+        make_update_readonly_flag_test(self, 11, 400)
+        make_update_readonly_flag_test(self, None, 400)
 
 
 def stub_volume_get(self, context, volume_id):
@@ -358,13 +401,28 @@ class VolumeImageActionsTest(test.TestCase):
                           body)
 
     def test_volume_upload_image_typeerror(self):
+        id = 1
         body = {"os-volume_upload_image_fake": "fake"}
-        req = fakes.HTTPRequest.blank('/v2/tenant1/volumes/%s/action' % id)
-        self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.controller._volume_upload_image,
-                          req,
-                          id,
-                          body)
+        req = webob.Request.blank('/v2/tenant1/volumes/%s/action' % id)
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 400)
+
+    def test_volume_upload_image_without_type(self):
+        id = 1
+        vol = {"container_format": 'bare',
+               "disk_format": 'raw',
+               "image_name": None,
+               "force": True}
+        body = {"": vol}
+        req = webob.Request.blank('/v2/tenant1/volumes/%s/action' % id)
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 400)
 
     def test_extend_volume_valueerror(self):
         id = 1

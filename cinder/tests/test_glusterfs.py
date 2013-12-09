@@ -19,6 +19,7 @@
 import errno
 import json
 import os
+import tempfile
 
 import mox as mox_lib
 from mox import IgnoreArg
@@ -30,10 +31,12 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.image import image_utils
+from cinder.openstack.common import imageutils
 from cinder.openstack.common import processutils as putils
 from cinder import test
 from cinder.tests.compute import test_nova
 from cinder import units
+from cinder import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers import glusterfs
 
@@ -310,6 +313,11 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
+        mox.StubOutWithMock(utils, 'get_file_mode')
+        mox.StubOutWithMock(utils, 'get_file_gid')
+        mox.StubOutWithMock(drv, '_execute')
+        mox.StubOutWithMock(drv, '_ensure_share_writable')
+
         mox.StubOutWithMock(drv, '_get_mount_point_for_share')
         drv._get_mount_point_for_share(self.TEST_EXPORT1).\
             AndReturn(self.TEST_MNT_POINT)
@@ -317,6 +325,15 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, '_mount_glusterfs')
         drv._mount_glusterfs(self.TEST_EXPORT1, self.TEST_MNT_POINT,
                              ensure=True)
+
+        utils.get_file_gid(self.TEST_MNT_POINT).AndReturn(333333)
+
+        utils.get_file_mode(self.TEST_MNT_POINT).AndReturn(0o777)
+
+        drv._ensure_share_writable(self.TEST_MNT_POINT)
+
+        drv._execute('chgrp', IgnoreArg(), self.TEST_MNT_POINT,
+                     run_as_root=True)
 
         mox.ReplayAll()
 
@@ -398,13 +415,60 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         mox.VerifyAll()
 
+    def _fake_load_shares_config(self, conf):
+        self._driver.shares = {'127.7.7.7:/gluster1': None}
+
+    def _fake_NamedTemporaryFile(self, prefix=None, dir=None):
+        raise OSError('Permission denied!')
+
+    def test_setup_set_share_permissions(self):
+        mox = self._mox
+        drv = self._driver
+
+        glusterfs.CONF.glusterfs_shares_config = self.TEST_SHARES_CONFIG_FILE
+
+        self.stubs.Set(drv, '_load_shares_config',
+                       self._fake_load_shares_config)
+        self.stubs.Set(tempfile, 'NamedTemporaryFile',
+                       self._fake_NamedTemporaryFile)
+        mox.StubOutWithMock(os.path, 'exists')
+        mox.StubOutWithMock(drv, '_execute')
+        mox.StubOutWithMock(utils, 'get_file_gid')
+        mox.StubOutWithMock(utils, 'get_file_mode')
+        mox.StubOutWithMock(os, 'getegid')
+
+        drv._execute('mount.glusterfs', check_exit_code=False)
+
+        drv._execute('mkdir', '-p', mox_lib.IgnoreArg())
+
+        os.path.exists(self.TEST_SHARES_CONFIG_FILE).AndReturn(True)
+
+        drv._execute('mount', '-t', 'glusterfs', '127.7.7.7:/gluster1',
+                     mox_lib.IgnoreArg(), run_as_root=True)
+
+        utils.get_file_gid(mox_lib.IgnoreArg()).AndReturn(33333)
+        # perms not writable
+        utils.get_file_mode(mox_lib.IgnoreArg()).AndReturn(0o000)
+
+        os.getegid().AndReturn(888)
+
+        drv._execute('chgrp', 888, mox_lib.IgnoreArg(), run_as_root=True)
+        drv._execute('chmod', 'g+w', mox_lib.IgnoreArg(), run_as_root=True)
+
+        mox.ReplayAll()
+
+        drv.do_setup(IsA(context.RequestContext))
+
+        mox.VerifyAll()
+
     def test_find_share_should_throw_error_if_there_is_no_mounted_shares(self):
         """_find_share should throw error if there is no mounted shares."""
         drv = self._driver
 
         drv._mounted_shares = []
 
-        self.assertRaises(exception.NotFound, drv._find_share,
+        self.assertRaises(exception.GlusterfsNoSharesMounted,
+                          drv._find_share,
                           self.TEST_SIZE_IN_GB)
 
     def test_find_share(self):
@@ -600,7 +664,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                                     volume_file)
         src_info_path = '%s.info' % volume_path
         volume_ref = {'id': volume['id'],
-                      'name': volume['name'] + '-clone',
+                      'name': volume['name'],
                       'status': volume['status'],
                       'provider_location': volume['provider_location'],
                       'size': volume['size']}
@@ -764,6 +828,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         (mox, drv) = self._mox, self._driver
 
         hashed = drv._get_hash_str(self.TEST_EXPORT1)
+        volume_dir = os.path.join(self.TEST_MNT_POINT_BASE, hashed)
         volume_path = '%s/%s/volume-%s' % (self.TEST_MNT_POINT_BASE,
                                            hashed,
                                            self.VOLUME_UUID)
@@ -788,9 +853,12 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, '_get_backing_chain_for_path')
         mox.StubOutWithMock(drv, '_get_matching_backing_file')
         mox.StubOutWithMock(drv, '_write_info_file')
+        mox.StubOutWithMock(drv, '_ensure_share_writable')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
 
-        img_info = image_utils.QemuImgInfo(qemu_img_info_output)
+        drv._ensure_share_writable(volume_dir)
+
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
         image_utils.qemu_img_info(snap_path_2).AndReturn(img_info)
 
         info_file_dict = {'active': snap_file_2,
@@ -849,6 +917,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         hashed = drv._get_hash_str(self.TEST_EXPORT1)
         volume_file = 'volume-%s' % self.VOLUME_UUID
+        volume_dir = os.path.join(self.TEST_MNT_POINT_BASE, hashed)
         volume_path = '%s/%s/%s' % (self.TEST_MNT_POINT_BASE,
                                     hashed,
                                     volume_file)
@@ -886,6 +955,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, '_write_info_file')
         mox.StubOutWithMock(drv, '_get_backing_chain_for_path')
         mox.StubOutWithMock(drv, 'get_active_image_from_info')
+        mox.StubOutWithMock(drv, '_ensure_share_writable')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
 
         info_file_dict = {self.SNAP_UUID_2: 'volume-%s.%s' %
@@ -893,10 +963,12 @@ class GlusterFsDriverTestCase(test.TestCase):
                           self.SNAP_UUID: 'volume-%s.%s' %
                           (self.VOLUME_UUID, self.SNAP_UUID)}
 
+        drv._ensure_share_writable(volume_dir)
+
         info_path = drv._local_path_volume(volume) + '.info'
         drv._read_info_file(info_path).AndReturn(info_file_dict)
 
-        img_info = image_utils.QemuImgInfo(qemu_img_info_output_snap_1)
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output_snap_1)
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
 
         snap_ref = {'name': 'test snap',
@@ -971,7 +1043,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         disk size: 473K
         """ % self.VOLUME_UUID
 
-        img_info = image_utils.QemuImgInfo(qemu_img_info_output)
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
 
         mox.StubOutWithMock(drv, '_execute')
         mox.StubOutWithMock(drv, 'get_active_image_from_info')
@@ -1127,6 +1199,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         hashed = drv._get_hash_str(self.TEST_EXPORT1)
         volume_file = 'volume-%s' % self.VOLUME_UUID
+        volume_dir = os.path.join(self.TEST_MNT_POINT_BASE, hashed)
         volume_path = '%s/%s/%s' % (self.TEST_MNT_POINT_BASE,
                                     hashed,
                                     volume_file)
@@ -1142,9 +1215,12 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(os.path, 'exists')
         mox.StubOutWithMock(db, 'snapshot_get')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
+        mox.StubOutWithMock(drv, '_ensure_share_writable')
 
         snap_info = {'active': snap_file,
                      self.SNAP_UUID: snap_file}
+
+        drv._ensure_share_writable(volume_dir)
 
         drv._read_info_file(info_path).AndReturn(snap_info)
 
@@ -1156,7 +1232,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         disk size: 173K
         backing file: %s
         """ % (snap_file, volume_file)
-        img_info = image_utils.QemuImgInfo(qemu_img_info_output)
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
 
         drv._read_info_file(info_path, empty_if_missing=True).\
@@ -1212,6 +1288,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         hashed = drv._get_hash_str(self.TEST_EXPORT1)
         volume_file = 'volume-%s' % self.VOLUME_UUID
+        volume_dir = os.path.join(self.TEST_MNT_POINT_BASE, hashed)
         volume_path = '%s/%s/%s' % (self.TEST_MNT_POINT_BASE,
                                     hashed,
                                     volume_file)
@@ -1229,10 +1306,13 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(os.path, 'exists')
         mox.StubOutWithMock(db, 'snapshot_get')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
+        mox.StubOutWithMock(drv, '_ensure_share_writable')
 
         snap_info = {'active': snap_file_2,
                      self.SNAP_UUID: snap_file,
                      self.SNAP_UUID_2: snap_file_2}
+
+        drv._ensure_share_writable(volume_dir)
 
         drv._read_info_file(info_path).AndReturn(snap_info)
 
@@ -1244,7 +1324,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         disk size: 173K
         backing file: %s
         """ % (snap_file, volume_file)
-        img_info = image_utils.QemuImgInfo(qemu_img_info_output)
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
 
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
 
@@ -1327,7 +1407,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         disk size: 173K
         backing file: %s
         """ % (snap_file, volume_file)
-        img_info = image_utils.QemuImgInfo(qemu_img_info_output)
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
 
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
 
@@ -1407,9 +1487,9 @@ class GlusterFsDriverTestCase(test.TestCase):
         qemu_img_output_3 = qemu_img_output % {'image_name': vol_filename_3,
                                                'backing_file': vol_filename_2}
 
-        info_1 = image_utils.QemuImgInfo(qemu_img_output_1)
-        info_2 = image_utils.QemuImgInfo(qemu_img_output_2)
-        info_3 = image_utils.QemuImgInfo(qemu_img_output_3)
+        info_1 = imageutils.QemuImgInfo(qemu_img_output_1)
+        info_2 = imageutils.QemuImgInfo(qemu_img_output_2)
+        info_3 = imageutils.QemuImgInfo(qemu_img_output_3)
 
         drv._local_volume_dir(volume).AndReturn(vol_dir)
         image_utils.qemu_img_info(vol_path_3).\
@@ -1441,6 +1521,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(image_utils, 'convert_image')
         mox.StubOutWithMock(drv, '_read_info_file')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
+        mox.StubOutWithMock(drv, '_set_rw_permissions_for_all')
 
         dest_volume = self._simple_volume(
             'c1073000-0000-0000-0000-0000000c1073')
@@ -1476,11 +1557,13 @@ class GlusterFsDriverTestCase(test.TestCase):
         disk size: 173K
         backing file: %s
         """ % (snap_file, src_volume['name'])
-        img_info = image_utils.QemuImgInfo(qemu_img_output)
+        img_info = imageutils.QemuImgInfo(qemu_img_output)
 
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
 
         image_utils.convert_image(src_vol_path, dest_vol_path, 'raw')
+
+        drv._set_rw_permissions_for_all(dest_vol_path)
 
         mox.ReplayAll()
 
@@ -1508,7 +1591,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                       'size': volume['size'],
                       'status': volume['status'],
                       'provider_location': volume['provider_location'],
-                      'name': 'volume-' + volume['id'] + '-clone'}
+                      'name': 'volume-' + volume['id']}
 
         drv.create_snapshot(snap_ref)
         drv._copy_volume_from_snapshot(snap_ref,
@@ -1533,7 +1616,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         virtual size: 1.0G (1073741824 bytes)
         disk size: 173K
         """ % volume['name']
-        img_info = image_utils.QemuImgInfo(qemu_img_output)
+        img_info = imageutils.QemuImgInfo(qemu_img_output)
 
         mox.StubOutWithMock(drv, 'get_active_image_from_info')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')

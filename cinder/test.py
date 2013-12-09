@@ -35,6 +35,7 @@ import mox
 from oslo.config import cfg
 import stubout
 import testtools
+from testtools import matchers
 
 from cinder.common import config  # Need to register global_opts
 from cinder.db import migration
@@ -77,7 +78,7 @@ class Database(fixtures.Fixture):
         self.engine.dispose()
         conn = self.engine.connect()
         if sql_connection == "sqlite://":
-            if db_migrate.db_version() > db_migrate.INIT_VERSION:
+            if db_migrate.db_version() > db_migrate.db_initial_version():
                 return
         else:
             testdb = os.path.join(CONF.state_path, sqlite_db)
@@ -267,3 +268,25 @@ class TestCase(testtools.TestCase):
                                     'd1value': d1value,
                                     'd2value': d2value,
                                 })
+
+    def assertGreater(self, first, second, msg=None):
+        """Python < v2.7 compatibility.  Assert 'first' > 'second'"""
+        try:
+            f = super(TestCase, self).assertGreater
+        except AttributeError:
+            self.assertThat(first,
+                            matchers.GreaterThan(second),
+                            message=msg or '')
+        else:
+            f(first, second, msg=msg)
+
+    def assertGreaterEqual(self, first, second, msg=None):
+        """Python < v2.7 compatibility.  Assert 'first' >= 'second'"""
+        try:
+            f = super(TestCase, self).assertGreaterEqual
+        except AttributeError:
+            self.assertThat(first,
+                            matchers.Not(matchers.LessThan(second)),
+                            message=msg or '')
+        else:
+            f(first, second, msg=msg)

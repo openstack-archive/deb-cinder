@@ -29,6 +29,7 @@ from cinder import utils
 from cinder import wsgi
 
 from lxml import etree
+import six
 from xml.dom import minidom
 from xml.parsers import expat
 
@@ -64,6 +65,80 @@ _MEDIA_TYPE_MAP = {
 
 class Request(webob.Request):
     """Add some OpenStack API-specific logic to the base webob.Request."""
+
+    def __init__(self, *args, **kwargs):
+        super(Request, self).__init__(*args, **kwargs)
+        self._resource_cache = {}
+
+    def cache_resource(self, resource_to_cache, id_attribute='id', name=None):
+        """Cache the given resource.
+
+        Allow API methods to cache objects, such as results from a DB query,
+        to be used by API extensions within the same API request.
+
+        The resource_to_cache can be a list or an individual resource,
+        but ultimately resources are cached individually using the given
+        id_attribute.
+
+        Different resources types might need to be cached during the same
+        request, they can be cached using the name parameter. For example:
+
+            Controller 1:
+                request.cache_resource(db_volumes, 'volumes')
+                request.cache_resource(db_volume_types, 'types')
+            Controller 2:
+                db_volumes = request.cached_resource('volumes')
+                db_type_1 = request.cached_resource_by_id('1', 'types')
+
+        If no name is given, a default name will be used for the resource.
+
+        An instance of this class only lives for the lifetime of a
+        single API request, so there's no need to implement full
+        cache management.
+        """
+        if not isinstance(resource_to_cache, list):
+            resource_to_cache = [resource_to_cache]
+        if not name:
+            name = self.path
+        cached_resources = self._resource_cache.setdefault(name, {})
+        for resource in resource_to_cache:
+            cached_resources[resource[id_attribute]] = resource
+
+    def cached_resource(self, name=None):
+        """Get the cached resources cached under the given resource name.
+
+        Allow an API extension to get previously stored objects within
+        the same API request.
+
+        Note that the object data will be slightly stale.
+
+        :returns: a dict of id_attribute to the resource from the cached
+                  resources, an empty map if an empty collection was cached,
+                  or None if nothing has been cached yet under this name
+        """
+        if not name:
+            name = self.path
+        if name not in self._resource_cache:
+            # Nothing has been cached for this key yet
+            return None
+        return self._resource_cache[name]
+
+    def cached_resource_by_id(self, resource_id, name=None):
+        """Get a resource by ID cached under the given resource name.
+
+        Allow an API extension to get a previously stored object
+        within the same API request. This is basically a convenience method
+        to lookup by ID on the dictionary of all cached resources.
+
+        Note that the object data will be slightly stale.
+
+        :returns: the cached resource or None if the item is not in the cache
+        """
+        resources = self.cached_resource(name)
+        if not resources:
+            # Nothing has been cached yet for this key yet
+            return None
+        return resources.get(resource_id)
 
     def best_match_content_type(self):
         """Determine the requested response content-type."""
@@ -154,7 +229,8 @@ class JSONDeserializer(TextDeserializer):
 class XMLDeserializer(TextDeserializer):
 
     def __init__(self, metadata=None):
-        """
+        """Initialize XMLDeserializer.
+
         :param metadata: information needed to deserialize xml into
                          a dictionary.
         """
@@ -269,7 +345,8 @@ class JSONDictSerializer(DictSerializer):
 class XMLDictSerializer(DictSerializer):
 
     def __init__(self, metadata=None, xmlns=None):
-        """
+        """Initialize XMLDictSerializer.
+
         :param metadata: information needed to deserialize xml into
                          a dictionary.
         :param xmlns: XML namespace to include with serialized xml
@@ -631,7 +708,8 @@ class Resource(wsgi.Application):
     """
 
     def __init__(self, controller, action_peek=None, **deserializers):
-        """
+        """Initialize Resource.
+
         :param controller: object that implement methods created by routes lib
         :param action_peek: dictionary of routines for peeking into an action
                             request body to determine the desired action
@@ -712,6 +790,11 @@ class Resource(wsgi.Application):
         return args
 
     def get_body(self, request):
+
+        if len(request.body) == 0:
+            LOG.debug(_("Empty body provided in request"))
+            return None, ''
+
         try:
             content_type = request.get_content_type()
         except exception.InvalidContentType:
@@ -720,10 +803,6 @@ class Resource(wsgi.Application):
 
         if not content_type:
             LOG.debug(_("No Content-Type provided in request"))
-            return None, ''
-
-        if len(request.body) <= 0:
-            LOG.debug(_("Empty body provided in request"))
             return None, ''
 
         return content_type, request.body
@@ -1024,10 +1103,9 @@ class ControllerMetaclass(type):
                                                        cls_dict)
 
 
+@six.add_metaclass(ControllerMetaclass)
 class Controller(object):
     """Default controller."""
-
-    __metaclass__ = ControllerMetaclass
 
     _view_builder_class = None
 
@@ -1122,14 +1200,10 @@ def _set_request_id_header(req, headers):
 
 
 class OverLimitFault(webob.exc.HTTPException):
-    """
-    Rate-limited request response.
-    """
+    """Rate-limited request response."""
 
     def __init__(self, message, details, retry_time):
-        """
-        Initialize new `OverLimitFault` with relevant information.
-        """
+        """Initialize new `OverLimitFault` with relevant information."""
         hdrs = OverLimitFault._retry_after(retry_time)
         self.wrapped_exc = webob.exc.HTTPRequestEntityTooLarge(headers=hdrs)
         self.content = {

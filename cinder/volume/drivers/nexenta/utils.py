@@ -14,8 +14,19 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+"""
+:mod:`nexenta.utils` -- Nexenta-specific utils functions.
+=========================================================
+
+.. automodule:: nexenta.utils
+.. moduleauthor:: Victor Rodionov <victor.rodionov@nexenta.com>
+.. moduleauthor:: Mikhail Khodos <mikhail.khodos@nexenta.com>
+"""
 
 import re
+import urlparse
+
+from cinder import units
 
 
 def str2size(s, scale=1024):
@@ -40,7 +51,70 @@ def str2size(s, scale=1024):
     value = float(groups[0])
     suffix = len(groups) > 1 and groups[1].upper() or 'B'
 
-    types = ['B', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y']
+    types = ('B', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y')
     for i, t in enumerate(types):
         if suffix == t:
             return int(value * pow(scale, i))
+
+
+def str2gib_size(s):
+    """Covert size-string to size in gigabytes."""
+    size_in_bytes = str2size(s)
+    return size_in_bytes / units.GiB
+
+
+def get_rrmgr_cmd(src, dst, compression=None, tcp_buf_size=None,
+                  connections=None):
+    """Returns rrmgr command for source and destination."""
+    cmd = ['rrmgr', '-s', 'zfs']
+    if compression:
+        cmd.extend(['-c', '%s' % str(compression)])
+    cmd.append('-q')
+    cmd.append('-e')
+    if tcp_buf_size:
+        cmd.extend(['-w', str(tcp_buf_size)])
+    if connections:
+        cmd.extend(['-n', str(connections)])
+    cmd.extend([src, dst])
+    return ' '.join(cmd)
+
+
+def parse_nms_url(url):
+    """Parse NMS url into normalized parts like scheme, user, host and others.
+
+    Example NMS URL:
+        auto://admin:nexenta@192.168.1.1:2000/
+
+    NMS URL parts:
+        auto                True if url starts with auto://, protocol will be
+                            automatically switched to https if http not
+                            supported;
+        scheme (auto)       connection protocol (http or https);
+        user (admin)        NMS user;
+        password (nexenta)  NMS password;
+        host (192.168.1.1)  NMS host;
+        port (2000)         NMS port.
+
+    :param url: url string
+    :return: tuple (auto, scheme, user, password, host, port, path)
+    """
+    pr = urlparse.urlparse(url)
+    scheme = pr.scheme
+    auto = scheme == 'auto'
+    if auto:
+        scheme = 'http'
+    user = 'admin'
+    password = 'nexenta'
+    if '@' not in pr.netloc:
+        host_and_port = pr.netloc
+    else:
+        user_and_password, host_and_port = pr.netloc.split('@', 1)
+        if ':' in user_and_password:
+            user, password = user_and_password.split(':')
+        else:
+            user = user_and_password
+    if ':' in host_and_port:
+        host, port = host_and_port.split(':', 1)
+    else:
+        host, port = host_and_port, '2000'
+    return auto, scheme, user, password, host, port, '/rest/nms/'

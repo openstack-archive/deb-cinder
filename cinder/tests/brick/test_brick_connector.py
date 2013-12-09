@@ -105,6 +105,7 @@ class HostDriverTestCase(test.TestCase):
 
     def setUp(self):
         super(HostDriverTestCase, self).setUp()
+        self.stubs.Set(os.path, 'isdir', lambda x: True)
         self.devlist = ['device1', 'device2']
         self.stubs.Set(os, 'listdir', lambda x: self.devlist)
 
@@ -157,7 +158,7 @@ class ISCSIConnectorTestCase(ConnectorTestCase):
 
         self.stubs.Set(self.connector, '_execute', initiator_no_file)
         initiator = self.connector.get_initiator()
-        self.assertEqual(initiator, None)
+        self.assertIsNone(initiator)
         self.stubs.Set(self.connector, '_execute', initiator_get_text)
         initiator = self.connector.get_initiator()
         self.assertEqual(initiator, 'iqn.1234-56.foo.bar:01:23456789abc')
@@ -605,8 +606,8 @@ class LocalConnectorTestCase(test.TestCase):
         self.connector = connector.LocalConnector(None)
         cprops = self.connection_properties
         dev_info = self.connector.connect_volume(cprops)
-        self.assertTrue(dev_info['type'] == 'local')
-        self.assertTrue(dev_info['path'] == cprops['device_path'])
+        self.assertEqual(dev_info['type'], 'local')
+        self.assertEqual(dev_info['path'], cprops['device_path'])
 
     def test_connect_volume_with_invalid_connection_data(self):
         self.connector = connector.LocalConnector(None)

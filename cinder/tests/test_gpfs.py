@@ -14,6 +14,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import mox as mox_lib
 import os
 import tempfile
 
@@ -23,11 +24,13 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.image import image_utils
+from cinder.openstack.common import imageutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import test
 from cinder.tests import utils as test_utils
+from cinder import units
 from cinder import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.gpfs import GPFSDriver
@@ -193,7 +196,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.volume.create_volume(self.context, volume_src['id'])
         snapCount = len(db.snapshot_get_all_for_volume(self.context,
                                                        volume_src['id']))
-        self.assertTrue(snapCount == 0)
+        self.assertEqual(snapCount, 0)
         snapshot = self._create_snapshot(volume_src['id'])
         snapshot_id = snapshot['id']
         self.volume.create_snapshot(self.context, volume_src['id'],
@@ -202,14 +205,14 @@ class GPFSDriverTestCase(test.TestCase):
                                                     snapshot['name'])))
         snapCount = len(db.snapshot_get_all_for_volume(self.context,
                                                        volume_src['id']))
-        self.assertTrue(snapCount == 1)
+        self.assertEqual(snapCount, 1)
         self.volume.delete_snapshot(self.context, snapshot_id)
         self.volume.delete_volume(self.context, volume_src['id'])
         self.assertFalse(os.path.exists(os.path.join(self.volumes_path,
                                                      snapshot['name'])))
         snapCount = len(db.snapshot_get_all_for_volume(self.context,
                                                        volume_src['id']))
-        self.assertTrue(snapCount == 0)
+        self.assertEqual(snapCount, 0)
 
     def test_create_volume_from_snapshot(self):
         volume_src = test_utils.create_volume(self.context, host=CONF.host)
@@ -361,6 +364,43 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual(stats['volume_backend_name'], 'GPFS')
         self.assertEqual(stats['storage_protocol'], 'file')
 
+    def test_extend_volume(self):
+        new_vol_size = 15
+        mox = mox_lib.Mox()
+        volume = test_utils.create_volume(self.context, host=CONF.host)
+        volpath = os.path.join(self.volumes_path, volume['name'])
+
+        qemu_img_info_output = """image: %s
+        file format: raw
+        virtual size: %sG (%s bytes)
+        backing file: %s
+        """ % (volume['name'], new_vol_size, new_vol_size * units.GiB, volpath)
+        mox.StubOutWithMock(image_utils, 'resize_image')
+        image_utils.resize_image(volpath, new_vol_size)
+
+        mox.StubOutWithMock(image_utils, 'qemu_img_info')
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
+        image_utils.qemu_img_info(volpath).AndReturn(img_info)
+        mox.ReplayAll()
+
+        self.driver.extend_volume(volume, new_vol_size)
+        mox.VerifyAll()
+
+    def test_extend_volume_with_failure(self):
+        new_vol_size = 15
+        mox = mox_lib.Mox()
+        volume = test_utils.create_volume(self.context, host=CONF.host)
+        volpath = os.path.join(self.volumes_path, volume['name'])
+
+        mox.StubOutWithMock(image_utils, 'resize_image')
+        image_utils.resize_image(volpath, new_vol_size).AndRaise(
+            processutils.ProcessExecutionError('error'))
+        mox.ReplayAll()
+
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume, volume, new_vol_size)
+        mox.VerifyAll()
+
     def test_check_for_setup_error_ok(self):
         self.stubs.Set(GPFSDriver, '_get_gpfs_state',
                        self._fake_gpfs_get_state_active)
@@ -434,7 +474,7 @@ class GPFSDriverTestCase(test.TestCase):
         return False
 
     def _fake_get_available_capacity(self, path):
-        fake_avail = 80 * 1024 * 1024 * 1024
+        fake_avail = 80 * units.GiB
         fake_size = 2 * fake_avail
         return fake_avail, fake_size
 
@@ -485,17 +525,18 @@ class GPFSDriverTestCase(test.TestCase):
         data = FakeQemuImgInfo()
         data.file_format = 'qcow2'
         data.backing_file = None
-        data.virtual_size = 1024 * 1024 * 1024
+        data.virtual_size = 1 * units.GiB
         return data
 
     def _fake_qemu_raw_image_info(self, path):
         data = FakeQemuImgInfo()
         data.file_format = 'raw'
         data.backing_file = None
-        data.virtual_size = 1024 * 1024 * 1024
+        data.virtual_size = 1 * units.GiB
         return data
 
     def _fake_qemu_image_resize(self, path, size):
+        LOG.info('wtf')
         pass
 
     def _fake_delete_gpfs_file(self, fchild):

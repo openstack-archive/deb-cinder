@@ -34,6 +34,7 @@ from cinder import exception
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder import utils
+from cinder.volume.drivers.huawei import huawei_utils
 from cinder.volume import volume_types
 
 
@@ -42,17 +43,6 @@ LOG = logging.getLogger(__name__)
 HOST_GROUP_NAME = 'HostGroup_OpenStack'
 HOST_NAME_PREFIX = 'Host_'
 VOL_AND_SNAP_NAME_PREFIX = 'OpenStack_'
-
-
-def parse_xml_file(filepath):
-    """Get root of xml file."""
-    try:
-        tree = ET.parse(filepath)
-        root = tree.getroot()
-        return root
-    except IOError as err:
-        LOG.error(_('parse_xml_file: %s') % err)
-        raise err
 
 
 def ssh_read(user, channel, cmd, timeout):
@@ -75,7 +65,7 @@ def ssh_read(user, channel, cmd, timeout):
                 if result.startswith(cmd) and result.endswith(user + ':/>'):
                     break
                 # Some commands need to send 'y'.
-                elif re.search('(y/n)', result):
+                elif re.search('(y/n)|y or n', result):
                     break
                 # Reach maximum limit of SSH connection.
                 elif re.search('No response message', result):
@@ -105,7 +95,8 @@ class TseriesCommon():
         self.hostgroup_id = None
         self.ssh_pool = None
         self.lock_ip = threading.Lock()
-        self.luncopy_list = []  # to storage LUNCopy name
+        self.luncopy_list = []  # to store LUNCopy name
+        self.extended_lun_dict = {}
 
     def do_setup(self, context):
         """Check config file."""
@@ -113,33 +104,42 @@ class TseriesCommon():
 
         self._check_conf_file()
         self.login_info = self._get_login_info()
-        self.lun_distribution = self._get_lun_distribution_info()
+        exist_luns = self._get_all_luns_info()
+        self.lun_distribution = self._get_lun_distribution_info(exist_luns)
         self.luncopy_list = self._get_all_luncopy_name()
         self.hostgroup_id = self._get_hostgroup_id(HOST_GROUP_NAME)
+        self.extended_lun_dict = self._get_extended_lun(exist_luns)
 
     def _check_conf_file(self):
         """Check config file, make sure essential items are set."""
-        root = parse_xml_file(self.xml_conf)
-        IP1 = root.findtext('Storage/ControllerIP0')
-        IP2 = root.findtext('Storage/ControllerIP1')
-        username = root.findtext('Storage/UserName')
-        pwd = root.findtext('Storage/UserPassword')
-        pool_node = root.findall('LUN/StoragePool')
+        root = huawei_utils.parse_xml_file(self.xml_conf)
+        check_list = ['Storage/ControllerIP0', 'Storage/ControllerIP1',
+                      'Storage/UserName', 'Storage/UserPassword']
+        for item in check_list:
+            if not huawei_utils.is_xml_item_exist(root, item):
+                err_msg = (_('_check_conf_file: Config file invalid. '
+                             '%s must be set.') % item)
+                LOG.error(err_msg)
+                raise exception.InvalidInput(reason=err_msg)
 
-        if (not IP1 or not IP2) or (not username) or (not pwd):
-            err_msg = (_('_check_conf_file: Config file invalid. Controler IP,'
-                         ' UserName and UserPassword must be set.'))
+        # make sure storage pool is set
+        if not huawei_utils.is_xml_item_exist(root, 'LUN/StoragePool', 'Name'):
+            err_msg = _('_check_conf_file: Config file invalid. '
+                        'StoragePool must be set.')
             LOG.error(err_msg)
             raise exception.InvalidInput(reason=err_msg)
 
-        for pool in pool_node:
-            if pool.attrib['Name']:
-                return
-        # If pool_node is None or pool.attrib['Name'] is None.
-        err_msg = (_('_check_conf_file: Config file invalid. '
-                     'StoragePool must be set.'))
-        LOG.error(err_msg)
-        raise exception.InvalidInput(reason=err_msg)
+        # If setting os type, make sure it valid
+        if huawei_utils.is_xml_item_exist(root, 'Host', 'OSType'):
+            os_list = huawei_utils.os_type.keys()
+            if not huawei_utils.is_xml_item_valid(root, 'Host', os_list,
+                                                  'OSType'):
+                err_msg = (_('_check_conf_file: Config file invalid. '
+                             'Host OSType is invalid.\n'
+                             'The valid values are: %(os_list)s')
+                           % {'os_list': os_list})
+                LOG.error(err_msg)
+                raise exception.InvalidInput(reason=err_msg)
 
     def _get_login_info(self):
         """Get login IP, username and password from config file."""
@@ -175,7 +175,7 @@ class TseriesCommon():
     def _change_file_mode(self, filepath):
         utils.execute('chmod', '777', filepath, run_as_root=True)
 
-    def _get_lun_distribution_info(self):
+    def _get_lun_distribution_info(self, luns):
         """Get LUN distribution information.
 
         For we have two controllers for each array, we want to make all
@@ -185,7 +185,6 @@ class TseriesCommon():
 
         """
 
-        luns = self._get_all_luns_info()
         ctr_info = [0, 0]
         for lun in luns:
             if (lun[6].startswith(VOL_AND_SNAP_NAME_PREFIX) and
@@ -209,6 +208,16 @@ class TseriesCommon():
                 if tmp_line[0].startswith(VOL_AND_SNAP_NAME_PREFIX):
                     luncopy_ids.append(tmp_line[0])
         return luncopy_ids
+
+    def _get_extended_lun(self, luns):
+        extended_dict = {}
+        for lun in luns:
+            if lun[6].startswith('ext'):
+                vol_name = lun[6].split('_')[1]
+                add_ids = extended_dict.get(vol_name, [])
+                add_ids = add_ids.append(lun[0])
+                extended_dict[vol_name] = add_ids
+        return extended_dict
 
     def create_volume(self, volume):
         """Create a new volume."""
@@ -356,7 +365,7 @@ class TseriesCommon():
                        'PrefetchTimes': '0',
                        'StoragePool': []}
 
-        root = parse_xml_file(self.xml_conf)
+        root = huawei_utils.parse_xml_file(self.xml_conf)
 
         luntype = root.findtext('LUN/LUNType')
         if luntype:
@@ -405,7 +414,7 @@ class TseriesCommon():
         maxpool_id = None
         maxpool_size = 0.0
         nameindex, sizeindex = ((1, 4) if luntype == 'Thin' else (5, 3))
-        pools_dev = sorted(pools_dev, key=lambda x: int(x[sizeindex]))
+        pools_dev = sorted(pools_dev, key=lambda x: float(x[sizeindex]))
         while len(pools_dev) > 0:
             pool = pools_dev.pop()
             if pool[nameindex] in pools_conf:
@@ -477,7 +486,7 @@ class TseriesCommon():
                 while True:
                     ssh_client.chan.send(cmd + '\n')
                     out = ssh_read(user, ssh_client.chan, cmd, 20)
-                    if out.find('(y/n)') > -1:
+                    if out.find('(y/n)') > -1 or out.find('y or n') > -1:
                         cmd = 'y'
                     else:
                         # Put SSH client back into SSH pool.
@@ -505,17 +514,39 @@ class TseriesCommon():
 
         self._update_login_info()
         volume_id = volume.get('provider_location', None)
-        if (volume_id is not None) and self._check_volume_created(volume_id):
-            self._delete_volume(volume_id)
-        else:
+        if volume_id is None or not self._check_volume_created(volume_id):
             err_msg = (_('delete_volume: Volume %(name)s does not exist.')
                        % {'name': volume['name']})
             LOG.warn(err_msg)
+            return
+        else:
+            name = volume_name[len(VOL_AND_SNAP_NAME_PREFIX):]
+            added_vol_ids = self.extended_lun_dict.get(name, None)
+            if added_vol_ids:
+                self._del_lun_from_extended_lun(volume_id, added_vol_ids)
+                self.extended_lun_dict.pop(name)
+            self._delete_volume(volume_id)
 
     def _check_volume_created(self, volume_id):
         cli_cmd = 'showlun -lun %s' % volume_id
         out = self._execute_cli(cli_cmd)
         return (True if re.search('LUN Information', out) else False)
+
+    def _del_lun_from_extended_lun(self, extended_id, added_ids):
+        cli_cmd = 'rmlunfromextlun -ext %s' % extended_id
+        out = self._execute_cli(cli_cmd)
+
+        self._assert_cli_operate_out('_del_lun_from_extended_lun',
+                                     ('Failed to remove LUN from extended '
+                                      'LUN: %s' % extended_id),
+                                     cli_cmd, out)
+        for id in added_ids:
+            cli_cmd = 'dellun -lun %s' % id
+            out = self._execute_cli(cli_cmd)
+
+            self._assert_cli_operate_out('_del_lun_from_extended_lun',
+                                         'Failed to delete LUN: %s' % id,
+                                         cli_cmd, out)
 
     def _delete_volume(self, volumeid):
         """Run CLI command to delete volume."""
@@ -698,6 +729,50 @@ class TseriesCommon():
                 if lun[6] == lun_name:
                     return lun[0]
         return None
+
+    def extend_volume(self, volume, new_size):
+        extended_vol_name = self._name_translate(volume['name'])
+        name = extended_vol_name[len(VOL_AND_SNAP_NAME_PREFIX):]
+        added_vol_ids = self.extended_lun_dict.get(name, [])
+        added_vol_name = ('ext_' + extended_vol_name.split('_')[1] + '_' +
+                          str(len(added_vol_ids)))
+        added_vol_size = str(int(new_size) - int(volume['size'])) + 'G'
+
+        LOG.debug(_('extend_volume: extended volume name: %(extended_name)s '
+                    'new added volume name: %(added_name)s '
+                    'new added volume size: %(added_size)s')
+                  % {'extended_name': extended_vol_name,
+                     'added_name': added_vol_name,
+                     'added_size': added_vol_size})
+
+        if not volume['provider_location']:
+            err_msg = (_('extend_volume: volume %s does not exist.')
+                       % extended_vol_name)
+            LOG.error(err_msg)
+            raise exception.VolumeNotFound(volume_id=extended_vol_name)
+
+        type_id = volume['volume_type_id']
+        parameters = self._parse_volume_type(type_id)
+        added_vol_id = self._create_volume(added_vol_name, added_vol_size,
+                                           parameters)
+        try:
+            self._extend_volume(volume['provider_location'], added_vol_id)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                self._delete_volume(added_vol_id)
+
+        added_vol_ids.append(added_vol_id)
+        self.extended_lun_dict[name] = added_vol_ids
+
+    def _extend_volume(self, extended_vol_id, added_vol_id):
+        cli_cmd = ('addluntoextlun -extlun %(extended_vol)s '
+                   '-lun %(added_vol)s' % {'extended_vol': extended_vol_id,
+                                           'added_vol': added_vol_id})
+        out = self._execute_cli(cli_cmd)
+        self._assert_cli_operate_out('_extend_volume',
+                                     ('Failed to extend volume %s'
+                                      % extended_vol_id),
+                                     cli_cmd, out)
 
     def create_snapshot(self, snapshot):
         snapshot_name = self._name_translate(snapshot['name'])
@@ -892,7 +967,7 @@ class TseriesCommon():
 
         return hostlun_id
 
-    def add_host(self, host_name, initiator=None):
+    def add_host(self, host_name, host_ip, initiator=None):
         """Create a host and add it to hostgroup."""
         # Create an OpenStack hostgroup if not created before.
         hostgroup_name = HOST_GROUP_NAME
@@ -913,7 +988,9 @@ class TseriesCommon():
         host_name = HOST_NAME_PREFIX + host_name
         host_id = self._get_host_id(host_name, self.hostgroup_id)
         if host_id is None:
-            self._create_host(host_name, self.hostgroup_id)
+            os_type = huawei_utils.get_conf_host_os_type(host_ip,
+                                                         self.xml_conf)
+            self._create_host(host_name, self.hostgroup_id, os_type)
             host_id = self._get_host_id(host_name, self.hostgroup_id)
 
         return host_id
@@ -955,11 +1032,12 @@ class TseriesCommon():
                     return tmp_line[0]
         return None
 
-    def _create_host(self, hostname, hostgroupid):
+    def _create_host(self, hostname, hostgroupid, type):
         """Run CLI command to add host."""
-        cli_cmd = ('addhost -group %(groupid)s -n %(hostname)s -t 0'
+        cli_cmd = ('addhost -group %(groupid)s -n %(hostname)s -t %(type)s'
                    % {'groupid': hostgroupid,
-                      'hostname': hostname})
+                      'hostname': hostname,
+                      'type': type})
         out = self._execute_cli(cli_cmd)
 
         self._assert_cli_operate_out('_create_host',
@@ -976,7 +1054,7 @@ class TseriesCommon():
             return None
 
     def _get_host_map_info(self, hostid):
-        """Get map infomation of the given host."""
+        """Get map information of the given host."""
 
         cli_cmd = 'showhostmap -host %(hostid)s' % {'hostid': hostid}
         out = self._execute_cli(cli_cmd)
@@ -1173,32 +1251,45 @@ class DoradoCommon(TseriesCommon):
         LOG.debug(_('do_setup'))
 
         self._check_conf_file()
-        self.lun_distribution = self._get_lun_ctr_info()
+        exist_luns = self._get_all_luns_info()
+        self.lun_distribution = self._get_lun_distribution_info(exist_luns)
         self.hostgroup_id = self._get_hostgroup_id(HOST_GROUP_NAME)
+        self.extended_lun_dict = self._get_extended_lun(exist_luns)
 
     def _check_conf_file(self):
         """Check the config file, make sure the key elements are set."""
-        root = parse_xml_file(self.xml_conf)
-        # Check login infomation
-        IP1 = root.findtext('Storage/ControllerIP0')
-        IP2 = root.findtext('Storage/ControllerIP1')
-        username = root.findtext('Storage/UserName')
-        pwd = root.findtext('Storage/UserPassword')
-        if (not IP1 and not IP2) or (not username) or (not pwd):
-            err_msg = (_('Config file invalid. Controler IP, UserName, '
-                         'UserPassword must be specified.'))
-            LOG.error(err_msg)
-            raise exception.InvalidInput(reason=err_msg)
+        root = huawei_utils.parse_xml_file(self.xml_conf)
+        # Check login information
+        check_list = ['Storage/ControllerIP0', 'Storage/ControllerIP1',
+                      'Storage/UserName', 'Storage/UserPassword']
+        for item in check_list:
+            if not huawei_utils.is_xml_item_exist(root, item):
+                err_msg = (_('_check_conf_file: Config file invalid. '
+                             '%s must be set.') % item)
+                LOG.error(err_msg)
+                raise exception.InvalidInput(reason=err_msg)
 
         # Check storage pool
         # No need for Dorado2100 G2
         self.login_info = self._get_login_info()
         self.device_type = self._get_device_type()
         if self.device_type == 'Dorado5100':
-            pool_node = root.findall('LUN/StoragePool')
-            if not pool_node:
+            if not huawei_utils.is_xml_item_exist(root, 'LUN/StoragePool',
+                                                  'Name'):
                 err_msg = (_('_check_conf_file: Config file invalid. '
                              'StoragePool must be specified.'))
+                LOG.error(err_msg)
+                raise exception.InvalidInput(reason=err_msg)
+
+        # If setting os type, make sure it valid
+        if huawei_utils.is_xml_item_exist(root, 'Host', 'OSType'):
+            os_list = huawei_utils.os_type.keys()
+            if not huawei_utils.is_xml_item_valid(root, 'Host', os_list,
+                                                  'OSType'):
+                err_msg = (_('_check_conf_file: Config file invalid. '
+                             'Host OSType is invalid.\n'
+                             'The valid values are: %(os_list)s')
+                           % {'os_list': os_list})
                 LOG.error(err_msg)
                 raise exception.InvalidInput(reason=err_msg)
 
@@ -1223,8 +1314,7 @@ class DoradoCommon(TseriesCommon):
                                 'Dorado5100 and Dorado 2100 G2 now.'))
                     raise exception.InvalidResults()
 
-    def _get_lun_ctr_info(self):
-        luns = self._get_all_luns_info()
+    def _get_lun_distribution_info(self, luns):
         ctr_info = [0, 0]
         (c, n) = ((2, 4) if self.device_type == 'Dorado2100 G2' else (3, 5))
         for lun in luns:
@@ -1234,6 +1324,17 @@ class DoradoCommon(TseriesCommon):
                 else:
                     ctr_info[1] += 1
         return ctr_info
+
+    def _get_extended_lun(self, luns):
+        extended_dict = {}
+        n = 4 if self.device_type == 'Dorado2100 G2' else 5
+        for lun in luns:
+            if lun[n].startswith('ext'):
+                vol_name = lun[n].split('_')[1]
+                add_ids = extended_dict.get(vol_name, [])
+                add_ids.append(lun[0])
+                extended_dict[vol_name] = add_ids
+        return extended_dict
 
     def _create_volume(self, name, size, params):
         """Create a new volume with the given name and size."""
@@ -1300,6 +1401,15 @@ class DoradoCommon(TseriesCommon):
         LOG.error(err_msg)
         raise exception.VolumeBackendAPIException(data=err_msg)
 
+    def extend_volume(self, volume, new_size):
+        if self.device_type == 'Dorado2100 G2':
+            err_msg = (_('extend_volume: %(device)s does not support '
+                         'extend volume.') % {'device': self.device_type})
+            LOG.error(err_msg)
+            raise exception.VolumeBackendAPIException(data=err_msg)
+        else:
+            return TseriesCommon.extend_volume(self, volume, new_size)
+
     def create_snapshot(self, snapshot):
         if self.device_type == 'Dorado2100 G2':
             err_msg = (_('create_snapshot: %(device)s does not support '
@@ -1333,7 +1443,7 @@ class DoradoCommon(TseriesCommon):
                        'WriteType': '1',
                        'MirrorSwitch': '1'}
 
-        root = parse_xml_file(self.xml_conf)
+        root = huawei_utils.parse_xml_file(self.xml_conf)
 
         luntype = root.findtext('LUN/LUNType')
         if luntype:

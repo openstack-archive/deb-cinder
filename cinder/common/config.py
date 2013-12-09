@@ -32,6 +32,8 @@ import socket
 
 from oslo.config import cfg
 
+from cinder.openstack.common.gettextutils import _
+
 
 CONF = cfg.CONF
 
@@ -129,10 +131,10 @@ global_opts = [
                help='the topic volume backup nodes listen on'),
     cfg.BoolOpt('enable_v1_api',
                 default=True,
-                help=_("Deploy v1 of the Cinder API. ")),
+                help=_("Deploy v1 of the Cinder API.")),
     cfg.BoolOpt('enable_v2_api',
                 default=True,
-                help=_("Deploy v2 of the Cinder API. ")),
+                help=_("Deploy v2 of the Cinder API.")),
     cfg.BoolOpt('api_rate_limit',
                 default=True,
                 help='whether to rate limit the api'),

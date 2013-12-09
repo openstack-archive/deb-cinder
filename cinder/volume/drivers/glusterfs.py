@@ -20,6 +20,8 @@ import hashlib
 import json
 import os
 import re
+import stat
+import tempfile
 import time
 
 from oslo.config import cfg
@@ -30,6 +32,7 @@ from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
 from cinder import units
+from cinder import utils
 from cinder.volume.drivers import nfs
 
 LOG = logging.getLogger(__name__)
@@ -62,6 +65,10 @@ CONF.import_opt('volume_name_template', 'cinder.db')
 class GlusterfsDriver(nfs.RemoteFsDriver):
     """Gluster based cinder driver. Creates file on Gluster share for using it
     as block device on hypervisor.
+
+    Operations such as create/delete/extend volume/snapshot use locking on a
+    per-process basis to prevent multiple threads from modifying qcow2 chains
+    or the snapshot .info file simultaneously.
     """
 
     driver_volume_type = 'glusterfs'
@@ -102,6 +109,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                     _('mount.glusterfs is not installed'))
             else:
                 raise
+
+        self._ensure_shares_mounted()
 
     def check_for_setup_error(self):
         """Just to override parent behavior."""
@@ -162,12 +171,12 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             msg = _("Volume status must be 'available'.")
             raise exception.InvalidVolume(msg)
 
-        volume_name = CONF.volume_name_template % src_vref['id']
+        volume_name = CONF.volume_name_template % volume['id']
 
         volume_info = {'provider_location': src_vref['provider_location'],
                        'size': src_vref['size'],
                        'id': volume['id'],
-                       'name': '%s-clone' % volume_name,
+                       'name': volume_name,
                        'status': src_vref['status']}
         temp_snapshot = {'volume_name': volume_name,
                          'size': src_vref['size'],
@@ -187,6 +196,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
         return {'provider_location': src_vref['provider_location']}
 
+    @utils.synchronized('glusterfs', external=False)
     def create_volume(self, volume):
         """Creates a volume."""
 
@@ -259,6 +269,9 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                                   path_to_new_vol,
                                   out_format)
 
+        self._set_rw_permissions_for_all(path_to_new_vol)
+
+    @utils.synchronized('glusterfs', external=False)
     def delete_volume(self, volume):
         """Deletes a logical volume."""
 
@@ -273,6 +286,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
         self._execute('rm', '-f', mounted_path, run_as_root=True)
 
+    @utils.synchronized('glusterfs', external=False)
     def create_snapshot(self, snapshot):
         """Create a snapshot.
 
@@ -525,6 +539,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         return next(f for f in backing_chain
                     if f.get('backing-filename', '') == snapshot_file)
 
+    @utils.synchronized('glusterfs', external=False)
     def delete_snapshot(self, snapshot):
         """Delete a snapshot.
 
@@ -542,6 +557,9 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         if volume_status not in ['available', 'in-use']:
             msg = _('Volume status must be "available" or "in-use".')
             raise exception.InvalidVolume(msg)
+
+        self._ensure_share_writable(
+            self._local_volume_dir(snapshot['volume']))
 
         # Determine the true snapshot file for this snapshot
         #  based on the .info file
@@ -833,6 +851,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
     def validate_connector(self, connector):
         pass
 
+    @utils.synchronized('glusterfs', external=False)
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
 
@@ -905,6 +924,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             if temp_path is not None:
                 self._execute('rm', '-f', temp_path)
 
+    @utils.synchronized('glusterfs', external=False)
     def extend_volume(self, volume, size_gb):
         volume_path = self.local_path(volume)
         volume_filename = os.path.basename(volume_path)
@@ -968,12 +988,47 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
         LOG.debug(_('Available shares: %s') % str(self._mounted_shares))
 
+    def _ensure_share_writable(self, path):
+        """Ensure that the Cinder user can write to the share.
+
+        If not, raise an exception.
+
+        :param path: path to test
+        :raises: GlusterfsException
+        :returns: None
+        """
+
+        prefix = '.cinder-write-test-' + str(os.getpid()) + '-'
+
+        try:
+            tempfile.NamedTemporaryFile(prefix=prefix, dir=path)
+        except OSError:
+            msg = _('GlusterFS share at %(dir)s is not writable by the '
+                    'Cinder volume service. Snapshot operations will not be '
+                    'supported.') % {'dir': path}
+            raise exception.GlusterfsException(msg)
+
     def _ensure_share_mounted(self, glusterfs_share):
         """Mount GlusterFS share.
         :param glusterfs_share: string
         """
         mount_path = self._get_mount_point_for_share(glusterfs_share)
         self._mount_glusterfs(glusterfs_share, mount_path, ensure=True)
+
+        # Ensure we can write to this share
+        group_id = os.getegid()
+        current_group_id = utils.get_file_gid(mount_path)
+        current_mode = utils.get_file_mode(mount_path)
+
+        if group_id != current_group_id:
+            cmd = ['chgrp', group_id, mount_path]
+            self._execute(*cmd, run_as_root=True)
+
+        if not (current_mode & stat.S_IWGRP):
+            cmd = ['chmod', 'g+w', mount_path]
+            self._execute(*cmd, run_as_root=True)
+
+        self._ensure_share_writable(mount_path)
 
     def _find_share(self, volume_size_for):
         """Choose GlusterFS share among available ones for given volume size.

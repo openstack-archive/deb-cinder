@@ -21,7 +21,9 @@ Tests for Volume Code.
 """
 
 import datetime
+import mock
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -69,6 +71,8 @@ ENCRYPTION_PROVIDER = 'nova.volume.encryptors.cryptsetup.CryptsetupEncryptor'
 fake_opt = [
     cfg.StrOpt('fake_opt', default='fake', help='fake opts')
 ]
+
+FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa'
 
 
 class FakeImageService:
@@ -284,8 +288,8 @@ class VolumeTestCase(BaseVolumeTestCase):
                                    1,
                                    'name',
                                    'description')
-        self.assertEqual(volume['volume_type_id'], None)
-        self.assertEqual(volume['encryption_key_id'], None)
+        self.assertIsNone(volume['volume_type_id'])
+        self.assertIsNone(volume['encryption_key_id'])
 
         # Create default volume type
         vol_type = conf_fixture.def_vol_type
@@ -635,7 +639,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(vol['attach_status'], "attached")
         self.assertEqual(vol['mountpoint'], mountpoint)
         self.assertEqual(vol['instance_uuid'], instance_uuid)
-        self.assertEqual(vol['attached_host'], None)
+        self.assertIsNone(vol['attached_host'])
         admin_metadata = vol['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 2)
         self.assertEqual(admin_metadata[0]['key'], 'readonly')
@@ -676,7 +680,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(vol['status'], "in-use")
         self.assertEqual(vol['attach_status'], "attached")
         self.assertEqual(vol['mountpoint'], mountpoint)
-        self.assertEqual(vol['instance_uuid'], None)
+        self.assertIsNone(vol['instance_uuid'])
         # sanitized, conforms to RFC-952 and RFC-1123 specs.
         self.assertEqual(vol['attached_host'], 'fake-host')
         admin_metadata = vol['volume_admin_metadata']
@@ -723,7 +727,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(vol['attach_status'], "attached")
         self.assertEqual(vol['mountpoint'], mountpoint)
         self.assertEqual(vol['instance_uuid'], instance_uuid)
-        self.assertEqual(vol['attached_host'], None)
+        self.assertIsNone(vol['attached_host'])
         admin_metadata = vol['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 2)
         self.assertEqual(admin_metadata[0]['key'], 'readonly')
@@ -739,9 +743,9 @@ class VolumeTestCase(BaseVolumeTestCase):
         vol = db.volume_get(self.context, volume_id)
         self.assertEqual(vol['status'], "available")
         self.assertEqual(vol['attach_status'], "detached")
-        self.assertEqual(vol['mountpoint'], None)
-        self.assertEqual(vol['instance_uuid'], None)
-        self.assertEqual(vol['attached_host'], None)
+        self.assertIsNone(vol['mountpoint'])
+        self.assertIsNone(vol['instance_uuid'])
+        self.assertIsNone(vol['attached_host'])
         admin_metadata = vol['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 1)
         self.assertEqual(admin_metadata[0]['key'], 'readonly')
@@ -753,7 +757,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(vol['status'], "in-use")
         self.assertEqual(vol['attach_status'], "attached")
         self.assertEqual(vol['mountpoint'], mountpoint)
-        self.assertEqual(vol['instance_uuid'], None)
+        self.assertIsNone(vol['instance_uuid'])
         self.assertEqual(vol['attached_host'], 'fake-host')
         admin_metadata = vol['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 2)
@@ -770,9 +774,9 @@ class VolumeTestCase(BaseVolumeTestCase):
         vol = db.volume_get(self.context, volume_id)
         self.assertEqual(vol['status'], "available")
         self.assertEqual(vol['attach_status'], "detached")
-        self.assertEqual(vol['mountpoint'], None)
-        self.assertEqual(vol['instance_uuid'], None)
-        self.assertEqual(vol['attached_host'], None)
+        self.assertIsNone(vol['mountpoint'])
+        self.assertIsNone(vol['instance_uuid'])
+        self.assertIsNone(vol['attached_host'])
         admin_metadata = vol['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 1)
         self.assertEqual(admin_metadata[0]['key'], 'readonly')
@@ -870,6 +874,54 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(len(admin_metadata), 1)
         self.assertEqual(admin_metadata[0]['key'], 'readonly')
         self.assertEqual(admin_metadata[0]['value'], 'True')
+
+    @mock.patch.object(db, 'volume_get')
+    @mock.patch.object(cinder.volume.api.API, 'update')
+    def test_reserve_volume_success(self, volume_get, volume_update):
+        fake_volume = {
+            'id': FAKE_UUID,
+            'status': 'available'
+        }
+
+        volume_get.return_value = fake_volume
+        volume_update.return_value = fake_volume
+
+        self.assertIsNone(cinder.volume.api.API().reserve_volume(
+            self.context,
+            fake_volume,
+        ))
+
+        self.assertTrue(volume_get.called)
+        self.assertTrue(volume_update.called)
+
+    def test_reserve_volume_bad_status(self):
+        fake_volume = {
+            'id': FAKE_UUID,
+            'status': 'in-use'
+        }
+
+        with mock.patch.object(db, 'volume_get') as mock_volume_get:
+            mock_volume_get.return_value = fake_volume
+            self.assertRaises(exception.InvalidVolume,
+                              cinder.volume.api.API().reserve_volume,
+                              self.context,
+                              fake_volume)
+            self.assertTrue(mock_volume_get.called)
+
+    def test_unreserve_volume_success(self):
+        fake_volume = {
+            'id': FAKE_UUID,
+            'status': 'attaching'
+        }
+
+        with mock.patch.object(cinder.volume.api.API,
+                               'update') as mock_volume_update:
+            mock_volume_update.return_value = fake_volume
+            self.assertIsNone(cinder.volume.api.API().unreserve_volume(
+                self.context,
+                fake_volume
+            ))
+            self.assertTrue(mock_volume_update.called)
 
     def test_concurrent_volumes_get_different_targets(self):
         """Ensure multiple concurrent volumes get different targets."""
@@ -983,7 +1035,7 @@ class VolumeTestCase(BaseVolumeTestCase):
                           self.context,
                           snapshot_id)
 
-    def test_cant_delete_volume_in_use(self):
+    def test_cannot_delete_volume_in_use(self):
         """Test volume can't be deleted in invalid stats."""
         # create a volume and assign to host
         volume = tests_utils.create_volume(self.context, **self.volume_params)
@@ -1028,7 +1080,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         # clean up
         self.volume.delete_volume(self.context, volume['id'])
 
-    def test_cant_force_delete_attached_volume(self):
+    def test_cannot_force_delete_attached_volume(self):
         """Test volume can't be force delete in attached state"""
         volume = tests_utils.create_volume(self.context, **self.volume_params)
         self.volume.create_volume(self.context, volume['id'])
@@ -1046,7 +1098,7 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         self.volume.delete_volume(self.context, volume['id'])
 
-    def test_cant_delete_volume_with_snapshots(self):
+    def test_cannot_delete_volume_with_snapshots(self):
         """Test volume can't be deleted with dependent snapshots."""
         volume = tests_utils.create_volume(self.context, **self.volume_params)
         self.volume.create_volume(self.context, volume['id'])
@@ -1213,7 +1265,7 @@ class VolumeTestCase(BaseVolumeTestCase):
                                       image_service, image_id):
             pass
 
-        def fake_fetch_to_raw(context, image_service, image_id, vol_path):
+        def fake_fetch_to_raw(ctx, image_service, image_id, path, size=None):
             pass
 
         def fake_clone_image(volume_ref, image_location, image_id):
@@ -1274,7 +1326,6 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         self.stubs.Set(self.volume.driver, 'local_path', lambda x: dst_path)
 
-        image_id = 'aaaaaaaa-0000-0000-0000-000000000000'
         # creating volume testdata
         volume_id = 1
         db.volume_create(self.context,
@@ -1290,7 +1341,7 @@ class VolumeTestCase(BaseVolumeTestCase):
                           self.context,
                           volume_id, None, None, None,
                           None,
-                          image_id)
+                          FAKE_UUID)
         volume = db.volume_get(self.context, volume_id)
         self.assertEqual(volume['status'], "error")
         self.assertEqual(volume['bootable'], False)
@@ -1427,7 +1478,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         # create raw snapshot
         volume = tests_utils.create_volume(self.context, **self.volume_params)
         snapshot = self._create_snapshot(volume['id'])
-        self.assertEqual(snapshot['display_name'], None)
+        self.assertIsNone(snapshot['display_name'])
         # use volume.api to update name
         volume_api = cinder.volume.api.API()
         update_dict = {'display_name': 'test update name'}
@@ -1704,7 +1755,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         # check volume properties
         volume = db.volume_get(context.get_admin_context(), volume['id'])
         self.assertEqual(volume['host'], 'newhost')
-        self.assertEqual(volume['migration_status'], None)
+        self.assertIsNone(volume['migration_status'])
 
     def test_migrate_volume_generic(self):
         def fake_migr(vol, host):
@@ -1733,7 +1784,7 @@ class VolumeTestCase(BaseVolumeTestCase):
                                    host_obj, True)
         volume = db.volume_get(context.get_admin_context(), volume['id'])
         self.assertEqual(volume['host'], 'newhost')
-        self.assertEqual(volume['migration_status'], None)
+        self.assertIsNone(volume['migration_status'])
 
     def test_update_volume_readonly_flag(self):
         """Test volume readonly flag can be updated at API level."""
@@ -1827,7 +1878,7 @@ class CopyVolumeToImageTestCase(BaseVolumeTestCase):
         self.assertEqual(volume['status'], 'in-use')
 
     def test_copy_volume_to_image_exception(self):
-        self.image_meta['id'] = 'aaaaaaaa-0000-0000-0000-000000000000'
+        self.image_meta['id'] = FAKE_UUID
         # creating volume testdata
         self.volume_attrs['status'] = 'in-use'
         db.volume_create(self.context, self.volume_attrs)
@@ -1851,6 +1902,7 @@ class GetActiveByWindowTestCase(BaseVolumeTestCase):
             {
                 'id': 1,
                 'host': 'devstack',
+                'project_id': 'p1',
                 'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
                 'deleted': True, 'status': 'deleted',
                 'deleted_at': datetime.datetime(1, 2, 1, 1, 1, 1),
@@ -1859,6 +1911,7 @@ class GetActiveByWindowTestCase(BaseVolumeTestCase):
             {
                 'id': 2,
                 'host': 'devstack',
+                'project_id': 'p1',
                 'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
                 'deleted': True, 'status': 'deleted',
                 'deleted_at': datetime.datetime(1, 3, 10, 1, 1, 1),
@@ -1866,6 +1919,7 @@ class GetActiveByWindowTestCase(BaseVolumeTestCase):
             {
                 'id': 3,
                 'host': 'devstack',
+                'project_id': 'p1',
                 'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
                 'deleted': True, 'status': 'deleted',
                 'deleted_at': datetime.datetime(1, 5, 1, 1, 1, 1),
@@ -1873,11 +1927,13 @@ class GetActiveByWindowTestCase(BaseVolumeTestCase):
             {
                 'id': 4,
                 'host': 'devstack',
+                'project_id': 'p1',
                 'created_at': datetime.datetime(1, 3, 10, 1, 1, 1),
             },
             {
                 'id': 5,
                 'host': 'devstack',
+                'project_id': 'p1',
                 'created_at': datetime.datetime(1, 5, 1, 1, 1, 1),
             }
         ]
@@ -1903,7 +1959,8 @@ class GetActiveByWindowTestCase(BaseVolumeTestCase):
         volumes = db.volume_get_active_by_window(
             self.context,
             datetime.datetime(1, 3, 1, 1, 1, 1),
-            datetime.datetime(1, 4, 1, 1, 1, 1))
+            datetime.datetime(1, 4, 1, 1, 1, 1),
+            project_id='p1')
         self.assertEqual(len(volumes), 3)
         self.assertEqual(volumes[0].id, u'2')
         self.assertEqual(volumes[1].id, u'3')
@@ -1932,7 +1989,8 @@ class GetActiveByWindowTestCase(BaseVolumeTestCase):
         snapshots = db.snapshot_get_active_by_window(
             self.context,
             datetime.datetime(1, 3, 1, 1, 1, 1),
-            datetime.datetime(1, 4, 1, 1, 1, 1))
+            datetime.datetime(1, 4, 1, 1, 1, 1),
+            project_id='p1')
         self.assertEqual(len(snapshots), 3)
         self.assertEqual(snapshots[0].id, u'2')
         self.assertEqual(snapshots[0].volume.id, u'1')
@@ -2091,7 +2149,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         moved, model_update = self.volume.driver.migrate_volume(self.context,
                                                                 vol, host)
         self.assertEqual(moved, False)
-        self.assertEqual(model_update, None)
+        self.assertIsNone(model_update)
 
     def test_lvm_migrate_volume_bad_loc_info(self):
         capabilities = {'location_info': 'foo'}
@@ -2100,7 +2158,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         moved, model_update = self.volume.driver.migrate_volume(self.context,
                                                                 vol, host)
         self.assertEqual(moved, False)
-        self.assertEqual(model_update, None)
+        self.assertIsNone(model_update)
 
     def test_lvm_migrate_volume_diff_driver(self):
         capabilities = {'location_info': 'FooDriver:foo:bar'}
@@ -2109,7 +2167,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         moved, model_update = self.volume.driver.migrate_volume(self.context,
                                                                 vol, host)
         self.assertEqual(moved, False)
-        self.assertEqual(model_update, None)
+        self.assertIsNone(model_update)
 
     def test_lvm_migrate_volume_diff_host(self):
         capabilities = {'location_info': 'LVMVolumeDriver:foo:bar'}
@@ -2118,7 +2176,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         moved, model_update = self.volume.driver.migrate_volume(self.context,
                                                                 vol, host)
         self.assertEqual(moved, False)
-        self.assertEqual(model_update, None)
+        self.assertIsNone(model_update)
 
     def test_lvm_migrate_volume_in_use(self):
         hostname = socket.gethostname()
@@ -2128,7 +2186,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         moved, model_update = self.volume.driver.migrate_volume(self.context,
                                                                 vol, host)
         self.assertEqual(moved, False)
-        self.assertEqual(model_update, None)
+        self.assertIsNone(model_update)
 
     def test_lvm_migrate_volume_proceed(self):
         hostname = socket.gethostname()
@@ -2154,7 +2212,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         moved, model_update = self.volume.driver.migrate_volume(self.context,
                                                                 vol, host)
         self.assertEqual(moved, True)
-        self.assertEqual(model_update, None)
+        self.assertIsNone(model_update)
 
 
 class LVMVolumeDriverTestCase(DriverTestCase):
@@ -2222,10 +2280,64 @@ class LVMVolumeDriverTestCase(DriverTestCase):
                           lvm_driver.clear_volume,
                           volume)
 
+    def test_clear_volume_thinlvm_snap(self):
+        configuration = conf.Configuration(fake_opt, 'fake_group')
+        configuration.volume_clear = 'zero'
+        configuration.volume_clear_size = 0
+        configuration.lvm_type = 'thin'
+        lvm_driver = lvm.LVMISCSIDriver(configuration=configuration)
+
+        # Ensures that copy_volume is not called for ThinLVM
+        self.mox.StubOutWithMock(volutils, 'copy_volume')
+        self.mox.StubOutWithMock(lvm_driver, '_execute')
+
+        uuid = '00000000-0000-0000-0000-c3aa7ee01536'
+
+        fake_snapshot = {'name': 'volume-' + uuid,
+                         'id': uuid,
+                         'size': 123}
+
+        lvm_driver.clear_volume(fake_snapshot, is_snapshot=True)
+
+    def test_clear_volume_lvm_snap(self):
+        self.stubs.Set(os.path, 'exists', lambda x: True)
+        configuration = conf.Configuration(fake_opt, 'fake_group')
+        configuration.volume_clear = 'zero'
+        configuration.volume_clear_size = 0
+        lvm_driver = lvm.LVMISCSIDriver(configuration=configuration)
+
+        uuid = '00000000-0000-0000-0000-90ed32cdeed3'
+        name = 'snapshot-' + uuid
+        mangle_name = '_' + re.sub(r'-', r'--', name)
+
+        def fake_copy_volume(srcstr, deststr, size, **kwargs):
+            self.assertEqual(deststr,
+                             '/dev/mapper/cinder--volumes-%s-cow' %
+                             mangle_name)
+            return True
+
+        self.stubs.Set(volutils, 'copy_volume', fake_copy_volume)
+
+        fake_snapshot = {'name': 'snapshot-' + uuid,
+                         'id': uuid,
+                         'size': 123}
+
+        lvm_driver.clear_volume(fake_snapshot, is_snapshot=True)
+
 
 class ISCSITestCase(DriverTestCase):
     """Test Case for ISCSIDriver"""
     driver_name = "cinder.volume.drivers.lvm.LVMISCSIDriver"
+    base_driver = driver.ISCSIDriver
+
+    def setUp(self):
+        super(ISCSITestCase, self).setUp()
+        self.configuration = mox.MockObject(conf.Configuration)
+        self.configuration.num_iscsi_scan_tries = 3
+        self.configuration.iscsi_num_targets = 100
+        self.configuration.iscsi_target_prefix = 'iqn.2010-10.org.openstack:'
+        self.configuration.iscsi_ip_address = '0.0.0.0'
+        self.configuration.iscsi_port = 3260
 
     def _attach_volume(self):
         """Attach volumes to an instance."""
@@ -2247,11 +2359,8 @@ class ISCSITestCase(DriverTestCase):
         return volume_id_list
 
     def test_do_iscsi_discovery(self):
-        configuration = mox.MockObject(conf.Configuration)
-        configuration.iscsi_ip_address = '0.0.0.0'
-        configuration.append_config_values(mox.IgnoreArg())
-
-        iscsi_driver = driver.ISCSIDriver(configuration=configuration)
+        self.configuration.append_config_values(mox.IgnoreArg())
+        iscsi_driver = self.base_driver(configuration=self.configuration)
         iscsi_driver._execute = lambda *a, **kw: \
             ("%s dummy" % CONF.iscsi_ip_address, '')
         volume = {"name": "dummy",
@@ -2263,7 +2372,7 @@ class ISCSITestCase(DriverTestCase):
                   "id": "0",
                   "provider_auth": "a b c",
                   "attached_mode": "rw"}
-        iscsi_driver = driver.ISCSIDriver()
+        iscsi_driver = self.base_driver(configuration=self.configuration)
         iscsi_driver._do_iscsi_discovery = lambda v: "0.0.0.0:0000,0 iqn:iqn 0"
         result = iscsi_driver._get_iscsi_properties(volume)
         self.assertEqual(result["target_portal"], "0.0.0.0:0000")
@@ -2271,10 +2380,6 @@ class ISCSITestCase(DriverTestCase):
         self.assertEqual(result["target_lun"], 0)
 
     def test_get_volume_stats(self):
-        def _emulate_vgs_execute(_command, *_args, **_kwargs):
-            out = "  test1-volumes  5,52  0,52"
-            out += " test2-volumes  5.52  0.52"
-            return out, None
 
         def _fake_get_all_volume_groups(obj, vg_name=None, no_suffix=True):
             return [{'name': 'cinder-volumes',
@@ -2286,7 +2391,6 @@ class ISCSITestCase(DriverTestCase):
         self.stubs.Set(brick_lvm.LVM,
                        'get_all_volume_groups',
                        _fake_get_all_volume_groups)
-        self.volume.driver.set_execute(_emulate_vgs_execute)
         self.volume.driver.vg = brick_lvm.LVM('cinder-volumes', 'sudo')
 
         self.volume.driver._update_volume_stats()
@@ -2297,7 +2401,7 @@ class ISCSITestCase(DriverTestCase):
         self.assertEqual(stats['free_capacity_gb'], float('0.52'))
 
     def test_validate_connector(self):
-        iscsi_driver = driver.ISCSIDriver()
+        iscsi_driver = self.base_driver(configuration=self.configuration)
         # Validate a valid connector
         connector = {'ip': '10.0.0.2',
                      'host': 'fakehost',
@@ -2313,29 +2417,44 @@ class ISCSITestCase(DriverTestCase):
 class ISERTestCase(ISCSITestCase):
     """Test Case for ISERDriver."""
     driver_name = "cinder.volume.drivers.lvm.LVMISERDriver"
+    base_driver = driver.ISERDriver
 
-    def test_do_iscsi_discovery(self):
-        configuration = mox.MockObject(conf.Configuration)
-        configuration.iser_ip_address = '0.0.0.0'
-        configuration.append_config_values(mox.IgnoreArg())
+    def setUp(self):
+        super(ISERTestCase, self).setUp()
+        self.configuration = mox.MockObject(conf.Configuration)
+        self.configuration.num_iser_scan_tries = 3
+        self.configuration.iser_num_targets = 100
+        self.configuration.iser_target_prefix = 'iqn.2010-10.org.openstack:'
+        self.configuration.iser_ip_address = '0.0.0.0'
+        self.configuration.iser_port = 3260
 
-        iser_driver = driver.ISERDriver(configuration=configuration)
-        iser_driver._execute = lambda *a, **kw: \
-            ("%s dummy" % CONF.iser_ip_address, '')
-        volume = {"name": "dummy",
-                  "host": "0.0.0.0"}
-        iser_driver._do_iser_discovery(volume)
+    def test_get_volume_stats(self):
+        def _fake_get_all_volume_groups(obj, vg_name=None, no_suffix=True):
+            return [{'name': 'cinder-volumes',
+                     'size': '5.52',
+                     'available': '0.52',
+                     'lv_count': '2',
+                     'uuid': 'vR1JU3-FAKE-C4A9-PQFh-Mctm-9FwA-Xwzc1m'}]
 
-    def test_get_iscsi_properties(self):
-        volume = {"provider_location": '',
-                  "id": "0",
-                  "provider_auth": "a b c"}
-        iser_driver = driver.ISERDriver()
-        iser_driver._do_iser_discovery = lambda v: "0.0.0.0:0000,0 iqn:iqn 0"
-        result = iser_driver._get_iser_properties(volume)
-        self.assertEqual(result["target_portal"], "0.0.0.0:0000")
-        self.assertEqual(result["target_iqn"], "iqn:iqn")
-        self.assertEqual(result["target_lun"], 0)
+        self.stubs.Set(brick_lvm.LVM,
+                       'get_all_volume_groups',
+                       _fake_get_all_volume_groups)
+        self.volume.driver.vg = brick_lvm.LVM('cinder-volumes', 'sudo')
+
+        stats = self.volume.driver.get_volume_stats(refresh=True)
+
+        self.assertEqual(stats['total_capacity_gb'], float('5.52'))
+        self.assertEqual(stats['free_capacity_gb'], float('0.52'))
+        self.assertEqual(stats['storage_protocol'], 'iSER')
+
+    def test_get_volume_stats2(self):
+        iser_driver = self.base_driver(configuration=self.configuration)
+
+        stats = iser_driver.get_volume_stats(refresh=True)
+
+        self.assertEqual(stats['total_capacity_gb'], 'infinite')
+        self.assertEqual(stats['free_capacity_gb'], 'infinite')
+        self.assertEqual(stats['storage_protocol'], 'iSER')
 
 
 class FibreChannelTestCase(DriverTestCase):

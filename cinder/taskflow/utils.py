@@ -25,8 +25,8 @@ import sys
 import threading
 import time
 import types
+import uuid as uuidlib
 
-from cinder.openstack.common import uuidutils
 
 from cinder.taskflow import decorators
 
@@ -202,7 +202,7 @@ class Runner(object):
         self.runs_before = []
         self.result = None
         if not uuid:
-            self._id = uuidutils.generate_uuid()
+            self._id = str(uuidlib.uuid4())
         else:
             self._id = str(uuid)
 
@@ -263,7 +263,7 @@ class Runner(object):
 
 class TransitionNotifier(object):
     """A utility helper class that can be used to subscribe to
-    notifications of events occuring as well as allow a entity to post said
+    notifications of events occurring as well as allow a entity to post said
     notifications to subscribers.
     """
 

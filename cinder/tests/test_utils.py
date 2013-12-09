@@ -455,17 +455,49 @@ class GenericUtilsTestCase(test.TestCase):
 
     def test_check_ssh_injection(self):
         cmd_list = ['ssh', '-D', 'my_name@name_of_remote_computer']
-        self.assertEqual(utils.check_ssh_injection(cmd_list), None)
+        self.assertIsNone(utils.check_ssh_injection(cmd_list))
+        cmd_list = ['echo', '"quoted arg with space"']
+        self.assertIsNone(utils.check_ssh_injection(cmd_list))
+        cmd_list = ['echo', "'quoted arg with space'"]
+        self.assertIsNone(utils.check_ssh_injection(cmd_list))
 
     def test_check_ssh_injection_on_error(self):
-        with_space = ['shh', 'my_name@      name_of_remote_computer']
+        with_unquoted_space = ['ssh', 'my_name@      name_of_remote_computer']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          with_unquoted_space)
         with_danger_char = ['||', 'my_name@name_of_remote_computer']
         self.assertRaises(exception.SSHInjectionThreat,
                           utils.check_ssh_injection,
-                          with_space)
+                          with_danger_char)
+        with_special = ['cmd', 'virus;ls']
         self.assertRaises(exception.SSHInjectionThreat,
                           utils.check_ssh_injection,
-                          with_danger_char)
+                          with_special)
+        quoted_with_unescaped = ['cmd', '"arg\"withunescaped"']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          quoted_with_unescaped)
+        bad_before_quotes = ['cmd', 'virus;"quoted argument"']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          bad_before_quotes)
+        bad_after_quotes = ['echo', '"quoted argument";rm -rf']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          bad_after_quotes)
+        bad_within_quotes = ['echo', "'quoted argument `rm -rf`'"]
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          bad_within_quotes)
+        with_multiple_quotes = ['echo', '"quoted";virus;"quoted"']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          with_multiple_quotes)
+        with_multiple_quotes = ['echo', '"quoted";virus;\'quoted\'']
+        self.assertRaises(exception.SSHInjectionThreat,
+                          utils.check_ssh_injection,
+                          with_multiple_quotes)
 
     def test_create_channel(self):
         client = paramiko.SSHClient()
@@ -480,6 +512,57 @@ class GenericUtilsTestCase(test.TestCase):
         utils.create_channel(client, 600, 800)
 
         self.mox.VerifyAll()
+
+    def _make_fake_stat(self, test_file, orig_os_stat):
+        """Create a fake method to stub out os.stat().
+
+           Generate a function that will return a particular
+           stat object for a given file.
+
+           :param: test_file: file to spoof stat() for
+           :param: orig_os_stat: pointer to original os.stat()
+        """
+
+        def fake_stat(path):
+            if path == test_file:
+                class stat_result:
+                    st_mode = 0o777
+                    st_gid = 33333
+                return stat_result
+            else:
+                return orig_os_stat(path)
+
+        return fake_stat
+
+    def test_get_file_mode(self):
+        test_file = '/var/tmp/made_up_file'
+
+        orig_os_stat = os.stat
+        os.stat = self._make_fake_stat(test_file, orig_os_stat)
+
+        self.mox.ReplayAll()
+
+        mode = utils.get_file_mode(test_file)
+        self.assertEqual(mode, 0o777)
+
+        self.mox.VerifyAll()
+
+        os.stat = orig_os_stat
+
+    def test_get_file_gid(self):
+        test_file = '/var/tmp/made_up_file'
+
+        orig_os_stat = os.stat
+        os.stat = self._make_fake_stat(test_file, orig_os_stat)
+
+        self.mox.ReplayAll()
+
+        gid = utils.get_file_gid(test_file)
+        self.assertEqual(gid, 33333)
+
+        self.mox.VerifyAll()
+
+        os.stat = orig_os_stat
 
 
 class MonkeyPatchTestCase(test.TestCase):

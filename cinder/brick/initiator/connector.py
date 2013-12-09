@@ -91,6 +91,13 @@ class InitiatorConnector(executor.Executor):
                                   use_multipath=use_multipath,
                                   device_scan_attempts=device_scan_attempts,
                                   *args, **kwargs)
+        elif protocol == "ISER":
+            return ISERConnector(root_helper=root_helper,
+                                 driver=driver,
+                                 execute=execute,
+                                 use_multipath=use_multipath,
+                                 device_scan_attempts=device_scan_attempts,
+                                 *args, **kwargs)
         elif protocol == "FIBRE_CHANNEL":
             return FibreChannelConnector(root_helper=root_helper,
                                          driver=driver,
@@ -411,7 +418,7 @@ class ISCSIConnector(InitiatorConnector):
                                    check_exit_code=[0, 255])
             except putils.ProcessExecutionError as err:
                 #as this might be one of many paths,
-                #only set successfull logins to startup automatically
+                #only set successful logins to startup automatically
                 if err.exit_code in [15]:
                     self._iscsiadm_update(connection_properties,
                                           "node.startup",
@@ -499,6 +506,15 @@ class ISCSIConnector(InitiatorConnector):
 
     def _rescan_multipath(self):
         self._run_multipath('-r', check_exit_code=[0, 1, 21])
+
+
+class ISERConnector(ISCSIConnector):
+
+    def _get_device_path(self, iser_properties):
+        return ("/dev/disk/by-path/ip-%s-iser-%s-lun-%s" %
+                (iser_properties['target_portal'],
+                 iser_properties['target_iqn'],
+                 iser_properties.get('target_lun', 0)))
 
 
 class FibreChannelConnector(InitiatorConnector):
@@ -797,6 +813,21 @@ class RemoteFsConnector(InitiatorConnector):
                  execute=putils.execute,
                  device_scan_attempts=DEVICE_SCAN_ATTEMPTS_DEFAULT,
                  *args, **kwargs):
+        kwargs = kwargs or {}
+        conn = kwargs.get('conn')
+        if conn:
+            mount_point_base = conn.get('mount_point_base')
+            if mount_type.lower() == 'nfs':
+                kwargs['nfs_mount_point_base'] =\
+                    kwargs.get('nfs_mount_point_base') or\
+                    mount_point_base
+            elif mount_type.lower() == 'glusterfs':
+                kwargs['glusterfs_mount_point_base'] =\
+                    kwargs.get('glusterfs_mount_point_base') or\
+                    mount_point_base
+        else:
+            LOG.warn(_("Connection details not present."
+                       " RemoteFsClient may not initialize properly."))
         self._remotefsclient = remotefs.RemoteFsClient(mount_type, root_helper,
                                                        execute=execute,
                                                        *args, **kwargs)
@@ -822,7 +853,7 @@ class RemoteFsConnector(InitiatorConnector):
         """
 
         mnt_flags = []
-        if 'options' in connection_properties:
+        if connection_properties.get('options'):
             mnt_flags = connection_properties['options'].split()
 
         nfs_share = connection_properties['export']

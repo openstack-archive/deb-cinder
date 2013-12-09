@@ -215,8 +215,8 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
                 LOG.error(_("Error running SSH command: %s") % command)
 
     def _eql_execute(self, *args, **kwargs):
-            return self._run_ssh(
-                args, attempts=self.configuration.eqlx_cli_max_retries)
+        return self._run_ssh(
+            args, attempts=self.configuration.eqlx_cli_max_retries)
 
     def _get_volume_data(self, lines):
         prefix = 'iSCSI target name is '
@@ -241,10 +241,10 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
             part = 'TB'
         return scale * float(val.partition(part)[0])
 
-    def _update_volume_status(self):
-        """Retrieve status info from volume group."""
+    def _update_volume_stats(self):
+        """Retrieve stats info from eqlx group."""
 
-        LOG.debug(_("Updating volume status"))
+        LOG.debug(_("Updating volume stats"))
         data = {}
         backend_name = "eqlx"
         if self.configuration:
@@ -448,6 +448,19 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         Nothing to remove since there's nothing exported.
         """
         pass
+
+    def extend_volume(self, volume, new_size):
+        """Extend the size of the volume"""
+        try:
+            self._eql_execute('volume', 'select', volume['name'],
+                              'size', "%sG" % new_size)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_('Failed to extend_volume %(name)s from '
+                            '%(current_size)sGB to %(new_size)sGB'),
+                          {'name': volume['name'],
+                           'current_size': volume['size'],
+                           'new_size': new_size})
 
     def local_path(self, volume):
         raise NotImplementedError()

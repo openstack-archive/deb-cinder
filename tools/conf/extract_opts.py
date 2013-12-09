@@ -39,7 +39,6 @@ FLOATOPT = "FloatOpt"
 LISTOPT = "ListOpt"
 MULTISTROPT = "MultiStrOpt"
 
-OPTION_COUNT = 0
 OPTION_REGEX = re.compile(r"(%s)" % "|".join([STROPT, BOOLOPT, INTOPT,
                                               FLOATOPT, LISTOPT,
                                               MULTISTROPT]))
@@ -72,7 +71,6 @@ def main(srcfiles):
         mods.sort()
         for mod_str in mods:
             _print_module(mod_str)
-    print("# Total option count: %d" % OPTION_COUNT)
 
 
 def _print_module(mod_str):
@@ -99,8 +97,6 @@ def _list_opts(obj, name):
             opts.extend(attr_obj)
     if not opts:
         return
-    global OPTION_COUNT
-    OPTION_COUNT += len(opts)
     print('#')
     print('# Options defined in %s' % name)
     print('#')
@@ -181,8 +177,11 @@ def _print_opt(opt):
             print('#%s=%s' % (opt_name, ','.join(opt_default)))
         elif opt_type == MULTISTROPT:
             assert(isinstance(opt_default, list))
-            for default in opt_default:
-                print('#%s=%s' % (opt_name, default))
+            if opt_default:
+                for default in opt_default:
+                    print('#%s=%s' % (opt_name, default))
+            else:
+                print('#%s=' % (opt_name))
         print()
     except Exception:
         sys.stderr.write('Error in option "%s"\n' % opt_name)

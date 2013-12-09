@@ -20,6 +20,7 @@ from cinder.api import xmlutil
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.rpc import common as rpc_common
+from cinder.openstack.common import strutils
 from cinder import utils
 from cinder import volume
 
@@ -75,7 +76,11 @@ class VolumeActionsController(wsgi.Controller):
     def _attach(self, req, id, body):
         """Add attachment metadata."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         # instance uuid is an option now
         instance_uuid = None
         if 'instance_uuid' in body['os-attach']:
@@ -115,7 +120,11 @@ class VolumeActionsController(wsgi.Controller):
     def _detach(self, req, id, body):
         """Clear attachment metadata."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         self.volume_api.detach(context, volume)
         return webob.Response(status_int=202)
 
@@ -123,7 +132,11 @@ class VolumeActionsController(wsgi.Controller):
     def _reserve(self, req, id, body):
         """Mark volume as reserved."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         self.volume_api.reserve_volume(context, volume)
         return webob.Response(status_int=202)
 
@@ -131,7 +144,11 @@ class VolumeActionsController(wsgi.Controller):
     def _unreserve(self, req, id, body):
         """Unmark volume as reserved."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         self.volume_api.unreserve_volume(context, volume)
         return webob.Response(status_int=202)
 
@@ -139,7 +156,11 @@ class VolumeActionsController(wsgi.Controller):
     def _begin_detaching(self, req, id, body):
         """Update volume status to 'detaching'."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         self.volume_api.begin_detaching(context, volume)
         return webob.Response(status_int=202)
 
@@ -147,7 +168,11 @@ class VolumeActionsController(wsgi.Controller):
     def _roll_detaching(self, req, id, body):
         """Roll back volume status to 'in-use'."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         self.volume_api.roll_detaching(context, volume)
         return webob.Response(status_int=202)
 
@@ -155,8 +180,14 @@ class VolumeActionsController(wsgi.Controller):
     def _initialize_connection(self, req, id, body):
         """Initialize volume attachment."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
-        connector = body['os-initialize_connection']['connector']
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+        try:
+            connector = body['os-initialize_connection']['connector']
+        except KeyError:
+            raise webob.exc.HTTPBadRequest("Must specify 'connector'")
         info = self.volume_api.initialize_connection(context,
                                                      volume,
                                                      connector)
@@ -166,8 +197,14 @@ class VolumeActionsController(wsgi.Controller):
     def _terminate_connection(self, req, id, body):
         """Terminate volume attachment."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
-        connector = body['os-terminate_connection']['connector']
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+        try:
+            connector = body['os-terminate_connection']['connector']
+        except KeyError:
+            raise webob.exc.HTTPBadRequest("Must specify 'connector'")
         self.volume_api.terminate_connection(context, volume, connector)
         return webob.Response(status_int=202)
 
@@ -178,12 +215,7 @@ class VolumeActionsController(wsgi.Controller):
     def _volume_upload_image(self, req, id, body):
         """Uploads the specified volume to image service."""
         context = req.environ['cinder.context']
-        try:
-            params = body['os-volume_upload_image']
-        except (TypeError, KeyError):
-            msg = _("Invalid request body")
-            raise webob.exc.HTTPBadRequest(explanation=msg)
-
+        params = body['os-volume_upload_image']
         if not params.get("image_name"):
             msg = _("No image_name was specified in request.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
@@ -193,6 +225,7 @@ class VolumeActionsController(wsgi.Controller):
             volume = self.volume_api.get(context, id)
         except exception.VolumeNotFound as error:
             raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         authorize(context, "upload_image")
         image_metadata = {"container_format": params.get("container_format",
                                                          "bare"),
@@ -217,7 +250,11 @@ class VolumeActionsController(wsgi.Controller):
     def _extend(self, req, id, body):
         """Extend size of volume."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
         try:
             _val = int(body['os-extend']['new_size'])
         except (KeyError, ValueError):
@@ -232,18 +269,27 @@ class VolumeActionsController(wsgi.Controller):
     def _volume_readonly_update(self, req, id, body):
         """Update volume readonly flag."""
         context = req.environ['cinder.context']
-        volume = self.volume_api.get(context, id)
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
 
-        if not self.is_valid_body(body, 'os-update_readonly_flag'):
-            msg = _("No 'os-update_readonly_flag' was specified "
-                    "in request.")
+        try:
+            readonly_flag = body['os-update_readonly_flag']['readonly']
+        except KeyError:
+            msg = _("Must specify readonly in request.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
-        readonly_flag = body['os-update_readonly_flag'].get('readonly')
+        if isinstance(readonly_flag, basestring):
+            try:
+                readonly_flag = strutils.bool_from_string(readonly_flag,
+                                                          strict=True)
+            except ValueError:
+                msg = _("Bad value for 'readonly'")
+                raise webob.exc.HTTPBadRequest(explanation=msg)
 
-        if not isinstance(readonly_flag, bool):
-            msg = _("Volume 'readonly' flag must be specified "
-                    "in request as a boolean.")
+        elif not isinstance(readonly_flag, bool):
+            msg = _("'readonly' not string or bool")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
         self.volume_api.update_readonly_flag(context, volume, readonly_flag)

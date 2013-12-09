@@ -83,8 +83,8 @@ class QuotaSetsControllerTest(test.TestCase):
 
     def test_update_wrong_key(self):
         body = {'quota_set': {'bad': 'bad'}}
-        result = self.controller.update(self.req, 'foo', body)
-        self.assertDictMatch(result, make_body(tenant_id=None))
+        self.assertRaises(webob.exc.HTTPBadRequest, self.controller.update,
+                          self.req, 'foo', body)
 
     def test_update_invalid_key_value(self):
         body = {'quota_set': {'gigabytes': "should_be_int"}}
@@ -100,6 +100,16 @@ class QuotaSetsControllerTest(test.TestCase):
         self.req.environ['cinder.context'].is_admin = False
         self.assertRaises(webob.exc.HTTPForbidden, self.controller.update,
                           self.req, 'foo', make_body(tenant_id=None))
+
+    def test_update_without_quota_set_field(self):
+        body = {'fake_quota_set': {'gigabytes': 100}}
+        self.assertRaises(webob.exc.HTTPBadRequest, self.controller.update,
+                          self.req, 'foo', body)
+
+    def test_update_empty_body(self):
+        body = {}
+        self.assertRaises(webob.exc.HTTPBadRequest, self.controller.update,
+                          self.req, 'foo', body)
 
 
 class QuotaSerializerTest(test.TestCase):

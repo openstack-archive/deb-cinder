@@ -88,7 +88,11 @@ NEXENTA_NFS_OPTIONS = [
                  default=1.0,
                  help=('This will compare the allocated to available space on '
                        'the volume destination.  If the ratio exceeds this '
-                       'number, the destination will no longer be valid.'))
+                       'number, the destination will no longer be valid.')),
+    cfg.BoolOpt('nexenta_nms_cache_volroot',
+                default=True,
+                help=('If set True cache NexentaStor appliance volroot option '
+                      'value.'))
 ]
 
 NEXENTA_VOLUME_OPTIONS = [
@@ -98,4 +102,17 @@ NEXENTA_VOLUME_OPTIONS = [
     cfg.BoolOpt('nexenta_sparse',
                 default=False,
                 help='flag to create sparse volumes'),
+]
+
+NEXENTA_RRMGR_OPTIONS = [
+    cfg.IntOpt('nexenta_rrmgr_compression',
+               default=0,
+               help=('Enable stream compression, level 1..9. 1 - gives best '
+                     'speed; 9 - gives best compression.')),
+    cfg.IntOpt('nexenta_rrmgr_tcp_buf_size',
+               default=4096,
+               help='TCP Buffer size in KiloBytes.'),
+    cfg.IntOpt('nexenta_rrmgr_connections',
+               default=2,
+               help='Number of TCP connections.'),
 ]

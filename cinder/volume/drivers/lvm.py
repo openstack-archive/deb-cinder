@@ -28,7 +28,6 @@ from oslo.config import cfg
 
 from cinder.brick import exception as brick_exception
 from cinder.brick.iscsi import iscsi
-from cinder.brick.iser import iser
 from cinder.brick.local_dev import lvm as lvm
 from cinder import exception
 from cinder.image import image_utils
@@ -45,10 +44,6 @@ volume_opts = [
     cfg.StrOpt('volume_group',
                default='cinder-volumes',
                help='Name for the VG that will contain exported volumes'),
-    cfg.StrOpt('pool_size',
-               default=None,
-               help='Size of thin provisioning pool '
-                    '(None uses entire cinder VG)'),
     cfg.IntOpt('lvm_mirrors',
                default=0,
                help='If set, create lvms with multiple mirrors. Note that '
@@ -171,6 +166,10 @@ class LVMVolumeDriver(driver.VolumeDriver):
                             self.configuration.lvm_type,
                             self.configuration.lvm_mirrors)
 
+        # Some configurations of LVM do not automatically activate
+        # ThinLVM snapshot LVs.
+        self.vg.activate_lv(snapshot['name'], is_snapshot=True)
+
         volutils.copy_volume(self.local_path(snapshot),
                              self.local_path(volume),
                              snapshot['volume_size'] * 1024,
@@ -197,10 +196,13 @@ class LVMVolumeDriver(driver.VolumeDriver):
     def clear_volume(self, volume, is_snapshot=False):
         """unprovision old volumes to prevent data leaking between users."""
 
-        if self.configuration.volume_clear == 'none':
+        # NOTE(jdg): Don't write the blocks of thin provisioned
+        # volumes
+        if self.configuration.volume_clear == 'none' or \
+                self.configuration.lvm_type == 'thin':
             return
 
-        if is_snapshot and not self.configuration.lvm_type == 'thin':
+        if is_snapshot:
             # if the volume to be cleared is a snapshot of another volume
             # we need to clear out the volume using the -cow instead of the
             # directly volume path.  We need to skip this if we are using
@@ -277,7 +279,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         image_utils.fetch_to_raw(context,
                                  image_service,
                                  image_id,
-                                 self.local_path(volume))
+                                 self.local_path(volume), size=volume['size'])
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
@@ -414,7 +416,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
     def _create_tgtadm_target(self, iscsi_name, iscsi_target,
                               volume_path, chap_auth, lun=0,
                               check_exit_code=False, old_name=None):
-        # NOTE(jdg): tgt driver has an issue where with alot of activity
+        # NOTE(jdg): tgt driver has an issue where with a lot of activity
         # (or sometimes just randomly) it will get *confused* and attempt
         # to reuse a target ID, resulting in a target already exists error
         # Typically a simple retry will address this
@@ -705,7 +707,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
                 LOG.error(_('%s'), message)
                 return false_ret
 
-            helper = 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
+            helper = utils.get_root_helper()
             dest_vg_ref = lvm.LVM(dest_vg, helper, lvm_type, self._execute)
             self.remove_export(ctxt, volume)
             self._create_volume(volume['name'],
@@ -753,138 +755,3 @@ class LVMISERDriver(LVMISCSIDriver, driver.ISERDriver):
         self.backend_name =\
             self.configuration.safe_get('volume_backend_name') or 'LVM_iSER'
         self.protocol = 'iSER'
-        self.tgtadm.set_execute(self._execute)
-
-    def set_execute(self, execute):
-        LVMVolumeDriver.set_execute(self, execute)
-        self.tgtadm.set_execute(execute)
-
-    def ensure_export(self, context, volume):
-        """Synchronously recreates an export for a logical volume."""
-
-        if not isinstance(self.tgtadm, iser.TgtAdm):
-            try:
-                iser_target = self.db.volume_get_iscsi_target_num(
-                    context,
-                    volume['id'])
-            except exception.NotFound:
-                LOG.info(_("Skipping ensure_export. No iser_target "
-                           "provisioned for volume: %s"), volume['id'])
-                return
-        else:
-            iser_target = 1  # dummy value when using TgtAdm
-
-        chap_auth = None
-
-        # Check for https://bugs.launchpad.net/cinder/+bug/1065702
-        old_name = None
-        volume_name = volume['name']
-        if (volume['provider_location'] is not None and
-                volume['name'] not in volume['provider_location']):
-
-            msg = _('Detected inconsistency in provider_location id')
-            LOG.debug(msg)
-            old_name = self._fix_id_migration(context, volume)
-            if 'in-use' in volume['status']:
-                volume_name = old_name
-                old_name = None
-
-        iser_name = "%s%s" % (self.configuration.iser_target_prefix,
-                              volume_name)
-        volume_path = "/dev/%s/%s" % (self.configuration.volume_group,
-                                      volume_name)
-
-        self.tgtadm.create_iser_target(iser_name, iser_target,
-                                       0, volume_path, chap_auth,
-                                       check_exit_code=False,
-                                       old_name=old_name)
-
-    def _ensure_iser_targets(self, context, host):
-        """Ensure that target ids have been created in datastore."""
-        if not isinstance(self.tgtadm, iser.TgtAdm):
-            host_iser_targets = self.db.iscsi_target_count_by_host(context,
-                                                                   host)
-            if host_iser_targets >= self.configuration.iser_num_targets:
-                return
-
-            # NOTE(vish): Target ids start at 1, not 0.
-            target_end = self.configuration.iser_num_targets + 1
-            for target_num in xrange(1, target_end):
-                target = {'host': host, 'target_num': target_num}
-                self.db.iscsi_target_create_safe(context, target)
-
-    def create_export(self, context, volume):
-        """Creates an export for a logical volume."""
-
-        iser_name = "%s%s" % (self.configuration.iser_target_prefix,
-                              volume['name'])
-        volume_path = "/dev/%s/%s" % (self.configuration.volume_group,
-                                      volume['name'])
-        model_update = {}
-
-        # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
-        if not isinstance(self.tgtadm, iser.TgtAdm):
-            lun = 0
-            self._ensure_iser_targets(context, volume['host'])
-            iser_target = self.db.volume_allocate_iscsi_target(context,
-                                                               volume['id'],
-                                                               volume['host'])
-        else:
-            lun = 1  # For tgtadm the controller is lun 0, dev starts at lun 1
-            iser_target = 0
-
-        # Use the same method to generate the username and the password.
-        chap_username = utils.generate_username()
-        chap_password = utils.generate_password()
-        chap_auth = self._iser_authentication('IncomingUser', chap_username,
-                                              chap_password)
-        tid = self.tgtadm.create_iser_target(iser_name,
-                                             iser_target,
-                                             0,
-                                             volume_path,
-                                             chap_auth)
-        model_update['provider_location'] = self._iser_location(
-            self.configuration.iser_ip_address, tid, iser_name, lun)
-        model_update['provider_auth'] = self._iser_authentication(
-            'CHAP', chap_username, chap_password)
-        return model_update
-
-    def remove_export(self, context, volume):
-        """Removes an export for a logical volume."""
-
-        if not isinstance(self.tgtadm, iser.TgtAdm):
-            try:
-                iser_target = self.db.volume_get_iscsi_target_num(
-                    context,
-                    volume['id'])
-            except exception.NotFound:
-                LOG.info(_("Skipping remove_export. No iser_target "
-                           "provisioned for volume: %s"), volume['id'])
-                return
-        else:
-            iser_target = 0
-
-        try:
-
-            # NOTE: provider_location may be unset if the volume hasn't
-            # been exported
-            location = volume['provider_location'].split(' ')
-            iqn = location[1]
-
-            self.tgtadm.show_target(iser_target, iqn=iqn)
-
-        except Exception:
-            LOG.info(_("Skipping remove_export. No iser_target "
-                       "is presently exported for volume: %s"), volume['id'])
-            return
-
-        self.tgtadm.remove_iser_target(iser_target, 0, volume['id'],
-                                       volume['name'])
-
-    def _iser_location(self, ip, target, iqn, lun=None):
-        return "%s:%s,%s %s %s" % (ip, self.configuration.iser_port,
-                                   target, iqn, lun)
-
-    def _iser_authentication(self, chap, name, password):
-        return "%s %s %s" % (chap, name, password)

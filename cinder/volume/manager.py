@@ -42,7 +42,6 @@ import time
 
 from oslo.config import cfg
 
-from cinder.brick.initiator import connector as initiator
 from cinder import compute
 from cinder import context
 from cinder import exception
@@ -92,7 +91,9 @@ MAPPING = {
     'cinder.volume.driver.SheepdogDriver':
     'cinder.volume.drivers.sheepdog.SheepdogDriver',
     'cinder.volume.nexenta.volume.NexentaDriver':
-    'cinder.volume.drivers.nexenta.volume.NexentaDriver',
+    'cinder.volume.drivers.nexenta.iscsi.NexentaISCSIDriver',
+    'cinder.volume.drivers.nexenta.volume.NexentaDriver':
+    'cinder.volume.drivers.nexenta.iscsi.NexentaISCSIDriver',
     'cinder.volume.san.SanISCSIDriver':
     'cinder.volume.drivers.san.san.SanISCSIDriver',
     'cinder.volume.san.SolarisISCSIDriver':
@@ -197,23 +198,32 @@ class VolumeManager(manager.SchedulerDependentManager):
             # to initialize the driver correctly.
             return
 
-        # at this point the driver is considered initailized.
-        # next re-initialize exports and clean up volumes that
-        # should be deleted.
-        self.driver.set_initialized()
-
         volumes = self.db.volume_get_all_by_host(ctxt, self.host)
         LOG.debug(_("Re-exporting %s volumes"), len(volumes))
-        for volume in volumes:
-            if volume['status'] in ['available', 'in-use']:
-                self.driver.ensure_export(ctxt, volume)
-            elif volume['status'] == 'downloading':
-                LOG.info(_("volume %s stuck in a downloading state"),
-                         volume['id'])
-                self.driver.clear_download(ctxt, volume)
-                self.db.volume_update(ctxt, volume['id'], {'status': 'error'})
-            else:
-                LOG.info(_("volume %s: skipping export"), volume['id'])
+
+        try:
+            for volume in volumes:
+                if volume['status'] in ['available', 'in-use']:
+                    self.driver.ensure_export(ctxt, volume)
+                elif volume['status'] == 'downloading':
+                    LOG.info(_("volume %s stuck in a downloading state"),
+                             volume['id'])
+                    self.driver.clear_download(ctxt, volume)
+                    self.db.volume_update(ctxt,
+                                          volume['id'],
+                                          {'status': 'error'})
+                else:
+                    LOG.info(_("volume %s: skipping export"), volume['id'])
+        except Exception as ex:
+            LOG.error(_("Error encountered during "
+                        "re-exporting phase of driver initialization: "
+                        " %(name)s") %
+                      {'name': self.driver.__class__.__name__})
+            LOG.exception(ex)
+            return
+
+        # at this point the driver is considered initialized.
+        self.driver.set_initialized()
 
         LOG.debug(_('Resuming any in progress delete operations'))
         for volume in volumes:
@@ -482,6 +492,8 @@ class VolumeManager(manager.SchedulerDependentManager):
             # TODO(jdg): attach_time column is currently varchar
             # we should update this to a date-time object
             # also consider adding detach_time?
+            self._notify_about_volume_usage(context, volume,
+                                            "attach.start")
             self.db.volume_update(context, volume_id,
                                   {"instance_uuid": instance_uuid,
                                    "attached_host": host_name,
@@ -518,11 +530,12 @@ class VolumeManager(manager.SchedulerDependentManager):
                     self.db.volume_update(context, volume_id,
                                           {'status': 'error_attaching'})
 
-            self.db.volume_attached(context.elevated(),
-                                    volume_id,
-                                    instance_uuid,
-                                    host_name_sanitized,
-                                    mountpoint)
+            volume = self.db.volume_attached(context.elevated(),
+                                             volume_id,
+                                             instance_uuid,
+                                             host_name_sanitized,
+                                             mountpoint)
+            self._notify_about_volume_usage(context, volume, "attach.end")
         return do_attach()
 
     @utils.require_driver_initialized
@@ -532,6 +545,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         # TODO(sleepsonthefloor): Is this 'elevated' appropriate?
 
         volume = self.db.volume_get(context, volume_id)
+        self._notify_about_volume_usage(context, volume, "detach.start")
         try:
             self.driver.detach_volume(context, volume)
         except Exception:
@@ -549,6 +563,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         if (volume['provider_location'] and
                 volume['name'] not in volume['provider_location']):
             self.driver.ensure_export(context, volume)
+        self._notify_about_volume_usage(context, volume, "detach.end")
 
     @utils.require_driver_initialized
     def copy_volume_to_image(self, context, volume_id, image_meta):
@@ -730,11 +745,18 @@ class VolumeManager(manager.SchedulerDependentManager):
 
     def migrate_volume_completion(self, ctxt, volume_id, new_volume_id,
                                   error=False):
+        msg = _("migrate_volume_completion: completing migration for "
+                "volume %(vol1)s (temporary volume %(vol2)s")
+        LOG.debug(msg % {'vol1': volume_id, 'vol2': new_volume_id})
         volume = self.db.volume_get(ctxt, volume_id)
         new_volume = self.db.volume_get(ctxt, new_volume_id)
         rpcapi = volume_rpcapi.VolumeAPI()
 
         if error:
+            msg = _("migrate_volume_completion is cleaning up an error "
+                    "for volume %(vol1)s (temporary volume %(vol2)s")
+            LOG.info(msg % {'vol1': volume['id'],
+                            'vol2': new_volume['id']})
             new_volume['migration_status'] = None
             rpcapi.delete_volume(ctxt, new_volume)
             self.db.volume_update(ctxt, volume_id, {'migration_status': None})

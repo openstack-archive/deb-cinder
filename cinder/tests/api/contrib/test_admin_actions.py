@@ -303,7 +303,7 @@ class AdminActionsTest(test.TestCase):
         volume = db.volume_get(ctx, volume['id'])
         self.assertEqual(volume['status'], 'in-use')
         self.assertEqual(volume['instance_uuid'], stubs.FAKE_UUID)
-        self.assertEqual(volume['attached_host'], None)
+        self.assertIsNone(volume['attached_host'])
         self.assertEqual(volume['mountpoint'], mountpoint)
         self.assertEqual(volume['attach_status'], 'attached')
         admin_metadata = volume['volume_admin_metadata']
@@ -330,9 +330,9 @@ class AdminActionsTest(test.TestCase):
         volume = db.volume_get(ctx, volume['id'])
         # status changed to 'available'
         self.assertEqual(volume['status'], 'available')
-        self.assertEqual(volume['instance_uuid'], None)
-        self.assertEqual(volume['attached_host'], None)
-        self.assertEqual(volume['mountpoint'], None)
+        self.assertIsNone(volume['instance_uuid'])
+        self.assertIsNone(volume['attached_host'])
+        self.assertIsNone(volume['mountpoint'])
         self.assertEqual(volume['attach_status'], 'detached')
         admin_metadata = volume['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 1)
@@ -357,7 +357,7 @@ class AdminActionsTest(test.TestCase):
         # volume is attached
         volume = db.volume_get(ctx, volume['id'])
         self.assertEqual(volume['status'], 'in-use')
-        self.assertEqual(volume['instance_uuid'], None)
+        self.assertIsNone(volume['instance_uuid'])
         self.assertEqual(volume['attached_host'], host_name)
         self.assertEqual(volume['mountpoint'], mountpoint)
         self.assertEqual(volume['attach_status'], 'attached')
@@ -385,9 +385,9 @@ class AdminActionsTest(test.TestCase):
         volume = db.volume_get(ctx, volume['id'])
         # status changed to 'available'
         self.assertEqual(volume['status'], 'available')
-        self.assertEqual(volume['instance_uuid'], None)
-        self.assertEqual(volume['attached_host'], None)
-        self.assertEqual(volume['mountpoint'], None)
+        self.assertIsNone(volume['instance_uuid'])
+        self.assertIsNone(volume['attached_host'])
+        self.assertIsNone(volume['mountpoint'])
         self.assertEqual(volume['attach_status'], 'detached')
         admin_metadata = volume['volume_admin_metadata']
         self.assertEqual(len(admin_metadata), 1)
@@ -584,6 +584,23 @@ class AdminActionsTest(test.TestCase):
         volume = self._migrate_volume_prep()
         self._migrate_volume_exec(ctx, volume, host, expected_status)
 
+    def test_migrate_volume_without_host_parameter(self):
+        expected_status = 400
+        host = 'test3'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        # build request to migrate without host
+        req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
+        req.method = 'POST'
+        req.headers['content-type'] = 'application/json'
+        body = {'os-migrate_volume': {'host': host,
+                                      'force_host_copy': False}}
+        req.body = jsonutils.dumps(body)
+        req.environ['cinder.context'] = ctx
+        resp = req.get_response(app())
+        # verify status
+        self.assertEqual(resp.status_int, expected_status)
+
     def test_migrate_volume_host_no_exist(self):
         expected_status = 400
         host = 'test3'
@@ -633,7 +650,6 @@ class AdminActionsTest(test.TestCase):
 
     def _migrate_volume_comp_exec(self, ctx, volume, new_volume, error,
                                   expected_status, expected_id):
-        admin_ctx = context.get_admin_context()
         req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'

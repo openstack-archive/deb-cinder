@@ -212,6 +212,7 @@ class VolumeController(wsgi.Controller):
 
         try:
             vol = self.volume_api.get(context, id)
+            req.cache_resource(vol)
         except exception.NotFound:
             msg = _("Volume could not be found")
             raise exc.HTTPNotFound(explanation=msg)
@@ -285,6 +286,7 @@ class VolumeController(wsgi.Controller):
             volumes = self._view_builder.detail_list(req, limited_list)
         else:
             volumes = self._view_builder.summary_list(req, limited_list)
+        req.cache_resource(limited_list)
         return volumes
 
     def _image_uuid_from_href(self, image_href):
@@ -345,15 +347,24 @@ class VolumeController(wsgi.Controller):
 
         snapshot_id = volume.get('snapshot_id')
         if snapshot_id is not None:
-            kwargs['snapshot'] = self.volume_api.get_snapshot(context,
-                                                              snapshot_id)
+            try:
+                kwargs['snapshot'] = self.volume_api.get_snapshot(context,
+                                                                  snapshot_id)
+            except exception.NotFound:
+                explanation = _('snapshot id:%s not found') % snapshot_id
+                raise exc.HTTPNotFound(explanation=explanation)
         else:
             kwargs['snapshot'] = None
 
         source_volid = volume.get('source_volid')
         if source_volid is not None:
-            kwargs['source_volume'] = self.volume_api.get_volume(context,
-                                                                 source_volid)
+            try:
+                kwargs['source_volume'] = \
+                    self.volume_api.get_volume(context,
+                                               source_volid)
+            except exception.NotFound:
+                explanation = _('source volume id:%s not found') % source_volid
+                raise exc.HTTPNotFound(explanation=explanation)
         else:
             kwargs['source_volume'] = None
 

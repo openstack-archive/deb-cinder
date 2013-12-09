@@ -64,7 +64,7 @@ class VolumeTypeTestCase(test.TestCase):
 
         for k, v in self.vol_type1_specs.iteritems():
             self.assertEqual(v, new['extra_specs'][k],
-                             'one of fields doesnt match')
+                             'one of fields does not match')
 
         new_all_vtypes = volume_types.get_all_types(self.ctxt)
         self.assertEqual(len(prev_all_vtypes) + 1,
@@ -225,7 +225,7 @@ class VolumeTypeTestCase(test.TestCase):
         type_ref = volume_types.create(self.ctxt, "type1", {"key2": "val2",
                                                   "key3": "val3"})
         res = volume_types.get_volume_type_qos_specs(type_ref['id'])
-        self.assertEqual(res['qos_specs'], None)
+        self.assertIsNone(res['qos_specs'])
         qos_specs.associate_qos_with_type(self.ctxt,
                                           qos_ref['id'],
                                           type_ref['id'])

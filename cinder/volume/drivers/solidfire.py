@@ -90,12 +90,12 @@ class SolidFireDriver(SanISCSIDriver):
     GB = math.pow(2, 30)
 
     def __init__(self, *args, **kwargs):
-            super(SolidFireDriver, self).__init__(*args, **kwargs)
-            self.configuration.append_config_values(sf_opts)
-            try:
-                self._update_cluster_status()
-            except exception.SolidFireAPIException:
-                pass
+        super(SolidFireDriver, self).__init__(*args, **kwargs)
+        self.configuration.append_config_values(sf_opts)
+        try:
+            self._update_cluster_status()
+        except exception.SolidFireAPIException:
+            pass
 
     def _issue_api_request(self, method_name, params, version='1.0'):
         """All API requests to SolidFire device go through this method.
@@ -231,7 +231,8 @@ class SolidFireDriver(SanISCSIDriver):
         sf_account_name = self._get_sf_account_name(project_id)
         sfaccount = self._get_sfaccount_by_name(sf_account_name)
         if sfaccount is None:
-            raise exception.SfAccountNotFound(account_name=sf_account_name)
+            raise exception.SolidFireAccountNotFound(
+                account_name=sf_account_name)
 
         return sfaccount
 

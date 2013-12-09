@@ -23,30 +23,34 @@ import base64
 import urllib2
 
 import mox as mox_lib
-from mox import stubout
 
+from cinder import context
+from cinder import db
 from cinder import test
 from cinder import units
 from cinder.volume import configuration as conf
 from cinder.volume.drivers import nexenta
+from cinder.volume.drivers.nexenta import iscsi
 from cinder.volume.drivers.nexenta import jsonrpc
 from cinder.volume.drivers.nexenta import nfs
-from cinder.volume.drivers.nexenta import volume
+from cinder.volume.drivers.nexenta import utils
 
 
-class TestNexentaDriver(test.TestCase):
+class TestNexentaISCSIDriver(test.TestCase):
     TEST_VOLUME_NAME = 'volume1'
     TEST_VOLUME_NAME2 = 'volume2'
     TEST_SNAPSHOT_NAME = 'snapshot1'
     TEST_VOLUME_REF = {
         'name': TEST_VOLUME_NAME,
         'size': 1,
-        'id': '1'
+        'id': '1',
+        'status': 'available'
     }
     TEST_VOLUME_REF2 = {
         'name': TEST_VOLUME_NAME2,
         'size': 1,
-        'id': '2'
+        'id': '2',
+        'status': 'in-use'
     }
     TEST_SNAPSHOT_REF = {
         'name': TEST_SNAPSHOT_NAME,
@@ -54,10 +58,10 @@ class TestNexentaDriver(test.TestCase):
     }
 
     def __init__(self, method):
-        super(TestNexentaDriver, self).__init__(method)
+        super(TestNexentaISCSIDriver, self).__init__(method)
 
     def setUp(self):
-        super(TestNexentaDriver, self).setUp()
+        super(TestNexentaISCSIDriver, self).setUp()
         self.configuration = mox_lib.MockObject(conf.Configuration)
         self.configuration.nexenta_host = '1.1.1.1'
         self.configuration.nexenta_user = 'admin'
@@ -70,13 +74,16 @@ class TestNexentaDriver(test.TestCase):
         self.configuration.nexenta_target_group_prefix = 'cinder/'
         self.configuration.nexenta_blocksize = '8K'
         self.configuration.nexenta_sparse = True
+        self.configuration.nexenta_rrmgr_compression = 1
+        self.configuration.nexenta_rrmgr_tcp_buf_size = 1024
+        self.configuration.nexenta_rrmgr_connections = 2
         self.nms_mock = self.mox.CreateMockAnything()
         for mod in ['volume', 'zvol', 'iscsitarget', 'appliance',
                     'stmf', 'scsidisk', 'snapshot']:
             setattr(self.nms_mock, mod, self.mox.CreateMockAnything())
         self.stubs.Set(jsonrpc, 'NexentaJSONProxy',
                        lambda *_, **__: self.nms_mock)
-        self.drv = volume.NexentaDriver(configuration=self.configuration)
+        self.drv = iscsi.NexentaISCSIDriver(configuration=self.configuration)
         self.drv.do_setup({})
 
     def test_setup_error(self):
@@ -110,31 +117,80 @@ class TestNexentaDriver(test.TestCase):
         self.drv.create_volume(self.TEST_VOLUME_REF)
 
     def test_delete_volume(self):
+        self.nms_mock.zvol.get_child_props('cinder/volume1',
+                                           'origin').AndReturn({})
         self.nms_mock.zvol.destroy('cinder/volume1', '')
         self.mox.ReplayAll()
         self.drv.delete_volume(self.TEST_VOLUME_REF)
+        self.mox.ResetAll()
+
+        c = self.nms_mock.zvol.get_child_props('cinder/volume1', 'origin')
+        c.AndReturn({'origin': 'cinder/volume0@snapshot'})
+        self.nms_mock.zvol.destroy('cinder/volume1', '')
+        self.mox.ReplayAll()
+        self.drv.delete_volume(self.TEST_VOLUME_REF)
+        self.mox.ResetAll()
+
+        c = self.nms_mock.zvol.get_child_props('cinder/volume1', 'origin')
+        c.AndReturn({'origin': 'cinder/volume0@cinder-clone-snapshot-1'})
+        self.nms_mock.zvol.destroy('cinder/volume1', '')
+        self.nms_mock.snapshot.destroy(
+            'cinder/volume0@cinder-clone-snapshot-1', '')
+        self.mox.ReplayAll()
+        self.drv.delete_volume(self.TEST_VOLUME_REF)
+        self.mox.ResetAll()
 
     def test_create_cloned_volume(self):
         vol = self.TEST_VOLUME_REF2
         src_vref = self.TEST_VOLUME_REF
         snapshot = {
             'volume_name': src_vref['name'],
-            'name': 'cinder-clone-snap-%s' % vol['id'],
+            'name': 'cinder-clone-snapshot-%s' % vol['id'],
         }
         self.nms_mock.zvol.create_snapshot('cinder/%s' % src_vref['name'],
                                            snapshot['name'], '')
-        cmd = 'zfs send %(src_vol)s@%(src_snap)s | zfs recv %(volume)s' % {
-            'src_vol': 'cinder/%s' % src_vref['name'],
-            'src_snap': snapshot['name'],
-            'volume': 'cinder/%s' % vol['name']
-        }
-        self.nms_mock.appliance.execute(cmd)
-        self.nms_mock.snapshot.destroy('cinder/%s@%s' % (src_vref['name'],
-                                                         snapshot['name']), '')
-        self.nms_mock.snapshot.destroy('cinder/%s@%s' % (vol['name'],
-                                                         snapshot['name']), '')
+        self.nms_mock.zvol.clone('cinder/%s@%s' % (src_vref['name'],
+                                                   snapshot['name']),
+                                 'cinder/%s' % vol['name'])
         self.mox.ReplayAll()
         self.drv.create_cloned_volume(vol, src_vref)
+
+    def test_migrate_volume(self):
+        volume = self.TEST_VOLUME_REF
+        host = {
+            'capabilities': {
+                'vendor_name': 'Nexenta',
+                'location_info': 'NexentaISCSIDriver:1.1.1.1:cinder',
+                'free_capacity_gb': 1
+            }
+        }
+        snapshot = {
+            'volume_name': volume['name'],
+            'name': 'cinder-migrate-snapshot-%s' % volume['id'],
+        }
+        self.nms_mock.appliance.ssh_list_bindings().AndReturn([])
+        self.nms_mock.zvol.create_snapshot('cinder/%s' % volume['name'],
+                                           snapshot['name'], '')
+
+        src = '%(volume)s/%(zvol)s@%(snapshot)s' % {
+            'volume': 'cinder',
+            'zvol': volume['name'],
+            'snapshot': snapshot['name']}
+        dst = '1.1.1.1:cinder'
+        cmd = ' '.join(['rrmgr -s zfs -c 1 -q -e -w 1024 -n 2', src, dst])
+
+        self.nms_mock.appliance.execute(cmd)
+
+        self.nms_mock.snapshot.destroy('cinder/%(volume)s@%(snapshot)s' % {
+                                       'volume': volume['name'],
+                                       'snapshot': snapshot['name']}, '')
+        volume_name = 'cinder/%s' % volume['name']
+        self.nms_mock.zvol.get_child_props(volume_name,
+                                           'origin').AndReturn(None)
+        self.nms_mock.zvol.destroy(volume_name, '')
+
+        self.mox.ReplayAll()
+        self.drv.migrate_volume(None, volume, host)
 
     def test_create_snapshot(self):
         self.nms_mock.zvol.create_snapshot('cinder/volume1', 'snapshot1', '')
@@ -149,6 +205,14 @@ class TestNexentaDriver(test.TestCase):
 
     def test_delete_snapshot(self):
         self.nms_mock.snapshot.destroy('cinder/volume1@snapshot1', '')
+        self.mox.ReplayAll()
+        self.drv.delete_snapshot(self.TEST_SNAPSHOT_REF)
+        self.mox.ResetAll()
+
+        # Check that exception not raised if snapshot does not exist
+        mock = self.nms_mock.snapshot.destroy('cinder/volume1@snapshot1', '')
+        mock.AndRaise(nexenta.NexentaException(
+            'Snapshot cinder/volume1@snapshot1 does not exist'))
         self.mox.ReplayAll()
         self.drv.delete_snapshot(self.TEST_SNAPSHOT_REF)
 
@@ -270,19 +334,22 @@ class TestNexentaDriver(test.TestCase):
 
 
 class TestNexentaJSONRPC(test.TestCase):
-    URL = 'http://example.com/'
-    URL_S = 'https://example.com/'
+    HOST = 'example.com'
+    URL = 'http://%s/' % HOST
+    URL_S = 'https://%s/' % HOST
     USER = 'user'
     PASSWORD = 'password'
-    HEADERS = {'Authorization': 'Basic %s' % (
-        base64.b64encode(':'.join((USER, PASSWORD))),),
-        'Content-Type': 'application/json'}
+    HEADERS = {
+        'Authorization':
+        'Basic %s' % base64.b64encode('%s:%s' % (USER, PASSWORD)),
+        'Content-Type': 'application/json'
+    }
     REQUEST = 'the request'
 
     def setUp(self):
         super(TestNexentaJSONRPC, self).setUp()
         self.proxy = jsonrpc.NexentaJSONProxy(
-            self.URL, self.USER, self.PASSWORD, auto=True)
+            'http', self.HOST, 2000, '/', self.USER, self.PASSWORD, auto=True)
         self.mox.StubOutWithMock(urllib2, 'Request', True)
         self.mox.StubOutWithMock(urllib2, 'urlopen')
         self.resp_mock = self.mox.CreateMockAnything()
@@ -292,7 +359,7 @@ class TestNexentaJSONRPC(test.TestCase):
 
     def test_call(self):
         urllib2.Request(
-            self.URL,
+            'http://%s:2000/' % self.HOST,
             '{"object": null, "params": ["arg1", "arg2"], "method": null}',
             self.HEADERS).AndReturn(self.REQUEST)
         self.resp_info_mock.status = ''
@@ -304,7 +371,7 @@ class TestNexentaJSONRPC(test.TestCase):
 
     def test_call_deep(self):
         urllib2.Request(
-            self.URL,
+            'http://%s:2000/' % self.HOST,
             '{"object": "obj1.subobj", "params": ["arg1", "arg2"],'
             ' "method": "meth"}',
             self.HEADERS).AndReturn(self.REQUEST)
@@ -317,11 +384,11 @@ class TestNexentaJSONRPC(test.TestCase):
 
     def test_call_auto(self):
         urllib2.Request(
-            self.URL,
+            'http://%s:2000/' % self.HOST,
             '{"object": null, "params": ["arg1", "arg2"], "method": null}',
             self.HEADERS).AndReturn(self.REQUEST)
         urllib2.Request(
-            self.URL_S,
+            'https://%s:2000/' % self.HOST,
             '{"object": null, "params": ["arg1", "arg2"], "method": null}',
             self.HEADERS).AndReturn(self.REQUEST)
         self.resp_info_mock.status = 'EOF in headers'
@@ -334,7 +401,7 @@ class TestNexentaJSONRPC(test.TestCase):
 
     def test_call_error(self):
         urllib2.Request(
-            self.URL,
+            'http://%s:2000/' % self.HOST,
             '{"object": null, "params": ["arg1", "arg2"], "method": null}',
             self.HEADERS).AndReturn(self.REQUEST)
         self.resp_info_mock.status = ''
@@ -346,7 +413,7 @@ class TestNexentaJSONRPC(test.TestCase):
 
     def test_call_fail(self):
         urllib2.Request(
-            self.URL,
+            'http://%s:2000/' % self.HOST,
             '{"object": null, "params": ["arg1", "arg2"], "method": null}',
             self.HEADERS).AndReturn(self.REQUEST)
         self.resp_info_mock.status = 'EOF in headers'
@@ -379,8 +446,18 @@ class TestNexentaNfsDriver(test.TestCase):
         'root': 'nobody'
     }
 
+    def _create_volume_db_entry(self):
+        vol = {
+            'id': '1',
+            'size': 1,
+            'status': 'available',
+            'provider_location': self.TEST_EXPORT1
+        }
+        return db.volume_create(self.ctxt, vol)['id']
+
     def setUp(self):
         super(TestNexentaNfsDriver, self).setUp()
+        self.ctxt = context.get_admin_context()
         self.configuration = mox_lib.MockObject(conf.Configuration)
         self.configuration.nexenta_shares_config = None
         self.configuration.nexenta_mount_point_base = '$state_path/mnt'
@@ -388,9 +465,12 @@ class TestNexentaNfsDriver(test.TestCase):
         self.configuration.nexenta_volume_compression = 'on'
         self.configuration.nfs_mount_point_base = '/mnt/test'
         self.configuration.nfs_mount_options = None
+        self.configuration.nexenta_nms_cache_volroot = False
         self.nms_mock = self.mox.CreateMockAnything()
-        for mod in ('appliance', 'folder', 'server', 'volume', 'netstorsvc'):
+        for mod in ('appliance', 'folder', 'server', 'volume', 'netstorsvc',
+                    'snapshot'):
             setattr(self.nms_mock, mod, self.mox.CreateMockAnything())
+        self.nms_mock.__hash__ = lambda *_, **__: 1
         self.stubs.Set(jsonrpc, 'NexentaJSONProxy',
                        lambda *_, **__: self.nms_mock)
         self.drv = nfs.NexentaNfsDriver(configuration=self.configuration)
@@ -405,6 +485,16 @@ class TestNexentaNfsDriver(test.TestCase):
         self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
         self.nms_mock.volume.object_exists('stack').AndReturn(True)
         self.nms_mock.folder.object_exists('stack/share').AndReturn(True)
+        share_opts = {
+            'read_write': '*',
+            'read_only': '',
+            'root': 'nobody',
+            'extra_options': 'anon=0',
+            'recursive': 'true',
+            'anonymous_rw': 'true',
+        }
+        self.nms_mock.netstorsvc.share_folder(
+            'svc:/network/nfs/server:default', 'stack/share', share_opts)
 
         self.mox.ReplayAll()
 
@@ -580,3 +670,109 @@ class TestNexentaNfsDriver(test.TestCase):
 
         self.assertEqual(volume_name, 'stack')
         self.assertEqual(folder_name, 'share')
+
+    def test_delete_snapshot(self):
+        self.drv.share2nms = {self.TEST_EXPORT1: self.nms_mock}
+        self._create_volume_db_entry()
+
+        self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
+        self.nms_mock.snapshot.destroy('stack/share/volume-1@snapshot1', '')
+        self.mox.ReplayAll()
+        self.drv.delete_snapshot({'volume_id': '1', 'name': 'snapshot1'})
+        self.mox.ResetAll()
+
+        # Check that exception not raised if snapshot does not exist on
+        # NexentaStor appliance.
+        self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
+        mock = self.nms_mock.snapshot.destroy('stack/share/volume-1@snapshot1',
+                                              '')
+        mock.AndRaise(nexenta.NexentaException("Snapshot does not exist"))
+        self.mox.ReplayAll()
+        self.drv.delete_snapshot({'volume_id': '1', 'name': 'snapshot1'})
+        self.mox.ResetAll()
+
+    def test_delete_volume(self):
+        self.drv.share2nms = {self.TEST_EXPORT1: self.nms_mock}
+        self._create_volume_db_entry()
+
+        self.drv._ensure_share_mounted = lambda *_, **__: 0
+        self.drv._execute = lambda *_, **__: 0
+
+        self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
+        self.nms_mock.folder.get_child_props('stack/share/volume-1',
+                                             'origin').AndReturn(None)
+        self.nms_mock.folder.destroy('stack/share/volume-1', '-r')
+        self.mox.ReplayAll()
+        self.drv.delete_volume({
+            'id': '1',
+            'name': 'volume-1',
+            'provider_location': self.TEST_EXPORT1
+        })
+        self.mox.ResetAll()
+
+        # Check that exception not raised if folder does not exist on
+        # NexentaStor appliance.
+        self.nms_mock.server.get_prop('volroot').AndReturn('/volumes')
+        self.nms_mock.folder.get_child_props('stack/share/volume-1',
+                                             'origin').AndReturn(None)
+        mock = self.nms_mock.folder.destroy('stack/share/volume-1', '-r')
+        mock.AndRaise(nexenta.NexentaException("Folder does not exist"))
+        self.mox.ReplayAll()
+        self.drv.delete_volume({
+            'id': '1',
+            'name': 'volume-1',
+            'provider_location': self.TEST_EXPORT1
+        })
+        self.mox.ResetAll()
+
+
+class TestNexentaUtils(test.TestCase):
+
+    def test_str2size(self):
+        values_to_test = (
+            # Test empty value
+            (None, 0),
+            ('', 0),
+            ('0', 0),
+            ('12', 12),
+            # Test int and long values
+            (10, 10),
+            (long(10), 10),
+            # Test bytes string
+            ('1b', 1),
+            ('1B', 1),
+            ('1023b', 1023),
+            ('0B', 0),
+            # Test other units
+            ('1M', units.MiB),
+            ('1.0M', units.MiB),
+        )
+
+        for value, result in values_to_test:
+            self.assertEquals(utils.str2size(value), result)
+
+        # Invalid format value
+        self.assertRaises(ValueError, utils.str2size, 'A')
+
+    def test_str2gib_size(self):
+        self.assertEqual(utils.str2gib_size('1024M'), 1)
+        self.assertEqual(utils.str2gib_size('300M'),
+                         300 * units.MiB // units.GiB)
+        self.assertEqual(utils.str2gib_size('1.2T'),
+                         1.2 * units.TiB // units.GiB)
+        self.assertRaises(ValueError, utils.str2gib_size, 'A')
+
+    def test_parse_nms_url(self):
+        urls = (
+            ('auto://192.168.1.1/', (True, 'http', 'admin', 'nexenta',
+                                     '192.168.1.1', '2000', '/rest/nms/')),
+            ('http://192.168.1.1/', (False, 'http', 'admin', 'nexenta',
+                                     '192.168.1.1', '2000', '/rest/nms/')),
+            ('http://192.168.1.1:8080', (False, 'http', 'admin', 'nexenta',
+                                         '192.168.1.1', '8080', '/rest/nms/')),
+            ('https://root:password@192.168.1.1:8080',
+             (False, 'https', 'root', 'password', '192.168.1.1', '8080',
+              '/rest/nms/')),
+        )
+        for url, result in urls:
+            self.assertEquals(utils.parse_nms_url(url), result)

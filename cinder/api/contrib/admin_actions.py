@@ -126,10 +126,7 @@ class VolumeAdminController(AdminController):
 
     @wsgi.action('os-force_detach')
     def _force_detach(self, req, id, body):
-        """
-        Roll back a bad detach after the volume been disconnected from
-        the hypervisor.
-        """
+        """Roll back a bad detach after the volume been disconnected."""
         context = req.environ['cinder.context']
         self.authorize(context, 'force_detach')
         try:
@@ -151,7 +148,10 @@ class VolumeAdminController(AdminController):
         except exception.NotFound:
             raise exc.HTTPNotFound()
         params = body['os-migrate_volume']
-        host = params['host']
+        try:
+            host = params['host']
+        except KeyError:
+            raise exc.HTTPBadRequest("Must specify 'host'")
         force_host_copy = params.get('force_host_copy', False)
         if isinstance(force_host_copy, basestring):
             try:
@@ -166,7 +166,7 @@ class VolumeAdminController(AdminController):
 
     @wsgi.action('os-migrate_volume_completion')
     def _migrate_volume_completion(self, req, id, body):
-        """Migrate a volume to the specified host."""
+        """Complete an in-progress migration."""
         context = req.environ['cinder.context']
         self.authorize(context, 'migrate_volume_completion')
         try:

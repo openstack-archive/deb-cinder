@@ -23,11 +23,13 @@ from cinder.api import xmlutil
 from cinder import db
 from cinder.db.sqlalchemy import api as sqlalchemy_api
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import strutils
 from cinder import quota
 
 
 QUOTAS = quota.QUOTAS
+NON_QUOTA_KEYS = ['tenant_id', 'id']
 
 
 authorize_update = extensions.extension_authorizer('volume', 'quotas:update')
@@ -46,7 +48,7 @@ class QuotaTemplate(xmlutil.TemplateBuilder):
         return xmlutil.MasterTemplate(root, 1)
 
 
-class QuotaSetsController(object):
+class QuotaSetsController(wsgi.Controller):
 
     def _format_quota_set(self, project_id, quota_set):
         """Convert the quota object to a result dict"""
@@ -96,16 +98,33 @@ class QuotaSetsController(object):
         context = req.environ['cinder.context']
         authorize_update(context)
         project_id = id
+        if not self.is_valid_body(body, 'quota_set'):
+            msg = (_("Missing required element quota_set in request body."))
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
+        bad_keys = []
+
+        for key, value in body['quota_set'].items():
+            if (key not in QUOTAS and key not in NON_QUOTA_KEYS):
+                bad_keys.append(key)
+                continue
+
+        if len(bad_keys) > 0:
+            msg = _("Bad key(s) in quota set: %s") % ",".join(bad_keys)
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
         for key in body['quota_set'].keys():
-            if key in QUOTAS:
-                self._validate_quota_limit(body['quota_set'][key])
-                value = int(body['quota_set'][key])
-                try:
-                    db.quota_update(context, project_id, key, value)
-                except exception.ProjectQuotaNotFound:
-                    db.quota_create(context, project_id, key, value)
-                except exception.AdminRequired:
-                    raise webob.exc.HTTPForbidden()
+            if key in NON_QUOTA_KEYS:
+                continue
+
+            self._validate_quota_limit(body['quota_set'][key])
+            value = int(body['quota_set'][key])
+            try:
+                db.quota_update(context, project_id, key, value)
+            except exception.ProjectQuotaNotFound:
+                db.quota_create(context, project_id, key, value)
+            except exception.AdminRequired:
+                raise webob.exc.HTTPForbidden()
         return {'quota_set': self._get_quotas(context, id)}
 
     @wsgi.serializers(xml=QuotaTemplate)

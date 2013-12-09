@@ -6,7 +6,7 @@
 ietadm: CommandFilter, ietadm, root
 tgtadm: CommandFilter, tgtadm, root
 tgt-admin: CommandFilter, tgt-admin, root
-rtstool: CommandFilter, rtstool, root
+cinder-rtstool: CommandFilter, cinder-rtstool, root
 
 # cinder/volume/driver.py: 'vgs', '--noheadings', '-o', 'name'
 vgs: CommandFilter, vgs, root
@@ -29,6 +29,9 @@ lvrename: CommandFilter, lvrename, root
 
 # cinder/volume/driver.py: 'lvextend', '-L' '%(new_size)s', '%(lv_name)s' ...
 lvextend: CommandFilter, lvextend, root
+
+# cinder/brick/local_dev/lvm.py: 'lvchange -a y -K <lv>'
+lvchange: CommandFilter, lvchange, root
 
 # cinder/volume/driver.py: 'iscsiadm', '-m', 'discovery', '-t',...
 # cinder/volume/driver.py: 'iscsiadm', '-m', 'node', '-T', ...
@@ -64,6 +67,7 @@ find: CommandFilter, find, root
 
 # cinder/volume/drivers/glusterfs.py
 mv: CommandFilter, mv, root
+chgrp: CommandFilter, chgrp, root
 
 # cinder/volumes/drivers/hds/hds.py:
 hus-cmd: CommandFilter, hus-cmd, root

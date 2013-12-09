@@ -24,9 +24,9 @@ properly both upgrading and downgrading, and that no data loss occurs
 if possible.
 """
 
-import commands
 import ConfigParser
 import os
+import subprocess
 import urlparse
 import uuid
 
@@ -47,9 +47,10 @@ def _get_connect_string(backend,
                         user="openstack_citest",
                         passwd="openstack_citest",
                         database="openstack_citest"):
-    """
+    """Return connect string.
+
     Try to get a connection with a very specific set of values, if we get
-    these then we'll run the tests, otherwise they are skipped
+    these then we'll run the tests, otherwise they are skipped.
     """
     if backend == "postgres":
         backend = "postgresql+psycopg2"
@@ -160,9 +161,12 @@ class TestMigrations(test.TestCase):
 
     def _reset_databases(self):
         def execute_cmd(cmd=None):
-            status, output = commands.getstatusoutput(cmd)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, shell=True)
+            output = proc.communicate()[0]
             LOG.debug(output)
-            self.assertEqual(0, status)
+            self.assertEqual(0, proc.returncode)
+
         for key, engine in self.engines.items():
             conn_string = self.test_databases[key]
             conn_pieces = urlparse.urlparse(conn_string)
@@ -227,7 +231,8 @@ class TestMigrations(test.TestCase):
                 os.unsetenv('PGUSER')
 
     def test_walk_versions(self):
-        """
+        """Test walk versions.
+
         Walks all version scripts for each tested database, ensuring
         that there are no errors in the version scripts for each engine
         """
@@ -235,7 +240,8 @@ class TestMigrations(test.TestCase):
             self._walk_versions(engine, self.snake_walk)
 
     def test_mysql_connect_fail(self):
-        """
+        """Test for mysql connection failure.
+
         Test that we can trigger a mysql connection failure and we fail
         gracefully to ensure we don't break people without mysql
         """
@@ -244,9 +250,7 @@ class TestMigrations(test.TestCase):
 
     @testtools.skipUnless(_have_mysql(), "mysql not available")
     def test_mysql_innodb(self):
-        """
-        Test that table creation on mysql only builds InnoDB tables
-        """
+        """Test that table creation on mysql only builds InnoDB tables."""
         # add this to the global lists to make reset work with it, it's removed
         # automaticaly in tearDown so no need to clean it up here.
         connect_string = _get_connect_string('mysql')
@@ -265,7 +269,8 @@ class TestMigrations(test.TestCase):
         total = connection.execute("SELECT count(*) "
                                    "from information_schema.TABLES "
                                    "where TABLE_SCHEMA='openstack_citest'")
-        self.assertTrue(total.scalar() > 0, "No tables found. Wrong schema?")
+        self.assertGreater(total.scalar(), 0,
+                           msg="No tables found. Wrong schema?")
 
         noninnodb = connection.execute("SELECT count(*) "
                                        "from information_schema.TABLES "
@@ -276,9 +281,10 @@ class TestMigrations(test.TestCase):
         self.assertEqual(count, 0, "%d non InnoDB tables created" % count)
 
     def test_postgresql_connect_fail(self):
-        """
+        """Test connection failure on PostgrSQL.
+
         Test that we can trigger a postgres connection failure and we fail
-        gracefully to ensure we don't break people without postgres
+        gracefully to ensure we don't break people without postgres.
         """
         if _is_backend_avail('postgres', user="openstack_cifail"):
             self.fail("Shouldn't have connected")
@@ -306,17 +312,17 @@ class TestMigrations(test.TestCase):
         # Place the database under version control
         migration_api.version_control(engine,
                                       TestMigrations.REPOSITORY,
-                                      migration.INIT_VERSION)
-        self.assertEqual(migration.INIT_VERSION,
+                                      migration.db_initial_version())
+        self.assertEqual(migration.db_initial_version(),
                          migration_api.db_version(engine,
                                                   TestMigrations.REPOSITORY))
 
         migration_api.upgrade(engine, TestMigrations.REPOSITORY,
-                              migration.INIT_VERSION + 1)
+                              migration.db_initial_version() + 1)
 
         LOG.debug('latest version is %s' % TestMigrations.REPOSITORY.latest)
 
-        for version in xrange(migration.INIT_VERSION + 2,
+        for version in xrange(migration.db_initial_version() + 2,
                               TestMigrations.REPOSITORY.latest + 1):
             # upgrade -> downgrade -> upgrade
             self._migrate_up(engine, version, with_data=True)
@@ -328,7 +334,7 @@ class TestMigrations(test.TestCase):
             # Now walk it back down to 0 from the latest, testing
             # the downgrade paths.
             for version in reversed(
-                xrange(migration.INIT_VERSION + 1,
+                xrange(migration.db_initial_version() + 1,
                        TestMigrations.REPOSITORY.latest)):
                 # downgrade -> upgrade -> downgrade
                 self._migrate_down(engine, version)
@@ -345,7 +351,7 @@ class TestMigrations(test.TestCase):
                                                   TestMigrations.REPOSITORY))
 
     def _migrate_up(self, engine, version, with_data=False):
-        """migrate up to a new version of the db.
+        """Migrate up to a new version of the db.
 
         We allow for data insertion and post checks at every
         migration version with special _prerun_### and
@@ -469,7 +475,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 4)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -485,7 +491,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine,
                                   TestMigrations.REPOSITORY,
                                   upgrade_to)
@@ -536,7 +542,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 7)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -598,7 +604,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 8)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -640,7 +646,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 9)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -683,7 +689,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 10)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -727,7 +733,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 11)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -753,7 +759,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 12)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -779,7 +785,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 13)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -805,7 +811,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 15)
 
             self.assertFalse(engine.dialect.has_table(engine.connect(),
@@ -821,7 +827,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 15)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -849,7 +855,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 16)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -902,7 +908,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 17)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -940,7 +946,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 18)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -966,7 +972,7 @@ class TestMigrations(test.TestCase):
         for (key, engine) in self.engines.items():
             migration_api.version_control(engine,
                                           TestMigrations.REPOSITORY,
-                                          migration.INIT_VERSION)
+                                          migration.db_initial_version())
             migration_api.upgrade(engine, TestMigrations.REPOSITORY, 19)
             metadata = sqlalchemy.schema.MetaData()
             metadata.bind = engine
@@ -987,8 +993,6 @@ class TestMigrations(test.TestCase):
                                   sqlalchemy.types.DATETIME)
             self.assertIsInstance(volume_admin_metadata.c.deleted.type,
                                   sqlalchemy.types.BOOLEAN)
-            self.assertIsInstance(volume_admin_metadata.c.deleted.type,
-                                  sqlalchemy.types.BOOLEAN)
             self.assertIsInstance(volume_admin_metadata.c.id.type,
                                   sqlalchemy.types.INTEGER)
             self.assertIsInstance(volume_admin_metadata.c.volume_id.type,
@@ -1002,3 +1006,34 @@ class TestMigrations(test.TestCase):
 
             self.assertFalse(engine.dialect.has_table(engine.connect(),
                                                       "volume_admin_metadata"))
+
+    def test_migration_021(self):
+        """Test adding default data for quota classes works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.db_initial_version())
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 20)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 21)
+
+            quota_class_metadata = sqlalchemy.Table('quota_classes',
+                                                    metadata,
+                                                    autoload=True)
+
+            num_defaults = quota_class_metadata.count().\
+                where(quota_class_metadata.c.class_name == 'default').\
+                execute().scalar()
+
+            self.assertEqual(3, num_defaults)
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 20)
+
+            # Defaults should not be deleted during downgrade
+            num_defaults = quota_class_metadata.count().\
+                where(quota_class_metadata.c.class_name == 'default').\
+                execute().scalar()
+
+            self.assertEqual(3, num_defaults)

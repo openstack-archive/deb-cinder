@@ -18,8 +18,10 @@
 
 import abc
 import threading
+import uuid as uuidlib
 
-from cinder.openstack.common import uuidutils
+import six
+
 
 from cinder.taskflow import decorators
 from cinder.taskflow import exceptions as exc
@@ -27,6 +29,7 @@ from cinder.taskflow import states
 from cinder.taskflow import utils
 
 
+@six.add_metaclass(abc.ABCMeta)
 class Flow(object):
     """The base abstract class of all flow implementations.
 
@@ -44,8 +47,6 @@ class Flow(object):
     - run
     - soft_reset
     """
-
-    __metaclass__ = abc.ABCMeta
 
     # Common states that certain actions can be performed in. If the flow
     # is not in these sets of states then it is likely that the flow operation
@@ -93,7 +94,7 @@ class Flow(object):
         if uuid:
             self._id = str(uuid)
         else:
-            self._id = uuidutils.generate_uuid()
+            self._id = str(uuidlib.uuid4())
 
     @property
     def name(self):

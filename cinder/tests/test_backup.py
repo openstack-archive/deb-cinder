@@ -63,8 +63,8 @@ class BackupTestCase(test.TestCase):
                                 size=0,
                                 object_count=0,
                                 project_id='fake'):
-        """
-        Create a backup entry in the DB.
+        """Create a backup entry in the DB.
+
         Return the entry ID
         """
         backup = {}
@@ -87,8 +87,8 @@ class BackupTestCase(test.TestCase):
                                 display_description='this is a test volume',
                                 status='backing-up',
                                 size=1):
-        """
-        Create a volume entry in the DB.
+        """Create a volume entry in the DB.
+
         Return the entry ID
         """
         vol = {}
@@ -358,7 +358,7 @@ class BackupTestCase(test.TestCase):
         ctxt_read_deleted = context.get_admin_context('yes')
         backup = db.backup_get(ctxt_read_deleted, backup_id)
         self.assertEqual(backup.deleted, True)
-        self.assertTrue(timeutils.utcnow() > backup.deleted_at)
+        self.assertGreater(timeutils.utcnow(), backup.deleted_at)
         self.assertEqual(backup.status, 'deleted')
 
     def test_list_backup(self):

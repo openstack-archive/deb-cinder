@@ -178,8 +178,17 @@ class SnapshotsController(wsgi.Controller):
         snapshot = body['snapshot']
         kwargs['metadata'] = snapshot.get('metadata', None)
 
-        volume_id = snapshot['volume_id']
-        volume = self.volume_api.get(context, volume_id)
+        try:
+            volume_id = snapshot['volume_id']
+        except KeyError:
+            msg = _("'volume_id' must be specified")
+            raise exc.HTTPBadRequest(explanation=msg)
+
+        try:
+            volume = self.volume_api.get(context, volume_id)
+        except exception.NotFound:
+            msg = _("Volume could not be found")
+            raise exc.HTTPNotFound(explanation=msg)
         force = snapshot.get('force', False)
         msg = _("Create snapshot from volume %s")
         LOG.audit(msg, volume_id, context=context)

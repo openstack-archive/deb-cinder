@@ -34,6 +34,7 @@ from cinder import exception
 from cinder import test
 from cinder import utils
 from cinder.volume import configuration as conf
+from cinder.volume.drivers.huawei import huawei_utils
 from cinder.volume.drivers.huawei import HuaweiVolumeDriver
 from cinder.volume.drivers.huawei import ssh_common
 from cinder.volume import volume_types
@@ -150,7 +151,8 @@ FAKE_SNAPSHOT = {'name': 'keke34fe-223f-dd33-4423-asdfghjklqwf',
 FAKE_CONNECTOR = {'initiator': 'iqn.1993-08.debian:01:ec2bff7ac3a3',
                   'wwpns': ['1000000164s45126'],
                   'wwnns': ['2000666666666565'],
-                  'host': 'fakehost'}
+                  'host': 'fakehost',
+                  'ip': '10.10.0.1'}
 
 RESPOOL_A_SIM = {'Size': '10240', 'Valid Size': '5120'}
 RESPOOL_B_SIM = {'Size': '10240', 'Valid Size': '10240'}
@@ -300,6 +302,11 @@ def create_fake_conf_file(filename):
     initiator.setAttribute('TargetIP', '192.168.100.2')
     iscsi.appendChild(initiator)
 
+    os_type = doc.createElement('Host')
+    os_type.setAttribute('OSType', 'Linux')
+    os_type.setAttribute('HostIP', '10.10.0.1')
+    config.appendChild(os_type)
+
     tmp_file = open(filename, 'w')
     tmp_file.write(doc.toprettyxml(indent=''))
     tmp_file.close()
@@ -325,8 +332,9 @@ def reset_error_flg(cmd):
 
 
 class HuaweiTCLIResSimulator():
-    def _name_translate(self, name):
-        return 'OpenStack_' + str(hash(name))
+    def _paras_name(self, params):
+        index = params.index('-n')
+        return params[index + 1]
 
     def cli_showsys(self, params):
         pass
@@ -334,7 +342,7 @@ class HuaweiTCLIResSimulator():
     def cli_createlun(self, params):
         lun_type = ('THIN' if '-pool' in params else 'THICK')
         if LUN_INFO['ID'] is None:
-            LUN_INFO['Name'] = self._name_translate(FAKE_VOLUME['name'])
+            LUN_INFO['Name'] = self._paras_name(params)
             LUN_INFO['ID'] = VOLUME_SNAP_ID['vol']
             LUN_INFO['Size'] = FAKE_VOLUME['size']
             LUN_INFO['Lun Type'] = lun_type
@@ -343,8 +351,7 @@ class HuaweiTCLIResSimulator():
             LUN_INFO['RAID Group ID'] = POOL_SETTING['ID']
             FAKE_VOLUME['provider_location'] = LUN_INFO['ID']
         else:
-            CLONED_LUN_INFO['Name'] = \
-                self._name_translate(FAKE_CLONED_VOLUME['name'])
+            CLONED_LUN_INFO['Name'] = self._paras_name(params)
             CLONED_LUN_INFO['ID'] = VOLUME_SNAP_ID['vol_copy']
             CLONED_LUN_INFO['Size'] = FAKE_CLONED_VOLUME['size']
             CLONED_LUN_INFO['Lun Type'] = lun_type
@@ -518,8 +525,7 @@ class HuaweiTCLIResSimulator():
         SNAPSHOT_INFO['Source LUN ID'] = LUN_INFO['ID']
         SNAPSHOT_INFO['Source LUN Name'] = LUN_INFO['Name']
         SNAPSHOT_INFO['ID'] = VOLUME_SNAP_ID['snap']
-        SNAPSHOT_INFO['Name'] =\
-            self._name_translate(FAKE_SNAPSHOT['name'])
+        SNAPSHOT_INFO['Name'] = self._paras_name(params)
         SNAPSHOT_INFO['Status'] = 'Disable'
         out = 'command operates successfully'
         return out
@@ -816,6 +822,16 @@ Multipath Type
         out = 'command operates successfully'
         return out
 
+    def cli_addluntoextlun(self, params):
+        LUN_INFO['Size'] = int(LUN_INFO['Size']) + int(CLONED_LUN_INFO['Size'])
+        out = 'command operates successfully'
+        return out
+
+    def cli_rmlunfromextlun(self, patams):
+        LUN_INFO['Size'] = int(LUN_INFO['Size']) - int(CLONED_LUN_INFO['Size'])
+        out = 'command operates successfully'
+        return out
+
 
 class HuaweiDorado5100CLIResSimulator(HuaweiTCLIResSimulator):
     def cli_showsys(self, params):
@@ -921,7 +937,7 @@ class HuaweiDorado2100G2CLIResSimulator(HuaweiTCLIResSimulator):
         lun_type = ('THIN' if params[params.index('-type') + 1] == '2' else
                     'THICK')
         if LUN_INFO['ID'] is None:
-            LUN_INFO['Name'] = self._name_translate(FAKE_VOLUME['name'])
+            LUN_INFO['Name'] = self._paras_name(params)
             LUN_INFO['ID'] = VOLUME_SNAP_ID['vol']
             LUN_INFO['Size'] = FAKE_VOLUME['size']
             LUN_INFO['Lun Type'] = lun_type
@@ -930,8 +946,7 @@ class HuaweiDorado2100G2CLIResSimulator(HuaweiTCLIResSimulator):
             LUN_INFO['RAID Group ID'] = POOL_SETTING['ID']
             FAKE_VOLUME['provider_location'] = LUN_INFO['ID']
         else:
-            CLONED_LUN_INFO['Name'] = \
-                self._name_translate(FAKE_CLONED_VOLUME['name'])
+            CLONED_LUN_INFO['Name'] = self._paras_name(params)
             CLONED_LUN_INFO['ID'] = VOLUME_SNAP_ID['vol_copy']
             CLONED_LUN_INFO['Size'] = FAKE_CLONED_VOLUME['size']
             CLONED_LUN_INFO['Lun Type'] = lun_type
@@ -1080,6 +1095,13 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertRaises(exception.InvalidInput,
                           tmp_driver.create_volume, FAKE_VOLUME)
         modify_conf(self.fake_conf_file, 'LUN/LUNType', 'Thick')
+        # Test OSType invalid
+        modify_conf(self.fake_conf_file, 'Host', 'invalid_type',
+                    attrib='OSType')
+        tmp_driver = HuaweiVolumeDriver(configuration=self.configuration)
+        self.assertRaises(exception.InvalidInput,
+                          tmp_driver.do_setup, None)
+        modify_conf(self.fake_conf_file, 'Host', 'Linux', attrib='OSType')
         # Test TargetIP not found
         modify_conf(self.fake_conf_file, 'iSCSI/DefaultTargetIP', '')
         modify_conf(self.fake_conf_file, 'iSCSI/Initiator', '', attrib='Name')
@@ -1132,8 +1154,8 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
                           self.driver.delete_volume, FAKE_VOLUME)
 
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
-        self.assertEqual(FAKE_VOLUME['provider_location'], None)
+        self.assertIsNone(LUN_INFO['ID'])
+        self.assertIsNone(FAKE_VOLUME['provider_location'])
 
     def test_create_delete_cloned_volume(self):
         # Test no source volume
@@ -1150,14 +1172,14 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
                           FAKE_CLONED_VOLUME, FAKE_VOLUME)
         self.assertEqual(CLONED_LUN_INFO['ID'], VOLUME_SNAP_ID['vol_copy'])
         self.driver.delete_volume(FAKE_CLONED_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
         # Test start luncopy failed
         self.assertEqual(LUN_INFO['ID'], VOLUME_SNAP_ID['vol'])
         set_error_flg('chgluncopystatus')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_cloned_volume,
                           FAKE_CLONED_VOLUME, FAKE_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
         self.assertEqual(LUN_INFO['ID'], VOLUME_SNAP_ID['vol'])
         # Test luncopy status abnormal
         LUNCOPY_SETTING['Status'] = 'Disable'
@@ -1165,7 +1187,7 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_cloned_volume,
                           FAKE_CLONED_VOLUME, FAKE_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
         self.assertEqual(LUN_INFO['ID'], VOLUME_SNAP_ID['vol'])
         LUNCOPY_SETTING['Status'] = 'Normal'
         # Test delete luncopy failed
@@ -1175,7 +1197,7 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
                           FAKE_CLONED_VOLUME, FAKE_VOLUME)
         self.assertEqual(CLONED_LUN_INFO['ID'], VOLUME_SNAP_ID['vol_copy'])
         self.driver.delete_volume(FAKE_CLONED_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
         # need to clean up LUNCopy
         LUNCOPY_INFO['Name'] = None
         LUNCOPY_INFO['ID'] = None
@@ -1189,10 +1211,29 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertEqual(CLONED_LUN_INFO['ID'], VOLUME_SNAP_ID['vol_copy'])
         self.assertEqual(ret['provider_location'], CLONED_LUN_INFO['ID'])
         self.driver.delete_volume(FAKE_CLONED_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
-        self.assertEqual(FAKE_CLONED_VOLUME['provider_location'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
+        self.assertIsNone(FAKE_CLONED_VOLUME['provider_location'])
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
+
+    def test_extend_volume(self):
+        VOLUME_SIZE = 5
+        # Test no extended volume
+        self.assertRaises(exception.VolumeNotFound,
+                          self.driver.extend_volume, FAKE_VOLUME, VOLUME_SIZE)
+
+        self.driver.create_volume(FAKE_VOLUME)
+        self.assertEqual(LUN_INFO['Size'], '2')
+        # Test extend volume cli exception
+        set_error_flg('addluntoextlun')
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume, FAKE_VOLUME, VOLUME_SIZE)
+        self.assertEqual(CLONED_LUN_INFO['Name'], None)
+
+        self.driver.extend_volume(FAKE_VOLUME, VOLUME_SIZE)
+        self.assertEqual(LUN_INFO['Size'], VOLUME_SIZE)
+        self.driver.delete_volume(FAKE_VOLUME)
+        self.assertEqual(LUN_INFO['Name'], None)
 
     def test_create_delete_snapshot(self):
         # Test no resource pool
@@ -1215,8 +1256,8 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_snapshot,
                           FAKE_SNAPSHOT)
-        self.assertEqual(SNAPSHOT_INFO['ID'], None)
-        self.assertEqual(SNAPSHOT_INFO['Status'], None)
+        self.assertIsNone(SNAPSHOT_INFO['ID'])
+        self.assertIsNone(SNAPSHOT_INFO['Status'])
         # Test disable snapshot failed
         set_error_flg('disablesnapshot')
         self.driver.create_snapshot(FAKE_SNAPSHOT)
@@ -1241,8 +1282,8 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertEqual(SNAPSHOT_INFO['Status'], 'Active')
         self.assertEqual(ret['provider_location'], SNAPSHOT_INFO['ID'])
         self.driver.delete_snapshot(FAKE_SNAPSHOT)
-        self.assertEqual(SNAPSHOT_INFO['ID'], None)
-        self.assertEqual(SNAPSHOT_INFO['Status'], None)
+        self.assertIsNone(SNAPSHOT_INFO['ID'])
+        self.assertIsNone(SNAPSHOT_INFO['Status'])
 
     def test_create_delete_snapshot_volume(self):
         # Test no source snapshot
@@ -1261,9 +1302,9 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.driver.delete_snapshot(FAKE_SNAPSHOT)
         self.driver.delete_volume(FAKE_VOLUME)
         self.driver.delete_volume(FAKE_CLONED_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
-        self.assertEqual(SNAPSHOT_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
+        self.assertIsNone(SNAPSHOT_INFO['ID'])
 
     def test_initialize_connection(self):
         # Test can not get iscsi iqn
@@ -1326,7 +1367,7 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertEqual(LUN_INFO['Owner Controller'], 'B')
         self.driver.terminate_connection(FAKE_VOLUME, FAKE_CONNECTOR)
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
 
     def test_terminate_connection(self):
         # Test no host was found
@@ -1365,9 +1406,9 @@ class HuaweiTISCSIDriverTestCase(test.TestCase):
         self.assertEqual(LUN_INFO['ID'], VOLUME_SNAP_ID['vol'])
         self.driver.initialize_connection(FAKE_VOLUME, FAKE_CONNECTOR)
         self.driver.terminate_connection(FAKE_VOLUME, FAKE_CONNECTOR)
-        self.assertEqual(MAP_INFO["DEV LUN ID"], None)
+        self.assertIsNone(MAP_INFO["DEV LUN ID"])
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
 
     def test_get_volume_stats(self):
         stats = self.driver.get_volume_stats(True)
@@ -1418,16 +1459,16 @@ class HuaweiTFCDriverTestCase(test.TestCase):
         self.driver.create_volume(FAKE_VOLUME)
         self.assertEqual(LUN_INFO['ID'], VOLUME_SNAP_ID['vol'])
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
 
     def test_create_delete_snapshot(self):
         self.driver.create_volume(FAKE_VOLUME)
         self.driver.create_snapshot(FAKE_SNAPSHOT)
         self.assertEqual(SNAPSHOT_INFO['ID'], VOLUME_SNAP_ID['snap'])
         self.driver.delete_snapshot(FAKE_SNAPSHOT)
-        self.assertEqual(SNAPSHOT_INFO['ID'], None)
+        self.assertIsNone(SNAPSHOT_INFO['ID'])
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
 
     def test_create_cloned_volume(self):
         self.driver.create_volume(FAKE_VOLUME)
@@ -1436,8 +1477,8 @@ class HuaweiTFCDriverTestCase(test.TestCase):
         self.assertEqual(ret['provider_location'], CLONED_LUN_INFO['ID'])
         self.driver.delete_volume(FAKE_CLONED_VOLUME)
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
+        self.assertIsNone(LUN_INFO['ID'])
 
     def test_create_snapshot_volume(self):
         self.driver.create_volume(FAKE_VOLUME)
@@ -1448,8 +1489,8 @@ class HuaweiTFCDriverTestCase(test.TestCase):
         self.assertEqual(ret['provider_location'], CLONED_LUN_INFO['ID'])
         self.driver.delete_volume(FAKE_CLONED_VOLUME)
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(CLONED_LUN_INFO['ID'], None)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(CLONED_LUN_INFO['ID'])
+        self.assertIsNone(LUN_INFO['ID'])
 
     def test_initialize_terminitat_connection(self):
         self.driver.create_volume(FAKE_VOLUME)
@@ -1460,10 +1501,10 @@ class HuaweiTFCDriverTestCase(test.TestCase):
         self.assertEqual(MAP_INFO["DEV LUN ID"], LUN_INFO['ID'])
 
         self.driver.terminate_connection(FAKE_VOLUME, FAKE_CONNECTOR)
-        self.assertEqual(MAP_INFO["DEV LUN ID"], None)
-        self.assertEqual(MAP_INFO["Host LUN ID"], None)
+        self.assertIsNone(MAP_INFO["DEV LUN ID"])
+        self.assertIsNone(MAP_INFO["Host LUN ID"])
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
 
     def _test_get_volume_stats(self):
         stats = self.driver.get_volume_stats(True)
@@ -1523,6 +1564,12 @@ class HuaweiDorado2100G2FCDriverTestCase(HuaweiTFCDriverTestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_volume_from_snapshot,
                           FAKE_CLONED_VOLUME, FAKE_SNAPSHOT)
+
+    def test_extend_volume(self):
+        NEWSIZE = 5
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume,
+                          FAKE_VOLUME, NEWSIZE)
 
 
 class HuaweiDorado5100ISCSIDriverTestCase(HuaweiTISCSIDriverTestCase):
@@ -1597,7 +1644,13 @@ class HuaweiDorado2100G2ISCSIDriverTestCase(HuaweiTISCSIDriverTestCase):
                          FAKE_CONNECTOR['initiator'])
         self.driver.terminate_connection(FAKE_VOLUME, FAKE_CONNECTOR)
         self.driver.delete_volume(FAKE_VOLUME)
-        self.assertEqual(LUN_INFO['ID'], None)
+        self.assertIsNone(LUN_INFO['ID'])
+
+    def test_extend_volume(self):
+        NEWSIZE = 5
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume,
+                          FAKE_VOLUME, NEWSIZE)
 
 
 class SSHMethodTestCase(test.TestCase):
@@ -1643,3 +1696,59 @@ class SSHMethodTestCase(test.TestCase):
 
     def _fake_recv2(self, nBytes):
         raise socket.timeout()
+
+
+class HuaweiUtilsTestCase(test.TestCase):
+    def __init__(self, *args, **kwargs):
+        super(HuaweiUtilsTestCase, self).__init__(*args, **kwargs)
+
+    def setUp(self):
+        super(HuaweiUtilsTestCase, self).setUp()
+
+        self.tmp_dir = tempfile.mkdtemp()
+        self.fake_conf_file = self.tmp_dir + '/cinder_huawei_conf.xml'
+        create_fake_conf_file(self.fake_conf_file)
+
+    def tearDown(self):
+        if os.path.exists(self.fake_conf_file):
+            os.remove(self.fake_conf_file)
+        shutil.rmtree(self.tmp_dir)
+        super(HuaweiUtilsTestCase, self).tearDown()
+
+    def test_parse_xml_file_ioerror(self):
+        tmp_fonf_file = '/xxx/cinder_huawei_conf.xml'
+        self.assertRaises(IOError, huawei_utils.parse_xml_file, tmp_fonf_file)
+
+    def test_is_xml_item_exist(self):
+        root = huawei_utils.parse_xml_file(self.fake_conf_file)
+        res = huawei_utils.is_xml_item_exist(root, 'Storage/UserName')
+        self.assertTrue(res)
+        res = huawei_utils.is_xml_item_exist(root, 'xxx')
+        self.assertFalse(res)
+        res = huawei_utils.is_xml_item_exist(root, 'LUN/StoragePool', 'Name')
+        self.assertTrue(res)
+        res = huawei_utils.is_xml_item_exist(root, 'LUN/StoragePool', 'xxx')
+        self.assertFalse(res)
+
+    def test_is_xml_item_valid(self):
+        root = huawei_utils.parse_xml_file(self.fake_conf_file)
+        res = huawei_utils.is_xml_item_valid(root, 'LUN/LUNType',
+                                             ['Thin', 'Thick'])
+        self.assertTrue(res)
+        res = huawei_utils.is_xml_item_valid(root, 'LUN/LUNType', ['test'])
+        self.assertFalse(res)
+        res = huawei_utils.is_xml_item_valid(root, 'Host',
+                                             ['Linux', 'Windows'], 'OSType')
+        self.assertTrue(res)
+        res = huawei_utils.is_xml_item_valid(root, 'Host', ['test'], 'OSType')
+        self.assertFalse(res)
+
+    def test_get_conf_host_os_type(self):
+        # Default os is Linux
+        res = huawei_utils.get_conf_host_os_type('10.10.10.1',
+                                                 self.fake_conf_file)
+        self.assertEqual(res, '0')
+        modify_conf(self.fake_conf_file, 'Host', 'Windows', 'OSType')
+        res = huawei_utils.get_conf_host_os_type(FAKE_CONNECTOR['ip'],
+                                                 self.fake_conf_file)
+        self.assertEqual(res, '1')

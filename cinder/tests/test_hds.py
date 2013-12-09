@@ -189,14 +189,14 @@ class HUSiSCSIDriverTest(test.TestCase):
         stats = self.driver.get_volume_stats(True)
         self.assertEqual(stats["vendor_name"], "HDS")
         self.assertEqual(stats["storage_protocol"], "iSCSI")
-        self.assertTrue(stats["total_capacity_gb"] > 0)
+        self.assertGreater(stats["total_capacity_gb"], 0)
 
     def test_create_volume(self):
         loc = self.driver.create_volume(_VOLUME)
-        self.assertNotEqual(loc, None)
+        self.assertIsNotNone(loc)
         vol = _VOLUME.copy()
         vol['provider_location'] = loc['provider_location']
-        self.assertNotEqual(loc['provider_location'], None)
+        self.assertIsNotNone(loc['provider_location'])
         return vol
 
     def test_delete_volume(self):
@@ -214,7 +214,7 @@ class HUSiSCSIDriverTest(test.TestCase):
         num_luns_before = len(SimulatedHusBackend.alloc_lun)
         self.driver.delete_volume(vol)
         num_luns_after = len(SimulatedHusBackend.alloc_lun)
-        self.assertTrue(num_luns_before > num_luns_after)
+        self.assertGreater(num_luns_before, num_luns_after)
 
     def test_extend_volume(self):
         vol = self.test_create_volume()
@@ -231,7 +231,7 @@ class HUSiSCSIDriverTest(test.TestCase):
         svol = vol.copy()
         svol['volume_size'] = svol['size']
         loc = self.driver.create_snapshot(svol)
-        self.assertNotEqual(loc, None)
+        self.assertIsNotNone(loc)
         svol['provider_location'] = loc['provider_location']
         return svol
 
@@ -243,7 +243,7 @@ class HUSiSCSIDriverTest(test.TestCase):
         svol = vol.copy()
         svol['volume_size'] = svol['size']
         loc = self.driver.create_snapshot(svol)
-        self.assertNotEqual(loc, None)
+        self.assertIsNotNone(loc)
         svol['provider_location'] = loc['provider_location']
         return svol
 
@@ -261,12 +261,12 @@ class HUSiSCSIDriverTest(test.TestCase):
         num_luns_before = len(SimulatedHusBackend.alloc_lun)
         self.driver.delete_snapshot(svol)
         num_luns_after = len(SimulatedHusBackend.alloc_lun)
-        self.assertTrue(num_luns_before > num_luns_after)
+        self.assertGreater(num_luns_before, num_luns_after)
 
     def test_create_volume_from_snapshot(self):
         svol = self.test_create_snapshot()
         vol = self.driver.create_volume_from_snapshot(_VOLUME, svol)
-        self.assertNotEqual(vol, None)
+        self.assertIsNotNone(vol)
         return vol
 
     def test_initialize_connection(self):
@@ -293,4 +293,4 @@ class HUSiSCSIDriverTest(test.TestCase):
         num_conn_before = len(SimulatedHusBackend.connections)
         self.driver.terminate_connection(vol, conn)
         num_conn_after = len(SimulatedHusBackend.connections)
-        self.assertTrue(num_conn_before > num_conn_after)
+        self.assertGreater(num_conn_before, num_conn_after)

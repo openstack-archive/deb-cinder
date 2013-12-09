@@ -198,48 +198,6 @@ def model_query(context, *args, **kwargs):
     return query
 
 
-def exact_filter(query, model, filters, legal_keys):
-    """Applies exact match filtering to a query.
-
-    Returns the updated query.  Modifies filters argument to remove
-    filters consumed.
-
-    :param query: query to apply filters to
-    :param model: model object the query applies to, for IN-style
-                  filtering
-    :param filters: dictionary of filters; values that are lists,
-                    tuples, sets, or frozensets cause an 'IN' test to
-                    be performed, while exact matching ('==' operator)
-                    is used for other values
-    :param legal_keys: list of keys to apply exact filtering to
-    """
-
-    filter_dict = {}
-
-    # Walk through all the keys
-    for key in legal_keys:
-        # Skip ones we're not filtering on
-        if key not in filters:
-            continue
-
-        # OK, filtering on this key; what value do we search for?
-        value = filters.pop(key)
-
-        if isinstance(value, (list, tuple, set, frozenset)):
-            # Looking for values in a list; apply to query directly
-            column_attr = getattr(model, key)
-            query = query.filter(column_attr.in_(value))
-        else:
-            # OK, simple exact match; save for later
-            filter_dict[key] = value
-
-    # Apply simple exact matches
-    if filter_dict:
-        query = query.filter_by(**filter_dict)
-
-    return query
-
-
 def _sync_volumes(context, project_id, session, volume_type_id=None,
                   volume_type_name=None):
     (volumes, gigs) = _volume_data_get_for_project(
@@ -670,12 +628,6 @@ def _quota_usage_create(context, project_id, resource, in_use, reserved,
     return quota_usage_ref
 
 
-@require_admin_context
-def quota_usage_create(context, project_id, resource, in_use, reserved,
-                       until_refresh):
-    return _quota_usage_create(context, project_id, resource, in_use, reserved,
-                               until_refresh)
-
 ###################
 
 
@@ -1036,6 +988,7 @@ def volume_attached(context, volume_id, instance_uuid, host_name, mountpoint):
         volume_ref['instance_uuid'] = instance_uuid
         volume_ref['attached_host'] = host_name
         volume_ref.save(session=session)
+        return volume_ref
 
 
 @require_context
@@ -1128,21 +1081,21 @@ def volume_destroy(context, volume_id):
     session = get_session()
     now = timeutils.utcnow()
     with session.begin():
-        session.query(models.Volume).\
+        model_query(context, models.Volume, session=session).\
             filter_by(id=volume_id).\
             update({'status': 'deleted',
                     'deleted': True,
                     'deleted_at': now,
                     'updated_at': literal_column('updated_at')})
-        session.query(models.IscsiTarget).\
+        model_query(context, models.IscsiTarget, session=session).\
             filter_by(volume_id=volume_id).\
             update({'volume_id': None})
-        session.query(models.VolumeMetadata).\
+        model_query(context, models.VolumeMetadata, session=session).\
             filter_by(volume_id=volume_id).\
             update({'deleted': True,
                     'deleted_at': now,
                     'updated_at': literal_column('updated_at')})
-        session.query(models.VolumeAdminMetadata).\
+        model_query(context, models.VolumeAdminMetadata, session=session).\
             filter_by(volume_id=volume_id).\
             update({'deleted': True,
                     'deleted_at': now,
@@ -1495,13 +1448,13 @@ def snapshot_create(context, values):
 def snapshot_destroy(context, snapshot_id):
     session = get_session()
     with session.begin():
-        session.query(models.Snapshot).\
+        model_query(context, models.Snapshot, session=session).\
             filter_by(id=snapshot_id).\
             update({'status': 'deleted',
                     'deleted': True,
                     'deleted_at': timeutils.utcnow(),
                     'updated_at': literal_column('updated_at')})
-        session.query(models.SnapshotMetadata).\
+        model_query(context, models.SnapshotMetadata, session=session).\
             filter_by(snapshot_id=snapshot_id).\
             update({'deleted': True,
                     'deleted_at': timeutils.utcnow(),
@@ -1654,12 +1607,6 @@ def _snapshot_metadata_get_item(context, snapshot_id, key, session=None):
 
 @require_context
 @require_snapshot_exists
-def snapshot_metadata_get_item(context, snapshot_id, key):
-    return _snapshot_metadata_get_item(context, snapshot_id, key)
-
-
-@require_context
-@require_snapshot_exists
 def snapshot_metadata_update(context, snapshot_id, metadata, delete):
     session = get_session()
     with session.begin():
@@ -1735,9 +1682,7 @@ def volume_type_create(context, values):
 
 @require_context
 def volume_type_get_all(context, inactive=False, filters=None):
-    """
-    Returns a dict describing all volume_types with name as key.
-    """
+    """Returns a dict describing all volume_types with name as key."""
     filters = filters or {}
 
     read_deleted = "yes" if inactive else "no"
@@ -1895,12 +1840,12 @@ def volume_type_destroy(context, id):
             msg = _('VolumeType %s deletion failed, VolumeType in use.') % id
             LOG.error(msg)
             raise exception.VolumeTypeInUse(volume_type_id=id)
-        session.query(models.VolumeTypes).\
+        model_query(context, models.VolumeTypes, session=session).\
             filter_by(id=id).\
             update({'deleted': True,
                     'deleted_at': timeutils.utcnow(),
                     'updated_at': literal_column('updated_at')})
-        session.query(models.VolumeTypeExtraSpecs).\
+        model_query(context, models.VolumeTypeExtraSpecs, session=session).\
             filter_by(volume_type_id=id).\
             update({'deleted': True,
                     'deleted_at': timeutils.utcnow(),
@@ -1972,11 +1917,6 @@ def _volume_type_extra_specs_get_item(context, volume_type_id, key,
             volume_type_id=volume_type_id)
 
     return result
-
-
-@require_context
-def volume_type_extra_specs_get_item(context, volume_type_id, key):
-    return _volume_type_extra_specs_get_item(context, volume_type_id, key)
 
 
 @require_context
@@ -2174,8 +2114,8 @@ def qos_specs_associations_get(context, qos_specs_id):
     extend qos specs association to other entities, such as volumes,
     sometime in future.
     """
+    # Raise QoSSpecsNotFound if no specs found
     _qos_specs_get_ref(context, qos_specs_id, None)
-
     return volume_type_qos_associations_get(context, qos_specs_id)
 
 
@@ -2351,6 +2291,25 @@ def volume_encryption_metadata_get(context, volume_id, session=None):
 
 
 @require_context
+def _volume_glance_metadata_get_all(context, session=None):
+    rows = model_query(context,
+                       models.VolumeGlanceMetadata,
+                       project_only=True,
+                       session=session).\
+        filter_by(deleted=False).\
+        all()
+
+    return rows
+
+
+@require_context
+def volume_glance_metadata_get_all(context):
+    """Return the Glance metadata for all volumes."""
+
+    return _volume_glance_metadata_get_all(context)
+
+
+@require_context
 @require_volume_exists
 def _volume_glance_metadata_get(context, volume_id, session=None):
     rows = model_query(context, models.VolumeGlanceMetadata, session=session).\
@@ -2397,8 +2356,8 @@ def volume_snapshot_glance_metadata_get(context, snapshot_id):
 @require_context
 @require_volume_exists
 def volume_glance_metadata_create(context, volume_id, key, value):
-    """
-    Update the Glance metadata for a volume by adding a new key:value pair.
+    """Update the Glance metadata for a volume by adding a new key:value pair.
+
     This API does not support changing the value of a key once it has been
     created.
     """
@@ -2417,7 +2376,7 @@ def volume_glance_metadata_create(context, volume_id, key, value):
         vol_glance_metadata = models.VolumeGlanceMetadata()
         vol_glance_metadata.volume_id = volume_id
         vol_glance_metadata.key = key
-        vol_glance_metadata.value = value
+        vol_glance_metadata.value = str(value)
 
         vol_glance_metadata.save(session=session)
 
@@ -2427,10 +2386,11 @@ def volume_glance_metadata_create(context, volume_id, key, value):
 @require_context
 @require_snapshot_exists
 def volume_glance_metadata_copy_to_snapshot(context, snapshot_id, volume_id):
-    """
-    Update the Glance metadata for a snapshot by copying all of the key:value
-    pairs from the originating volume. This is so that a volume created from
-    the snapshot will retain the original metadata.
+    """Update the Glance metadata for a snapshot.
+
+    This copies all of the key:value pairs from the originating volume, to
+    ensure that a volume created from the snapshot will retain the
+    original metadata.
     """
 
     session = get_session()
@@ -2451,10 +2411,11 @@ def volume_glance_metadata_copy_to_snapshot(context, snapshot_id, volume_id):
 def volume_glance_metadata_copy_from_volume_to_volume(context,
                                                       src_volume_id,
                                                       volume_id):
-    """
-    Update the Glance metadata for a volume by copying all of the key:value
-    pairs from the originating volume. This is so that a volume created from
-    the volume (clone) will retain the original metadata.
+    """Update the Glance metadata for a volume.
+
+    This copies all all of the key:value pairs from the originating volume,
+    to ensure that a volume created from the volume (clone) will
+    retain the original metadata.
     """
 
     session = get_session()
@@ -2474,10 +2435,10 @@ def volume_glance_metadata_copy_from_volume_to_volume(context,
 @require_context
 @require_volume_exists
 def volume_glance_metadata_copy_to_volume(context, volume_id, snapshot_id):
-    """
-    Update the Glance metadata from a volume (created from a snapshot) by
-    copying all of the key:value pairs from the originating snapshot. This is
-    so that the Glance metadata from the original volume is retained.
+    """Update the Glance metadata from a volume (created from a snapshot) by
+    copying all of the key:value pairs from the originating snapshot.
+
+    This is so that the Glance metadata from the original volume is retained.
     """
 
     session = get_session()
@@ -2681,7 +2642,7 @@ def transfer_destroy(context, transfer_id):
             volume_ref['status'] = 'available'
         volume_ref.update(volume_ref)
         volume_ref.save(session=session)
-        session.query(models.Transfer).\
+        model_query(context, models.Transfer, session=session).\
             filter_by(id=transfer_id).\
             update({'deleted': True,
                     'deleted_at': timeutils.utcnow(),

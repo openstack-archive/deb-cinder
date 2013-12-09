@@ -599,7 +599,7 @@ class Template(object):
         # First step, render the element
         elems = siblings[0].render(parent, obj, siblings[1:], nsmap)
 
-        # Now, recurse to all child elements
+        # Now, traverse all child elements
         seen = set()
         for idx, sibling in enumerate(siblings):
             for child in sibling:
@@ -614,7 +614,7 @@ class Template(object):
                     if child.tag in sib:
                         nieces.append(sib[child.tag])
 
-                # Now we recurse for every data element
+                # Now call this function for all data elements recursively
                 for elem, datum in elems:
                     self._serialize(elem, datum, nieces)
 
@@ -910,9 +910,7 @@ class TemplateBuilder(object):
 
 
 def make_links(parent, selector=None):
-    """
-    Attach an Atom <links> element to the parent.
-    """
+    """Attach an Atom <links> element to the parent."""
 
     elem = SubTemplateElement(parent, '{%s}link' % XMLNS_ATOM,
                               selector=selector)
@@ -925,14 +923,17 @@ def make_links(parent, selector=None):
 
 
 def make_flat_dict(name, selector=None, subselector=None, ns=None):
-    """
-    Utility for simple XML templates that traditionally used
-    XMLDictSerializer with no metadata.  Returns a template element
-    where the top-level element has the given tag name, and where
-    sub-elements have tag names derived from the object's keys and
-    text derived from the object's values.  This only works for flat
-    dictionary objects, not dictionaries containing nested lists or
-    dictionaries.
+    """Utility for simple XML templates.
+
+    Simple templates are templates that traditionally used
+    XMLDictSerializer with no metadata.
+
+    Returns a template element where the top-level element has the
+    given tag name, and where sub-elements have tag names derived
+    from the object's keys and text derived from the object's values.
+
+    This only works for flat dictionary objects, not dictionaries
+    containing nested lists or dictionaries.
     """
 
     # Set up the names we need...

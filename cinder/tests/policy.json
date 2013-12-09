@@ -55,6 +55,9 @@
     "volume_extension:hosts": [["rule:admin_api"]],
     "volume_extension:quotas:show": [],
     "volume_extension:quotas:update": [],
+    "volume_extension:quota_classes": [],
+
+    "limits_extension:used_limits": [],
 
     "snapshot_extension:snapshot_actions:update_snapshot_status": [],
 

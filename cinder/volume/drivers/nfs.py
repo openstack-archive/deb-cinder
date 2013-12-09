@@ -73,6 +73,8 @@ class RemoteFsDriver(driver.VolumeDriver):
 
     def __init__(self, *args, **kwargs):
         super(RemoteFsDriver, self).__init__(*args, **kwargs)
+        self.shares = {}
+        self._mounted_shares = []
 
     def check_for_setup_error(self):
         """Just to override parent behavior."""
@@ -90,8 +92,24 @@ class RemoteFsDriver(driver.VolumeDriver):
             data['options'] = self.shares[volume['provider_location']]
         return {
             'driver_volume_type': self.driver_volume_type,
-            'data': data
+            'data': data,
+            'mount_point_base': self._get_mount_point_base()
         }
+
+    def _get_mount_point_base(self):
+        """Returns the mount point base for the remote fs.
+
+           This method facilitates returning mount point base
+           for the specific remote fs. Override this method
+           in the respective driver to return the entry to be
+           used while attach/detach using brick in cinder.
+           If not overridden then it returns None without
+           raising exception to continue working for cases
+           when not used with brick.
+        """
+        LOG.debug(_("Driver specific implementation needs to return"
+                    " mount_point_base."))
+        return None
 
     def create_volume(self, volume):
         """Creates a volume.
@@ -225,7 +243,8 @@ class RemoteFsDriver(driver.VolumeDriver):
         image_utils.fetch_to_raw(context,
                                  image_service,
                                  image_id,
-                                 self.local_path(volume))
+                                 self.local_path(volume),
+                                 size=volume['size'])
 
         # NOTE (leseb): Set the virtual size of the image
         # the raw conversion overwrote the destination file
@@ -371,15 +390,16 @@ class NfsDriver(RemoteFsDriver):
         super(NfsDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
         root_helper = utils.get_root_helper()
-        base = getattr(self.configuration,
-                       'nfs_mount_point_base',
-                       CONF.nfs_mount_point_base)
+        # base bound to instance is used in RemoteFsConnector.
+        self.base = getattr(self.configuration,
+                            'nfs_mount_point_base',
+                            CONF.nfs_mount_point_base)
         opts = getattr(self.configuration,
                        'nfs_mount_options',
                        CONF.nfs_mount_options)
         self._remotefsclient = remotefs.RemoteFsClient(
             'nfs', root_helper, execute=execute,
-            nfs_mount_point_base=base,
+            nfs_mount_point_base=self.base,
             nfs_mount_options=opts)
 
     def set_execute(self, execute):
@@ -531,3 +551,6 @@ class NfsDriver(RemoteFsDriver):
                               '*snapshot*', mount_point, run_as_root=True)
         total_allocated = float(du.split()[0])
         return total_size, total_available, total_allocated
+
+    def _get_mount_point_base(self):
+        return self.base
