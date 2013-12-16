@@ -742,8 +742,8 @@ port_speed!N/A
     def _cmd_lsiogrp(self, **kwargs):
         rows = [None] * 6
         rows[0] = ['id', 'name', 'node_count', 'vdisk_count', 'host_count']
-        rows[1] = ['0', 'io_grp0', '2', '22', '4']
-        rows[2] = ['1', 'io_grp1', '2', '22', '4']
+        rows[1] = ['0', 'io_grp0', '2', '0', '4']
+        rows[2] = ['1', 'io_grp1', '2', '0', '4']
         rows[3] = ['2', 'io_grp2', '0', '0', '4']
         rows[4] = ['3', 'io_grp3', '0', '0', '4']
         rows[5] = ['4', 'recovery_io_grp', '0', '0', '0']
@@ -975,7 +975,7 @@ port_speed!N/A
         del self._mappings_list[this_mapping]
         return ('', '')
 
-    # List information about vdisk-host mappings
+    # List information about host->vdisk mappings
     def _cmd_lshostvdiskmap(self, **kwargs):
         index = 1
         no_hdr = 0
@@ -997,6 +997,32 @@ port_speed!N/A
                             volume['name'], volume['uid']])
 
         return self._print_info_cmd(rows=rows, **kwargs)
+
+    # List information about vdisk->host mappings
+    def _cmd_lsvdiskhostmap(self, **kwargs):
+        mappings_found = 0
+        vdisk_name = kwargs['obj']
+
+        if vdisk_name not in self._volumes_list:
+            return self._errors['CMMVC5753E']
+
+        rows = []
+        rows.append(['id name', 'SCSI_id', 'host_id', 'host_name', 'vdisk_UID',
+                     'IO_group_id', 'IO_group_name'])
+
+        for k, mapping in self._mappings_list.iteritems():
+            if (mapping['vol'] == vdisk_name):
+                mappings_found += 1
+                volume = self._volumes_list[mapping['vol']]
+                host = self._hosts_list[mapping['host']]
+                rows.append([volume['id'], volume['name'], host['id'],
+                            host['host_name'], volume['uid'],
+                            volume['IO_group_id'], volume['IO_group_name']])
+
+        if mappings_found:
+            return self._print_info_cmd(rows=rows, **kwargs)
+        else:
+            return ('', '')
 
     # Create a FlashCopy mapping
     def _cmd_mkfcmap(self, **kwargs):
@@ -1369,6 +1395,8 @@ port_speed!N/A
             out, err = self._cmd_rmvdiskhostmap(**kwargs)
         elif command == 'lshostvdiskmap':
             out, err = self._cmd_lshostvdiskmap(**kwargs)
+        elif command == 'lsvdiskhostmap':
+            out, err = self._cmd_lsvdiskhostmap(**kwargs)
         elif command == 'mkfcmap':
             out, err = self._cmd_mkfcmap(**kwargs)
         elif command == 'prestartfcmap':
@@ -1998,8 +2026,10 @@ class StorwizeSVCDriverTestCase(test.TestCase):
 
         # Try to remove connection from volume that isn't mapped (should print
         # message but NOT fail)
-        vol_no_exist = {'name': 'i_dont_exist'}
-        self.driver.terminate_connection(vol_no_exist, self._connector)
+        unmapped_vol = self._generate_vol_info(None, None)
+        self.driver.create_volume(unmapped_vol)
+        self.driver.terminate_connection(unmapped_vol, self._connector)
+        self.driver.delete_volume(unmapped_vol)
 
         # Remove the mapping from the 1st volume and delete it
         self.driver.terminate_connection(volume1, self._connector)
@@ -2010,9 +2040,19 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         host_name = self.driver._get_host_from_connector(self._connector)
         self.assertNotEqual(host_name, None)
 
-        # Remove the mapping from the 2nd volume and delete it. The host should
+        # Remove the mapping from the 2nd volume. The host should
         # be automatically removed because there are no more mappings.
         self.driver.terminate_connection(volume2, self._connector)
+
+        # Check if we successfully terminate connections when the host is not
+        # specified (see bug #1244257)
+        fake_conn = {'ip': '127.0.0.1', 'initiator': 'iqn.fake'}
+        self.driver.initialize_connection(volume2, self._connector)
+        host_name = self.driver._get_host_from_connector(self._connector)
+        self.assertIsNotNone(host_name)
+        self.driver.terminate_connection(volume2, fake_conn)
+        host_name = self.driver._get_host_from_connector(self._connector)
+        self.assertIsNone(host_name)
         self.driver.delete_volume(volume2)
         self._assert_vol_exists(volume2['name'], False)
 

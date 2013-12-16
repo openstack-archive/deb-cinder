@@ -171,6 +171,10 @@ class LVMVolumeDriver(driver.VolumeDriver):
                             self.configuration.lvm_type,
                             self.configuration.lvm_mirrors)
 
+        # Some configurations of LVM do not automatically activate
+        # ThinLVM snapshot LVs.
+        self.vg.activate_lv(snapshot['name'], is_snapshot=True)
+
         volutils.copy_volume(self.local_path(snapshot),
                              self.local_path(volume),
                              snapshot['volume_size'] * 1024,
@@ -197,10 +201,13 @@ class LVMVolumeDriver(driver.VolumeDriver):
     def clear_volume(self, volume, is_snapshot=False):
         """unprovision old volumes to prevent data leaking between users."""
 
-        if self.configuration.volume_clear == 'none':
+        # NOTE(jdg): Don't write the blocks of thin provisioned
+        # volumes
+        if self.configuration.volume_clear == 'none' or \
+                self.configuration.lvm_type == 'thin':
             return
 
-        if is_snapshot and not self.configuration.lvm_type == 'thin':
+        if is_snapshot:
             # if the volume to be cleared is a snapshot of another volume
             # we need to clear out the volume using the -cow instead of the
             # directly volume path.  We need to skip this if we are using
@@ -277,7 +284,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         image_utils.fetch_to_raw(context,
                                  image_service,
                                  image_id,
-                                 self.local_path(volume))
+                                 self.local_path(volume), size=volume['size'])
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""

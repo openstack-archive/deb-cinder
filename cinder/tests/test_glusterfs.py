@@ -600,7 +600,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                                     volume_file)
         src_info_path = '%s.info' % volume_path
         volume_ref = {'id': volume['id'],
-                      'name': volume['name'] + '-clone',
+                      'name': volume['name'],
                       'status': volume['status'],
                       'provider_location': volume['provider_location'],
                       'size': volume['size']}
@@ -1441,6 +1441,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(image_utils, 'convert_image')
         mox.StubOutWithMock(drv, '_read_info_file')
         mox.StubOutWithMock(image_utils, 'qemu_img_info')
+        mox.StubOutWithMock(drv, '_set_rw_permissions_for_all')
 
         dest_volume = self._simple_volume(
             'c1073000-0000-0000-0000-0000000c1073')
@@ -1482,6 +1483,8 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         image_utils.convert_image(src_vol_path, dest_vol_path, 'raw')
 
+        drv._set_rw_permissions_for_all(dest_vol_path)
+
         mox.ReplayAll()
 
         drv._copy_volume_from_snapshot(snapshot, dest_volume, size)
@@ -1508,7 +1511,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                       'size': volume['size'],
                       'status': volume['status'],
                       'provider_location': volume['provider_location'],
-                      'name': 'volume-' + volume['id'] + '-clone'}
+                      'name': 'volume-' + volume['id']}
 
         drv.create_snapshot(snap_ref)
         drv._copy_volume_from_snapshot(snap_ref,
