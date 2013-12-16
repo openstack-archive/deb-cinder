@@ -3,6 +3,7 @@ cinder (2013.2.1-1) unstable; urgency=medium
   * New upstream release.
   * Refreshed sqlalchemy requirements patch.
   * Added >= 1.4.1 to the python-six (build-)depends.
+  * Same for python-iso8601 >= 0.1.8.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 16 Dec 2013 16:10:48 +0800
 
