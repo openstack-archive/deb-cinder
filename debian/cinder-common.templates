@@ -7,13 +7,6 @@
 # Even minor modifications require translation updates and such
 # changes should be coordinated with translators and reviewers.
 
-Template: cinder/start_services
-Type: boolean
-Default: true
-_Description: Start Cinder services at boot?
- Please choose whether you want to start Cinder services when the
- machine is booted up.
-
 Template: cinder/configure_db
 Type: boolean
 Default: false
