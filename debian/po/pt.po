@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-09 23:29+0800\n"
+"POT-Creation-Date: 2013-12-19 16:02+0800\n"
 "PO-Revision-Date: 2013-04-13 19:01+0100\n"
 "Last-Translator: Pedro Ribeiro <p.m42.ribeiro@gmail.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
@@ -19,28 +19,12 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../cinder-common.templates:2001
-msgid "Start Cinder services at boot?"
-msgstr "Iniciar serviços cinder no arranque?"
-
-#. Type: boolean
-#. Description
-#: ../cinder-common.templates:2001
-msgid ""
-"Please choose whether you want to start Cinder services when the machine is "
-"booted up."
-msgstr ""
-"Por favor escolha se pretende iniciar os serviços Cinder quando a máquina é "
-"ligada."
-
-#. Type: boolean
-#. Description
-#: ../cinder-common.templates:3001
 msgid "Set up a database for Cinder?"
 msgstr "Criar uma base de dados para o Cinder?"
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:3001
+#: ../cinder-common.templates:2001
 msgid ""
 "No database has been set up for Cinder to use. Before continuing, you should "
 "make sure you have the following information:"
@@ -50,7 +34,7 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:3001
+#: ../cinder-common.templates:2001
 msgid ""
 " * the type of database that you want to use;\n"
 " * the database server hostname (that server must allow TCP connections from "
@@ -66,7 +50,7 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:3001
+#: ../cinder-common.templates:2001
 msgid ""
 "If some of these requirements are missing, do not choose this option and run "
 "with regular SQLite support."
@@ -74,7 +58,7 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:3001
+#: ../cinder-common.templates:2001
 msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "cinder\"."
@@ -84,13 +68,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:4001
+#: ../cinder-common.templates:3001
 msgid "Authentication server hostname:"
 msgstr "Nome de servidor de autenticação:"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:4001
+#: ../cinder-common.templates:3001
 msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
@@ -107,7 +91,7 @@ msgstr ""
 #. You're advised to either keep "tenant" without translating it
 #. or keep it aside with your translation. Example for French:
 #. proprietaire ("tenant")
-#: ../cinder-common.templates:5001
+#: ../cinder-common.templates:4001
 msgid "Authentication server tenant name:"
 msgstr "Nome do inquilino ('tenant') do servidor de autenticação:"
 
@@ -120,43 +104,43 @@ msgstr "Nome do inquilino ('tenant') do servidor de autenticação:"
 #. You're advised to either keep "tenant" without translating it
 #. or keep it aside with your translation. Example for French:
 #. proprietaire ("tenant")
-#: ../cinder-common.templates:5001
+#: ../cinder-common.templates:4001
 msgid "Please specify the authentication server tenant name."
 msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:6001
+#: ../cinder-common.templates:5001
 msgid "Authentication server username:"
 msgstr "Nome de utilizador do servidor de autenticação:"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:6001
+#: ../cinder-common.templates:5001
 msgid "Please specify the username to use with the authentication server."
 msgstr ""
 
 #. Type: password
 #. Description
-#: ../cinder-common.templates:7001
+#: ../cinder-common.templates:6001
 msgid "Authentication server password:"
 msgstr "Password do servidor de autenticação:"
 
 #. Type: password
 #. Description
-#: ../cinder-common.templates:7001
+#: ../cinder-common.templates:6001
 msgid "Please specify the password to use with the authentication server."
 msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:8001
+#: ../cinder-common.templates:7001
 msgid "Cinder volume group:"
 msgstr "Grupo de volumes Cinder:"
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:8001
+#: ../cinder-common.templates:7001
 msgid ""
 "Please specify the name of the LVM volume group on which Cinder will create "
 "partitions."
@@ -166,7 +150,7 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:9001
+#: ../cinder-common.templates:8001
 msgid "IP address of your RabbitMQ host:"
 msgstr ""
 
@@ -176,8 +160,8 @@ msgstr ""
 #. Description
 #. Type: password
 #. Description
-#: ../cinder-common.templates:9001 ../cinder-common.templates:10001
-#: ../cinder-common.templates:11001
+#: ../cinder-common.templates:8001 ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
 msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
@@ -185,7 +169,7 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:9001
+#: ../cinder-common.templates:8001
 #, fuzzy
 #| msgid "Please enter the IP address that will be used to contact Cinder."
 msgid "Please specify the IP address of that server."
@@ -195,25 +179,25 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:10001
+#: ../cinder-common.templates:9001
 msgid "Username for connection to the RabbitMQ server:"
 msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-common.templates:10001
+#: ../cinder-common.templates:9001
 msgid "Please specify the username used to connect to the RabbitMQ server."
 msgstr ""
 
 #. Type: password
 #. Description
-#: ../cinder-common.templates:11001
+#: ../cinder-common.templates:10001
 msgid "Password for connection to the RabbitMQ server:"
 msgstr ""
 
 #. Type: password
 #. Description
-#: ../cinder-common.templates:11001
+#: ../cinder-common.templates:10001
 msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
 
@@ -320,3 +304,13 @@ msgstr ""
 "O Openstack pode ser usado usando zonas de disponibilidade, com cada região "
 "a representar uma localização. Por favor, indique a zona que quer usar ao "
 "registar o ponto de ligação."
+
+#~ msgid "Start Cinder services at boot?"
+#~ msgstr "Iniciar serviços cinder no arranque?"
+
+#~ msgid ""
+#~ "Please choose whether you want to start Cinder services when the machine "
+#~ "is booted up."
+#~ msgstr ""
+#~ "Por favor escolha se pretende iniciar os serviços Cinder quando a máquina "
+#~ "é ligada."
