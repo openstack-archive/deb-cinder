@@ -1,8 +1,8 @@
-cinder (2013.2.1-1) unstable; urgency=medium
+cinder (2014.1~b1-1) UNRELEASED; urgency=low
 
-  * New upstream release (Icehouse beta 1).
+  * New upstream release.
 
- -- Thomas Goirand <zigo@debian.org>  Mon, 09 Dec 2013 21:07:33 +0800
+ -- Thomas Goirand <zigo@debian.org>  Thu, 19 Dec 2013 17:50:32 +0800
 
 cinder (2013.2.1-2) unstable; urgency=medium
 
@@ -11,6 +11,12 @@ cinder (2013.2.1-2) unstable; urgency=medium
     <matiasbellone+debian@gmail.com> (Closes: #732535).
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 19 Dec 2013 15:46:34 +0800
+
+cinder (2013.2.1-1) unstable; urgency=medium
+
+  * New upstream release (Icehouse beta 1).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 09 Dec 2013 21:07:33 +0800
 
 cinder (2013.2-2) unstable; urgency=medium
 
