@@ -1,3 +1,10 @@
+cinder (2013.2.1-3) unstable; urgency=medium
+
+  * Updated fr.po debconf thanks to Julien Patriarca (Closes: #733091).
+  * New sv.po debconf translation thanks to Martin Bagge (Closes: #734585).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 13 Jan 2014 17:27:07 +0800
+
 cinder (2013.2.1-2) unstable; urgency=medium
 
   * Kills the "cinder enable" debconf feature. (Closes: #732547)
