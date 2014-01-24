@@ -3,14 +3,16 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
 Last-Update: 2013-12-19
 
---- cinder-2014.1~b1.orig/requirements.txt
-+++ cinder-2014.1~b1/requirements.txt
-@@ -20,7 +20,7 @@ python-swiftclient>=1.5
- Routes>=1.12.3
+Index: cinder/requirements.txt
+===================================================================
+--- cinder.orig/requirements.txt	2014-01-24 14:46:56.000000000 +0800
++++ cinder/requirements.txt	2014-01-24 16:25:31.000000000 +0800
+@@ -22,7 +22,7 @@
+ taskflow>=0.1.1,<0.2
  rtslib-fb>=2.1.39
  six>=1.4.1
 -SQLAlchemy>=0.7.8,<=0.7.99
 +SQLAlchemy>=0.7.8
  sqlalchemy-migrate>=0.8.2
- stevedore>=0.10
+ stevedore>=0.12
  suds>=0.4
