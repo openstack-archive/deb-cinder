@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -67,6 +65,7 @@ class Service(BASE, CinderBase):
     report_count = Column(Integer, nullable=False, default=0)
     disabled = Column(Boolean, default=False)
     availability_zone = Column(String(255), default='cinder')
+    disabled_reason = Column(String(255))
 
 
 class Volume(BASE, CinderBase):

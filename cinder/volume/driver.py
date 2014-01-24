@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -20,7 +18,6 @@ Drivers for volumes.
 
 """
 
-import os
 import time
 
 from oslo.config import cfg
@@ -96,7 +93,12 @@ volume_opts = [
                help=('Sets the behavior of the iSCSI target '
                      'to either perform blockio or fileio '
                      'optionally, auto can be set and Cinder '
-                     'will autodetect type of backing device'))]
+                     'will autodetect type of backing device')),
+    cfg.StrOpt('volume_dd_blocksize',
+               default='1M',
+               help='The default block size used when copying/clearing '
+                    'volumes'),
+]
 
 # for backward compatibility
 iser_opts = [
@@ -258,11 +260,11 @@ class VolumeDriver(object):
         return None
 
     def do_setup(self, context):
-        """Any initialization the volume driver does while starting"""
+        """Any initialization the volume driver does while starting."""
         pass
 
     def validate_connector(self, connector):
-        """Fail if connector doesn't contain all the data needed by driver"""
+        """Fail if connector doesn't contain all the data needed by driver."""
         pass
 
     def _copy_volume_data_cleanup(self, context, volume, properties,
@@ -314,9 +316,11 @@ class VolumeDriver(object):
 
         try:
             size_in_mb = int(src_vol['size']) * 1024    # vol size is in GB
-            volume_utils.copy_volume(src_attach_info['device']['path'],
-                                     dest_attach_info['device']['path'],
-                                     size_in_mb)
+            volume_utils.copy_volume(
+                src_attach_info['device']['path'],
+                dest_attach_info['device']['path'],
+                size_in_mb,
+                self.configuration.volume_dd_blocksize)
             copy_error = False
         except Exception:
             with excutils.save_and_reraise_exception():
@@ -343,6 +347,7 @@ class VolumeDriver(object):
                                      image_service,
                                      image_id,
                                      attach_info['device']['path'],
+                                     self.configuration.volume_dd_blocksize,
                                      size=volume['size'])
         finally:
             self._detach_volume(attach_info)
@@ -400,7 +405,7 @@ class VolumeDriver(object):
         connector.disconnect_volume(attach_info['conn']['data'],
                                     attach_info['device'])
 
-    def clone_image(self, volume, image_location, image_id):
+    def clone_image(self, volume, image_location, image_id, image_meta):
         """Create a volume efficiently from an existing image.
 
         image_location is a string whose format depends on the
@@ -410,6 +415,11 @@ class VolumeDriver(object):
         image_id is a string which represents id of the image.
         It can be used by the driver to introspect internal
         stores or registry to do an efficient image clone.
+
+        image_meta is a dictionary that includes 'disk_format' (e.g.
+        raw, qcow2) and other image attributes that allow drivers to
+        decide whether they can clone the image without first requiring
+        conversion.
 
         Returns a dict of volume properties eg. provider_location,
         boolean indicating whether cloning occurred
@@ -469,8 +479,29 @@ class VolumeDriver(object):
 
         Returns a boolean indicating whether the migration occurred, as well as
         model_update.
+
+        :param ctxt: Context
+        :param volume: A dictionary describing the volume to migrate
+        :param host: A dictionary describing the host to migrate to, where
+                     host['host'] is its name, and host['capabilities'] is a
+                     dictionary of its reported capabilities.
         """
         return (False, None)
+
+    def retype(self, context, volume, new_type, diff, host):
+        """Convert the volume to be of the new type.
+
+        Returns a boolean indicating whether the retype occurred.
+
+        :param ctxt: Context
+        :param volume: A dictionary describing the volume to migrate
+        :param new_type: A dictionary describing the volume type to convert to
+        :param diff: A dictionary with the difference between the two types
+        :param host: A dictionary describing the host to migrate to, where
+                     host['host'] is its name, and host['capabilities'] is a
+                     dictionary of its reported capabilities.
+        """
+        return False
 
 
 class ISCSIDriver(VolumeDriver):
@@ -667,7 +698,7 @@ class ISCSIDriver(VolumeDriver):
         pass
 
     def _get_iscsi_initiator(self):
-        """Get iscsi initiator name for this machine"""
+        """Get iscsi initiator name for this machine."""
         # NOTE openiscsi stores initiator name in a file that
         #      needs root permission to read.
         contents = utils.read_file_as_root('/etc/iscsi/initiatorname.iscsi')

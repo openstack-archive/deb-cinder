@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 IBM Corp.
 # Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -255,10 +253,9 @@ class StorwizeSVCDriver(san.SanDriver):
             except KeyError:
                 self._handle_keyerror('lsnode', header)
             except ValueError:
-                msg = (_('Expected integers for node_count and vdisk_count, '
-                         'svcinfo lsiogrp returned: %(node)s and %(vdisk)s') %
-                       {'node': iogrp_data['node_count'],
-                        'vdisk': iogrp_data['vdisk_count']})
+                msg = (_('Expected integer for node_count, '
+                         'svcinfo lsiogrp returned: %(node)s') %
+                       {'node': iogrp_data['node_count']})
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
 
@@ -1460,7 +1457,7 @@ class StorwizeSVCDriver(san.SanDriver):
         LOG.debug(_('leave: extend_volume: volume %s') % volume['id'])
 
     def migrate_volume(self, ctxt, volume, host):
-        """Migrate direclty if source and dest are managed by same storage.
+        """Migrate directly if source and dest are managed by same storage.
 
         The method uses the migratevdisk method, which returns almost
         immediately, if the source and target pools have the same extent_size.
@@ -1809,7 +1806,7 @@ class StorwizeSVCDriver(san.SanDriver):
 
 
 class CLIResponse(object):
-    '''Parse SVC CLI output and generate iterable'''
+    '''Parse SVC CLI output and generate iterable.'''
 
     def __init__(self, raw, delim='!', with_header=True):
         super(CLIResponse, self).__init__()

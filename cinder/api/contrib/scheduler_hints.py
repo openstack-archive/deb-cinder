@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -36,7 +34,7 @@ class SchedulerHintsController(wsgi.Controller):
                 hints.update(body[attr])
         except ValueError:
             msg = _("Malformed scheduler_hints attribute")
-            raise webob.exc.HTTPBadRequest(reason=msg)
+            raise webob.exc.HTTPBadRequest(explanation=msg)
 
         return hints
 

@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
 # Copyright 2011 Nexenta Systems, Inc.
 # All Rights Reserved.
@@ -749,7 +747,7 @@ class TestNexentaUtils(test.TestCase):
         )
 
         for value, result in values_to_test:
-            self.assertEquals(utils.str2size(value), result)
+            self.assertEqual(utils.str2size(value), result)
 
         # Invalid format value
         self.assertRaises(ValueError, utils.str2size, 'A')
@@ -775,4 +773,4 @@ class TestNexentaUtils(test.TestCase):
               '/rest/nms/')),
         )
         for url, result in urls:
-            self.assertEquals(utils.parse_nms_url(url), result)
+            self.assertEqual(utils.parse_nms_url(url), result)

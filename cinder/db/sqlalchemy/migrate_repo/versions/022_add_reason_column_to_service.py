@@ -1,7 +1,4 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
-# Copyright (c) 2011 OpenStack Foundation.
-# All Rights Reserved.
+# Copyright 2013 IBM Corp.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -14,3 +11,20 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+
+from sqlalchemy import Column, MetaData, String, Table
+
+
+def upgrade(migrate_engine):
+    meta = MetaData()
+    meta.bind = migrate_engine
+    services = Table('services', meta, autoload=True)
+    reason = Column('disabled_reason', String(255))
+    services.create_column(reason)
+
+
+def downgrade(migrate_engine):
+    meta = MetaData()
+    meta.bind = migrate_engine
+    services = Table('services', meta, autoload=True)
+    services.drop_column('disabled_reason')

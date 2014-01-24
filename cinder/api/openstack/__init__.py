@@ -22,7 +22,6 @@ import routes
 
 from cinder.api.openstack import wsgi
 from cinder.openstack.common import log as logging
-from cinder import utils
 from cinder import wsgi as base_wsgi
 
 
@@ -59,7 +58,7 @@ class APIRouter(base_wsgi.Router):
 
     @classmethod
     def factory(cls, global_config, **local_config):
-        """Simple paste factory, :class:`cinder.wsgi.Router` doesn't have"""
+        """Simple paste factory, :class:`cinder.wsgi.Router` doesn't have."""
         return cls()
 
     def __init__(self, ext_mgr=None):

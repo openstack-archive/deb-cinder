@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -31,7 +29,6 @@ import webob.exc
 
 from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
 
 
 LOG = logging.getLogger(__name__)
@@ -141,7 +138,7 @@ class ImageNotAuthorized(CinderException):
 
 
 class DriverNotInitialized(CinderException):
-    message = _("Volume driver '%(driver)s' not initialized.")
+    message = _("Volume driver not ready.")
 
 
 class Invalid(CinderException):
@@ -396,6 +393,11 @@ class NoValidHost(CinderException):
     message = _("No valid host was found. %(reason)s")
 
 
+class NoMoreTargets(CinderException):
+    """No more available targets."""
+    pass
+
+
 class WillNotSchedule(CinderException):
     message = _("Host %(host)s is not up or doesn't exist.")
 
@@ -562,6 +564,10 @@ class QoSSpecsInUse(CinderException):
 
 class KeyManagerError(CinderException):
     msg_fmt = _("key manager error: %(reason)s")
+
+
+class VolumeRetypeFailed(CinderException):
+    message = _("Volume retype failed: %(reason)s")
 
 
 # Driver specific exceptions

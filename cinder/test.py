@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -24,7 +22,6 @@ inline callbacks.
 """
 
 
-import functools
 import os
 import shutil
 import tempfile
@@ -37,7 +34,7 @@ import stubout
 import testtools
 from testtools import matchers
 
-from cinder.common import config  # Need to register global_opts
+from cinder.common import config  # noqa Need to register global_opts
 from cinder.db import migration
 from cinder.openstack.common.db.sqlalchemy import session
 from cinder.openstack.common import log as logging
@@ -270,7 +267,7 @@ class TestCase(testtools.TestCase):
                                 })
 
     def assertGreater(self, first, second, msg=None):
-        """Python < v2.7 compatibility.  Assert 'first' > 'second'"""
+        """Python < v2.7 compatibility.  Assert 'first' > 'second'."""
         try:
             f = super(TestCase, self).assertGreater
         except AttributeError:
@@ -281,7 +278,7 @@ class TestCase(testtools.TestCase):
             f(first, second, msg=msg)
 
     def assertGreaterEqual(self, first, second, msg=None):
-        """Python < v2.7 compatibility.  Assert 'first' >= 'second'"""
+        """Python < v2.7 compatibility.  Assert 'first' >= 'second'."""
         try:
             f = super(TestCase, self).assertGreaterEqual
         except AttributeError:

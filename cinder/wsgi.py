@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # Copyright 2010 OpenStack Foundation
@@ -68,6 +66,9 @@ CONF = cfg.CONF
 CONF.register_opts(socket_opts)
 
 LOG = logging.getLogger(__name__)
+
+# Raise the default from 8192 to accommodate large tokens
+eventlet.wsgi.MAX_HEADER_LINE = 16384
 
 
 class Server(object):

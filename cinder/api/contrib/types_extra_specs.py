@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2011 Zadara Storage Inc.
 # Copyright (c) 2011 OpenStack Foundation
 #
@@ -148,7 +146,7 @@ class VolumeTypeExtraSpecsController(wsgi.Controller):
 
 
 class Types_extra_specs(extensions.ExtensionDescriptor):
-    """Types extra specs support"""
+    """Type extra specs support."""
 
     name = "TypesExtraSpecs"
     alias = "os-types-extra-specs"

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # Copyright 2011 Justin Santa Barbara
@@ -22,7 +20,6 @@
 
 import contextlib
 import datetime
-import functools
 import hashlib
 import inspect
 import os
@@ -33,23 +30,18 @@ import shutil
 import stat
 import sys
 import tempfile
-import time
+
+from eventlet import pools
+from oslo.config import cfg
+import paramiko
 from xml.dom import minidom
 from xml.parsers import expat
 from xml import sax
 from xml.sax import expatreader
 from xml.sax import saxutils
 
-from eventlet import event
-from eventlet import greenthread
-from eventlet import pools
-from oslo.config import cfg
-import paramiko
-
 from cinder.brick.initiator import connector
 from cinder import exception
-from cinder.openstack.common import excutils
-from cinder.openstack.common import gettextutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
@@ -436,66 +428,6 @@ class LazyPluggable(object):
         return getattr(backend, key)
 
 
-class LoopingCallDone(Exception):
-    """Exception to break out and stop a LoopingCall.
-
-    The poll-function passed to LoopingCall can raise this exception to
-    break out of the loop normally. This is somewhat analogous to
-    StopIteration.
-
-    An optional return-value can be included as the argument to the exception;
-    this return-value will be returned by LoopingCall.wait()
-
-    """
-
-    def __init__(self, retvalue=True):
-        """:param retvalue: Value that LoopingCall.wait() should return."""
-        self.retvalue = retvalue
-
-
-class LoopingCall(object):
-    def __init__(self, f=None, *args, **kw):
-        self.args = args
-        self.kw = kw
-        self.f = f
-        self._running = False
-
-    def start(self, interval, initial_delay=None):
-        self._running = True
-        done = event.Event()
-
-        def _inner():
-            if initial_delay:
-                greenthread.sleep(initial_delay)
-
-            try:
-                while self._running:
-                    self.f(*self.args, **self.kw)
-                    if not self._running:
-                        break
-                    greenthread.sleep(interval)
-            except LoopingCallDone as e:
-                self.stop()
-                done.send(e.retvalue)
-            except Exception:
-                LOG.exception(_('in looping call'))
-                done.send_exception(*sys.exc_info())
-                return
-            else:
-                done.send(True)
-
-        self.done = done
-
-        greenthread.spawn(_inner)
-        return self.done
-
-    def stop(self):
-        self._running = False
-
-    def wait(self):
-        return self.done.wait()
-
-
 class ProtectedExpatParser(expatreader.ExpatParser):
     """An expat parser which disables DTD's and entities by default."""
 
@@ -669,7 +601,7 @@ def make_dev_path(dev, partition=None, base='/dev'):
 
 
 def total_seconds(td):
-    """Local total_seconds implementation for compatibility with python 2.6"""
+    """Local total_seconds implementation for compatibility with python 2.6."""
     if hasattr(td, 'total_seconds'):
         return td.total_seconds()
     else:
@@ -767,7 +699,7 @@ def tempdir(**kwargs):
 
 
 def walk_class_hierarchy(clazz, encountered=None):
-    """Walk class hierarchy, yielding most derived classes first"""
+    """Walk class hierarchy, yielding most derived classes first."""
     if not encountered:
         encountered = []
     for subclass in clazz.__subclasses__():
@@ -813,15 +745,19 @@ def brick_get_connector(protocol, driver=None,
                                                 *args, **kwargs)
 
 
-def require_driver_initialized(func):
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        # we can't do anything if the driver didn't init
-        if not self.driver.initialized:
-            driver_name = self.driver.__class__.__name__
-            raise exception.DriverNotInitialized(driver=driver_name)
-        return func(self, *args, **kwargs)
-    return wrapper
+def require_driver_initialized(driver):
+    """Verifies if `driver` is initialized
+
+    If the driver is not initialized, an exception will be raised.
+
+    :params driver: The driver instance.
+    :raises: `exception.DriverNotInitialized`
+    """
+    # we can't do anything if the driver didn't init
+    if not driver.initialized:
+        driver_name = driver.__class__.__name__
+        LOG.error(_("Volume driver %s not initialized") % driver_name)
+        raise exception.DriverNotInitialized()
 
 
 def get_file_mode(path):

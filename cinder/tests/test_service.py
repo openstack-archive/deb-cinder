@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -49,7 +48,7 @@ CONF.register_opts(test_service_opts)
 
 
 class FakeManager(manager.Manager):
-    """Fake manager for tests"""
+    """Fake manager for tests."""
     def __init__(self, host=None,
                  db_driver=None, service_name=None):
         super(FakeManager, self).__init__(host=host,
@@ -65,7 +64,7 @@ class ExtendedService(service.Service):
 
 
 class ServiceManagerTestCase(test.TestCase):
-    """Test cases for Services"""
+    """Test cases for Services."""
 
     def test_message_gets_to_manager(self):
         serv = service.Service('test',
@@ -109,7 +108,7 @@ class ServiceFlagsTestCase(test.TestCase):
 
 
 class ServiceTestCase(test.TestCase):
-    """Test cases for Services"""
+    """Test cases for Services."""
 
     def setUp(self):
         super(ServiceTestCase, self).setUp()
@@ -209,6 +208,12 @@ class TestWSGIService(test.TestCase):
         test_service.start()
         self.assertNotEqual(0, test_service.port)
         test_service.stop()
+
+    def test_service_with_min_down_time(self):
+        CONF.set_override('service_down_time', 10)
+        CONF.set_override('report_interval', 10)
+        service.WSGIService("test_service")
+        self.assertEqual(CONF.service_down_time, 25)
 
 
 class TestLauncher(test.TestCase):

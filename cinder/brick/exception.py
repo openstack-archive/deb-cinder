@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # (c) Copyright 2013 Hewlett-Packard Development Company, L.P.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -105,6 +103,10 @@ class VolumeGroupCreationFailed(BrickException):
 
 class ISCSITargetCreateFailed(BrickException):
     message = _("Failed to create iscsi target for volume %(volume_id)s.")
+
+
+class ISCSITargetUpdateFailed(BrickException):
+    message = _("Failed to update iscsi target for volume %(name)s.")
 
 
 class ISCSITargetRemoveFailed(BrickException):

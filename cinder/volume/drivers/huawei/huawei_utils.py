@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 Huawei Technologies Co., Ltd.
 # Copyright (c) 2012 OpenStack LLC.
 # All Rights Reserved.
@@ -18,7 +16,6 @@
 
 from xml.etree import ElementTree as ET
 
-from cinder import exception
 from cinder.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)

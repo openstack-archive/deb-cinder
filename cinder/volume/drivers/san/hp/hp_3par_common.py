@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 #    (c) Copyright 2012-2013 Hewlett-Packard Development Company, L.P.
 #    All Rights Reserved.
 #
@@ -44,7 +42,6 @@ import json
 import pprint
 from random import randint
 import re
-import time
 import uuid
 
 from eventlet import greenthread
@@ -52,7 +49,6 @@ import hp3parclient
 from hp3parclient import client
 from hp3parclient import exceptions as hpexceptions
 from oslo.config import cfg
-import paramiko
 
 from cinder import context
 from cinder import exception
@@ -79,11 +75,6 @@ hp3par_opts = [
                default='',
                help="3PAR Super user password",
                secret=True),
-    # TODO(kmartin): Remove hp3par_domain during I release.
-    cfg.StrOpt('hp3par_domain',
-               default=None,
-               help="This option is DEPRECATED and no longer used. "
-                    "The 3par domain name to use."),
     cfg.StrOpt('hp3par_cpg',
                default="OpenStack",
                help="The CPG to use for volume creation"),
@@ -119,10 +110,13 @@ class HP3PARCommon(object):
         1.2.0 - Updated hp3parclient API use to 2.0.x
         1.2.1 - Check that the VVS exists
         1.2.2 - log prior to raising exceptions
+        1.2.3 - Methods to update key/value pair bug #1258033
+        1.2.4 - Remove deprecated config option hp3par_domain
+        1.2.5 - Raise Ex when deleting snapshot with dependencies bug #1250249
 
     """
 
-    VERSION = "1.2.2"
+    VERSION = "1.2.5"
 
     stats = {}
 
@@ -146,10 +140,6 @@ class HP3PARCommon(object):
         self.config = config
         self.hosts_naming_dict = dict()
         self.client = None
-        if CONF.hp3par_domain is not None:
-            LOG.deprecated(_("hp3par_domain has been deprecated and "
-                             "is no longer used. The domain is automatically "
-                             "looked up based on the CPG."))
 
     def get_version(self):
         return self.VERSION
@@ -651,7 +641,7 @@ exit
                                   self.config.hp3par_cpg)
         if cpg is not self.config.hp3par_cpg:
             # The cpg was specified in a volume type extra spec so it
-            # needs to be validiated that it's in the correct domain.
+            # needs to be validated that it's in the correct domain.
             self.validate_cpg(cpg)
             # Also, look to see if the snap_cpg was specified in volume
             # type extra spec, if not use the extra spec cpg as the
@@ -974,8 +964,64 @@ exit
             LOG.error(str(ex))
             raise exception.NotFound()
 
+    def update_volume_key_value_pair(self, volume, key, value):
+        """Updates key,value pair as metadata onto virtual volume.
+
+        If key already exists, the value will be replaced.
+        """
+        LOG.debug("VOLUME (%s : %s %s) Updating KEY-VALUE pair: (%s : %s)" %
+                  (volume['display_name'],
+                   volume['name'],
+                   self._get_3par_vol_name(volume['id']),
+                   str(key),
+                   str(value)))
+        try:
+            volume_name = self._get_3par_vol_name(volume['id'])
+            if value is None:
+                value = ''
+            cmd = ['setvv', '-setkv', key + '=' + value, volume_name]
+            self._cli_run(cmd)
+        except Exception as ex:
+            msg = _('Failure in update_volume_key_value_pair:%s') % str(ex)
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+
+    def clear_volume_key_value_pair(self, volume, key):
+        """Clears key,value pairs metadata from virtual volume."""
+
+        LOG.debug("VOLUME (%s : %s %s) Clearing Key : %s)" %
+                  (volume['display_name'], volume['name'],
+                   self._get_3par_vol_name(volume['id']), str(key)))
+        try:
+            volume_name = self._get_3par_vol_name(volume['id'])
+            cmd = ['setvv', '-clrkey', key, volume_name]
+            self._cli_run(cmd)
+        except Exception as ex:
+            msg = _('Failure in clear_volume_key_value_pair:%s') % str(ex)
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+
+    def attach_volume(self, volume, instance_uuid):
+        LOG.debug("Attach Volume\n%s" % pprint.pformat(volume))
+        try:
+            self.update_volume_key_value_pair(volume,
+                                              'HPQ-CS-instance_uuid',
+                                              instance_uuid)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_("Error attaching volume %s") % volume)
+
+    def detach_volume(self, volume):
+        LOG.debug("Detach Volume\n%s" % pprint.pformat(volume))
+        try:
+            self.clear_volume_key_value_pair(volume, 'HPQ-CS-instance_uuid')
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_("Error detaching volume %s") % volume)
+
     def delete_snapshot(self, snapshot):
-        LOG.debug("Delete Snapshot\n%s" % pprint.pformat(snapshot))
+        LOG.debug("Delete Snapshot id %s %s" % (snapshot['id'],
+                                                pprint.pformat(snapshot)))
 
         try:
             snap_name = self._get_3par_snap_name(snapshot['id'])
@@ -986,6 +1032,9 @@ exit
         except hpexceptions.HTTPNotFound as ex:
             LOG.error(str(ex))
             raise exception.NotFound()
+        except hpexceptions.HTTPConflict as ex:
+            LOG.error(str(ex))
+            raise exception.SnapshotIsBusy(snapshot_name=snapshot['id'])
 
     def _get_3par_hostname_from_wwn_iqn(self, wwns, iqns):
         if wwns is not None and not isinstance(wwns, list):

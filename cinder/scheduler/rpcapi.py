@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012, Red Hat, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -37,6 +35,7 @@ class SchedulerAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
         1.2 - Add request_spec, filter_properties arguments
               to create_volume()
         1.3 - Add migrate_volume_to_host() method
+        1.4 - Add retype method
     '''
 
     RPC_API_VERSION = '1.0'
@@ -73,6 +72,17 @@ class SchedulerAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
             request_spec=request_spec_p,
             filter_properties=filter_properties),
             version='1.3')
+
+    def retype(self, ctxt, topic, volume_id,
+               request_spec=None, filter_properties=None):
+        request_spec_p = jsonutils.to_primitive(request_spec)
+        return self.cast(ctxt, self.make_msg(
+            'retype',
+            topic=topic,
+            volume_id=volume_id,
+            request_spec=request_spec_p,
+            filter_properties=filter_properties),
+            version='1.4')
 
     def update_service_capabilities(self, ctxt,
                                     service_name, host,

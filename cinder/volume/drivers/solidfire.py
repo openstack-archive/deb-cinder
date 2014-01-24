@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 SolidFire Inc
 # All Rights Reserved.
 #
@@ -32,6 +30,7 @@ from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.volume.drivers.san.san import SanISCSIDriver
+from cinder.volume import qos_specs
 from cinder.volume import volume_types
 
 LOG = logging.getLogger(__name__)
@@ -46,8 +45,11 @@ sf_opts = [
                 help='Allow tenants to specify QOS on create'),
 
     cfg.StrOpt('sf_account_prefix',
-               default=socket.gethostname(),
-               help='Create SolidFire accounts with this prefix'),
+               default=None,
+               help='Create SolidFire accounts with this prefix. Any string '
+                    'can be used here, but the string \"hostname\" is special '
+                    'and will create a prefix using the cinder node hostsname '
+                    '(previous default behavior).  The default is NO prefix.'),
 
     cfg.IntOpt('sf_api_port',
                default=443,
@@ -101,7 +103,7 @@ class SolidFireDriver(SanISCSIDriver):
         """All API requests to SolidFire device go through this method.
 
         Simple json-rpc web based API calls.
-        each call takes a set of paramaters (dict)
+        each call takes a set of parameters (dict)
         and returns results in a dict as well.
 
         """
@@ -223,9 +225,10 @@ class SolidFireDriver(SanISCSIDriver):
 
     def _get_sf_account_name(self, project_id):
         """Build the SolidFire account name to use."""
-        return '%s%s%s' % (self.configuration.sf_account_prefix,
-                           '-' if self.configuration.sf_account_prefix else '',
-                           project_id)
+        prefix = self.configuration.sf_account_prefix or ''
+        if prefix == 'hostname':
+            prefix = socket.gethostname()
+        return '%s%s%s' % (prefix, '-' if prefix else '', project_id)
 
     def _get_sfaccount(self, project_id):
         sf_account_name = self._get_sf_account_name(project_id)
@@ -432,8 +435,18 @@ class SolidFireDriver(SanISCSIDriver):
     def _set_qos_by_volume_type(self, ctxt, type_id):
         qos = {}
         volume_type = volume_types.get_volume_type(ctxt, type_id)
+        qos_specs_id = volume_type.get('qos_specs_id')
         specs = volume_type.get('extra_specs')
-        for key, value in specs.iteritems():
+
+        # NOTE(jdg): We prefer the qos_specs association
+        # and over-ride any existing
+        # extra-specs settings if present
+        if qos_specs_id is not None:
+            kvs = qos_specs.get_qos_specs(ctxt, qos_specs_id)['specs']
+        else:
+            kvs = specs
+
+        for key, value in kvs.iteritems():
             if ':' in key:
                 fields = key.split(':')
                 key = fields[1]
@@ -529,7 +542,7 @@ class SolidFireDriver(SanISCSIDriver):
     def delete_volume(self, volume):
         """Delete SolidFire Volume from device.
 
-        SolidFire allows multipe volumes with same name,
+        SolidFire allows multiple volumes with same name,
         volumeID is what's guaranteed unique.
 
         """
@@ -541,7 +554,7 @@ class SolidFireDriver(SanISCSIDriver):
             LOG.error(_("Account for Volume ID %s was not found on "
                         "the SolidFire Cluster!") % volume['id'])
             LOG.error(_("This usually means the volume was never "
-                        "succesfully created."))
+                        "successfully created."))
             return
 
         params = {'accountID': sfaccount['accountID']}

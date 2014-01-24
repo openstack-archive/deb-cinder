@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010-2011 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -40,7 +38,8 @@ class ViewBuilder(object):
                 "id": version['id'],
                 "status": version['status'],
                 "links": [{"rel": "self",
-                           "href": self.generate_href(req.path), }, ],
+                           "href": self.generate_href(version['id'],
+                                                      req.path), }, ],
                 "media-types": version['media-types'], })
 
         return dict(choices=version_objs)
@@ -66,16 +65,20 @@ class ViewBuilder(object):
 
     def _build_links(self, version_data):
         """Generate a container of links that refer to the provided version."""
-        href = self.generate_href()
+        href = self.generate_href(version_data['id'])
 
         links = [{'rel': 'self',
                   'href': href, }, ]
 
         return links
 
-    def generate_href(self, path=None):
+    def generate_href(self, version, path=None):
         """Create an url that refers to a specific version_number."""
-        version_number = 'v1'
+        if version.find('v1.') == 0:
+            version_number = 'v1'
+        else:
+            version_number = 'v2'
+
         if path:
             path = path.strip('/')
             return os.path.join(self.base_url, version_number, path)

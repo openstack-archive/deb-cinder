@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2011 Citrix Systems, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,7 +18,6 @@ import re
 
 from eventlet import greenthread
 
-from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import utils

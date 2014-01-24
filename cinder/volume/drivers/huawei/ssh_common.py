@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 Huawei Technologies Co., Ltd.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -320,7 +318,7 @@ class TseriesCommon():
         # If constant prefetch, we should specify prefetch value.
         if params['PrefetchType'] == '1':
             prefetch_value_or_times = '-value %s' % params['PrefetchValue']
-        # If variable prefetch, we should specify prefetch mutiple.
+        # If variable prefetch, we should specify prefetch multiple.
         elif params['PrefetchType'] == '2':
             prefetch_value_or_times = '-times %s' % params['PrefetchTimes']
 

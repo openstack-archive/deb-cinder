@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2012, Red Hat, Inc.
 #
@@ -19,10 +18,11 @@ Unit Tests for cinder.scheduler.rpcapi
 """
 
 
+import mock
+
 from oslo.config import cfg
 
 from cinder import context
-from cinder.openstack.common import rpc
 from cinder.scheduler import rpcapi as scheduler_rpcapi
 from cinder import test
 
@@ -38,10 +38,10 @@ class SchedulerRpcAPITestCase(test.TestCase):
     def tearDown(self):
         super(SchedulerRpcAPITestCase, self).tearDown()
 
-    def _test_scheduler_api(self, method, rpc_method, **kwargs):
+    def _test_scheduler_api(self, method, rpc_method, _mock_method, **kwargs):
         ctxt = context.RequestContext('fake_user', 'fake_project')
         rpcapi = scheduler_rpcapi.SchedulerAPI()
-        expected_retval = 'foo' if method == 'call' else None
+        expected_retval = 'foo' if rpc_method == 'call' else None
         expected_version = kwargs.pop('version', rpcapi.RPC_API_VERSION)
         expected_msg = rpcapi.make_msg(method, **kwargs)
         expected_msg['version'] = expected_version
@@ -55,7 +55,7 @@ class SchedulerRpcAPITestCase(test.TestCase):
             if expected_retval:
                 return expected_retval
 
-        self.stubs.Set(rpc, rpc_method, _fake_rpc_method)
+        _mock_method.side_effect = _fake_rpc_method
 
         retval = getattr(rpcapi, method)(ctxt, **kwargs)
 
@@ -64,16 +64,20 @@ class SchedulerRpcAPITestCase(test.TestCase):
         for arg, expected_arg in zip(self.fake_args, expected_args):
             self.assertEqual(arg, expected_arg)
 
-    def test_update_service_capabilities(self):
+    @mock.patch('cinder.openstack.common.rpc.fanout_cast')
+    def test_update_service_capabilities(self, _mock_rpc_method):
         self._test_scheduler_api('update_service_capabilities',
                                  rpc_method='fanout_cast',
+                                 _mock_method=_mock_rpc_method,
                                  service_name='fake_name',
                                  host='fake_host',
                                  capabilities='fake_capabilities')
 
-    def test_create_volume(self):
+    @mock.patch('cinder.openstack.common.rpc.cast')
+    def test_create_volume(self, _mock_rpc_method):
         self._test_scheduler_api('create_volume',
                                  rpc_method='cast',
+                                 _mock_method=_mock_rpc_method,
                                  topic='topic',
                                  volume_id='volume_id',
                                  snapshot_id='snapshot_id',
@@ -82,9 +86,11 @@ class SchedulerRpcAPITestCase(test.TestCase):
                                  filter_properties='filter_properties',
                                  version='1.2')
 
-    def test_migrate_volume_to_host(self):
+    @mock.patch('cinder.openstack.common.rpc.cast')
+    def test_migrate_volume_to_host(self, _mock_rpc_method):
         self._test_scheduler_api('migrate_volume_to_host',
                                  rpc_method='cast',
+                                 _mock_method=_mock_rpc_method,
                                  topic='topic',
                                  volume_id='volume_id',
                                  host='host',
@@ -92,3 +98,14 @@ class SchedulerRpcAPITestCase(test.TestCase):
                                  request_spec='fake_request_spec',
                                  filter_properties='filter_properties',
                                  version='1.3')
+
+    @mock.patch('cinder.openstack.common.rpc.cast')
+    def test_retype(self, _mock_rpc_method):
+        self._test_scheduler_api('retype',
+                                 rpc_method='cast',
+                                 _mock_method=_mock_rpc_method,
+                                 topic='topic',
+                                 volume_id='volume_id',
+                                 request_spec='fake_request_spec',
+                                 filter_properties='filter_properties',
+                                 version='1.4')

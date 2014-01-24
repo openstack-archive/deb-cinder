@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # Copyright 2011 Justin Santa Barbara
@@ -37,8 +35,8 @@ from cinder import db
 from cinder import exception
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import loopingcall
 from cinder.openstack.common import rpc
-from cinder import utils
 from cinder import version
 from cinder import wsgi
 
@@ -89,7 +87,7 @@ class Launcher(object):
     def run_server(server):
         """Start and wait for a server to finish.
 
-        :param service: Server to run and wait for.
+        :param server: Server to run and wait for.
         :returns: None
 
         """
@@ -185,7 +183,7 @@ class ProcessLauncher(object):
         signal.signal(signal.SIGTERM, _sigterm)
         # Block SIGINT and let the parent send us a SIGTERM
         # signal.signal(signal.SIGINT, signal.SIG_IGN)
-        # This differs from the behavior in nova in that we dont ignore this
+        # This differs from the behavior in nova in that we don't ignore this
         # It allows the non-wsgi services to be terminated properly
         signal.signal(signal.SIGINT, _sigterm)
 
@@ -388,7 +386,7 @@ class Service(object):
         self.manager.init_host()
 
         if self.report_interval:
-            pulse = utils.LoopingCall(self.report_state)
+            pulse = loopingcall.LoopingCall(self.report_state)
             pulse.start(interval=self.report_interval,
                         initial_delay=self.report_interval)
             self.timers.append(pulse)
@@ -399,7 +397,7 @@ class Service(object):
             else:
                 initial_delay = None
 
-            periodic = utils.LoopingCall(self.periodic_tasks)
+            periodic = loopingcall.LoopingCall(self.periodic_tasks)
             periodic.start(interval=self.periodic_interval,
                            initial_delay=initial_delay)
             self.timers.append(periodic)
@@ -540,10 +538,27 @@ class WSGIService(object):
         self.app = self.loader.load_app(name)
         self.host = getattr(CONF, '%s_listen' % name, "0.0.0.0")
         self.port = getattr(CONF, '%s_listen_port' % name, 0)
+        self.basic_config_check()
         self.server = wsgi.Server(name,
                                   self.app,
                                   host=self.host,
                                   port=self.port)
+
+    def basic_config_check(self):
+        """Perform basic config checks before starting service."""
+        # Make sure report interval is less than service down time
+        report_interval = CONF.report_interval
+        if CONF.service_down_time <= report_interval:
+            new_service_down_time = int(report_interval * 2.5)
+            LOG.warn(_("Report interval must be less than service down "
+                       "time. Current config: <service_down_time: "
+                       "%(service_down_time)s, report_interval: "
+                       "%(report_interval)s>. Setting service_down_time to: "
+                       "%(new_service_down_time)s") %
+                     {'service_down_time': CONF.service_down_time,
+                      'report_interval': report_interval,
+                      'new_service_down_time': new_service_down_time})
+            CONF.set_override('service_down_time', new_service_down_time)
 
     def _get_manager(self):
         """Initialize a Manager object appropriate for this service.
@@ -618,7 +633,8 @@ def wait():
         # hide flag contents from log if contains a password
         # should use secret flag when switch over to openstack-common
         if ("_password" in flag or "_key" in flag or
-                (flag == "sql_connection" and "mysql:" in flag_get)):
+                (flag == "sql_connection" and
+                    ("mysql:" in flag_get or "postgresql:" in flag_get))):
             LOG.debug(_('%s : FLAG SET ') % flag)
         else:
             LOG.debug('%(flag)s : %(flag_get)s' %

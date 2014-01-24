@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -173,6 +171,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         volutils.copy_volume(self.local_path(snapshot),
                              self.local_path(volume),
                              snapshot['volume_size'] * 1024,
+                             self.configuration.volume_dd_blocksize,
                              execute=self._execute)
 
     def delete_volume(self, volume):
@@ -229,10 +228,12 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         if self.configuration.volume_clear == 'zero':
             if size_in_m == 0:
-                return volutils.copy_volume('/dev/zero',
-                                            dev_path, size_in_g * 1024,
-                                            sync=True,
-                                            execute=self._execute)
+                return volutils.copy_volume(
+                    '/dev/zero',
+                    dev_path, size_in_g * 1024,
+                    self.configuration.volume_dd_blocksize,
+                    sync=True,
+                    execute=self._execute)
             else:
                 clear_cmd = ['shred', '-n0', '-z', '-s%dMiB' % size_in_m]
         elif self.configuration.volume_clear == 'shred':
@@ -279,7 +280,9 @@ class LVMVolumeDriver(driver.VolumeDriver):
         image_utils.fetch_to_raw(context,
                                  image_service,
                                  image_id,
-                                 self.local_path(volume), size=volume['size'])
+                                 self.local_path(volume),
+                                 self.configuration.volume_dd_blocksize,
+                                 size=volume['size'])
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
@@ -310,14 +313,16 @@ class LVMVolumeDriver(driver.VolumeDriver):
                             mirror_count)
 
         try:
-            volutils.copy_volume(self.local_path(temp_snapshot),
-                                 self.local_path(volume),
-                                 src_vref['size'] * 1024,
-                                 execute=self._execute)
+            volutils.copy_volume(
+                self.local_path(temp_snapshot),
+                self.local_path(volume),
+                src_vref['size'] * 1024,
+                self.configuration.volume_dd_blocksize,
+                execute=self._execute)
         finally:
             self.delete_snapshot(temp_snapshot)
 
-    def clone_image(self, volume, image_location, image_id):
+    def clone_image(self, volume, image_location, image_id, image_meta):
         return None, False
 
     def backup_volume(self, context, backup, backup_service):
@@ -351,7 +356,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         LOG.debug(_("Updating volume stats"))
         if self.vg is None:
-            LOG.warning(_('Unable to update stats on non-intialized '
+            LOG.warning(_('Unable to update stats on non-initialized '
                           'Volume Group: %s'), self.configuration.volume_group)
             return
 
@@ -368,6 +373,9 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         data['total_capacity_gb'] = float(self.vg.vg_size)
         data['free_capacity_gb'] = float(self.vg.vg_free_space)
+        if self.configuration.lvm_type == 'thin':
+            data['total_capacity_gb'] = float(self.vg.vg_thin_pool_size)
+            data['free_capacity_gb'] = float(self.vg.vg_thin_pool_free_space)
         data['reserved_percentage'] = self.configuration.reserved_percentage
         data['QoS_support'] = False
         data['location_info'] =\
@@ -381,7 +389,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         self._stats = data
 
     def extend_volume(self, volume, new_size):
-        """Extend an existing voumes size."""
+        """Extend an existing volume's size."""
         self.vg.extend_volume(volume['name'],
                               self._sizestr(new_size))
 
@@ -451,7 +459,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         """Synchronously recreates an export for a logical volume."""
         # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
 
         if isinstance(self.tgtadm, iscsi.LioAdm):
             try:
@@ -570,7 +578,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         """Ensure that target ids have been created in datastore."""
         # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
         if not isinstance(self.tgtadm, iscsi.TgtAdm):
             host_iscsi_targets = self.db.iscsi_target_count_by_host(context,
                                                                     host)
@@ -597,7 +605,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         model_update = {}
 
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
         if not isinstance(self.tgtadm, iscsi.TgtAdm):
             lun = 0
             self._ensure_iscsi_targets(context, volume['host'])
@@ -627,7 +635,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         """Removes an export for a logical volume."""
         # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
 
         if isinstance(self.tgtadm, iscsi.LioAdm):
             try:
@@ -692,6 +700,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         try:
             (dest_type, dest_hostname, dest_vg, lvm_type, lvm_mirrors) =\
                 info.split(':')
+            lvm_mirrors = int(lvm_mirrors)
         except ValueError:
             return false_ret
         if (dest_type != 'LVMVolumeDriver' or dest_hostname != self.hostname):
@@ -700,7 +709,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         if dest_vg != self.vg.vg_name:
             vg_list = volutils.get_all_volume_groups()
             vg_dict = \
-                (vg for vg in vg_list if vg['name'] == self.vg.vg_name).next()
+                (vg for vg in vg_list if vg['name'] == dest_vg).next()
             if vg_dict is None:
                 message = ("Destination Volume Group %s does not exist" %
                            dest_vg)
@@ -708,7 +717,9 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
                 return false_ret
 
             helper = utils.get_root_helper()
-            dest_vg_ref = lvm.LVM(dest_vg, helper, lvm_type, self._execute)
+            dest_vg_ref = lvm.LVM(dest_vg, helper,
+                                  lvm_type=lvm_type,
+                                  executor=self._execute)
             self.remove_export(ctxt, volume)
             self._create_volume(volume['name'],
                                 self._sizestr(volume['size']),
@@ -719,6 +730,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         volutils.copy_volume(self.local_path(volume),
                              self.local_path(volume, vg=dest_vg),
                              volume['size'],
+                             self.configuration.volume_dd_blocksize,
                              execute=self._execute)
         self._delete_volume(volume)
         model_update = self._create_export(ctxt, volume, vg=dest_vg)
@@ -731,6 +743,24 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
 
     def _iscsi_authentication(self, chap, name, password):
         return "%s %s %s" % (chap, name, password)
+
+    def initialize_connection(self, volume, connector):
+        """Initializes the connection and returns connection info.
+
+        This function overrides the base class implementation so that the iSCSI
+        target can be updated.  This is necessary in the event that a user
+        extended the volume before attachement.
+        """
+
+        # update the iSCSI target
+        iscsi_name = "%s%s" % (self.configuration.iscsi_target_prefix,
+                               volume['name'])
+        self.tgtadm.update_iscsi_target(iscsi_name)
+
+        # continue with the base class behaviour
+        return driver.ISCSIDriver.initialize_connection(self,
+                                                        volume,
+                                                        connector)
 
 
 class LVMISERDriver(LVMISCSIDriver, driver.ISERDriver):

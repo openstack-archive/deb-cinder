@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 The Johns Hopkins University/Applied Physics Laboratory
 # All Rights Reserved.
 #
@@ -19,8 +17,6 @@ from sqlalchemy import Column, ForeignKey, MetaData, Table
 from sqlalchemy import Boolean, DateTime, Integer, String
 
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
-from cinder.openstack.common import uuidutils
 
 
 LOG = logging.getLogger(__name__)

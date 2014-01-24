@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -125,7 +123,7 @@ class XenAPINFSDriver(driver.VolumeDriver):
         pass
 
     def check_for_setup_error(self):
-        """To override superclass' method"""
+        """To override superclass' method."""
 
     def create_volume_from_snapshot(self, volume, snapshot):
         return self._copy_volume(
@@ -176,6 +174,7 @@ class XenAPINFSDriver(driver.VolumeDriver):
                                      image_service,
                                      image_id,
                                      device,
+                                     self.configuration.volume_dd_blocksize,
                                      size=volume['size'])
 
     def _use_glance_plugin_to_copy_image_to_volume(self, context, volume,

@@ -86,7 +86,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
         model_update = {}
 
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
         if not isinstance(self.tgtadm, iscsi.TgtAdm):
             lun = 0
             self._ensure_iscsi_targets(context, volume['host'])
@@ -120,7 +120,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
         """Removes an export for a logical volume."""
         # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
 
         if isinstance(self.tgtadm, iscsi.LioAdm):
             try:
@@ -167,7 +167,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
         """
         # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
 
         if isinstance(self.tgtadm, iscsi.LioAdm):
             try:
@@ -231,7 +231,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
         """Ensure that target ids have been created in datastore."""
         # NOTE(jdg): tgtadm doesn't use the iscsi_targets table
         # TODO(jdg): In the future move all of the dependent stuff into the
-        # cooresponding target admin class
+        # corresponding target admin class
         if not isinstance(self.tgtadm, iscsi.TgtAdm):
             host_iscsi_targets = self.db.iscsi_target_count_by_host(context,
                                                                     host)
@@ -273,8 +273,10 @@ class BlockDeviceDriver(driver.ISCSIDriver):
 
         if self.configuration.volume_clear == 'zero':
             if clear_size == 0:
-                return volutils.copy_volume('/dev/zero', vol_path, size_in_m,
-                                            sync=True, execute=self._execute)
+                return volutils.copy_volume(
+                    '/dev/zero', vol_path, size_in_m,
+                    self.configuration.volume_dd_blocksize,
+                    sync=True, execute=self._execute)
             else:
                 clear_cmd = ['shred', '-n0', '-z', '-s%dMiB' % clear_size]
         elif self.configuration.volume_clear == 'shred':
@@ -295,6 +297,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
                                  image_service,
                                  image_id,
                                  self.local_path(volume),
+                                 self.configuration.volume_dd_blocksize,
                                  size=volume['size'])
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
@@ -307,9 +310,11 @@ class BlockDeviceDriver(driver.ISCSIDriver):
     def create_cloned_volume(self, volume, src_vref):
         LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
         device = self.find_appropriate_size_device(src_vref['size'])
-        volutils.copy_volume(self.local_path(src_vref), device,
-                             self._get_device_size(device) * 2048,
-                             execute=self._execute)
+        volutils.copy_volume(
+            self.local_path(src_vref), device,
+            self._get_device_size(device) * 2048,
+            self.configuration.volume_dd_blocksize,
+            execute=self._execute)
         return {
             'provider_location': self._iscsi_location(None, None, None, None,
                                                       device),

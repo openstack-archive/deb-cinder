@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -28,6 +26,7 @@ CONF.import_opt('volume_driver', 'cinder.volume.manager')
 CONF.import_opt('xiv_ds8k_proxy', 'cinder.volume.drivers.xiv_ds8k')
 CONF.import_opt('backup_driver', 'cinder.backup.manager')
 CONF.import_opt('fixed_key', 'cinder.keymgr.conf_key_mgr', group='keymgr')
+CONF.import_opt('scheduler_driver', 'cinder.scheduler.manager')
 
 def_vol_type = 'fake_vol_type'
 
@@ -37,7 +36,6 @@ def set_defaults(conf):
     conf.set_default('volume_driver',
                      'cinder.tests.fake_driver.FakeISCSIDriver')
     conf.set_default('iscsi_helper', 'fake')
-    conf.set_default('connection_type', 'fake')
     conf.set_default('fake_rabbit', True)
     conf.set_default('rpc_backend', 'cinder.openstack.common.rpc.impl_fake')
     conf.set_default('iscsi_num_targets', 8)
@@ -50,3 +48,5 @@ def set_defaults(conf):
         'cinder.tests.test_xiv_ds8k.XIVDS8KFakeProxyDriver')
     conf.set_default('backup_driver', 'cinder.tests.backup.fake_service')
     conf.set_default('fixed_key', default='0' * 64, group='keymgr')
+    conf.set_default('scheduler_driver',
+                     'cinder.scheduler.filter_scheduler.FilterScheduler')

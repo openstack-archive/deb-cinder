@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -32,7 +30,6 @@ from sqlalchemy.sql.expression import literal_column
 from sqlalchemy.sql import func
 
 from cinder.common import sqlalchemyutils
-from cinder import db
 from cinder.db.sqlalchemy import models
 from cinder import exception
 from cinder.openstack.common.db import exception as db_exc
@@ -147,7 +144,7 @@ def require_volume_exists(f):
     """
 
     def wrapper(context, volume_id, *args, **kwargs):
-        db.volume_get(context, volume_id)
+        volume_get(context, volume_id)
         return f(context, volume_id, *args, **kwargs)
     wrapper.__name__ = f.__name__
     return wrapper
@@ -161,7 +158,7 @@ def require_snapshot_exists(f):
     """
 
     def wrapper(context, snapshot_id, *args, **kwargs):
-        db.api.snapshot_get(context, snapshot_id)
+        snapshot_get(context, snapshot_id)
         return f(context, snapshot_id, *args, **kwargs)
     wrapper.__name__ = f.__name__
     return wrapper
@@ -966,7 +963,7 @@ def volume_allocate_iscsi_target(context, volume_id, host):
         # NOTE(vish): if with_lockmode isn't supported, as in sqlite,
         #             then this has concurrency issues
         if not iscsi_target_ref:
-            raise db.NoMoreTargets()
+            raise exception.NoMoreTargets()
 
         iscsi_target_ref.volume_id = volume_id
         session.add(iscsi_target_ref)
@@ -1316,7 +1313,7 @@ def _volume_x_metadata_update(context, volume_id, metadata, delete,
             meta_ref.update(item)
             meta_ref.save(session=session)
 
-        return metadata
+    return _volume_x_metadata_get(context, volume_id, model)
 
 
 def _volume_user_metadata_get_query(context, volume_id, session=None):
@@ -1641,7 +1638,7 @@ def snapshot_metadata_update(context, snapshot_id, metadata, delete):
             meta_ref.update(item)
             meta_ref.save(session=session)
 
-        return metadata
+    return snapshot_metadata_get(context, snapshot_id)
 
 ###################
 
@@ -1718,7 +1715,7 @@ def _volume_type_get(context, id, session=None, inactive=False):
 
 @require_context
 def volume_type_get(context, id, inactive=False):
-    """Returns a dict describing specific volume_type"""
+    """Return a dict describing specific volume_type."""
 
     return _volume_type_get(context, id, None, inactive)
 
@@ -1738,7 +1735,7 @@ def _volume_type_get_by_name(context, name, session=None):
 
 @require_context
 def volume_type_get_by_name(context, name):
-    """Returns a dict describing specific volume_type"""
+    """Return a dict describing specific volume_type."""
 
     return _volume_type_get_by_name(context, name)
 
@@ -2553,8 +2550,8 @@ def _transfer_get(context, transfer_id, session=None):
 
     if not is_admin_context(context):
         volume = models.Volume
-        query = query.options(joinedload('volume')).\
-            filter(volume.project_id == context.project_id)
+        query = query.filter(models.Transfer.volume_id == volume.id,
+                             volume.project_id == context.project_id)
 
     result = query.first()
 
@@ -2592,10 +2589,9 @@ def transfer_get_all(context):
 def transfer_get_all_by_project(context, project_id):
     authorize_project_context(context, project_id)
 
-    volume = models.Volume
     query = model_query(context, models.Transfer).\
-        options(joinedload('volume')).\
-        filter(volume.project_id == project_id)
+        filter(models.Volume.id == models.Transfer.volume_id,
+               models.Volume.project_id == project_id)
     results = query.all()
     return _translate_transfers(results)
 

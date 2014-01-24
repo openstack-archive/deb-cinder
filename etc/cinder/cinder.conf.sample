@@ -1,7 +1,3 @@
-####################
-# cinder.conf sample #
-####################
-
 [DEFAULT]
 
 #
@@ -127,6 +123,7 @@
 
 # Base URL that will be presented to users in links to the
 # OpenStack Volume API (string value)
+# Deprecated group/name - [DEFAULT]/osapi_compute_link_prefix
 #osapi_volume_base_URL=<None>
 
 
@@ -231,16 +228,13 @@
 #
 
 # Driver to use for backups. (string value)
+# Deprecated group/name - [DEFAULT]/backup_service
 #backup_driver=cinder.backup.drivers.swift
 
 
 #
 # Options defined in cinder.common.config
 #
-
-# Virtualization api connection type : libvirt, xenapi, or
-# fake (string value)
-#connection_type=<None>
 
 # File name for the paste.deploy config for cinder-api (string
 # value)
@@ -344,9 +338,6 @@
 # availability_zone for new volumes. (string value)
 #default_availability_zone=<None>
 
-# Memcached servers or None for in process cache. (list value)
-#memcached_servers=<None>
-
 # default volume type to use (string value)
 #default_volume_type=<None>
 
@@ -432,7 +423,7 @@
 # region name of this node (string value)
 #os_region_name=<None>
 
-# Location of ca certicates file to use for nova client
+# Location of ca certificates file to use for nova client
 # requests. (string value)
 #nova_ca_certificates_file=<None>
 
@@ -493,74 +484,8 @@
 
 
 #
-# Options defined in cinder.keymgr
-#
-
-# The full class name of the key manager API class (string
-# value)
-#api_class=cinder.keymgr.conf_key_mgr.ConfKeyManager
-
-
-#
-# Options defined in cinder.keymgr.conf_key_mgr
-#
-
-# Fixed key returned by key manager, specified in hex (string
-# value)
-#fixed_key=<None>
-
-
-#
-# Options defined in cinder.openstack.common.db.api
-#
-
-# The backend to use for db (string value)
-#backend=sqlalchemy
-
-# Enable the experimental use of thread pooling for all DB API
-# calls (boolean value)
-#use_tpool=false
-
-
-#
 # Options defined in cinder.openstack.common.db.sqlalchemy.session
 #
-
-# The SQLAlchemy connection string used to connect to the
-# database (string value)
-#connection=sqlite:////cinder/openstack/common/db/$sqlite_db
-
-# timeout before idle sql connections are reaped (integer
-# value)
-#idle_timeout=3600
-
-# Minimum number of SQL connections to keep open in a pool
-# (integer value)
-#min_pool_size=1
-
-# Maximum number of SQL connections to keep open in a pool
-# (integer value)
-#max_pool_size=5
-
-# maximum db connection retries during startup. (setting -1
-# implies an infinite retry count) (integer value)
-#max_retries=10
-
-# interval between retries of opening a sql connection
-# (integer value)
-#retry_interval=10
-
-# If set, use this value for max_overflow with sqlalchemy
-# (integer value)
-#max_overflow=<None>
-
-# Verbosity of SQL debugging information. 0=None,
-# 100=Everything (integer value)
-#connection_debug=0
-
-# Add python stack traces to SQL as comment strings (boolean
-# value)
-#connection_trace=false
 
 # the filename to use with sqlite (string value)
 #sqlite_db=cinder.sqlite
@@ -649,6 +574,7 @@
 # configuration to any other existing logging options. Please
 # see the Python logging module documentation for details on
 # logging configuration files. (string value)
+# Deprecated group/name - [DEFAULT]/log_config
 #log_config_append=<None>
 
 # DEPRECATED. A logging.Formatter log message format string
@@ -664,10 +590,12 @@
 
 # (Optional) Name of log file to output to. If no default is
 # set, logging will go to stdout. (string value)
+# Deprecated group/name - [DEFAULT]/logfile
 #log_file=<None>
 
 # (Optional) The base directory used for relative --log-file
 # paths (string value)
+# Deprecated group/name - [DEFAULT]/logdir
 #log_dir=<None>
 
 # Use syslog for logging. (boolean value)
@@ -700,14 +628,6 @@
 
 # AMQP topic used for OpenStack notifications (list value)
 #notification_topics=notifications
-
-
-#
-# Options defined in cinder.openstack.common.notifier.rpc_notifier2
-#
-
-# AMQP topic(s) used for OpenStack notifications (list value)
-#topics=notifications
 
 
 #
@@ -762,6 +682,7 @@
 #amqp_rpc_single_reply_queue=false
 
 # Use durable queues in amqp. (boolean value)
+# Deprecated group/name - [DEFAULT]/rabbit_durable_queues
 #amqp_durable_queues=false
 
 # Auto-delete queues in amqp. (boolean value)
@@ -916,20 +837,6 @@
 
 
 #
-# Options defined in cinder.openstack.common.rpc.matchmaker_redis
-#
-
-# Host to locate redis (string value)
-#host=127.0.0.1
-
-# Use this port to connect to redis host. (integer value)
-#port=6379
-
-# Password for Redis server. (optional) (string value)
-#password=<None>
-
-
-#
 # Options defined in cinder.scheduler.driver
 #
 
@@ -975,8 +882,11 @@
 # Options defined in cinder.scheduler.simple
 #
 
-# maximum number of volume gigabytes to allow per host
-# (integer value)
+# This configure option has been deprecated along with the
+# SimpleScheduler.  New scheduler is able to gather capacity
+# information for each host, thus setting the maximum number
+# of volume gigabytes for host is no longer needed.  It's safe
+# to remove this configure from cinder.conf. (integer value)
 #max_gigabytes=10000
 
 
@@ -987,6 +897,10 @@
 # Multiplier used for weighing volume capacity. Negative
 # numbers mean to stack vs spread. (floating point value)
 #capacity_weight_multiplier=1.0
+
+# Multiplier used for weighing volume capacity. Negative
+# numbers mean to stack vs spread. (floating point value)
+#allocated_capacity_weight_multiplier=-1.0
 
 
 #
@@ -1065,6 +979,7 @@
 
 # The maximum number of times to rescan targets to find volume
 # (integer value)
+# Deprecated group/name - [DEFAULT]/num_iscsi_scan_tries
 #num_volume_device_scan_tries=3
 
 # The backend name for a given driver implementation (string
@@ -1102,6 +1017,10 @@
 # will autodetect type of backing device (string value)
 #iscsi_iotype=fileio
 
+# The default block size used when copying/clearing volumes
+# (string value)
+#volume_dd_blocksize=1M
+
 
 #
 # Options defined in cinder.volume.drivers.block_device
@@ -1134,6 +1053,15 @@
 
 
 #
+# Options defined in cinder.volume.drivers.emc.emc_smis_common
+#
+
+# use this file for cinder emc plugin config data (string
+# value)
+#cinder_emc_config_file=/etc/cinder/cinder_emc_config.xml
+
+
+#
 # Options defined in cinder.volume.drivers.eqlx
 #
 
@@ -1147,7 +1075,7 @@
 # Maximum retry count for reconnection (integer value)
 #eqlx_cli_max_retries=5
 
-# Use CHAP authentificaion for targets? (boolean value)
+# Use CHAP authentication for targets? (boolean value)
 #eqlx_use_chap=false
 
 # Existing CHAP account name (string value)
@@ -1167,9 +1095,6 @@
 # File with the list of available gluster shares (string
 # value)
 #glusterfs_shares_config=/etc/cinder/glusterfs_shares
-
-# Use du or df for free space calculation (string value)
-#glusterfs_disk_util=df
 
 # Create volumes as sparsed files which take no space.If set
 # to False volume is created as regular file.In such case
@@ -1262,51 +1187,94 @@
 # Options defined in cinder.volume.drivers.netapp.options
 #
 
-# Vfiler to use for provisioning (string value)
+# The vFiler unit on which provisioning of block storage
+# volumes will be done. This option is only used by the driver
+# when connecting to an instance with a storage family of Data
+# ONTAP operating in 7-Mode and the storage protocol selected
+# is iSCSI. Only use this option when utilizing the MultiStore
+# feature on the NetApp storage system. (string value)
 #netapp_vfiler=<None>
 
-# User name for the storage controller (string value)
+# Administrative user account name used to access the storage
+# system. (string value)
 #netapp_login=<None>
 
-# Password for the storage controller (string value)
+# Password for the administrative user account specified in
+# the netapp_login option. (string value)
 #netapp_password=<None>
 
-# Cluster vserver to use for provisioning (string value)
+# This option specifies the virtual storage server (Vserver)
+# name on the storage cluster on which provisioning of block
+# storage volumes should occur. If using the NFS storage
+# protocol, this parameter is mandatory for storage service
+# catalog support (utilized by Cinder volume type extra_specs
+# support). If this option is specified, the exports belonging
+# to the Vserver will only be used for provisioning in the
+# future. Block storage volumes on exports not belonging to
+# the Vserver specified by this option will continue to
+# function normally. (string value)
 #netapp_vserver=<None>
 
-# Host name for the storage controller (string value)
+# The hostname (or IP address) for the storage system. (string
+# value)
 #netapp_server_hostname=<None>
 
-# Port number for the storage controller (integer value)
+# The TCP port to use for communication with ONTAPI on the
+# storage system. Traditionally, port 80 is used for HTTP and
+# port 443 is used for HTTPS; however, this value should be
+# changed if an alternate port has been configured on the
+# storage system. (integer value)
 #netapp_server_port=80
 
-# Threshold available percent to start cache cleaning.
-# (integer value)
+# If the percentage of available space for an NFS share has
+# dropped below the value specified by this option, the NFS
+# image cache will be cleaned. (integer value)
 #thres_avl_size_perc_start=20
 
-# Threshold available percent to stop cache cleaning. (integer
-# value)
+# When the percentage of available space on an NFS share has
+# reached the percentage specified by this option, the driver
+# will stop clearing files from the NFS image cache that have
+# not been accessed in the last M minutes, where M is the
+# value of the expiry_thres_minutes configuration option.
+# (integer value)
 #thres_avl_size_perc_stop=60
 
-# Threshold minutes after which cache file can be cleaned.
-# (integer value)
+# This option specifies the threshold for last access time for
+# images in the NFS image cache. When a cache cleaning cycle
+# begins, images in the cache that have not been accessed in
+# the last M minutes, where M is the value of this parameter,
+# will be deleted from the cache to create free space on the
+# NFS share. (integer value)
 #expiry_thres_minutes=720
 
-# Volume size multiplier to ensure while creation (floating
-# point value)
+# The quantity to be multiplied by the requested volume size
+# to ensure enough space is available on the virtual storage
+# server (Vserver) to fulfill the volume creation request.
+# (floating point value)
 #netapp_size_multiplier=1.2
 
-# Comma separated volumes to be used for provisioning (string
-# value)
+# This option is only utilized when the storage protocol is
+# configured to use iSCSI. This option is used to restrict
+# provisioning to the specified controller volumes. Specify
+# the value of this option to be a comma separated list of
+# NetApp controller volume names to be used for provisioning.
+# (string value)
 #netapp_volume_list=<None>
 
-# Storage family type. (string value)
+# The storage family type used on the storage system; valid
+# values are ontap_7mode for using Data ONTAP operating in
+# 7-Mode or ontap_cluster for using clustered Data ONTAP.
+# (string value)
 #netapp_storage_family=ontap_cluster
 
-# Storage protocol type. (string value)
+# The storage protocol to be used on the data path with the
+# storage system; valid values are iscsi or nfs. (string
+# value)
 #netapp_storage_protocol=<None>
 
-# Transport type protocol (string value)
+# The transport protocol used when communicating with ONTAPI
+# on the storage system. Valid values are http or https.
+# (string value)
 #netapp_transport_type=http
 
 
@@ -1472,10 +1440,6 @@
 # 3PAR Super user password (string value)
 #hp3par_password=
 
-# This option is DEPRECATED and no longer used. The 3par
-# domain name to use. (string value)
-#hp3par_domain=<None>
-
 # The CPG to use for volume creation (string value)
 #hp3par_cpg=OpenStack
 
@@ -1572,8 +1536,11 @@
 # Allow tenants to specify QOS on create (boolean value)
 #sf_allow_tenant_qos=false
 
-# Create SolidFire accounts with this prefix (string value)
-#sf_account_prefix=cinder
+# Create SolidFire accounts with this prefix. Any string can
+# be used here, but the string "hostname" is special and will
+# create a prefix using the cinder node hostsname (previous
+# default behavior).  The default is NO prefix. (string value)
+#sf_account_prefix=<None>
 
 # SolidFire API port. Useful if the device api is behind a
 # proxy on a different port. (integer value)
@@ -1783,41 +1750,246 @@
 #volume_service_inithost_offload=false
 
 
+[database]
+
 #
-# Options defined in cinder.volume.utils
+# Options defined in cinder.openstack.common.db.api
 #
 
-# The default block size used when copying/clearing volumes
-# (string value)
-#volume_dd_blocksize=1M
+# The backend to use for db (string value)
+# Deprecated group/name - [DEFAULT]/db_backend
+#backend=sqlalchemy
+
+# Enable the experimental use of thread pooling for all DB API
+# calls (boolean value)
+# Deprecated group/name - [DEFAULT]/dbapi_use_tpool
+#use_tpool=false
+
+
+#
+# Options defined in cinder.openstack.common.db.sqlalchemy.session
+#
+
+# The SQLAlchemy connection string used to connect to the
+# database (string value)
+# Deprecated group/name - [DEFAULT]/sql_connection
+#connection=sqlite:///$state_path/$sqlite_db
+
+# timeout before idle sql connections are reaped (integer
+# value)
+# Deprecated group/name - [DEFAULT]/sql_idle_timeout
+#idle_timeout=3600
+
+# Minimum number of SQL connections to keep open in a pool
+# (integer value)
+# Deprecated group/name - [DEFAULT]/sql_min_pool_size
+#min_pool_size=1
+
+# Maximum number of SQL connections to keep open in a pool
+# (integer value)
+# Deprecated group/name - [DEFAULT]/sql_max_pool_size
+#max_pool_size=5
+
+# maximum db connection retries during startup. (setting -1
+# implies an infinite retry count) (integer value)
+# Deprecated group/name - [DEFAULT]/sql_max_retries
+#max_retries=10
+
+# interval between retries of opening a sql connection
+# (integer value)
+# Deprecated group/name - [DEFAULT]/sql_retry_interval
+#retry_interval=10
+
+# If set, use this value for max_overflow with sqlalchemy
+# (integer value)
+# Deprecated group/name - [DEFAULT]/sql_max_overflow
+#max_overflow=<None>
+
+# Verbosity of SQL debugging information. 0=None,
+# 100=Everything (integer value)
+# Deprecated group/name - [DEFAULT]/sql_connection_debug
+#connection_debug=0
+
+# Add python stack traces to SQL as comment strings (boolean
+# value)
+# Deprecated group/name - [DEFAULT]/sql_connection_trace
+#connection_trace=false
+
+
+[keymgr]
+
+#
+# Options defined in cinder.keymgr
+#
+
+# The full class name of the key manager API class (string
+# value)
+#api_class=cinder.keymgr.conf_key_mgr.ConfKeyManager
+
+
+#
+# Options defined in cinder.keymgr.conf_key_mgr
+#
+
+# Fixed key returned by key manager, specified in hex (string
+# value)
+#fixed_key=<None>
+
+
+[rpc_notifier2]
+
+#
+# Options defined in cinder.openstack.common.notifier.rpc_notifier2
+#
+
+# AMQP topic(s) used for OpenStack notifications (list value)
+#topics=notifications
+
+
+[matchmaker_redis]
+
+#
+# Options defined in cinder.openstack.common.rpc.matchmaker_redis
+#
+
+# Host to locate redis (string value)
+#host=127.0.0.1
+
+# Use this port to connect to redis host. (integer value)
+#port=6379
+
+# Password for Redis server. (optional) (string value)
+#password=<None>
 
 
 [keystone_authtoken]
 
 #
-# Options defined in keystoneclient's authtoken middleware
+# Options defined in keystoneclient.middleware.auth_token
 #
 
-# Host providing the admin Identity API endpoint
-auth_host = 127.0.0.1
+# Prefix to prepend at the beginning of the path (string
+# value)
+#auth_admin_prefix=
 
-# Port of the admin Identity API endpoint
-auth_port = 35357
+# Host providing the admin Identity API endpoint (string
+# value)
+#auth_host=127.0.0.1
 
-# Protocol of the admin Identity API endpoint
-auth_protocol = http
+# Port of the admin Identity API endpoint (integer value)
+#auth_port=35357
+
+# Protocol of the admin Identity API endpoint(http or https)
+# (string value)
+#auth_protocol=https
+
+# Complete public Identity API endpoint (string value)
+#auth_uri=<None>
+
+# API version of the admin Identity API endpoint (string
+# value)
+#auth_version=<None>
+
+# Do not handle authorization requests within the middleware,
+# but delegate the authorization decision to downstream WSGI
+# components (boolean value)
+#delay_auth_decision=false
+
+# Request timeout value for communicating with Identity API
+# server. (boolean value)
+#http_connect_timeout=<None>
+
+# How many times are we trying to reconnect when communicating
+# with Identity API Server. (integer value)
+#http_request_max_retries=3
+
+# Allows to pass in the name of a fake http_handler callback
+# function used instead of httplib.HTTPConnection or
+# httplib.HTTPSConnection. Useful for unit testing where
+# network is not available. (string value)
+#http_handler=<None>
+
+# Single shared secret with the Keystone configuration used
+# for bootstrapping a Keystone installation, or otherwise
+# bypassing the normal authentication process. (string value)
+#admin_token=<None>
+
+# Keystone account username (string value)
+#admin_user=<None>
+
+# Keystone account password (string value)
+#admin_password=<None>
 
 # Keystone service account tenant name to validate user tokens
-admin_tenant_name = %SERVICE_TENANT_NAME%
+# (string value)
+#admin_tenant_name=admin
 
-# Keystone account username
-admin_user = %SERVICE_USER%
+# Env key for the swift cache (string value)
+#cache=<None>
 
-# Keystone account password
-admin_password = %SERVICE_PASSWORD%
+# Required if Keystone server requires client certificate
+# (string value)
+#certfile=<None>
 
-# Directory used to cache files related to PKI tokens
-# signing_dir is configurable, but the default behavior of the authtoken
-# middleware should be sufficient.  It will create a temporary directory
-# in the home directory for the user the cinder process is running as.
-#signing_dir = /var/lib/cinder/keystone-signing
+# Required if Keystone server requires client certificate
+# (string value)
+#keyfile=<None>
+
+# A PEM encoded Certificate Authority to use when verifying
+# HTTPs connections. Defaults to system CAs. (string value)
+#cafile=<None>
+
+# Verify HTTPS connections. (boolean value)
+#insecure=false
+
+# Directory used to cache files related to PKI tokens (string
+# value)
+#signing_dir=<None>
+
+# If defined, the memcache server(s) to use for caching (list
+# value)
+# Deprecated group/name - [DEFAULT]/memcache_servers
+#memcached_servers=<None>
+
+# In order to prevent excessive requests and validations, the
+# middleware uses an in-memory cache for the tokens the
+# Keystone API returns. This is only valid if memcache_servers
+# is defined. Set to -1 to disable caching completely.
+# (integer value)
+#token_cache_time=300
+
+# Value only used for unit testing (integer value)
+#revocation_cache_time=1
+
+# (optional) if defined, indicate whether token data should be
+# authenticated or authenticated and encrypted. Acceptable
+# values are MAC or ENCRYPT.  If MAC, token data is
+# authenticated (with HMAC) in the cache. If ENCRYPT, token
+# data is encrypted and authenticated in the cache. If the
+# value is not one of these options or empty, auth_token will
+# raise an exception on initialization. (string value)
+#memcache_security_strategy=<None>
+
+# (optional, mandatory if memcache_security_strategy is
+# defined) this string is used for key derivation. (string
+# value)
+#memcache_secret_key=<None>
+
+# (optional) indicate whether to set the X-Service-Catalog
+# header. If False, middleware will not ask for service
+# catalog on token validation and will not set the X-Service-
+# Catalog header. (boolean value)
+#include_service_catalog=true
+
+
+[matchmaker_ring]
+
+#
+# Options defined in cinder.openstack.common.rpc.matchmaker_ring
+#
+
+# Matchmaker ring file (JSON) (string value)
+# Deprecated group/name - [DEFAULT]/matchmaker_ringfile
+#ringfile=/etc/oslo/matchmaker_ring.json
+
+

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 IBM Corp.
 # All Rights Reserved.
 #
@@ -65,7 +63,7 @@ class ServicesUpdateTemplate(xmlutil.TemplateBuilder):
         return xmlutil.MasterTemplate(root, 1)
 
 
-class ServiceController(object):
+class ServiceController(wsgi.Controller):
     @wsgi.serializers(xml=ServicesIndexTemplate)
     def index(self, req):
         """Return a list of all running services.
@@ -112,7 +110,7 @@ class ServiceController(object):
 
     @wsgi.serializers(xml=ServicesUpdateTemplate)
     def update(self, req, id, body):
-        """Enable/Disable scheduling for a service"""
+        """Enable/Disable scheduling for a service."""
         context = req.environ['cinder.context']
         authorize(context)
 
@@ -154,7 +152,7 @@ class ServiceController(object):
 
 
 class Services(extensions.ExtensionDescriptor):
-    """Services support"""
+    """Services support."""
 
     name = "Services"
     alias = "os-services"

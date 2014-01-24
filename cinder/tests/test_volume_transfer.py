@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 OpenStack Foundation
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -112,6 +110,7 @@ class VolumeTransferTestCase(test.TestCase):
 
         nctxt = context.RequestContext(user_id='new_user_id',
                                        project_id='new_project_id')
+        utils.create_volume(nctxt, id='2', updated_at=self.updated_at)
         self.assertRaises(exception.TransferNotFound,
                           tx_api.get,
                           nctxt,

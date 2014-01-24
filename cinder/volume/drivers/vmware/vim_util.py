@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 VMware, Inc.
 # All Rights Reserved.
 #
@@ -257,7 +255,7 @@ def _get_token(retrieve_result):
 
 
 def cancel_retrieval(vim, retrieve_result):
-    """Cancels the retrive operation if necessary.
+    """Cancels the retrieve operation if necessary.
 
     :param vim: Vim object
     :param retrieve_result: Result from the RetrievePropertiesEx API

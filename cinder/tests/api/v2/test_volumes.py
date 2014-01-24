@@ -82,23 +82,32 @@ class VolumeApiTest(test.TestCase):
         body = {"volume": vol}
         req = fakes.HTTPRequest.blank('/v2/volumes')
         res_dict = self.controller.create(req, body)
-        expected = {
-            'volume': {
-                'name': 'Volume Test Name',
-                'id': '1',
-                'links': [
-                    {
-                        'href': 'http://localhost/v1/fake/volumes/1',
-                        'rel': 'self'
-                    },
-                    {
-                        'href': 'http://localhost/fake/volumes/1',
-                        'rel': 'bookmark'
-                    }
-                ],
-            }
-        }
-        self.assertEqual(res_dict, expected)
+        ex = {'volume': {'attachments':
+                         [{'device': '/',
+                           'host_name': None,
+                           'id': '1',
+                           'server_id': 'fakeuuid',
+                           'volume_id': '1'}],
+                         'availability_zone': 'zone1:host1',
+                         'bootable': 'false',
+                         'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                         'description': 'Volume Test Desc',
+                         'id': '1',
+                         'links':
+                         [{'href': 'http://localhost/v2/fake/volumes/1',
+                           'rel': 'self'},
+                          {'href': 'http://localhost/fake/volumes/1',
+                           'rel': 'bookmark'}],
+                         'metadata': {'attached_mode': 'rw',
+                                      'readonly': 'False'},
+                         'name': 'Volume Test Name',
+                         'size': 100,
+                         'snapshot_id': None,
+                         'source_volid': None,
+                         'status': 'fakestatus',
+                         'user_id': 'fakeuser',
+                         'volume_type': 'vol_type_name'}}
+        self.assertEqual(res_dict, ex)
 
     def test_volume_create_with_type(self):
         vol_type = db.volume_type_create(
@@ -176,26 +185,34 @@ class VolumeApiTest(test.TestCase):
                "description": "Volume Test Desc",
                "availability_zone": "nova",
                "imageRef": 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'}
-        expected = {
-            'volume': {
-                'name': 'Volume Test Name',
-                'id': '1',
-                'links': [
-                    {
-                        'href': 'http://localhost/v1/fake/volumes/1',
-                        'rel': 'self'
-                    },
-                    {
-                        'href': 'http://localhost/fake/volumes/1',
-                        'rel': 'bookmark'
-                    }
-                ],
-            }
-        }
+        ex = {'volume': {'attachments': [{'device': '/',
+                         'host_name': None,
+                         'id': '1',
+                         'server_id': 'fakeuuid',
+                         'volume_id': '1'}],
+                         'availability_zone': 'nova',
+                         'bootable': 'false',
+                         'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
+                         'description': 'Volume Test Desc',
+                         'id': '1',
+                         'links':
+                         [{'href': 'http://localhost/v2/fake/volumes/1',
+                           'rel': 'self'},
+                          {'href': 'http://localhost/fake/volumes/1',
+                           'rel': 'bookmark'}],
+                         'metadata': {'attached_mode': 'rw',
+                                      'readonly': 'False'},
+                         'name': 'Volume Test Name',
+                         'size': '1',
+                         'snapshot_id': None,
+                         'source_volid': None,
+                         'status': 'fakestatus',
+                         'user_id': 'fakeuser',
+                         'volume_type': 'vol_type_name'}}
         body = {"volume": vol}
         req = fakes.HTTPRequest.blank('/v2/volumes')
         res_dict = self.controller.create(req, body)
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(res_dict, ex)
 
     def test_volume_create_with_image_id_is_integer(self):
         self.stubs.Set(volume_api.API, "create", stubs.stub_volume_create)
@@ -267,7 +284,7 @@ class VolumeApiTest(test.TestCase):
                 'size': 1,
                 'links': [
                     {
-                        'href': 'http://localhost/v1/fake/volumes/1',
+                        'href': 'http://localhost/v2/fake/volumes/1',
                         'rel': 'self'
                     },
                     {
@@ -314,7 +331,7 @@ class VolumeApiTest(test.TestCase):
             'size': 1,
             'links': [
                 {
-                    'href': 'http://localhost/v1/fake/volumes/1',
+                    'href': 'http://localhost/v2/fake/volumes/1',
                     'rel': 'self'
                 },
                 {
@@ -343,7 +360,7 @@ class VolumeApiTest(test.TestCase):
             "display_name": "Updated Test Name",
         }
         body = {"volume": updates}
-        req = fakes.HTTPRequest.blank('/v1/volumes/1')
+        req = fakes.HTTPRequest.blank('/v2/volumes/1')
         admin_ctx = context.RequestContext('admin', 'fake', True)
         req.environ['cinder.context'] = admin_ctx
         res_dict = self.controller.update(req, '1', body)
@@ -371,7 +388,7 @@ class VolumeApiTest(test.TestCase):
             'size': 1,
             'links': [
                 {
-                    'href': 'http://localhost/v1/fake/volumes/1',
+                    'href': 'http://localhost/v2/fake/volumes/1',
                     'rel': 'self'
                 },
                 {
@@ -423,7 +440,7 @@ class VolumeApiTest(test.TestCase):
                     'id': '1',
                     'links': [
                         {
-                            'href': 'http://localhost/v1/fake/volumes/1',
+                            'href': 'http://localhost/v2/fake/volumes/1',
                             'rel': 'self'
                         },
                         {
@@ -472,7 +489,7 @@ class VolumeApiTest(test.TestCase):
                     'size': 1,
                     'links': [
                         {
-                            'href': 'http://localhost/v1/fake/volumes/1',
+                            'href': 'http://localhost/v2/fake/volumes/1',
                             'rel': 'self'
                         },
                         {
@@ -530,7 +547,7 @@ class VolumeApiTest(test.TestCase):
                     'size': 1,
                     'links': [
                         {
-                            'href': 'http://localhost/v1/fakeproject'
+                            'href': 'http://localhost/v2/fakeproject'
                                     '/volumes/1',
                             'rel': 'self'
                         },
@@ -862,7 +879,7 @@ class VolumeApiTest(test.TestCase):
                 'size': 1,
                 'links': [
                     {
-                        'href': 'http://localhost/v1/fake/volumes/1',
+                        'href': 'http://localhost/v2/fake/volumes/1',
                         'rel': 'self'
                     },
                     {
@@ -902,7 +919,7 @@ class VolumeApiTest(test.TestCase):
                 'size': 1,
                 'links': [
                     {
-                        'href': 'http://localhost/v1/fake/volumes/1',
+                        'href': 'http://localhost/v2/fake/volumes/1',
                         'rel': 'self'
                     },
                     {
@@ -967,7 +984,7 @@ class VolumeApiTest(test.TestCase):
                 'size': 1,
                 'links': [
                     {
-                        'href': 'http://localhost/v1/fakeproject/volumes/1',
+                        'href': 'http://localhost/v2/fakeproject/volumes/1',
                         'rel': 'self'
                     },
                     {

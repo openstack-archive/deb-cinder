@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2011 Zadara Storage Inc.
 # Copyright (c) 2011 OpenStack Foundation
 # Copyright 2011 University of Southern California
@@ -67,8 +65,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
     def setUp(self):
         super(VolumeTypesExtraSpecsTest, self).setUp()
-        self.flags(connection_type='fake',
-                   host='fake',
+        self.flags(host='fake',
                    notification_driver=[test_notifier.__name__])
         self.stubs.Set(cinder.db, 'volume_type_get', volume_type_get)
         self.api_path = '/v2/fake/os-volume-types/1/extra_specs'

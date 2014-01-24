@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 NetApp, Inc.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -49,19 +47,9 @@ from cinder.volume.drivers.netapp.utils import provide_ems
 from cinder.volume.drivers.netapp.utils import set_safe_attr
 from cinder.volume.drivers.netapp.utils import validate_instantiation
 from cinder.volume import volume_types
-from oslo.config import cfg
 
 
 LOG = logging.getLogger(__name__)
-
-
-CONF = cfg.CONF
-CONF.register_opts(netapp_connection_opts)
-CONF.register_opts(netapp_transport_opts)
-CONF.register_opts(netapp_basicauth_opts)
-CONF.register_opts(netapp_cluster_opts)
-CONF.register_opts(netapp_7mode_opts)
-CONF.register_opts(netapp_provisioning_opts)
 
 
 class NetAppLun(object):
@@ -213,7 +201,7 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         return {'provider_location': handle}
 
     def remove_export(self, context, volume):
-        """Driver exntry point to remove an export for a volume.
+        """Driver entry point to remove an export for a volume.
 
         Since exporting is idempotent in this driver, we have nothing
         to do for unexporting.
@@ -325,7 +313,7 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
     def terminate_connection(self, volume, connector, **kwargs):
         """Driver entry point to unattach a volume from an instance.
 
-        Unmask the LUN on the storage system so the given intiator can no
+        Unmask the LUN on the storage system so the given initiator can no
         longer access it.
         """
 
@@ -491,7 +479,7 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
             return False
 
     def _create_igroup(self, igroup, igroup_type='iscsi', os_type='default'):
-        """Creates igoup with specified args."""
+        """Creates igroup with specified args."""
         igroup_create = NaElement.create_node_with_children(
             'igroup-create',
             **{'initiator-group-name': igroup,
@@ -543,7 +531,7 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         raise NotImplementedError()
 
     def _get_lun_by_args(self, **args):
-        """Retrives luns with specified args."""
+        """Retrieves luns with specified args."""
         raise NotImplementedError()
 
     def _get_lun_attr(self, name, attr):
@@ -782,6 +770,11 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
         self.ssc_vols = None
         self.stale_vols = set()
 
+    def check_for_setup_error(self):
+        """Check that the driver is working and can communicate."""
+        ssc_utils.check_ssc_api_permissions(self.client)
+        super(NetAppDirectCmodeISCSIDriver, self).check_for_setup_error()
+
     def _create_lun_on_eligible_vol(self, name, size, metadata,
                                     extra_specs=None):
         """Creates an actual lun on filer."""
@@ -1002,7 +995,7 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
             volume=ssc_utils.NetAppVolume(volume, self.vserver))
 
     def _get_lun_by_args(self, **args):
-        """Retrives lun with specified args."""
+        """Retrieves lun with specified args."""
         lun_iter = NaElement('lun-get-iter')
         lun_iter.add_new_child('max-records', '100')
         query = NaElement('query')
@@ -1107,6 +1100,17 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
     def refresh_ssc_vols(self, vols):
         """Refreshes ssc_vols with latest entries."""
         self.ssc_vols = vols
+
+    def delete_volume(self, volume):
+        """Driver entry point for destroying existing volumes."""
+        lun = self.lun_table.get(volume['name'])
+        netapp_vol = None
+        if lun:
+            netapp_vol = lun.get_metadata_property('Volume')
+        super(NetAppDirectCmodeISCSIDriver, self).delete_volume(volume)
+        if netapp_vol:
+            self._update_stale_vols(
+                volume=ssc_utils.NetAppVolume(netapp_vol, self.vserver))
 
 
 class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
@@ -1393,7 +1397,7 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
                         clone_ops_info.get_child_content('reason'))
 
     def _get_lun_by_args(self, **args):
-        """Retrives luns with specified args."""
+        """Retrieves luns with specified args."""
         lun_info = NaElement.create_node_with_children('lun-list-info', **args)
         result = self.client.invoke_successfully(lun_info, True)
         luns = result.get_child_by_name('luns')

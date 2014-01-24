@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2011 OpenStack Foundation
 # Copyright 2013 IBM Corp.
 # All Rights Reserved.
@@ -19,7 +17,12 @@
 import inspect
 import math
 import time
+
+from lxml import etree
+import six
 import webob
+from xml.dom import minidom
+from xml.parsers import expat
 
 from cinder import exception
 from cinder.openstack.common import gettextutils
@@ -27,11 +30,6 @@ from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder import wsgi
-
-from lxml import etree
-import six
-from xml.dom import minidom
-from xml.parsers import expat
 
 
 XMLNS_V1 = 'http://docs.openstack.org/volume/api/v1'
@@ -204,7 +202,7 @@ class ActionDispatcher(object):
 
 
 class TextDeserializer(ActionDispatcher):
-    """Default request body deserialization"""
+    """Default request body deserialization."""
 
     def deserialize(self, datastring, action='default'):
         return self.dispatch(datastring, action=action)
@@ -278,20 +276,20 @@ class XMLDeserializer(TextDeserializer):
         return None
 
     def find_first_child_named(self, parent, name):
-        """Search a nodes children for the first child with a given name"""
+        """Search a nodes children for the first child with a given name."""
         for node in parent.childNodes:
             if node.nodeName == name:
                 return node
         return None
 
     def find_children_named(self, parent, name):
-        """Return all of a nodes children who have the given name"""
+        """Return all of a nodes children who have the given name."""
         for node in parent.childNodes:
             if node.nodeName == name:
                 yield node
 
     def extract_text(self, node):
-        """Get the text field contained by the given node"""
+        """Get the text field contained by the given node."""
         if len(node.childNodes) == 1:
             child = node.childNodes[0]
             if child.nodeType == child.TEXT_NODE:
@@ -299,7 +297,7 @@ class XMLDeserializer(TextDeserializer):
         return ""
 
     def find_attribute_or_element(self, parent, name):
-        """Get an attribute value; fallback to an element if not found"""
+        """Get an attribute value; fallback to an element if not found."""
         if parent.hasAttribute(name):
             return parent.getAttribute(name)
 
@@ -316,7 +314,7 @@ class XMLDeserializer(TextDeserializer):
 class MetadataXMLDeserializer(XMLDeserializer):
 
     def extract_metadata(self, metadata_node):
-        """Marshal the metadata attribute of a parsed request"""
+        """Marshal the metadata attribute of a parsed request."""
         metadata = {}
         if metadata_node is not None:
             for meta_node in self.find_children_named(metadata_node, "meta"):
@@ -326,7 +324,7 @@ class MetadataXMLDeserializer(XMLDeserializer):
 
 
 class DictSerializer(ActionDispatcher):
-    """Default request body serialization"""
+    """Default request body serialization."""
 
     def serialize(self, data, action='default'):
         return self.dispatch(data, action=action)
@@ -336,7 +334,7 @@ class DictSerializer(ActionDispatcher):
 
 
 class JSONDictSerializer(DictSerializer):
-    """Default JSON request body serialization"""
+    """Default JSON request body serialization."""
 
     def default(self, data):
         return jsonutils.dumps(data)
@@ -1169,8 +1167,9 @@ class Fault(webob.exc.HTTPException):
                 'message': gettextutils.get_localized_message(explanation,
                                                               locale)}}
         if code == 413:
-            retry = self.wrapped_exc.headers['Retry-After']
-            fault_data[fault_name]['retryAfter'] = retry
+            retry = self.wrapped_exc.headers.get('Retry-After', None)
+            if retry:
+                fault_data[fault_name]['retryAfter'] = retry
 
         # 'code' is an attribute on the fault tag itself
         metadata = {'attributes': {fault_name: 'code'}}

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -186,13 +184,7 @@ class TgtAdm(TargetAdmin):
             old_persist_file = os.path.join(volumes_dir, old_name)
 
         try:
-            (out, err) = self._execute('tgt-admin',
-                                       '--update',
-                                       name,
-                                       run_as_root=True)
-
-            LOG.debug("StdOut from tgt-admin --update: %s" % out)
-            LOG.debug("StdErr from tgt-admin --update: %s" % err)
+            self.update_iscsi_target(name)
 
             # Grab targets list for debug
             # Consider adding a check for lun 0 and 1 for tgtadm
@@ -238,15 +230,29 @@ class TgtAdm(TargetAdmin):
                 os.unlink(volume_path)
                 raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
 
-        # Finally check once more and if no go, fail and punt
-        if not self._verify_backing_lun(iqn, tid):
-            os.unlink(volume_path)
-            raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
+            # Finally check once more and if no go, fail and punt
+            if not self._verify_backing_lun(iqn, tid):
+                os.unlink(volume_path)
+                raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
 
         if old_persist_file is not None and os.path.exists(old_persist_file):
             os.unlink(old_persist_file)
 
         return tid
+
+    def update_iscsi_target(self, name):
+
+        LOG.info(_('Updating iscsi target: %s') % name)
+
+        try:
+            (out, err) = self._execute('tgt-admin', '--update', name,
+                                       run_as_root=True)
+        except putils.ProcessExecutionError as e:
+            LOG.error(_("Failed to update iscsi target %(name)s: %(e)s") %
+                      {'name': name, 'e': str(e)})
+            LOG.debug("StdOut from tgt-admin --update: %s", e.stdout)
+            LOG.debug("StdErr from tgt-admin --update: %s", e.stderr)
+            raise exception.ISCSITargetUpdateFailed(name=name)
 
     def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
         LOG.info(_('Removing iscsi_target for: %s') % vol_id)
@@ -427,6 +433,7 @@ class FakeIscsiHelper(object):
 
     def __init__(self):
         self.tid = 1
+        self._execute = None
 
     def set_execute(self, execute):
         self._execute = execute
@@ -434,6 +441,9 @@ class FakeIscsiHelper(object):
     def create_iscsi_target(self, *args, **kwargs):
         self.tid += 1
         return self.tid
+
+    def update_iscsi_target(self, name):
+        return
 
 
 class LioAdm(TargetAdmin):
@@ -495,11 +505,11 @@ class LioAdm(TargetAdmin):
                 command_args.extend(extra_args)
             self._execute(*command_args, run_as_root=True)
         except putils.ProcessExecutionError as e:
-                LOG.error(_("Failed to create iscsi target for volume "
-                            "id:%s.") % vol_id)
-                LOG.error("%s" % str(e))
+            LOG.error(_("Failed to create iscsi target for volume "
+                        "id:%s.") % vol_id)
+            LOG.error("%s" % str(e))
 
-                raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
+            raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
 
         iqn = '%s%s' % (self.iscsi_target_prefix, vol_id)
         tid = self._get_target(iqn)

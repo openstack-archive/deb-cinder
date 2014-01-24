@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 Nexenta Systems, Inc.
 # All Rights Reserved.
 #
@@ -26,8 +24,6 @@
 import hashlib
 import os
 
-from oslo.config import cfg
-
 from cinder import context
 from cinder import db
 from cinder import exception
@@ -41,9 +37,6 @@ from cinder.volume.drivers import nfs
 
 VERSION = '1.1.3'
 LOG = logging.getLogger(__name__)
-
-CONF = cfg.CONF
-CONF.register_opts(options.NEXENTA_NFS_OPTIONS)
 
 
 class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921

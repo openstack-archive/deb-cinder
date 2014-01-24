@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -346,7 +344,7 @@ class TemplateElement(object):
                 pass
 
     def getAttrib(self, obj):
-        """Get attribute"""
+        """Get attribute."""
         tmpattrib = {}
         #Now set up all the attributes...
         for key, value in self.attrib.items():

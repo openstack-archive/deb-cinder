@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright IBM Corp. 2013 All Rights Reserved
 #
@@ -90,6 +89,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.volume = importutils.import_object(CONF.volume_manager)
         self.volume.driver.set_execute(self._execute_wrapper)
         self.volume.driver.set_initialized()
+        self.volume.stats = dict(allocated_capacity_gb=0)
 
         self.stubs.Set(GPFSDriver, '_create_gpfs_snap',
                        self._fake_gpfs_snap)
@@ -130,7 +130,7 @@ class GPFSDriverTestCase(test.TestCase):
         super(GPFSDriverTestCase, self).tearDown()
 
     def test_create_delete_volume_full_backing_file(self):
-        """create and delete vol with full creation method"""
+        """Create and delete vol with full creation method."""
         CONF.gpfs_sparse_volumes = False
         vol = test_utils.create_volume(self.context, host=CONF.host)
         volume_id = vol['id']
@@ -142,7 +142,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertFalse(os.path.exists(path))
 
     def test_create_delete_volume_sparse_backing_file(self):
-        """create and delete vol with default sparse creation method"""
+        """Create and delete vol with default sparse creation method."""
         CONF.gpfs_sparse_volumes = True
         vol = test_utils.create_volume(self.context, host=CONF.host)
         volume_id = vol['id']
@@ -291,7 +291,8 @@ class GPFSDriverTestCase(test.TestCase):
         CONF.gpfs_images_share_mode = 'copy_on_write'
         self.driver.clone_image(volume,
                                 None,
-                                self.image_id)
+                                self.image_id,
+                                {})
 
         self.assertTrue(os.path.exists(volumepath))
         self.volume.delete_volume(self.context, volume['id'])
@@ -312,7 +313,8 @@ class GPFSDriverTestCase(test.TestCase):
         CONF.gpfs_images_share_mode = 'copy'
         self.driver.clone_image(volume,
                                 None,
-                                self.image_id)
+                                self.image_id,
+                                {})
 
         self.assertTrue(os.path.exists(volumepath))
         self.volume.delete_volume(self.context, volume['id'])

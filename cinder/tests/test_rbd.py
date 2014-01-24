@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2012 Josh Durgin
 # All Rights Reserved.
@@ -17,6 +16,7 @@
 
 
 import contextlib
+import mock
 import mox
 import os
 import tempfile
@@ -34,6 +34,7 @@ from cinder.tests.test_volume import DriverTestCase
 from cinder import units
 from cinder.volume import configuration as conf
 import cinder.volume.drivers.rbd as driver
+from cinder.volume.flows import create_volume
 
 
 LOG = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class RBDTestCase(test.TestCase):
         self.configuration.rbd_secret_uuid = None
         self.configuration.rbd_user = None
         self.configuration.append_config_values(mox.IgnoreArg())
+        self.configuration.volume_dd_blocksize = '1M'
 
         self.rados = self.mox.CreateMockAnything()
         self.rbd = self.mox.CreateMockAnything()
@@ -103,6 +105,9 @@ class RBDTestCase(test.TestCase):
                                        rados=self.rados,
                                        rbd=self.rbd)
         self.driver.set_initialized()
+
+    def tearDown(self):
+        super(RBDTestCase, self).tearDown()
 
     def test_create_volume(self):
         name = u'volume-00000001'
@@ -125,36 +130,95 @@ class RBDTestCase(test.TestCase):
 
         self.driver.create_volume(volume)
 
-    def test_delete_volume(self):
+    @mock.patch('cinder.volume.drivers.rbd.rados')
+    @mock.patch('cinder.volume.drivers.rbd.rbd')
+    def test_delete_volume(self, _mock_rbd, _mock_rados):
         name = u'volume-00000001'
         volume = dict(name=name)
 
-        # Setup librbd stubs
-        self.stubs.Set(self.driver, 'rados', mock_rados)
-        self.stubs.Set(self.driver, 'rbd', mock_rbd)
+        _mock_rbd.Image = mock_rbd.Image
+        _mock_rbd.Image.list_snaps = mock.Mock()
+        _mock_rbd.Image.list_snaps.return_value = []
+        _mock_rbd.Image.unprotect_snap = mock.Mock()
 
-        class mock_client(object):
-            def __init__(self, *args, **kwargs):
-                self.ioctx = None
+        _mock_rbd.RBD = mock_rbd.RBD
+        _mock_rbd.RBD.remove = mock.Mock()
 
-            def __enter__(self, *args, **kwargs):
-                return self
+        self.driver.rbd = _mock_rbd
+        self.driver.rados = _mock_rados
 
-            def __exit__(self, type_, value, traceback):
-                pass
+        mpo = mock.patch.object
+        with mpo(driver, 'RADOSClient') as mock_rados_client:
+            with mpo(self.driver, '_get_clone_info') as mock_get_clone_info:
+                mock_get_clone_info.return_value = (None, None, None)
+                with mpo(self.driver,
+                         '_delete_backup_snaps') as mock_del_backup_snaps:
+                    self.driver.delete_volume(volume)
 
-        self.stubs.Set(driver, 'RADOSClient', mock_client)
+                    self.assertTrue(mock_get_clone_info.called)
+                    self.assertTrue(_mock_rbd.Image.list_snaps.called)
+                    self.assertTrue(mock_rados_client.called)
+                    self.assertTrue(mock_del_backup_snaps.called)
+                    self.assertFalse(mock_rbd.Image.unprotect_snap.called)
+                    self.assertTrue(_mock_rbd.RBD.remove.called)
 
-        self.stubs.Set(self.driver, '_get_backup_snaps',
-                       lambda *args: None)
-        self.stubs.Set(self.driver.rbd.Image, 'list_snaps',
-                       lambda *args: [])
-        self.stubs.Set(self.driver.rbd.Image, 'parent_info',
-                       lambda *args: (None, None, None))
-        self.stubs.Set(self.driver.rbd.Image, 'unprotect_snap',
-                       lambda *args: None)
+    @mock.patch('cinder.volume.drivers.rbd.rbd')
+    def test_delete_volume_not_found(self, _mock_rbd):
+        name = u'volume-00000001'
+        volume = dict(name=name)
 
-        self.driver.delete_volume(volume)
+        class MyMockException(Exception):
+            pass
+
+        _mock_rbd.RBD = mock_rbd.RBD
+        _mock_rbd.ImageNotFound = MyMockException
+        _mock_rbd.Image.side_effect = _mock_rbd.ImageNotFound
+
+        mpo = mock.patch.object
+        with mpo(self.driver, 'rbd', _mock_rbd):
+            with mpo(driver, 'RADOSClient'):
+                self.assertIsNone(self.driver.delete_volume(volume))
+                _mock_rbd.Image.assert_called_once()
+
+    @mock.patch('cinder.volume.drivers.rbd.rados')
+    @mock.patch('cinder.volume.drivers.rbd.rbd')
+    def test_delete_busy_volume(self, _mock_rbd, _mock_rados):
+        name = u'volume-00000001'
+        volume = dict(name=name)
+
+        _mock_rbd.Image = mock_rbd.Image
+        _mock_rbd.Image.list_snaps = mock.Mock()
+        _mock_rbd.Image.list_snaps.return_value = []
+        _mock_rbd.Image.unprotect_snap = mock.Mock()
+
+        class MyMockException(Exception):
+            pass
+
+        _mock_rbd.RBD = mock_rbd.RBD
+        _mock_rbd.ImageBusy = MyMockException
+        _mock_rbd.RBD.remove = mock.Mock()
+        _mock_rbd.RBD.remove.side_effect = _mock_rbd.ImageBusy
+
+        self.driver.rbd = _mock_rbd
+        self.driver.rados = _mock_rados
+
+        mpo = mock.patch.object
+        with mpo(driver, 'RADOSClient') as mock_rados_client:
+            with mpo(self.driver, '_get_clone_info') as mock_get_clone_info:
+                mock_get_clone_info.return_value = (None, None, None)
+                with mpo(self.driver,
+                         '_delete_backup_snaps') as mock_del_backup_snaps:
+
+                    self.assertRaises(exception.VolumeIsBusy,
+                                      self.driver.delete_volume,
+                                      volume)
+
+                    self.assertTrue(mock_get_clone_info.called)
+                    self.assertTrue(_mock_rbd.Image.list_snaps.called)
+                    self.assertTrue(mock_rados_client.called)
+                    self.assertTrue(mock_del_backup_snaps.called)
+                    self.assertFalse(mock_rbd.Image.unprotect_snap.called)
+                    self.assertTrue(_mock_rbd.RBD.remove.called)
 
     def test_create_snapshot(self):
         vol_name = u'volume-00000001'
@@ -247,7 +311,8 @@ class RBDTestCase(test.TestCase):
             self.assertRaises(exception.ImageUnacceptable,
                               self.driver._parse_location,
                               loc)
-            self.assertFalse(self.driver._is_cloneable(loc))
+            self.assertFalse(
+                self.driver._is_cloneable(loc, {'disk_format': 'raw'}))
 
     def test_cloneable(self):
         self.stubs.Set(self.driver, '_get_fsid', lambda: 'abc')
@@ -264,12 +329,14 @@ class RBDTestCase(test.TestCase):
 
         self.mox.ReplayAll()
 
-        self.assertTrue(self.driver._is_cloneable(location))
+        self.assertTrue(
+            self.driver._is_cloneable(location, {'disk_format': 'raw'}))
 
     def test_uncloneable_different_fsid(self):
         self.stubs.Set(self.driver, '_get_fsid', lambda: 'abc')
         location = 'rbd://def/pool/image/snap'
-        self.assertFalse(self.driver._is_cloneable(location))
+        self.assertFalse(
+            self.driver._is_cloneable(location, {'disk_format': 'raw'}))
 
     def test_uncloneable_unreadable(self):
         self.stubs.Set(self.driver, '_get_fsid', lambda: 'abc')
@@ -284,7 +351,16 @@ class RBDTestCase(test.TestCase):
 
         self.mox.ReplayAll()
 
-        self.assertFalse(self.driver._is_cloneable(location))
+        self.assertFalse(
+            self.driver._is_cloneable(location, {'disk_format': 'raw'}))
+
+    def test_uncloneable_bad_format(self):
+        self.stubs.Set(self.driver, '_get_fsid', lambda: 'abc')
+        location = 'rbd://abc/pool/image/snap'
+        formats = ['qcow2', 'vmdk', 'vdi']
+        for f in formats:
+            self.assertFalse(
+                self.driver._is_cloneable(location, {'disk_format': f}))
 
     def _copy_image(self):
         @contextlib.contextmanager
@@ -294,7 +370,8 @@ class RBDTestCase(test.TestCase):
                     self.name = name
             yield FakeTmp('test')
 
-        def fake_fetch_to_raw(ctx, image_service, image_id, path, size=None):
+        def fake_fetch_to_raw(ctx, image_service, image_id, path, blocksize,
+                              size=None):
             pass
 
         self.stubs.Set(tempfile, 'NamedTemporaryFile', fake_temp_file)
@@ -497,6 +574,126 @@ class RBDTestCase(test.TestCase):
         self.assertRaises(test.TestingException, self.driver._connect_to_rados)
 
 
+class RBDImageIOWrapperTestCase(test.TestCase):
+    def setUp(self):
+        super(RBDImageIOWrapperTestCase, self).setUp()
+        self.meta = mock.Mock()
+        self.meta.user = 'mock_user'
+        self.meta.conf = 'mock_conf'
+        self.meta.pool = 'mock_pool'
+        self.meta.image = mock.Mock()
+        self.meta.image.read = mock.Mock()
+        self.meta.image.write = mock.Mock()
+        self.meta.image.size = mock.Mock()
+        self.rbd_wrapper = driver.RBDImageIOWrapper(self.meta)
+        self.data_length = 1024
+        self.full_data = 'abcd' * 256
+
+    def tearDown(self):
+        super(RBDImageIOWrapperTestCase, self).tearDown()
+
+    def test_init(self):
+        self.assertEqual(self.rbd_wrapper._rbd_meta, self.meta)
+        self.assertEqual(self.rbd_wrapper._offset, 0)
+
+    def test_inc_offset(self):
+        self.rbd_wrapper._inc_offset(10)
+        self.rbd_wrapper._inc_offset(10)
+        self.assertEqual(self.rbd_wrapper._offset, 20)
+
+    def test_rbd_image(self):
+        self.assertEqual(self.rbd_wrapper.rbd_image, self.meta.image)
+
+    def test_rbd_user(self):
+        self.assertEqual(self.rbd_wrapper.rbd_user, self.meta.user)
+
+    def test_rbd_pool(self):
+        self.assertEqual(self.rbd_wrapper.rbd_conf, self.meta.conf)
+
+    def test_rbd_conf(self):
+        self.assertEqual(self.rbd_wrapper.rbd_pool, self.meta.pool)
+
+    def test_read(self):
+
+        def mock_read(offset, length):
+            return self.full_data[offset:length]
+
+        self.meta.image.read.side_effect = mock_read
+        self.meta.image.size.return_value = self.data_length
+
+        data = self.rbd_wrapper.read()
+        self.assertEqual(data, self.full_data)
+
+        data = self.rbd_wrapper.read()
+        self.assertEqual(data, '')
+
+        self.rbd_wrapper.seek(0)
+        data = self.rbd_wrapper.read()
+        self.assertEqual(data, self.full_data)
+
+        self.rbd_wrapper.seek(0)
+        data = self.rbd_wrapper.read(10)
+        self.assertEqual(data, self.full_data[:10])
+
+    def test_write(self):
+        self.rbd_wrapper.write(self.full_data)
+        self.assertEqual(self.rbd_wrapper._offset, 1024)
+
+    def test_seekable(self):
+        self.assertTrue(self.rbd_wrapper.seekable)
+
+    def test_seek(self):
+        self.assertEqual(self.rbd_wrapper._offset, 0)
+        self.rbd_wrapper.seek(10)
+        self.assertEqual(self.rbd_wrapper._offset, 10)
+        self.rbd_wrapper.seek(10)
+        self.assertEqual(self.rbd_wrapper._offset, 10)
+        self.rbd_wrapper.seek(10, 1)
+        self.assertEqual(self.rbd_wrapper._offset, 20)
+
+        self.rbd_wrapper.seek(0)
+        self.rbd_wrapper.write(self.full_data)
+        self.meta.image.size.return_value = self.data_length
+        self.rbd_wrapper.seek(0)
+        self.assertEqual(self.rbd_wrapper._offset, 0)
+
+        self.rbd_wrapper.seek(10, 2)
+        self.assertEqual(self.rbd_wrapper._offset, self.data_length + 10)
+        self.rbd_wrapper.seek(-10, 2)
+        self.assertEqual(self.rbd_wrapper._offset, self.data_length - 10)
+
+        # test exceptions.
+        self.assertRaises(IOError, self.rbd_wrapper.seek, 0, 3)
+        self.assertRaises(IOError, self.rbd_wrapper.seek, -1)
+        # offset should not have been changed by any of the previous
+        # operations.
+        self.assertEqual(self.rbd_wrapper._offset, self.data_length - 10)
+
+    def test_tell(self):
+        self.assertEqual(self.rbd_wrapper.tell(), 0)
+        self.rbd_wrapper._inc_offset(10)
+        self.assertEqual(self.rbd_wrapper.tell(), 10)
+
+    def test_flush(self):
+        with mock.patch.object(driver, 'LOG') as mock_logger:
+            self.meta.image.flush = mock.Mock()
+            self.rbd_wrapper.flush()
+            self.assertTrue(self.meta.image.flush.called)
+            self.meta.image.flush.reset_mock()
+            # this should be caught and logged silently.
+            self.meta.image.flush.side_effect = AttributeError
+            self.rbd_wrapper.flush()
+            self.assertTrue(self.meta.image.flush.called)
+            msg = _("flush() not supported in this version of librbd")
+            mock_logger.warning.assert_called_with(msg)
+
+    def test_fileno(self):
+        self.assertRaises(IOError, self.rbd_wrapper.fileno)
+
+    def test_close(self):
+        self.rbd_wrapper.close()
+
+
 class ManagedRBDTestCase(DriverTestCase):
     driver_name = "cinder.volume.drivers.rbd.RBDDriver"
 
@@ -504,26 +701,32 @@ class ManagedRBDTestCase(DriverTestCase):
         super(ManagedRBDTestCase, self).setUp()
         fake_image.stub_out_image_service(self.stubs)
         self.volume.driver.set_initialized()
+        self.volume.stats = {'allocated_capacity_gb': 0}
+        self.called = []
 
-    def _clone_volume_from_image(self, expected_status,
-                                 clone_works=True):
+    def _create_volume_from_image(self, expected_status, raw=False,
+                                  clone_error=False):
         """Try to clone a volume from an image, and check the status
         afterwards.
+
+        NOTE: if clone_error is True we force the image type to raw otherwise
+              clone_image is not called
         """
-        def fake_clone_image(volume, image_location, image_id):
-            return {'provider_location': None}, True
+        def mock_clone_image(volume, image_location, image_id, image_meta):
+            self.called.append('clone_image')
+            if clone_error:
+                raise exception.CinderException()
+            else:
+                return {'provider_location': None}, True
 
-        def fake_clone_error(volume, image_location, image_id):
-            raise exception.CinderException()
-
-        self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: True)
-        if clone_works:
-            self.stubs.Set(self.volume.driver, 'clone_image', fake_clone_image)
+        # See tests.image.fake for image types.
+        if raw:
+            image_id = '155d900f-4e14-4e4c-a73d-069cbf4541e6'
         else:
-            self.stubs.Set(self.volume.driver, 'clone_image', fake_clone_error)
+            image_id = 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'
 
-        image_id = 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'
         volume_id = 1
+
         # creating volume testdata
         db.volume_create(self.context,
                          {'id': volume_id,
@@ -533,58 +736,72 @@ class ManagedRBDTestCase(DriverTestCase):
                           'status': 'creating',
                           'instance_uuid': None,
                           'host': 'dummy'})
-        try:
-            if clone_works:
-                self.volume.create_volume(self.context,
-                                          volume_id,
-                                          image_id=image_id)
-            else:
-                self.assertRaises(exception.CinderException,
-                                  self.volume.create_volume,
-                                  self.context,
-                                  volume_id,
-                                  image_id=image_id)
 
-            volume = db.volume_get(self.context, volume_id)
-            self.assertEqual(volume['status'], expected_status)
-        finally:
-            # cleanup
-            db.volume_destroy(self.context, volume_id)
+        mpo = mock.patch.object
+        with mpo(self.volume.driver, 'create_volume') as mock_create_volume:
+            with mpo(self.volume.driver, 'clone_image', mock_clone_image):
+                with mpo(create_volume.CreateVolumeFromSpecTask,
+                         '_copy_image_to_volume') as mock_copy_image_to_volume:
+
+                    try:
+                        if not clone_error:
+                            self.volume.create_volume(self.context,
+                                                      volume_id,
+                                                      image_id=image_id)
+                        else:
+                            self.assertRaises(exception.CinderException,
+                                              self.volume.create_volume,
+                                              self.context,
+                                              volume_id,
+                                              image_id=image_id)
+
+                        volume = db.volume_get(self.context, volume_id)
+                        self.assertEqual(volume['status'], expected_status)
+                    finally:
+                        # cleanup
+                        db.volume_destroy(self.context, volume_id)
+
+                    self.assertEqual(self.called, ['clone_image'])
+                    mock_create_volume.assert_called()
+                    mock_copy_image_to_volume.assert_called()
 
     def test_create_vol_from_image_status_available(self):
-        """Verify that before cloning, an image is in the available state."""
-        self._clone_volume_from_image('available', True)
+        """Clone raw image then verify volume is in available state."""
+        self._create_volume_from_image('available', raw=True)
+
+    def test_create_vol_from_non_raw_image_status_available(self):
+        """Clone non-raw image then verify volume is in available state."""
+        self._create_volume_from_image('available', raw=False)
 
     def test_create_vol_from_image_status_error(self):
-        """Verify that before cloning, an image is in the available state."""
-        self._clone_volume_from_image('error', False)
+        """Fail to clone raw image then verify volume is in error state."""
+        self._create_volume_from_image('error', raw=True, clone_error=True)
 
-    def test_clone_image(self):
-        # Test Failure Case(s)
-        expected = ({}, False)
+    def test_clone_failure(self):
+        driver = self.volume.driver
 
-        self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: False)
-        image_loc = (object(), object())
-        actual = self.volume.driver.clone_image(object(), image_loc, object())
-        self.assertEqual(expected, actual)
+        with mock.patch.object(driver, '_is_cloneable', lambda *args: False):
+            image_loc = (mock.Mock(), mock.Mock())
+            actual = driver.clone_image(mock.Mock(), image_loc,
+                                        mock.Mock(), {})
+            self.assertEqual(({}, False), actual)
 
-        self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: True)
-        self.assertEqual(expected,
-                         self.volume.driver.clone_image(object(), None, None))
-
-        # Test Success Case(s)
-        expected = ({'provider_location': None}, True)
-
-        self.stubs.Set(self.volume.driver, '_parse_location',
-                       lambda x: ('a', 'b', 'c', 'd'))
-
-        self.stubs.Set(self.volume.driver, '_clone', lambda *args: None)
-        self.stubs.Set(self.volume.driver, '_resize', lambda *args: None)
-        actual = self.volume.driver.clone_image(object(), image_loc, object())
-        self.assertEqual(expected, actual)
+        self.assertEqual(({}, False),
+                         driver.clone_image(object(), None, None, {}))
 
     def test_clone_success(self):
-        self.stubs.Set(self.volume.driver, '_is_cloneable', lambda x: True)
-        self.stubs.Set(self.volume.driver, 'clone_image', lambda a, b, c: True)
-        image_id = 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'
-        self.assertTrue(self.volume.driver.clone_image({}, image_id, image_id))
+        expected = ({'provider_location': None}, True)
+        driver = self.volume.driver
+        mpo = mock.patch.object
+        with mpo(driver, '_is_cloneable', lambda *args: True):
+            with mpo(driver, '_parse_location', lambda x: (1, 2, 3, 4)):
+                with mpo(driver, '_clone') as mock_clone:
+                    with mpo(driver, '_resize') as mock_resize:
+                        image_loc = (mock.Mock(), mock.Mock())
+                        actual = driver.clone_image(mock.Mock(),
+                                                    image_loc,
+                                                    mock.Mock(),
+                                                    {'disk_format': 'raw'})
+                        self.assertEqual(expected, actual)
+                        mock_clone.assert_called()
+                        mock_resize.assert_called()

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -34,16 +32,17 @@ from cinder import keymgr
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
+from cinder.openstack.common import uuidutils
 import cinder.policy
 from cinder import quota
+from cinder import quota_utils
 from cinder.scheduler import rpcapi as scheduler_rpcapi
-from cinder import units
 from cinder import utils
 from cinder.volume.flows import create_volume
+from cinder.volume import qos_specs
 from cinder.volume import rpcapi as volume_rpcapi
+from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
-
-from cinder.taskflow import states
 
 
 volume_host_opt = cfg.BoolOpt('snapshot_same_host',
@@ -146,42 +145,35 @@ class API(base.Base):
                 return False
 
         create_what = {
-            'size': size,
+            'context': context,
+            'raw_size': size,
             'name': name,
             'description': description,
             'snapshot': snapshot,
             'image_id': image_id,
-            'volume_type': volume_type,
+            'raw_volume_type': volume_type,
             'metadata': metadata,
-            'availability_zone': availability_zone,
+            'raw_availability_zone': availability_zone,
             'source_volume': source_volume,
             'scheduler_hints': scheduler_hints,
             'key_manager': self.key_manager,
             'backup_source_volume': backup_source_volume,
         }
-        (flow, uuid) = create_volume.get_api_flow(self.scheduler_rpcapi,
-                                                  self.volume_rpcapi,
-                                                  self.db,
-                                                  self.image_service,
-                                                  check_volume_az_zone,
-                                                  create_what)
 
-        assert flow, _('Create volume flow not retrieved')
-        flow.run(context)
-        if flow.state != states.SUCCESS:
-            raise exception.CinderException(_("Failed to successfully complete"
-                                              " create volume workflow"))
-
-        # Extract the volume information from the task uuid that was specified
-        # to produce said information.
-        volume = None
         try:
-            volume = flow.results[uuid]['volume']
-        except KeyError:
-            pass
+            flow_engine = create_volume.get_api_flow(self.scheduler_rpcapi,
+                                                     self.volume_rpcapi,
+                                                     self.db,
+                                                     self.image_service,
+                                                     check_volume_az_zone,
+                                                     create_what)
+        except Exception:
+            LOG.exception(_("Failed to create api volume flow"))
+            raise exception.CinderException(
+                _("Failed to create api volume flow"))
 
-        # Raise an error, nobody provided it??
-        assert volume, _('Expected volume result not found')
+        flow_engine.run()
+        volume = flow_engine.storage.fetch('volume')
         return volume
 
     @wrap_check_policy
@@ -193,6 +185,8 @@ class API(base.Base):
 
         volume_id = volume['id']
         if not volume['host']:
+            volume_utils.notify_about_volume_usage(context,
+                                                   volume, "delete.start")
             # NOTE(vish): scheduling failed, so delete it
             # Note(zhiteng): update volume quota reservation
             try:
@@ -210,6 +204,9 @@ class API(base.Base):
 
             if reservations:
                 QUOTAS.commit(context, reservations, project_id=project_id)
+
+            volume_utils.notify_about_volume_usage(context,
+                                                   volume, "delete.end")
             return
         if not force and volume['status'] not in ["available", "error",
                                                   "error_restoring",
@@ -364,7 +361,7 @@ class API(base.Base):
         return snapshots
 
     @wrap_check_policy
-    def check_attach(self, context, volume):
+    def check_attach(self, volume):
         # TODO(vish): abstract status checking?
         if volume['status'] != "available":
             msg = _("status must be available")
@@ -374,7 +371,7 @@ class API(base.Base):
             raise exception.InvalidVolume(reason=msg)
 
     @wrap_check_policy
-    def check_detach(self, context, volume):
+    def check_detach(self, volume):
         # TODO(vish): abstract status checking?
         if volume['status'] != "in-use":
             msg = _("status must be in-use to detach")
@@ -511,7 +508,7 @@ class API(base.Base):
                     raise exception.SnapshotLimitExceeded(
                         allowed=quotas[over])
 
-        self._check_metadata_properties(context, metadata)
+        self._check_metadata_properties(metadata)
         options = {'volume_id': volume['id'],
                    'user_id': context.user_id,
                    'project_id': context.project_id,
@@ -575,7 +572,7 @@ class API(base.Base):
         """Delete the given metadata item from a volume."""
         self.db.volume_metadata_delete(context, volume['id'], key)
 
-    def _check_metadata_properties(self, context, metadata=None):
+    def _check_metadata_properties(self, metadata=None):
         if not metadata:
             metadata = {}
 
@@ -608,14 +605,14 @@ class API(base.Base):
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
-        self._check_metadata_properties(context, _metadata)
+        self._check_metadata_properties(_metadata)
 
-        self.db.volume_metadata_update(context, volume['id'],
-                                       _metadata, delete)
+        db_meta = self.db.volume_metadata_update(context, volume['id'],
+                                                 _metadata, delete)
 
         # TODO(jdg): Implement an RPC call for drivers that may use this info
 
-        return _metadata
+        return db_meta
 
     def get_volume_metadata_value(self, volume, key):
         """Get value of particular metadata key."""
@@ -653,7 +650,7 @@ class API(base.Base):
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
-        self._check_metadata_properties(context, _metadata)
+        self._check_metadata_properties(_metadata)
 
         self.db.volume_admin_metadata_update(context, volume['id'],
                                              _metadata, delete)
@@ -687,16 +684,16 @@ class API(base.Base):
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
-        self._check_metadata_properties(context, _metadata)
+        self._check_metadata_properties(_metadata)
 
-        self.db.snapshot_metadata_update(context,
-                                         snapshot['id'],
-                                         _metadata,
-                                         True)
+        db_meta = self.db.snapshot_metadata_update(context,
+                                                   snapshot['id'],
+                                                   _metadata,
+                                                   True)
 
         # TODO(jdg): Implement an RPC call for drivers that may use this info
 
-        return _metadata
+        return db_meta
 
     def get_snapshot_metadata_value(self, snapshot, key):
         pass
@@ -717,7 +714,7 @@ class API(base.Base):
             (meta_entry.key, meta_entry.value) for meta_entry in db_data
         )
 
-    def _check_volume_availability(self, context, volume, force):
+    def _check_volume_availability(self, volume, force):
         """Check if the volume can be used."""
         if volume['status'] not in ['available', 'in-use']:
             msg = _('Volume status must be available/in-use.')
@@ -729,7 +726,7 @@ class API(base.Base):
     @wrap_check_policy
     def copy_volume_to_image(self, context, volume, metadata, force):
         """Create a new image from the specified volume."""
-        self._check_volume_availability(context, volume, force)
+        self._check_volume_availability(volume, force)
 
         recv_metadata = self.image_service.create(context, metadata)
         self.update(context, volume, {'status': 'uploading'})
@@ -857,6 +854,96 @@ class API(base.Base):
             raise exception.InvalidVolume(reason=msg)
         self.update_volume_admin_metadata(context.elevated(), volume,
                                           {'readonly': str(flag)})
+
+    @wrap_check_policy
+    def retype(self, context, volume, new_type, migration_policy=None):
+        """Attempt to modify the type associated with an existing volume."""
+        if volume['status'] not in ['available', 'in-use']:
+            msg = _('Unable to update type due to incorrect status '
+                    'on volume: %s') % volume['id']
+            LOG.error(msg)
+            raise exception.InvalidVolume(reason=msg)
+
+        if volume['migration_status'] is not None:
+            msg = (_("Volume %s is already part of an active migration.")
+                   % volume['id'])
+            LOG.error(msg)
+            raise exception.InvalidVolume(reason=msg)
+
+        if migration_policy and migration_policy not in ['on-demand', 'never']:
+            msg = _('migration_policy must be \'on-demand\' or \'never\', '
+                    'passed: %s') % str(new_type)
+            LOG.error(msg)
+            raise exception.InvalidInput(reason=msg)
+
+        # Support specifying volume type by ID or name
+        try:
+            if uuidutils.is_uuid_like(new_type):
+                vol_type = volume_types.get_volume_type(context, new_type)
+            else:
+                vol_type = volume_types.get_volume_type_by_name(context,
+                                                                new_type)
+        except exception.InvalidVolumeType:
+            msg = _('Invalid volume_type passed: %s') % str(new_type)
+            LOG.error(msg)
+            raise exception.InvalidInput(reason=msg)
+
+        vol_type_id = vol_type['id']
+        vol_type_qos_id = vol_type['qos_specs_id']
+
+        old_vol_type = None
+        old_vol_type_id = volume['volume_type_id']
+        old_vol_type_qos_id = None
+
+        # Error if the original and new type are the same
+        if volume['volume_type_id'] == vol_type_id:
+            msg = _('New volume_type same as original: %s') % str(new_type)
+            LOG.error(msg)
+            raise exception.InvalidInput(reason=msg)
+
+        if volume['volume_type_id']:
+            old_vol_type = volume_types.get_volume_type(
+                context, old_vol_type_id)
+            old_vol_type_qos_id = old_vol_type['qos_specs_id']
+
+        # We don't support changing encryption requirements yet
+        old_enc = volume_types.get_volume_type_encryption(context,
+                                                          old_vol_type_id)
+        new_enc = volume_types.get_volume_type_encryption(context,
+                                                          vol_type_id)
+        if old_enc != new_enc:
+            msg = _('Retype cannot change encryption requirements')
+            raise exception.InvalidInput(reason=msg)
+
+        # We don't support changing QoS at the front-end yet for in-use volumes
+        # TODO(avishay): Call Nova to change QoS setting (libvirt has support
+        # - virDomainSetBlockIoTune() - Nova does not have support yet).
+        if (volume['status'] != 'available' and
+                old_vol_type_qos_id != vol_type_qos_id):
+            for qos_id in [old_vol_type_qos_id, vol_type_qos_id]:
+                if qos_id:
+                    specs = qos_specs.get_qos_specs(context.elevated(), qos_id)
+                    if specs['qos_specs']['consumer'] != 'back-end':
+                        msg = _('Retype cannot change front-end qos specs for '
+                                'in-use volumes')
+                        raise exception.InvalidInput(reason=msg)
+
+        self.update(context, volume, {'status': 'retyping'})
+
+        # We're checking here in so that we can report any quota issues as
+        # early as possible, but won't commit until we change the type. We
+        # pass the reservations onward in case we need to roll back.
+        reservations = quota_utils.get_volume_type_reservation(context, volume,
+                                                               vol_type_id)
+        request_spec = {'volume_properties': volume,
+                        'volume_id': volume['id'],
+                        'volume_type': vol_type,
+                        'migration_policy': migration_policy,
+                        'quota_reservations': reservations}
+
+        self.scheduler_rpcapi.retype(context, CONF.volume_topic, volume['id'],
+                                     request_spec=request_spec,
+                                     filter_properties={})
 
 
 class HostAPI(base.Base):

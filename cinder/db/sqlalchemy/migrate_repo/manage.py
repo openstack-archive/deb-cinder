@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -23,7 +21,6 @@ from cinder.openstack.common import gettextutils
 gettextutils.install('cinder', lazy=False)
 
 from cinder.db.sqlalchemy import migrate_repo
-import cinder.openstack.common.db.sqlalchemy.session
 from cinder import version
 
 from migrate.versioning.shell import main

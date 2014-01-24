@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2011 Nexenta Systems, Inc.
 # All Rights Reserved.
 #
@@ -24,8 +22,6 @@
 .. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
 """
 
-from oslo.config import cfg
-
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
@@ -36,11 +32,6 @@ from cinder.volume.drivers.nexenta import utils
 
 VERSION = '1.1.3'
 LOG = logging.getLogger(__name__)
-
-CONF = cfg.CONF
-CONF.register_opts(options.NEXENTA_CONNECTION_OPTIONS)
-CONF.register_opts(options.NEXENTA_ISCSI_OPTIONS)
-CONF.register_opts(options.NEXENTA_VOLUME_OPTIONS)
 
 
 class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
@@ -296,7 +287,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
     def create_snapshot(self, snapshot):
         """Create snapshot of existing zvol on appliance.
 
-        :param snapshot: shapshot reference
+        :param snapshot: snapshot reference
         """
         self.nms.zvol.create_snapshot(
             self._get_zvol_name(snapshot['volume_name']),

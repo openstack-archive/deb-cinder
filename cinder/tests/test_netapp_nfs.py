@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 NetApp, Inc.
 # All Rights Reserved.
@@ -21,7 +20,6 @@ import mox
 from mox import IgnoreArg
 from mox import IsA
 import os
-import socket
 
 from cinder import context
 from cinder import exception
@@ -138,11 +136,12 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
 
         mox.StubOutWithMock(drv, '_get_provider_location')
         mox.StubOutWithMock(drv, '_volume_not_present')
+        mox.StubOutWithMock(drv, '_post_prov_deprov_in_ssc')
 
         if snapshot_exists:
             mox.StubOutWithMock(drv, '_execute')
             mox.StubOutWithMock(drv, '_get_volume_path')
-
+        drv._get_provider_location(IgnoreArg())
         drv._get_provider_location(IgnoreArg())
         drv._volume_not_present(IgnoreArg(), IgnoreArg())\
             .AndReturn(not snapshot_exists)
@@ -150,6 +149,8 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         if snapshot_exists:
             drv._get_volume_path(IgnoreArg(), IgnoreArg())
             drv._execute('rm', None, run_as_root=True)
+
+        drv._post_prov_deprov_in_ssc(IgnoreArg())
 
         mox.ReplayAll()
 
@@ -197,7 +198,11 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         # set required flags
         for flag in required_flags:
             setattr(drv.configuration, flag, 'val')
+        setattr(drv, 'ssc_enabled', False)
 
+        mox.StubOutWithMock(netapp_nfs.NetAppDirectNfsDriver, '_check_flags')
+
+        netapp_nfs.NetAppDirectNfsDriver._check_flags()
         mox.ReplayAll()
 
         drv.check_for_setup_error()
@@ -238,6 +243,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, '_get_if_info_by_ip')
         mox.StubOutWithMock(drv, '_get_vol_by_junc_vserver')
         mox.StubOutWithMock(drv, '_clone_file')
+        mox.StubOutWithMock(drv, '_post_prov_deprov_in_ssc')
 
         drv._get_host_ip(IgnoreArg()).AndReturn('127.0.0.1')
         drv._get_export_path(IgnoreArg()).AndReturn('/nfs')
@@ -246,6 +252,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         drv._get_vol_by_junc_vserver('openstack', '/nfs').AndReturn('nfsvol')
         drv._clone_file('nfsvol', 'volume_name', 'clone_name',
                         'openstack')
+        drv._post_prov_deprov_in_ssc(IgnoreArg())
         return mox
 
     def _prepare_info_by_ip_response(self):
@@ -287,8 +294,9 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         volume_name = 'volume_name'
         clone_name = 'clone_name'
         volume_id = volume_name + str(hash(volume_name))
+        share = 'ip:/share'
 
-        drv._clone_volume(volume_name, clone_name, volume_id)
+        drv._clone_volume(volume_name, clone_name, volume_id, share)
 
         mox.VerifyAll()
 
@@ -470,7 +478,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         drv._post_clone_image(volume)
 
         mox.ReplayAll()
-        drv. clone_image(volume, ('image_location', None), 'image_id')
+        drv.clone_image(volume, ('image_location', None), 'image_id', {})
         mox.VerifyAll()
 
     def get_img_info(self, format):
@@ -494,7 +502,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
         (prop, cloned) = drv. clone_image(
-            volume, ('nfs://127.0.0.1:/share/img-id', None), 'image_id')
+            volume, ('nfs://127.0.0.1:/share/img-id', None), 'image_id', {})
         mox.VerifyAll()
         if not cloned and not prop['provider_location']:
             pass
@@ -530,7 +538,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
         drv. clone_image(
-            volume, ('nfs://127.0.0.1:/share/img-id', None), 'image_id')
+            volume, ('nfs://127.0.0.1:/share/img-id', None), 'image_id', {})
         mox.VerifyAll()
 
     def test_clone_image_cloneableshare_notraw(self):
@@ -567,7 +575,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
         drv. clone_image(
-            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id')
+            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id', {})
         mox.VerifyAll()
 
     def test_clone_image_file_not_discovered(self):
@@ -606,7 +614,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
         vol_dict, result = drv. clone_image(
-            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id')
+            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id', {})
         mox.VerifyAll()
         self.assertFalse(result)
         self.assertFalse(vol_dict['bootable'])
@@ -653,7 +661,7 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
         vol_dict, result = drv. clone_image(
-            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id')
+            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id', {})
         mox.VerifyAll()
         self.assertFalse(result)
         self.assertFalse(vol_dict['bootable'])
@@ -743,8 +751,8 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
     def test_check_share_in_use_incorrect_host(self):
         drv = self._driver
         mox = self.mox
-        mox.StubOutWithMock(socket, 'gethostbyname')
-        socket.gethostbyname(IgnoreArg()).AndRaise(Exception())
+        mox.StubOutWithMock(drv, '_resolve_hostname')
+        drv._resolve_hostname(IgnoreArg()).AndRaise(Exception())
         mox.ReplayAll()
         share = drv._check_share_in_use('incorrect:8989', '/dir')
         mox.VerifyAll()
@@ -755,9 +763,9 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         drv = self._driver
         mox = self.mox
         drv._mounted_shares = ['127.0.0.1:/dir/share']
-        mox.StubOutWithMock(socket, 'gethostbyname')
+        mox.StubOutWithMock(drv, '_resolve_hostname')
         mox.StubOutWithMock(drv, '_share_match_for_ip')
-        socket.gethostbyname(IgnoreArg()).AndReturn('10.22.33.44')
+        drv._resolve_hostname(IgnoreArg()).AndReturn('10.22.33.44')
         drv._share_match_for_ip(
             '10.22.33.44', ['127.0.0.1:/dir/share']).AndReturn('share')
         mox.ReplayAll()
@@ -791,6 +799,29 @@ class NetappDirect7modeNfsDriverTestCase(NetappDirectCmodeNfsDriverTestCase):
     def _custom_setup(self):
         self._driver = netapp_nfs.NetAppDirect7modeNfsDriver(
             configuration=create_configuration())
+
+    def _prepare_delete_snapshot_mock(self, snapshot_exists):
+        drv = self._driver
+        mox = self.mox
+
+        mox.StubOutWithMock(drv, '_get_provider_location')
+        mox.StubOutWithMock(drv, '_volume_not_present')
+
+        if snapshot_exists:
+            mox.StubOutWithMock(drv, '_execute')
+            mox.StubOutWithMock(drv, '_get_volume_path')
+
+        drv._get_provider_location(IgnoreArg())
+        drv._volume_not_present(IgnoreArg(), IgnoreArg())\
+            .AndReturn(not snapshot_exists)
+
+        if snapshot_exists:
+            drv._get_volume_path(IgnoreArg(), IgnoreArg())
+            drv._execute('rm', None, run_as_root=True)
+
+        mox.ReplayAll()
+
+        return mox
 
     def test_check_for_setup_error_version(self):
         drv = self._driver

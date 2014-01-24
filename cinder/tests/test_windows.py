@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 Pedro Navarro Perez
 # All Rights Reserved.
 #
@@ -304,7 +302,8 @@ class TestWindowsDriver(test.TestCase):
 
         mox.StubOutWithMock(image_utils, 'fetch_to_vhd')
         image_utils.fetch_to_vhd(None, None, None,
-                                 self.fake_local_path(volume))
+                                 self.fake_local_path(volume),
+                                 mox_lib.IgnoreArg())
 
         mox.ReplayAll()
 

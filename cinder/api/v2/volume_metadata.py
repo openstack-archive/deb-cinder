@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -23,7 +21,7 @@ from cinder import exception
 from cinder import volume
 
 
-class Controller(object):
+class Controller(wsgi.Controller):
     """The volume metadata API controller for the OpenStack API."""
 
     def __init__(self):

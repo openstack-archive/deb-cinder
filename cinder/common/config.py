@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -58,10 +56,6 @@ def _get_my_ip():
 
 
 core_opts = [
-    cfg.StrOpt('connection_type',
-               default=None,
-               help='Virtualization api connection type : libvirt, xenapi, '
-                    'or fake'),
     cfg.StrOpt('api_paste_config',
                default="api-paste.ini",
                help='File name for the paste.deploy config for cinder-api'),
@@ -169,9 +163,6 @@ global_opts = [
                     'If this is not set then we use the value from the '
                     'storage_availability_zone option as the default '
                     'availability_zone for new volumes.'),
-    cfg.ListOpt('memcached_servers',
-                default=None,
-                help='Memcached servers or None for in process cache.'),
     cfg.StrOpt('default_volume_type',
                default=None,
                help='default volume type to use'),

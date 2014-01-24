@@ -16,9 +16,6 @@
 Fakes For Scheduler tests.
 """
 
-import mox
-
-from cinder import db
 from cinder.openstack.common import timeutils
 from cinder.scheduler import filter_scheduler
 from cinder.scheduler import host_manager
@@ -37,19 +34,27 @@ class FakeHostManager(host_manager.HostManager):
         self.service_states = {
             'host1': {'total_capacity_gb': 1024,
                       'free_capacity_gb': 1024,
+                      'allocated_capacity_gb': 0,
                       'reserved_percentage': 10,
+                      'volume_backend_name': 'lvm1',
                       'timestamp': None},
             'host2': {'total_capacity_gb': 2048,
                       'free_capacity_gb': 300,
+                      'allocated_capacity_gb': 1748,
                       'reserved_percentage': 10,
+                      'volume_backend_name': 'lvm2',
                       'timestamp': None},
             'host3': {'total_capacity_gb': 512,
-                      'free_capacity_gb': 512,
+                      'free_capacity_gb': 256,
+                      'allocated_capacity_gb': 256,
                       'reserved_percentage': 0,
+                      'volume_backend_name': 'lvm3',
                       'timestamp': None},
             'host4': {'total_capacity_gb': 2048,
                       'free_capacity_gb': 200,
+                      'allocated_capacity_gb': 1848,
                       'reserved_percentage': 5,
+                      'volume_backend_name': 'lvm4',
                       'timestamp': None},
         }
 
@@ -61,9 +66,7 @@ class FakeHostState(host_manager.HostState):
             setattr(self, key, val)
 
 
-def mox_host_manager_db_calls(mock, context):
-    mock.StubOutWithMock(db, 'service_get_all_by_topic')
-
+def mock_host_manager_db_calls(mock_obj):
     services = [
         dict(id=1, host='host1', topic='volume', disabled=False,
              availability_zone='zone1', updated_at=timeutils.utcnow()),
@@ -77,6 +80,4 @@ def mox_host_manager_db_calls(mock, context):
         dict(id=5, host='host5', topic='volume', disabled=True,
              availability_zone='zone4', updated_at=timeutils.utcnow()),
     ]
-
-    db.service_get_all_by_topic(mox.IgnoreArg(),
-                                mox.IgnoreArg()).AndReturn(services)
+    mock_obj.return_value = services

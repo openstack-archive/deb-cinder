@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -45,8 +43,7 @@ class UsageInfoTestCase(test.TestCase):
 
     def setUp(self):
         super(UsageInfoTestCase, self).setUp()
-        self.flags(connection_type='fake',
-                   host='fake',
+        self.flags(host='fake',
                    notification_driver=[test_notifier.__name__])
         self.volume = importutils.import_object(CONF.volume_manager)
         self.user_id = 'fake'
@@ -122,36 +119,30 @@ class UsageInfoTestCase(test.TestCase):
 class LVMVolumeDriverTestCase(test.TestCase):
     def test_convert_blocksize_option(self):
         # Test valid volume_dd_blocksize
-        CONF.set_override('volume_dd_blocksize', '10M')
-        bs, count = volume_utils._calculate_count(1024)
+        bs, count = volume_utils._calculate_count(1024, '10M')
         self.assertEqual(bs, '10M')
         self.assertEqual(count, 103)
 
-        CONF.set_override('volume_dd_blocksize', '1xBBB')
-        bs, count = volume_utils._calculate_count(1024)
+        bs, count = volume_utils._calculate_count(1024, '1xBBB')
         self.assertEqual(bs, '1M')
         self.assertEqual(count, 1024)
 
         # Test 'volume_dd_blocksize' with fraction
-        CONF.set_override('volume_dd_blocksize', '1.3M')
-        bs, count = volume_utils._calculate_count(1024)
+        bs, count = volume_utils._calculate_count(1024, '1.3M')
         self.assertEqual(bs, '1M')
         self.assertEqual(count, 1024)
 
         # Test zero-size 'volume_dd_blocksize'
-        CONF.set_override('volume_dd_blocksize', '0M')
-        bs, count = volume_utils._calculate_count(1024)
+        bs, count = volume_utils._calculate_count(1024, '0M')
         self.assertEqual(bs, '1M')
         self.assertEqual(count, 1024)
 
         # Test negative 'volume_dd_blocksize'
-        CONF.set_override('volume_dd_blocksize', '-1M')
-        bs, count = volume_utils._calculate_count(1024)
+        bs, count = volume_utils._calculate_count(1024, '-1M')
         self.assertEqual(bs, '1M')
         self.assertEqual(count, 1024)
 
         # Test non-digital 'volume_dd_blocksize'
-        CONF.set_override('volume_dd_blocksize', 'ABM')
-        bs, count = volume_utils._calculate_count(1024)
+        bs, count = volume_utils._calculate_count(1024, 'ABM')
         self.assertEqual(bs, '1M')
         self.assertEqual(count, 1024)

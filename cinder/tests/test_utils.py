@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 #    Copyright 2011 Justin Santa Barbara
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -77,9 +75,9 @@ exit 1
             fp = open(tmpfilename2, 'r+')
             runs = fp.read()
             fp.close()
-            self.assertNotEquals(runs.strip(), 'failure', 'stdin did not '
-                                                          'always get passed '
-                                                          'correctly')
+            self.assertNotEqual(runs.strip(), 'failure', 'stdin did not '
+                                                         'always get passed '
+                                                         'correctly')
             runs = int(runs.strip())
             self.assertEqual(runs, 10, 'Ran %d times instead of 10.' % (runs,))
         finally:

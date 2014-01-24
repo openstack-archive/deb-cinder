@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 VMware, Inc.
 # All Rights Reserved.
 #
@@ -304,7 +302,7 @@ class VMwareHTTPReadVmdk(VMwareHTTPFile):
         VMwareHTTPFile.__init__(self, conn)
 
     def read(self, chunk_size):
-        """Read a chunk from file"""
+        """Read a chunk from file."""
         self._progress += READ_CHUNKSIZE
         LOG.debug(_("Read %s bytes from vmdk.") % self._progress)
         return self.file_handle.read(READ_CHUNKSIZE)

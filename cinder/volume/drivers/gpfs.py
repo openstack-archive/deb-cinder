@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright IBM Corp. 2013 All Rights Reserved
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -27,7 +25,6 @@ from oslo.config import cfg
 
 from cinder import exception
 from cinder.image import image_utils
-from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import units
@@ -463,7 +460,7 @@ class GPFSDriver(driver.VolumeDriver):
             return '100M'
         return '%sG' % size_in_g
 
-    def clone_image(self, volume, image_location, image_id):
+    def clone_image(self, volume, image_location, image_id, image_meta):
         return self._clone_image(volume, image_location, image_id)
 
     def _is_cloneable(self, image_id):
@@ -545,7 +542,9 @@ class GPFSDriver(driver.VolumeDriver):
         LOG.debug('Copy image to vol %s using image_utils fetch_to_raw' %
                   volume['id'])
         image_utils.fetch_to_raw(context, image_service, image_id,
-                                 self.local_path(volume), size=volume['size'])
+                                 self.local_path(volume),
+                                 self.configuration.volume_dd_blocksize,
+                                 size=volume['size'])
         self._resize_volume_file(volume, volume['size'])
 
     def _resize_volume_file(self, volume, new_size):

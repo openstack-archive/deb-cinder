@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 NetApp, Inc.
 # All Rights Reserved.
 #
@@ -17,6 +15,7 @@
 
 import errno
 import os
+import re
 
 from oslo.config import cfg
 
@@ -244,6 +243,7 @@ class RemoteFsDriver(driver.VolumeDriver):
                                  image_service,
                                  image_id,
                                  self.local_path(volume),
+                                 self.configuration.volume_dd_blocksize,
                                  size=volume['size'])
 
         # NOTE (leseb): Set the virtual size of the image
@@ -295,6 +295,11 @@ class RemoteFsDriver(driver.VolumeDriver):
 
             share_address = share_info[0].strip().decode('unicode_escape')
             share_opts = share_info[1].strip() if len(share_info) > 1 else None
+
+            if not re.match(r'.+:/.+', share_address):
+                LOG.warn("Share %s ignored due to invalid format.  Must be of "
+                         "form address:/export." % share_address)
+                continue
 
             self.shares[share_address] = share_opts
 
@@ -408,7 +413,7 @@ class NfsDriver(RemoteFsDriver):
             self._remotefsclient.set_execute(execute)
 
     def do_setup(self, context):
-        """Any initialization the volume driver does while starting"""
+        """Any initialization the volume driver does while starting."""
         super(NfsDriver, self).do_setup(context)
 
         config = self.configuration.nfs_shares_config

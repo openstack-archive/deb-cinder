@@ -48,6 +48,7 @@ host_manager_opts = [
 
 CONF = cfg.CONF
 CONF.register_opts(host_manager_opts)
+CONF.import_opt('scheduler_driver', 'cinder.scheduler.manager')
 
 LOG = logging.getLogger(__name__)
 
@@ -99,6 +100,9 @@ class HostState(object):
         # Mutable available resources.
         # These will change as resources are virtually "consumed".
         self.total_capacity_gb = 0
+        # capacity has been allocated in cinder POV, which should be
+        # sum(vol['size'] for vol in vols_on_hosts)
+        self.allocated_capacity_gb = 0
         self.free_capacity_gb = None
         self.reserved_percentage = 0
 
@@ -128,13 +132,16 @@ class HostState(object):
 
             self.total_capacity_gb = capability['total_capacity_gb']
             self.free_capacity_gb = capability['free_capacity_gb']
+            self.allocated_capacity_gb = capability.get(
+                'allocated_capacity_gb', 0)
             self.reserved_percentage = capability['reserved_percentage']
 
             self.updated = capability['timestamp']
 
     def consume_from_volume(self, volume):
-        """Incrementally update host state from an volume"""
+        """Incrementally update host state from an volume."""
         volume_gb = volume['size']
+        self.allocated_capacity_gb += volume_gb
         if self.free_capacity_gb == 'infinite':
             # There's virtually infinite space on back-end
             pass
@@ -164,6 +171,23 @@ class HostManager(object):
         self.weight_handler = weights.HostWeightHandler('cinder.scheduler.'
                                                         'weights')
         self.weight_classes = self.weight_handler.get_all_classes()
+
+        default_filters = ['AvailabilityZoneFilter',
+                           'CapacityFilter',
+                           'CapabilitiesFilter']
+        chance = 'cinder.scheduler.chance.ChanceScheduler'
+        simple = 'cinder.scheduler.simple.SimpleScheduler'
+        if CONF.scheduler_driver == simple:
+            CONF.set_override('scheduler_default_filters', default_filters)
+            CONF.set_override('scheduler_default_weighers',
+                              ['AllocatedCapacityWeigher'])
+        elif CONF.scheduler_driver == chance:
+            CONF.set_override('scheduler_default_filters', default_filters)
+            CONF.set_override('scheduler_default_weighers',
+                              ['ChanceWeigher'])
+        else:
+            # Do nothing when some other scheduler is configured
+            pass
 
     def _choose_host_filters(self, filter_cls_names):
         """Since the caller may specify which filters to use we need
@@ -220,7 +244,7 @@ class HostManager(object):
 
     def get_filtered_hosts(self, hosts, filter_properties,
                            filter_class_names=None):
-        """Filter hosts and return only ones passing all filters"""
+        """Filter hosts and return only ones passing all filters."""
         filter_classes = self._choose_host_filters(filter_class_names)
         return self.filter_handler.get_filtered_objects(filter_classes,
                                                         hosts,
@@ -228,7 +252,7 @@ class HostManager(object):
 
     def get_weighed_hosts(self, hosts, weight_properties,
                           weigher_class_names=None):
-        """Weigh the hosts"""
+        """Weigh the hosts."""
         weigher_classes = self._choose_host_weighers(weigher_class_names)
         return self.weight_handler.get_weighed_objects(weigher_classes,
                                                        hosts,

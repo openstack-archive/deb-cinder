@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -70,7 +68,7 @@ class CreateDeserializer(wsgi.MetadataXMLDeserializer):
         transfer = {}
         transfer_node = self.find_first_child_named(node, 'transfer')
 
-        attributes = ['volume_id', 'display_name']
+        attributes = ['volume_id', 'name']
 
         for attr in attributes:
             if transfer_node.getAttribute(attr):
@@ -119,7 +117,7 @@ class VolumeTransferController(wsgi.Controller):
 
     @wsgi.serializers(xml=TransfersTemplate)
     def index(self, req):
-        """Returns a summary list of transfers"""
+        """Returns a summary list of transfers."""
         return self._get_transfers(req, is_detail=False)
 
     @wsgi.serializers(xml=TransfersTemplate)
@@ -226,7 +224,7 @@ class VolumeTransferController(wsgi.Controller):
 
 
 class Volume_transfer(extensions.ExtensionDescriptor):
-    """Volume transfer management support"""
+    """Volume transfer management support."""
 
     name = "VolumeTransfer"
     alias = "os-volume-transfer"

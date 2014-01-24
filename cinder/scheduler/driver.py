@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2010 OpenStack Foundation
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -26,7 +24,6 @@ from oslo.config import cfg
 from cinder import db
 from cinder.openstack.common import importutils
 from cinder.openstack.common import timeutils
-from cinder import utils
 from cinder.volume import rpcapi as volume_rpcapi
 
 
@@ -67,17 +64,14 @@ class Scheduler(object):
                                                       host,
                                                       capabilities)
 
-    def hosts_up(self, context, topic):
-        """Return the list of hosts that have a running service for topic."""
-
-        services = db.service_get_all_by_topic(context, topic)
-        return [service['host']
-                for service in services
-                if utils.service_is_up(service)]
-
     def host_passes_filters(self, context, volume_id, host, filter_properties):
         """Check if the specified host passes the filters."""
         raise NotImplementedError(_("Must implement host_passes_filters"))
+
+    def find_retype_host(self, context, request_spec, filter_properties={},
+                         migration_policy='never'):
+        """Find a host that can accept the volume with its new type."""
+        raise NotImplementedError(_("Must implement find_retype_host"))
 
     def schedule(self, context, topic, method, *_args, **_kwargs):
         """Must override schedule method for scheduler to work."""

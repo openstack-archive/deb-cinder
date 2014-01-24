@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 NetApp, Inc.
 # All Rights Reserved.
 #
@@ -26,8 +24,6 @@ from threading import Timer
 import time
 import urlparse
 
-from oslo.config import cfg
-
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import excutils
@@ -52,13 +48,6 @@ from cinder.volume.drivers import nfs
 
 
 LOG = logging.getLogger(__name__)
-
-
-CONF = cfg.CONF
-CONF.register_opts(netapp_connection_opts)
-CONF.register_opts(netapp_transport_opts)
-CONF.register_opts(netapp_basicauth_opts)
-CONF.register_opts(netapp_img_cache_opts)
 
 
 class NetAppNFSDriver(nfs.NfsDriver):
@@ -374,7 +363,7 @@ class NetAppNFSDriver(nfs.NfsDriver):
             LOG.warning(_('Exception during deleting %s'), ex.__str__())
             return False
 
-    def clone_image(self, volume, image_location, image_id):
+    def clone_image(self, volume, image_location, image_id, image_meta):
         """Create a volume efficiently from an existing image.
 
         image_location is a string whose format depends on the
@@ -554,11 +543,11 @@ class NetAppNFSDriver(nfs.NfsDriver):
         raise NotImplementedError()
 
     def _check_share_in_use(self, conn, dir):
-        """Checks if share is cinder mounted and returns it. """
+        """Checks if share is cinder mounted and returns it."""
         try:
             if conn:
                 host = conn.split(':')[0]
-                ipv4 = socket.gethostbyname(host)
+                ip = self._resolve_hostname(host)
                 share_candidates = []
                 for sh in self._mounted_shares:
                     sh_exp = sh.split(':')[1]
@@ -567,7 +556,7 @@ class NetAppNFSDriver(nfs.NfsDriver):
                 if share_candidates:
                     LOG.debug(_('Found possible share matches %s'),
                               share_candidates)
-                    return self._share_match_for_ip(ipv4, share_candidates)
+                    return self._share_match_for_ip(ip, share_candidates)
         except Exception:
             LOG.warn(_("Unexpected exception while short listing used share."))
         return None
@@ -614,6 +603,12 @@ class NetAppNFSDriver(nfs.NfsDriver):
     def _is_share_vol_compatible(self, volume, share):
         """Checks if share is compatible with volume to host it."""
         raise NotImplementedError()
+
+    def _resolve_hostname(self, hostname):
+        """Resolves hostname to IP address."""
+        res = socket.getaddrinfo(hostname, None)[0]
+        family, socktype, proto, canonname, sockaddr = res
+        return sockaddr[0]
 
 
 class NetAppDirectNfsDriver (NetAppNFSDriver):
@@ -718,6 +713,12 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
             self.ssc_enabled = False
             LOG.warn(_("No vserver set in config. SSC will be disabled."))
 
+    def check_for_setup_error(self):
+        """Check that the driver is working and can communicate."""
+        super(NetAppDirectCmodeNfsDriver, self).check_for_setup_error()
+        if self.ssc_enabled:
+            ssc_utils.check_ssc_api_permissions(self._client)
+
     def _invoke_successfully(self, na_element, vserver=None):
         """Invoke the api for successful result.
 
@@ -786,6 +787,8 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
         """Clones mounted volume on NetApp Cluster."""
         (vserver, exp_volume) = self._get_vserver_and_exp_vol(volume_id, share)
         self._clone_file(exp_volume, volume_name, clone_name, vserver)
+        share = share if share else self._get_provider_location(volume_id)
+        self._post_prov_deprov_in_ssc(share)
 
     def _get_vserver_and_exp_vol(self, volume_id=None, share=None):
         """Gets the vserver and export volume for share."""
@@ -801,7 +804,8 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
         net_if_iter.add_new_child('max-records', '10')
         query = NaElement('query')
         net_if_iter.add_child_elem(query)
-        query.add_node_with_children('net-interface-info', **{'address': ip})
+        query.add_node_with_children('net-interface-info',
+                                     **{'address': self._resolve_hostname(ip)})
         result = self._invoke_successfully(net_if_iter)
         if result.get_child_content('num-records') and\
                 int(result.get_child_content('num-records')) >= 1:
@@ -811,7 +815,7 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
             _('No interface found on cluster for ip %s')
             % (ip))
 
-    def _get_verver_ips(self, vserver):
+    def _get_vserver_ips(self, vserver):
         """Get ips for the vserver."""
         result = na_utils.invoke_api(
             self._client, api_name='net-interface-get-iter',
@@ -937,13 +941,13 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
             LOG.warn(_("No shares found hence skipping ssc refresh."))
             return
         mnt_share_vols = set()
-        vs_ifs = self._get_verver_ips(self.vserver)
+        vs_ifs = self._get_vserver_ips(self.vserver)
         for vol in vols['all']:
             for sh in self._mounted_shares:
                 host = sh.split(':')[0]
                 junction = sh.split(':')[1]
-                ipv4 = socket.gethostbyname(host)
-                if (self._ip_in_ifs(ipv4, vs_ifs) and
+                ip = self._resolve_hostname(host)
+                if (self._ip_in_ifs(ip, vs_ifs) and
                         junction == vol.id['junction_path']):
                     mnt_share_vols.add(vol)
                     vol.export['path'] = sh
@@ -1036,6 +1040,24 @@ class NetAppDirectCmodeNfsDriver (NetAppDirectNfsDriver):
         extra_specs = get_volume_extra_specs(volume)
         vols = ssc_utils.get_volumes_for_specs(self.ssc_vols, extra_specs)
         return netapp_vol in vols
+
+    def delete_volume(self, volume):
+        """Deletes a logical volume."""
+        share = volume['provider_location']
+        super(NetAppDirectCmodeNfsDriver, self).delete_volume(volume)
+        self._post_prov_deprov_in_ssc(share)
+
+    def delete_snapshot(self, snapshot):
+        """Deletes a snapshot."""
+        share = self._get_provider_location(snapshot.volume_id)
+        super(NetAppDirectCmodeNfsDriver, self).delete_snapshot(snapshot)
+        self._post_prov_deprov_in_ssc(share)
+
+    def _post_prov_deprov_in_ssc(self, share):
+        if self.ssc_enabled and share:
+            netapp_vol = self._get_vol_for_share(share)
+            if netapp_vol:
+                self._update_stale_vols(volume=netapp_vol)
 
 
 class NetAppDirect7modeNfsDriver (NetAppDirectNfsDriver):

@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 # Copyright (c) 2013 The Johns Hopkins University/Applied Physics Laboratory
 # All Rights Reserved.
 #
@@ -68,9 +67,6 @@ class ConfKeyManager(key_mgr.KeyManager):
         super(ConfKeyManager, self).__init__()
 
         self.key_id = '00000000-0000-0000-0000-000000000000'
-        if CONF.keymgr.fixed_key is None:
-            LOG.warn(_('config option keymgr.fixed_key has not been defined: '
-                       'some operations may fail unexpectedly'))
 
     def _generate_key(self, **kwargs):
         _hex = self._generate_hex_key(**kwargs)
@@ -79,6 +75,8 @@ class ConfKeyManager(key_mgr.KeyManager):
 
     def _generate_hex_key(self, **kwargs):
         if CONF.keymgr.fixed_key is None:
+            LOG.warn(_('config option keymgr.fixed_key has not been defined: '
+                       'some operations may fail unexpectedly'))
             raise ValueError(_('keymgr.fixed_key not defined'))
         return CONF.keymgr.fixed_key
 

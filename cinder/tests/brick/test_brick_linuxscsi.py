@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # (c) Copyright 2013 Hewlett-Packard Development Company, L.P.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,7 +18,6 @@ import string
 from cinder.brick.initiator import linuxscsi
 from cinder.openstack.common import log as logging
 from cinder import test
-from cinder import utils
 
 LOG = logging.getLogger(__name__)
 

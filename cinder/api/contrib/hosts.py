@@ -138,7 +138,7 @@ def check_host(fn):
     return wrapped
 
 
-class HostController(object):
+class HostController(wsgi.Controller):
     """The Hosts API controller for the OpenStack API."""
     def __init__(self):
         self.api = volume_api.HostAPI()
@@ -250,7 +250,7 @@ class HostController(object):
 
 
 class Hosts(extensions.ExtensionDescriptor):
-    """Admin-only host administration"""
+    """Admin-only host administration."""
 
     name = "Hosts"
     alias = "os-hosts"

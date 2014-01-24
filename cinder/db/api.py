@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -45,7 +43,6 @@ these objects be simple dictionaries.
 
 from oslo.config import cfg
 
-from cinder import exception
 from cinder.openstack.common.db import api as db_api
 
 
@@ -77,11 +74,6 @@ CONF.register_opts(db_opts)
 _BACKEND_MAPPING = {'sqlalchemy': 'cinder.db.sqlalchemy.api'}
 
 IMPL = db_api.DBAPI(backend_mapping=_BACKEND_MAPPING)
-
-
-class NoMoreTargets(exception.CinderException):
-    """No more available targets"""
-    pass
 
 
 ###################
@@ -321,7 +313,8 @@ def snapshot_metadata_delete(context, snapshot_id, key):
 
 def snapshot_metadata_update(context, snapshot_id, metadata, delete):
     """Update metadata if it exists, otherwise create it."""
-    IMPL.snapshot_metadata_update(context, snapshot_id, metadata, delete)
+    return IMPL.snapshot_metadata_update(context, snapshot_id,
+                                         metadata, delete)
 
 
 ####################
@@ -339,7 +332,7 @@ def volume_metadata_delete(context, volume_id, key):
 
 def volume_metadata_update(context, volume_id, metadata, delete):
     """Update metadata if it exists, otherwise create it."""
-    IMPL.volume_metadata_update(context, volume_id, metadata, delete)
+    return IMPL.volume_metadata_update(context, volume_id, metadata, delete)
 
 
 ##################

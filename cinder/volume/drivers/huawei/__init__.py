@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 Huawei Technologies Co., Ltd.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -25,8 +23,6 @@ from oslo.config import cfg
 
 from cinder import exception
 from cinder.openstack.common import log as logging
-from cinder.volume.configuration import Configuration
-from cinder.volume import driver
 from cinder.volume.drivers.huawei import huawei_dorado
 from cinder.volume.drivers.huawei import huawei_hvs
 from cinder.volume.drivers.huawei import huawei_t

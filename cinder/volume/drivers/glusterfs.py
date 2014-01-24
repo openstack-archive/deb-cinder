@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 Red Hat, Inc.
 # All Rights Reserved.
 #
@@ -19,7 +17,6 @@ import errno
 import hashlib
 import json
 import os
-import re
 import stat
 import tempfile
 import time
@@ -41,9 +38,6 @@ volume_opts = [
     cfg.StrOpt('glusterfs_shares_config',
                default='/etc/cinder/glusterfs_shares',
                help='File with the list of available gluster shares'),
-    cfg.StrOpt('glusterfs_disk_util',
-               default='df',
-               help='Use du or df for free space calculation'),
     cfg.BoolOpt('glusterfs_sparsed_volumes',
                 default=True,
                 help=('Create volumes as sparsed files which take no space.'
@@ -160,6 +154,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
         return snap_info['active']
 
+    @utils.synchronized('glusterfs', external=False)
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
 
@@ -456,8 +451,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         LOG.debug(_('volume id: %s') % snapshot['volume_id'])
 
         path_to_disk = self._local_path_volume(snapshot['volume'])
-        snap_id = snapshot['id']
-        self._create_snapshot(snapshot, path_to_disk, snap_id)
+        self._create_snapshot(snapshot, path_to_disk)
 
     def _create_qcow2_snap_file(self, snapshot, backing_filename,
                                 new_snap_path):
@@ -486,7 +480,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                    new_snap_path]
         self._execute(*command, run_as_root=True)
 
-    def _create_snapshot(self, snapshot, path_to_disk, snap_id):
+    def _create_snapshot(self, snapshot, path_to_disk):
         """Create snapshot (offline case)."""
 
         # Requires volume status = 'available'
@@ -549,6 +543,10 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         If volume status is 'in-use', calculate what qcow2 files need to
         merge, and call to Nova to perform this operation.
 
+        :raises: InvalidVolume if status not acceptable
+        :raises: GlusterfsException(msg) if operation fails
+        :returns: None
+
         """
 
         LOG.debug(_('deleting snapshot %s') % snapshot['id'])
@@ -564,9 +562,18 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         # Determine the true snapshot file for this snapshot
         #  based on the .info file
         info_path = self._local_path_volume(snapshot['volume']) + '.info'
-        snap_info = self._read_info_file(info_path)
-        snapshot_file = snap_info[snapshot['id']]
+        snap_info = self._read_info_file(info_path, empty_if_missing=True)
 
+        if snapshot['id'] not in snap_info:
+            # If snapshot info file is present, but snapshot record does not
+            # exist, do not attempt to delete.
+            # (This happens, for example, if snapshot_create failed due to lack
+            # of permission to write to the share.)
+            LOG.info(_('Snapshot record for %s is not present, allowing '
+                       'snapshot_delete to proceed.') % snapshot['id'])
+            return
+
+        snapshot_file = snap_info[snapshot['id']]
         LOG.debug(_('snapshot_file for this snap is %s') % snapshot_file)
 
         snapshot_path = '%s/%s' % (self._local_volume_dir(snapshot['volume']),
@@ -590,6 +597,12 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                 # file as base.
                 msg = _('No base file found for %s.') % snapshot_path
                 raise exception.GlusterfsException(msg)
+
+            base_path = os.path.join(
+                self._local_volume_dir(snapshot['volume']), base_file)
+            base_file_img_info = self._qemu_img_info(base_path)
+            new_base_file = base_file_img_info.backing_file
+
             base_id = None
             info_path = self._local_path_volume(snapshot['volume']) + '.info'
             snap_info = self._read_info_file(info_path)
@@ -608,7 +621,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                 'active_file': active_file,
                 'snapshot_file': snapshot_file,
                 'base_file': base_file,
-                'base_id': base_id
+                'base_id': base_id,
+                'new_base_file': new_base_file
             }
 
             return self._delete_snapshot_online(context,
@@ -718,8 +732,15 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             # info['base'] => snapshot_file
 
             file_to_delete = info['base_file']
+            if info['base_id'] is None:
+                # Passing base=none to blockRebase ensures that
+                # libvirt blanks out the qcow2 backing file pointer
+                new_base = None
+            else:
+                new_base = info['new_base_file']
+                snap_info[info['base_id']] = info['snapshot_file']
 
-            delete_info = {'file_to_merge': info['base_file'],
+            delete_info = {'file_to_merge': new_base,
                            'merge_target_file': None,  # current
                            'type': 'qcow2',
                            'volume_id': snapshot['volume']['id']}
@@ -882,6 +903,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         """Disallow connection from connector."""
         pass
 
+    @utils.synchronized('glusterfs', external=False)
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
 
@@ -1076,17 +1098,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                                mount_point, run_as_root=True)
         out = out.splitlines()[1]
 
-        available = 0
-
         size = int(out.split()[1])
-        if self.configuration.glusterfs_disk_util == 'df':
-            available = int(out.split()[3])
-        else:
-            out, _ = self._execute('du', '-sb', '--apparent-size',
-                                   '--exclude', '*snapshot*', mount_point,
-                                   run_as_root=True)
-            used = int(out.split()[0])
-            available = size - used
+        available = int(out.split()[3])
 
         return available, size
 

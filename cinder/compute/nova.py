@@ -17,7 +17,6 @@ Handles all requests to Nova.
 """
 
 
-from novaclient import extension
 from novaclient import service_catalog
 from novaclient.v1_1 import client as nova_client
 from novaclient.v1_1.contrib import assisted_volume_snapshots
@@ -47,7 +46,7 @@ nova_opts = [
                help='region name of this node'),
     cfg.StrOpt('nova_ca_certificates_file',
                default=None,
-               help='Location of ca certicates file to use for nova client '
+               help='Location of ca certificates file to use for nova client '
                     'requests.'),
     cfg.BoolOpt('nova_api_insecure',
                 default=False,

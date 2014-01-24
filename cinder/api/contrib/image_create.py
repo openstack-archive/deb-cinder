@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 NTT.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -23,7 +21,7 @@ from cinder.api import extensions
 
 
 class Image_create(extensions.ExtensionDescriptor):
-    """Allow creating a volume from an image in the Create Volume v1 API"""
+    """Allow creating a volume from an image in the Create Volume v1 API."""
 
     name = "CreateVolumeExtension"
     alias = "os-image-create"

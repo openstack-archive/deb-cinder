@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 NetApp, Inc.
 # All Rights Reserved.
@@ -36,7 +35,6 @@ from cinder.volume.drivers.netapp.options import netapp_connection_opts
 from cinder.volume.drivers.netapp.options import netapp_provisioning_opts
 from cinder.volume.drivers.netapp.options import netapp_transport_opts
 from cinder.volume.drivers.netapp import ssc_utils
-from cinder.volume.drivers.netapp import utils
 
 
 LOG = logging.getLogger("cinder.volume.driver")
@@ -61,7 +59,7 @@ class FakeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
 
 class FakeHttplibSocket(object):
-    """A fake socket implementation for httplib.HTTPResponse"""
+    """A fake socket implementation for httplib.HTTPResponse."""
     def __init__(self, value):
         self._rbuffer = StringIO.StringIO(value)
         self._wbuffer = StringIO.StringIO('')
@@ -93,7 +91,7 @@ RESPONSE_SUFFIX_DIRECT = """</netapp>"""
 
 
 class FakeDirectCMODEServerHandler(FakeHTTPRequestHandler):
-    """HTTP handler that fakes enough stuff to allow the driver to run"""
+    """HTTP handler that fakes enough stuff to allow the driver to run."""
 
     def do_GET(s):
         """Respond to a GET request."""
@@ -433,7 +431,7 @@ class FakeDirectCMODEServerHandler(FakeHTTPRequestHandler):
 
     @staticmethod
     def _get_child_content(self, name):
-        """Get the content of the child"""
+        """Get the content of the child."""
         for child in self.iterchildren():
             if child.tag == name or etree.QName(child.tag).localname == name:
                 return child.text
@@ -680,7 +678,7 @@ class NetAppDriverNegativeTestCase(test.TestCase):
 
 
 class FakeDirect7MODEServerHandler(FakeHTTPRequestHandler):
-    """HTTP handler that fakes enough stuff to allow the driver to run"""
+    """HTTP handler that fakes enough stuff to allow the driver to run."""
 
     def do_GET(s):
         """Respond to a GET request."""

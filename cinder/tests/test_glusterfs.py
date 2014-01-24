@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2013 Red Hat, Inc.
 # All Rights Reserved.
@@ -17,7 +16,6 @@
 """Unit tests for the GlusterFS driver module."""
 
 import errno
-import json
 import os
 import tempfile
 
@@ -26,7 +24,6 @@ from mox import IgnoreArg
 from mox import IsA
 from mox import stubout
 
-from cinder import compute
 from cinder import context
 from cinder import db
 from cinder import exception
@@ -34,7 +31,6 @@ from cinder.image import image_utils
 from cinder.openstack.common import imageutils
 from cinder.openstack.common import processutils as putils
 from cinder import test
-from cinder.tests.compute import test_nova
 from cinder import units
 from cinder import utils
 from cinder.volume import configuration as conf
@@ -236,50 +232,6 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         delattr(glusterfs.CONF, 'glusterfs_disk_util')
 
-    def test_get_available_capacity_with_du(self):
-        """_get_available_capacity should calculate correct value."""
-        mox = self._mox
-        drv = self._driver
-
-        old_value = self._configuration.glusterfs_disk_util
-        self._configuration.glusterfs_disk_util = 'du'
-
-        df_total_size = 2620544
-        df_used_size = 996864
-        df_avail_size = 1490560
-        df_title = 'Filesystem 1-blocks Used Available Use% Mounted on\n'
-        df_mnt_data = 'glusterfs-host:/export %d %d %d 41%% /mnt' % \
-                      (df_total_size,
-                       df_used_size,
-                       df_avail_size)
-        df_output = df_title + df_mnt_data
-
-        du_used = 490560
-        du_output = '%d /mnt' % du_used
-
-        mox.StubOutWithMock(drv, '_get_mount_point_for_share')
-        drv._get_mount_point_for_share(self.TEST_EXPORT1).\
-            AndReturn(self.TEST_MNT_POINT)
-
-        mox.StubOutWithMock(drv, '_execute')
-        drv._execute('df', '--portability', '--block-size', '1',
-                     self.TEST_MNT_POINT,
-                     run_as_root=True).\
-            AndReturn((df_output, None))
-        drv._execute('du', '-sb', '--apparent-size',
-                     '--exclude', '*snapshot*',
-                     self.TEST_MNT_POINT,
-                     run_as_root=True).AndReturn((du_output, None))
-
-        mox.ReplayAll()
-
-        self.assertEqual((df_total_size - du_used, df_total_size),
-                         drv._get_available_capacity(self.TEST_EXPORT1))
-
-        mox.VerifyAll()
-
-        self._configuration.glusterfs_disk_util = old_value
-
     def test_load_shares_config(self):
         mox = self._mox
         drv = self._driver
@@ -292,6 +244,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         config_data.append(self.TEST_EXPORT1)
         config_data.append('#' + self.TEST_EXPORT2)
         config_data.append(self.TEST_EXPORT2 + ' ' + self.TEST_EXPORT2_OPTIONS)
+        config_data.append('broken:share_format')
         config_data.append('')
         drv._read_config_file(self.TEST_SHARES_CONFIG_FILE).\
             AndReturn(config_data)
@@ -877,7 +830,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         snap_path_chain = [{self.SNAP_UUID: snap_file},
                            {'active': snap_file}]
 
-        drv._read_info_file(info_path).AndReturn(info_file_dict)
+        drv._read_info_file(info_path, empty_if_missing=True).\
+            AndReturn(info_file_dict)
 
         drv._execute('qemu-img', 'commit', snap_path_2, run_as_root=True)
 
@@ -966,7 +920,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         drv._ensure_share_writable(volume_dir)
 
         info_path = drv._local_path_volume(volume) + '.info'
-        drv._read_info_file(info_path).AndReturn(info_file_dict)
+        drv._read_info_file(info_path, empty_if_missing=True).\
+            AndReturn(info_file_dict)
 
         img_info = imageutils.QemuImgInfo(qemu_img_info_output_snap_1)
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
@@ -994,6 +949,44 @@ class GlusterFsDriverTestCase(test.TestCase):
         drv._read_info_file(info_path).AndReturn(info_file_dict)
 
         drv._write_info_file(info_path, info_file_dict)
+
+        mox.ReplayAll()
+
+        drv.delete_snapshot(snap_ref)
+
+        mox.VerifyAll()
+
+    def test_delete_snapshot_not_in_info(self):
+        """Snapshot not in info file / info file doesn't exist.
+
+        Snapshot creation failed so nothing is on-disk.  Driver
+        should allow operation to succeed so the manager can
+        remove the snapshot record.
+
+        (Scenario: Snapshot object created in Cinder db but not
+         on backing storage.)
+
+        """
+        (mox, drv) = self._mox, self._driver
+
+        hashed = drv._get_hash_str(self.TEST_EXPORT1)
+        volume_dir = os.path.join(self.TEST_MNT_POINT_BASE, hashed)
+        volume_filename = 'volume-%s' % self.VOLUME_UUID
+        volume_path = os.path.join(volume_dir, volume_filename)
+        info_path = '%s%s' % (volume_path, '.info')
+
+        mox.StubOutWithMock(drv, '_read_file')
+        mox.StubOutWithMock(drv, '_read_info_file')
+        mox.StubOutWithMock(drv, '_ensure_share_writable')
+
+        snap_ref = {'name': 'test snap',
+                    'volume_id': self.VOLUME_UUID,
+                    'volume': self._simple_volume(),
+                    'id': self.SNAP_UUID_2}
+
+        drv._ensure_share_writable(volume_dir)
+
+        drv._read_info_file(info_path, empty_if_missing=True).AndReturn({})
 
         mox.ReplayAll()
 
@@ -1183,7 +1176,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                           snap_ref)
 
     def test_delete_snapshot_online_1(self):
-        """Delete the newest snapshot."""
+        """Delete the newest snapshot, with only one snap present."""
         (mox, drv) = self._mox, self._driver
 
         volume = self._simple_volume()
@@ -1222,7 +1215,8 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         drv._ensure_share_writable(volume_dir)
 
-        drv._read_info_file(info_path).AndReturn(snap_info)
+        drv._read_info_file(info_path, empty_if_missing=True).\
+            AndReturn(snap_info)
 
         os.path.exists(snap_path).AndReturn(True)
 
@@ -1233,7 +1227,17 @@ class GlusterFsDriverTestCase(test.TestCase):
         backing file: %s
         """ % (snap_file, volume_file)
         img_info = imageutils.QemuImgInfo(qemu_img_info_output)
+
+        vol_qemu_img_info_output = """image: %s
+        file format: raw
+        virtual size: 1.0G (1073741824 bytes)
+        disk size: 173K
+        """ % volume_file
+        volume_img_info = imageutils.QemuImgInfo(vol_qemu_img_info_output)
+
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
+
+        image_utils.qemu_img_info(volume_path).AndReturn(volume_img_info)
 
         drv._read_info_file(info_path, empty_if_missing=True).\
             AndReturn(snap_info)
@@ -1241,7 +1245,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         delete_info = {
             'type': 'qcow2',
             'merge_target_file': None,
-            'file_to_merge': volume_file,
+            'file_to_merge': None,
             'volume_id': self.VOLUME_UUID
         }
 
@@ -1272,7 +1276,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         drv.delete_snapshot(snap_ref)
 
     def test_delete_snapshot_online_2(self):
-        """Delete the middle snapshot."""
+        """Delete the middle of 3 snapshots."""
         (mox, drv) = self._mox, self._driver
 
         volume = self._simple_volume()
@@ -1314,7 +1318,8 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         drv._ensure_share_writable(volume_dir)
 
-        drv._read_info_file(info_path).AndReturn(snap_info)
+        drv._read_info_file(info_path, empty_if_missing=True).\
+            AndReturn(snap_info)
 
         os.path.exists(snap_path).AndReturn(True)
 
@@ -1326,7 +1331,16 @@ class GlusterFsDriverTestCase(test.TestCase):
         """ % (snap_file, volume_file)
         img_info = imageutils.QemuImgInfo(qemu_img_info_output)
 
+        vol_qemu_img_info_output = """image: %s
+        file format: raw
+        virtual size: 1.0G (1073741824 bytes)
+        disk size: 173K
+        """ % volume_file
+        volume_img_info = imageutils.QemuImgInfo(vol_qemu_img_info_output)
+
         image_utils.qemu_img_info(snap_path).AndReturn(img_info)
+
+        image_utils.qemu_img_info(volume_path).AndReturn(volume_img_info)
 
         drv._read_info_file(info_path, empty_if_missing=True).\
             AndReturn(snap_info)
@@ -1397,7 +1411,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         snap_info = {'active': snap_file,
                      self.SNAP_UUID: snap_file}
 
-        drv._read_info_file(info_path).AndReturn(snap_info)
+        drv._read_info_file(info_path, empty_if_missing=True).\
+            AndReturn(snap_info)
 
         os.path.exists(snap_path).AndReturn(True)
 

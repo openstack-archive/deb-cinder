@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 Zadara Storage, Inc.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -21,7 +19,6 @@ Tests for Zadara VPSA volume driver
 
 import copy
 import httplib
-import mox
 
 from cinder import exception
 from cinder.openstack.common import log as logging

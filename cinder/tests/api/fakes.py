@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2010 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -135,7 +133,12 @@ class HTTPRequest(webob.Request):
 
     @classmethod
     def blank(cls, *args, **kwargs):
-        kwargs['base_url'] = 'http://localhost/v1'
+        if args != None:
+            if args[0].find('v1') == 0:
+                kwargs['base_url'] = 'http://localhost/v1'
+            else:
+                kwargs['base_url'] = 'http://localhost/v2'
+
         use_admin_context = kwargs.pop('use_admin_context', False)
         out = os_wsgi.Request.blank(*args, **kwargs)
         out.environ['cinder.context'] = FakeRequestContext(

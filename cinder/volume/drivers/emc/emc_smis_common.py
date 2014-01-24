@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 EMC Corporation.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -44,6 +42,15 @@ except ImportError:
 
 CINDER_EMC_CONFIG_FILE = '/etc/cinder/cinder_emc_config.xml'
 
+emc_opts = [
+    cfg.StrOpt('cinder_emc_config_file',
+               default=CINDER_EMC_CONFIG_FILE,
+               help='use this file for cinder emc plugin '
+                    'config data'), ]
+
+
+CONF.register_opts(emc_opts)
+
 
 class EMCSMISCommon():
     """Common code that can be used by ISCSI and FC drivers."""
@@ -57,15 +64,9 @@ class EMCSMISCommon():
              'volume_backend_name': None}
 
     def __init__(self, prtcl, configuration=None):
-
-        opt = cfg.StrOpt('cinder_emc_config_file',
-                         default=CINDER_EMC_CONFIG_FILE,
-                         help='use this file for cinder emc plugin '
-                         'config data')
-        CONF.register_opt(opt)
         self.protocol = prtcl
         self.configuration = configuration
-        self.configuration.append_config_values([opt])
+        self.configuration.append_config_values(emc_opts)
 
         ip, port = self._get_ecom_server()
         self.user, self.passwd = self._get_ecom_cred()
@@ -1292,7 +1293,7 @@ class EMCSMISCommon():
         return foundCtrl
 
     # Find out how many volumes are mapped to a host
-    # assoociated to the LunMaskingSCSIProtocolController
+    # associated to the LunMaskingSCSIProtocolController
     def get_num_volumes_mapped(self, volume, connector):
         numVolumesMapped = 0
         volumename = volume['name']

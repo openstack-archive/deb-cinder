@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -24,8 +22,8 @@ from cinder import volume
 from webob import exc
 
 
-class Controller(object):
-    """The volume metadata API controller for the OpenStack API."""
+class Controller(wsgi.Controller):
+    """The snapshot metadata API controller for the OpenStack API."""
 
     def __init__(self):
         self.volume_api = volume.API()

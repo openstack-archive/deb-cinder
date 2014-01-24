@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 NetApp, Inc.
 # All Rights Reserved.
@@ -20,16 +19,11 @@ import BaseHTTPServer
 import copy
 import httplib
 from lxml import etree
-import mox
 from mox import IgnoreArg
-from mox import IsA
-from mox import MockObject
 import StringIO
 
-from cinder import context
 from cinder import exception
 from cinder import test
-from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp import api
 from cinder.volume.drivers.netapp import ssc_utils
 

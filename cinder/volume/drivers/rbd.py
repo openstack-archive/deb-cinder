@@ -623,7 +623,18 @@ class RBDDriver(driver.VolumeDriver):
 
             if clone_snap is None:
                 LOG.debug(_("deleting rbd volume %s") % (volume_name))
-                self.rbd.RBD().remove(client.ioctx, volume_name)
+                try:
+                    self.rbd.RBD().remove(client.ioctx, volume_name)
+                except self.rbd.ImageBusy:
+                    msg = (_("ImageBusy error raised while deleting rbd "
+                             "volume. This may have been caused by a "
+                             "connection from a client that has crashed and, "
+                             "if so, may be resolved by retrying the delete "
+                             "after 30 seconds has elapsed."))
+                    LOG.error(msg)
+                    # Now raise this so that volume stays available so that we
+                    # delete can be retried.
+                    raise exception.VolumeIsBusy(msg, volume_name=volume_name)
 
                 # If it is a clone, walk back up the parent chain deleting
                 # references.
@@ -706,7 +717,7 @@ class RBDDriver(driver.VolumeDriver):
         with RADOSClient(self) as client:
             return client.cluster.get_fsid()
 
-    def _is_cloneable(self, image_location):
+    def _is_cloneable(self, image_location, image_meta):
         try:
             fsid, pool, image, snapshot = self._parse_location(image_location)
         except exception.ImageUnacceptable as e:
@@ -715,6 +726,13 @@ class RBDDriver(driver.VolumeDriver):
 
         if self._get_fsid() != fsid:
             reason = _('%s is in a different ceph cluster') % image_location
+            LOG.debug(reason)
+            return False
+
+        if image_meta['disk_format'] != 'raw':
+            reason = _("rbd image clone requires image format to be "
+                       "'raw' but image {0} is '{1}'").format(
+                           image_location, image_meta['disk_format'])
             LOG.debug(reason)
             return False
 
@@ -730,9 +748,10 @@ class RBDDriver(driver.VolumeDriver):
                       dict(loc=image_location, err=e))
             return False
 
-    def clone_image(self, volume, image_location, image_id):
+    def clone_image(self, volume, image_location, image_id, image_meta):
         image_location = image_location[0] if image_location else None
-        if image_location is None or not self._is_cloneable(image_location):
+        if image_location is None or not self._is_cloneable(
+                image_location, image_meta):
             return ({}, False)
         prefix, pool, image, snapshot = self._parse_location(image_location)
         self._clone(volume, pool, image, snapshot)
@@ -750,7 +769,9 @@ class RBDDriver(driver.VolumeDriver):
 
         with tempfile.NamedTemporaryFile(dir=tmp_dir) as tmp:
             image_utils.fetch_to_raw(context, image_service, image_id,
-                                     tmp.name, size=volume['size'])
+                                     tmp.name,
+                                     self.configuration.volume_dd_blocksize,
+                                     size=volume['size'])
 
             self.delete_volume(volume)
 

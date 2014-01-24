@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright (c) 2012 NetApp, Inc.
 # All Rights Reserved.
@@ -16,7 +15,6 @@
 #    under the License.
 """Unit tests for the NFS driver module."""
 
-import __builtin__
 import errno
 import os
 
@@ -29,7 +27,6 @@ from oslo.config import cfg
 from cinder import context
 from cinder import exception
 from cinder.image import image_utils
-from cinder.openstack.common import processutils as putils
 from cinder import test
 from cinder import units
 from cinder.volume import configuration as conf
@@ -137,6 +134,7 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_oversub_ratio = 1.0
         self.configuration.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
         self.configuration.nfs_mount_options = None
+        self.configuration.volume_dd_blocksize = '1M'
         self._driver = nfs.NfsDriver(configuration=self.configuration)
         self._driver.shares = {}
         self.addCleanup(self.stubs.UnsetAll)
@@ -176,6 +174,7 @@ class NfsDriverTestCase(test.TestCase):
 
         mox.StubOutWithMock(image_utils, 'fetch_to_raw')
         image_utils.fetch_to_raw(None, None, None, TEST_IMG_SOURCE,
+                                 mox_lib.IgnoreArg(),
                                  size=self.TEST_SIZE_IN_GB)
 
         mox.StubOutWithMock(image_utils, 'resize_image')
@@ -280,6 +279,7 @@ class NfsDriverTestCase(test.TestCase):
         config_data.append('')
         config_data.append(self.TEST_NFS_EXPORT2 + ' ' +
                            self.TEST_NFS_EXPORT2_OPTIONS)
+        config_data.append('broken:share_format')
         drv._read_config_file(self.TEST_SHARES_CONFIG_FILE).\
             AndReturn(config_data)
         mox.ReplayAll()
@@ -606,7 +606,7 @@ class NfsDriverTestCase(test.TestCase):
         mox.VerifyAll()
 
     def test_get_volume_stats(self):
-        """get_volume_stats must fill the correct values"""
+        """get_volume_stats must fill the correct values."""
         mox = self._mox
         drv = self._driver
 

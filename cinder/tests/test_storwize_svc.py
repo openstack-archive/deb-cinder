@@ -25,7 +25,6 @@ Tests for the IBM Storwize family and SVC volume driver.
 
 import random
 import re
-import socket
 
 from cinder import context
 from cinder import exception
@@ -2263,7 +2262,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         volume = self._generate_vol_info(None, None)
         volume['volume_type_id'] = None
         self.driver.create_volume(volume)
-        self.assertNotEquals(cap['extent_size'], self.driver._extent_size)
+        self.assertNotEqual(cap['extent_size'], self.driver._extent_size)
         self.driver.migrate_volume(ctxt, volume, host)
         self.driver.delete_volume(volume)
 

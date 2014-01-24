@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 The Johns Hopkins University/Applied Physics Laboratory
 # All Rights Reserved.
 #
@@ -17,14 +15,10 @@
 
 """The volume encryption metadata extension."""
 
-import webob
-
 from cinder.api import extensions
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import db
-from cinder import exception
-from cinder.openstack.common.notifier import api as notifier_api
 from cinder.volume import volume_types
 
 authorize = extensions.extension_authorizer('volume',
@@ -38,7 +32,7 @@ class VolumeEncryptionMetadataTemplate(xmlutil.TemplateBuilder):
 
 
 class VolumeEncryptionMetadataController(wsgi.Controller):
-    """The volume encryption metadata API extension"""
+    """The volume encryption metadata API extension."""
 
     def _get_volume_encryption_metadata(self, context, volume_id):
         return db.volume_encryption_metadata_get(context, volume_id)

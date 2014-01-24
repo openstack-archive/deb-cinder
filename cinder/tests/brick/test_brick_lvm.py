@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -66,16 +64,19 @@ class BrickLvmTestCase(test.TestCase):
         cmd_string = ', '.join(cmd)
         data = "\n"
 
-        if 'vgs, --noheadings, --unit=g, -o, name' == cmd_string:
+        if ('env, LC_ALL=C, vgs, --noheadings, --unit=g, -o, name' ==
+                cmd_string):
             data = "  fake-volumes\n"
             data += "  some-other-vg\n"
-        elif 'vgs, --noheadings, -o, name, fake-volumes' == cmd_string:
+        elif ('env, LC_ALL=C, vgs, --noheadings, -o, name, fake-volumes' ==
+                cmd_string):
             data = "  fake-volumes\n"
-        elif 'vgs, --version' in cmd_string:
+        elif 'env, LC_ALL=C, vgs, --version' in cmd_string:
             data = "  LVM version:     2.02.95(2) (2012-03-06)\n"
-        elif 'vgs, --noheadings, -o uuid, fake-volumes' in cmd_string:
+        elif ('env, LC_ALL=C, vgs, --noheadings, -o uuid, fake-volumes' in
+              cmd_string):
             data = "  kVxztV-dKpG-Rz7E-xtKY-jeju-QsYU-SLG6Z1\n"
-        elif 'vgs, --noheadings, --unit=g, ' \
+        elif 'env, LC_ALL=C, vgs, --noheadings, --unit=g, ' \
              '-o, name,size,free,lv_count,uuid, ' \
              '--separator, :, --nosuffix' in cmd_string:
             data = "  fake-volumes:10.00:10.00:0:"\
@@ -86,21 +87,31 @@ class BrickLvmTestCase(test.TestCase):
                     "lWyauW-dKpG-Rz7E-xtKY-jeju-QsYU-SLG7Z2\n"
             data += "  fake-volumes-3:10.00:10.00:0:"\
                     "mXzbuX-dKpG-Rz7E-xtKY-jeju-QsYU-SLG8Z3\n"
-        elif 'lvs, --noheadings, --unit=g, -o, vg_name,name,size'\
-                in cmd_string:
+        elif ('env, LC_ALL=C, lvs, --noheadings, '
+              '--unit=g, -o, vg_name,name,size' in cmd_string):
             data = "  fake-volumes fake-1 1.00g\n"
             data += "  fake-volumes fake-2 1.00g\n"
-        elif 'lvdisplay, --noheading, -C, -o, Attr' in cmd_string:
+        elif ('env, LC_ALL=C, lvdisplay, --noheading, -C, -o, Attr' in
+              cmd_string):
             if 'test-volumes' in cmd_string:
                 data = '  wi-a-'
             else:
                 data = '  owi-a-'
-        elif 'pvs, --noheadings' and 'fake-volumes' in cmd_string:
+        elif 'env, LC_ALL=C, pvs, --noheadings' in cmd_string \
+                and 'fake-volumes' in cmd_string:
             data = "  fake-volumes:/dev/sda:10.00g:8.99g\n"
-        elif 'pvs, --noheadings' in cmd_string:
+        elif 'env, LC_ALL=C, pvs, --noheadings' in cmd_string:
             data = "  fake-volumes:/dev/sda:10.00g:8.99g\n"
             data += "  fake-volumes-2:/dev/sdb:10.00g:8.99g\n"
             data += "  fake-volumes-3:/dev/sdc:10.00g:8.99g\n"
+        elif 'env, LC_ALL=C, lvs, --noheadings, --unit=g, -o, ' \
+             'size,data_percent, ' \
+             '--separator, :' in cmd_string:
+            data = "  9:12\n"
+        elif 'lvcreate, -T, -L, ' in cmd_string:
+            pass
+        elif 'lvcreate, -T, -V, ' in cmd_string:
+            pass
         else:
             raise AssertionError('unexpected command called: %s' % cmd_string)
 
@@ -213,6 +224,24 @@ class BrickLvmTestCase(test.TestCase):
         self.assertFalse(self.vg.supports_lvchange_ignoreskipactivation)
 
         self.vg._supports_lvchange_ignoreskipactivation = None
+
+    def test_thin_pool_creation(self):
+
+        # The size of fake-volumes volume group is 10g, so the calculated thin
+        # pool size should be 9.5g (95% of 10g).
+        self.assertEqual("9.5g", self.vg.create_thin_pool())
+
+        # Passing a size parameter should result in a thin pool of that exact
+        # size.
+        for size in ("1g", "1.2g", "1.75g"):
+            self.assertEqual(size, self.vg.create_thin_pool(size_str=size))
+
+    def test_thin_pool_free_space(self):
+        # The size of fake-volumes-pool is 9g and the allocated data sums up to
+        # 12% so the calculated free space should be 7.92
+        self.assertEqual(float("7.92"),
+                         self.vg._get_thin_pool_free_space("fake-vg",
+                                                           "fake-vg-pool"))
 
     def test_volume_create_after_thin_creation(self):
         """Test self.vg.vg_thin_pool is set to pool_name

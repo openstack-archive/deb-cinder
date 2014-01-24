@@ -188,9 +188,14 @@ class VolumeActionsController(wsgi.Controller):
             connector = body['os-initialize_connection']['connector']
         except KeyError:
             raise webob.exc.HTTPBadRequest("Must specify 'connector'")
-        info = self.volume_api.initialize_connection(context,
-                                                     volume,
-                                                     connector)
+        try:
+            info = self.volume_api.initialize_connection(context,
+                                                         volume,
+                                                         connector)
+        except exception.VolumeBackendAPIException as error:
+            msg = _("Unable to fetch connection information from backend.")
+            raise webob.exc.HTTPInternalServerError(msg)
+
         return {'connection_info': info}
 
     @wsgi.action('os-terminate_connection')
@@ -205,7 +210,11 @@ class VolumeActionsController(wsgi.Controller):
             connector = body['os-terminate_connection']['connector']
         except KeyError:
             raise webob.exc.HTTPBadRequest("Must specify 'connector'")
-        self.volume_api.terminate_connection(context, volume, connector)
+        try:
+            self.volume_api.terminate_connection(context, volume, connector)
+        except exception.VolumeBackendAPIException as error:
+            msg = _("Unable to terminate volume connection from backend.")
+            raise webob.exc.HTTPInternalServerError(explanation=msg)
         return webob.Response(status_int=202)
 
     @wsgi.response(202)
@@ -221,6 +230,16 @@ class VolumeActionsController(wsgi.Controller):
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
         force = params.get('force', False)
+        if isinstance(force, basestring):
+            try:
+                force = strutils.bool_from_string(force, strict=False)
+            except ValueError:
+                msg = _("Bad value for 'force' parameter.")
+                raise webob.exc.HTTPBadRequest(explanation=msg)
+        elif not isinstance(force, bool):
+            msg = _("'force' is not string or bool.")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
         try:
             volume = self.volume_api.get(context, id)
         except exception.VolumeNotFound as error:
@@ -256,8 +275,8 @@ class VolumeActionsController(wsgi.Controller):
             raise webob.exc.HTTPNotFound(explanation=error.msg)
 
         try:
-            _val = int(body['os-extend']['new_size'])
-        except (KeyError, ValueError):
+            int(body['os-extend']['new_size'])
+        except (KeyError, ValueError, TypeError):
             msg = _("New volume size must be specified as an integer.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
@@ -293,6 +312,21 @@ class VolumeActionsController(wsgi.Controller):
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
         self.volume_api.update_readonly_flag(context, volume, readonly_flag)
+        return webob.Response(status_int=202)
+
+    @wsgi.action('os-retype')
+    def _retype(self, req, id, body):
+        """Change type of existing volume."""
+        context = req.environ['cinder.context']
+        volume = self.volume_api.get(context, id)
+        try:
+            new_type = body['os-retype']['new_type']
+        except KeyError:
+            msg = _("New volume type must be specified.")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+        policy = body['os-retype'].get('migration_policy')
+
+        self.volume_api.retype(context, volume, new_type, policy)
         return webob.Response(status_int=202)
 
 

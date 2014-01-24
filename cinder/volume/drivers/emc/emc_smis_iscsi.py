@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 EMC Corporation.
 # Copyright (c) 2012 OpenStack Foundation
 # All Rights Reserved.
@@ -171,7 +169,7 @@ class EMCSMISISCSIDriver(driver.ISCSIDriver):
         sp = device_info['owningsp']
         endpoints = []
         if sp:
-            # endpointss example:
+            # endpoints example:
             # [iqn.1992-04.com.emc:cx.apm00123907237.a8,
             # iqn.1992-04.com.emc:cx.apm00123907237.a9]
             endpoints = self.common._find_iscsi_protocol_endpoints(
