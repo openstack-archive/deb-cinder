@@ -1,6 +1,7 @@
 cinder (2013.2.1-4) unstable; urgency=medium
 
   * Added postrotate script after logrotate to restart daemons.
+  * Fix webob version in requirements.txt.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 03 Feb 2014 15:49:21 +0800
 
