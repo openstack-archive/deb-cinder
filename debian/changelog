@@ -2,7 +2,33 @@ cinder (2014.1~b2-1) UNRELEASED; urgency=low
 
   * New upstream release.
 
- -- Thomas Goirand <zigo@debian.org>  Thu, 19 Dec 2013 17:50:32 +0800
+ -- Thomas Goirand <zigo@debian.org>  Mon, 17 Feb 2014 15:11:34 +0800
+
+cinder (2013.2.2-2) unstable; urgency=medium
+
+  * Rebuilt using openstack-pkg-tools >= 9.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 14 Feb 2014 17:36:24 +0000
+
+cinder (2013.2.2-1) unstable; urgency=medium
+
+  * New upstream point release.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 14 Feb 2014 11:04:50 +0800
+
+cinder (2013.2.1-4) unstable; urgency=medium
+
+  * Added postrotate script after logrotate to restart daemons.
+  * Fix webob version in requirements.txt.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 03 Feb 2014 15:49:21 +0800
+
+cinder (2013.2.1-3) unstable; urgency=medium
+
+  * Updated fr.po debconf thanks to Julien Patriarca (Closes: #733091).
+  * New sv.po debconf translation thanks to Martin Bagge (Closes: #734585).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 13 Jan 2014 17:27:07 +0800
 
 cinder (2013.2.1-2) unstable; urgency=medium
 
