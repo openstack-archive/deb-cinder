@@ -1,14 +1,14 @@
 # Danish translation cinder.
-# Copyright (C) 2013 cinder & nedenstående oversættere.
+# Copyright (C) 2014 cinder og nedenstående oversættere.
 # This file is distributed under the same license as the cinder package.
-# Joe Hansen (joedalton2@yahoo.dk), 2013.
+# Joe Hansen (joedalton2@yahoo.dk), 2013, 2014.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
 "POT-Creation-Date: 2013-12-19 16:02+0800\n"
-"PO-Revision-Date: 2013-09-09 12:42+0000\n"
+"PO-Revision-Date: 2014-02-22 12:42+0000\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
 "Language: da\n"
@@ -153,7 +153,7 @@ msgstr ""
 #. Description
 #: ../cinder-common.templates:8001
 msgid "IP address of your RabbitMQ host:"
-msgstr ""
+msgstr "IP-adresse for din RabbitMQ-vært:"
 
 #. Type: string
 #. Description
@@ -167,42 +167,38 @@ msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
 msgstr ""
+"Denne pakke skal forbinde til en central RabbitMQ-server, for at fungere "
+"med andre komponenter i OpenStack."
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:8001
-#, fuzzy
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please specify the IP address of that server."
-msgstr "Angiv venligt adgangskoden til brug med godkendelsesserveren."
+msgstr "Angiv venligt Ip-adressen for den server."
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:9001
 msgid "Username for connection to the RabbitMQ server:"
-msgstr ""
+msgstr "Brugernavn for forbindelsen til RabbitMQ-serveren:"
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:9001
-#, fuzzy
-#| msgid "Please specify the username to use with the authentication server."
 msgid "Please specify the username used to connect to the RabbitMQ server."
-msgstr "Angiv venligst brugernavnet der skal bruges med godkendelseserveren."
+msgstr "Angiv venligst brugernavnet der skal bruges med RabbitMQ-serveren."
 
 #. Type: password
 #. Description
 #: ../cinder-common.templates:10001
 msgid "Password for connection to the RabbitMQ server:"
-msgstr ""
+msgstr "Adgangskode for forbindelsen til RabbitMQ-serveren:"
 
 #. Type: password
 #. Description
 #: ../cinder-common.templates:10001
-#, fuzzy
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please specify the password used to connect to the RabbitMQ server."
-msgstr "Angiv venligt adgangskoden til brug med godkendelsesserveren."
+msgstr "Angiv venligt adgangskoden brugt til at forbinde med RAbbitMQ-serveren."
 
 #. Type: boolean
 #. Description
@@ -306,12 +302,3 @@ msgstr ""
 "repræsenterer et sted. Indtast venligst zonen, som du ønsker at bruge, når "
 "du registrerer slutpunktet."
 
-#~ msgid "Start Cinder services at boot?"
-#~ msgstr "Start Cindertjenester ved opstart?"
-
-#~ msgid ""
-#~ "Please choose whether you want to start Cinder services when the machine "
-#~ "is booted up."
-#~ msgstr ""
-#~ "Vælg venligst hvorvidt du ønsker at starte Cindertjenester når maskinen "
-#~ "starter op."

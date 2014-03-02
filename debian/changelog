@@ -1,3 +1,9 @@
+cinder (2013.2.2-3) UNRELEASED; urgency=low
+
+  * Updates da.po thanks to Joe Dalton (Closes: #739793).
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 02 Mar 2014 17:12:51 +0800
+
 cinder (2013.2.2-2) unstable; urgency=medium
 
   * Rebuilt using openstack-pkg-tools >= 9.
