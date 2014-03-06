@@ -1,5 +1,6 @@
-cinder (2013.2.2-3) UNRELEASED; urgency=low
+cinder (2013.2.2-3) unstable; urgency=medium
 
+  * Rebuilt for SQLA 0.9.x.
   * Updates da.po thanks to Joe Dalton (Closes: #739793).
   * Added initial de.po thanks to Chris Leick (Closes: #737296).
 
