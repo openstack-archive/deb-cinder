@@ -14,33 +14,94 @@
 #    under the License.
 """ Tests for Ceph backup service."""
 
-import fcntl
 import hashlib
+import mock
 import os
-import subprocess
+import six
 import tempfile
-import time
 import uuid
 
-import eventlet
-
+from cinder.backup import driver
 from cinder.backup.drivers import ceph
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import test
-from cinder.tests.backup.fake_rados import mock_rados
-from cinder.tests.backup.fake_rados import mock_rbd
-from cinder import units
 from cinder.volume.drivers import rbd as rbddriver
 
 LOG = logging.getLogger(__name__)
 
+# This is used to collect raised exceptions so that tests may check what was
+# raised.
+# NOTE: this must be initialised in test setUp().
+RAISED_EXCEPTIONS = []
+
+
+class MockException(Exception):
+
+    def __init__(self, *args, **kwargs):
+        RAISED_EXCEPTIONS.append(self.__class__)
+
+
+class MockImageNotFoundException(MockException):
+    """Used as mock for rbd.ImageNotFound."""
+
+
+class MockImageBusyException(MockException):
+    """Used as mock for rbd.ImageBusy."""
+
+
+class MockObjectNotFoundException(MockException):
+    """Used as mock for rados.MockObjectNotFoundException."""
+
+
+def common_mocks(f):
+    """Decorator to set mocks common to all tests.
+
+    The point of doing these mocks here is so that we don't accidentally set
+    mocks that can't/dont't get unset.
+    """
+    def _common_inner_inner1(inst, *args, **kwargs):
+        # NOTE(dosaboy): mock Popen to, by default, raise Exception in order to
+        #                ensure that any test ending up in a subprocess fails
+        #                if not properly mocked.
+        @mock.patch('subprocess.Popen', spec=True)
+        # NOTE(dosaboy): mock out eventlet.sleep() so that it does nothing.
+        @mock.patch('eventlet.sleep', spec=True)
+        @mock.patch('time.time', spec=True)
+        # NOTE(dosaboy): set spec to empty object so that hasattr calls return
+        #                False by default.
+        @mock.patch('cinder.backup.drivers.ceph.rbd', spec=object)
+        @mock.patch('cinder.backup.drivers.ceph.rados', spec=object)
+        def _common_inner_inner2(mock_rados, mock_rbd, mock_time, mock_sleep,
+                                 mock_popen):
+            mock_time.side_effect = inst.time_inc
+            mock_popen.side_effect = Exception
+
+            inst.mock_rados = mock_rados
+            inst.mock_rbd = mock_rbd
+            inst.mock_rados.Rados = mock.Mock
+            inst.mock_rados.Rados.ioctx = mock.Mock()
+            inst.mock_rbd.RBD = mock.Mock
+            inst.mock_rbd.Image = mock.Mock
+            inst.mock_rbd.Image.close = mock.Mock()
+            inst.mock_rbd.ImageBusy = MockImageBusyException
+            inst.mock_rbd.ImageNotFound = MockImageNotFoundException
+
+            inst.service.rbd = inst.mock_rbd
+            inst.service.rados = inst.mock_rados
+            return f(inst, *args, **kwargs)
+
+        return _common_inner_inner2()
+
+    return _common_inner_inner1
+
 
 class BackupCephTestCase(test.TestCase):
-    """Test Case for backup to Ceph object store."""
+    """Test case for ceph backup driver."""
 
     def _create_volume_db_entry(self, id, size):
         vol = {'id': id, 'size': size, 'status': 'available'}
@@ -49,9 +110,6 @@ class BackupCephTestCase(test.TestCase):
     def _create_backup_db_entry(self, backupid, volid, size):
         backup = {'id': backupid, 'size': size, 'volume_id': volid}
         return db.backup_create(self.ctxt, backup)['id']
-
-    def fake_execute_w_exception(*args, **kwargs):
-        raise processutils.ProcessExecutionError()
 
     def time_inc(self):
         self.counter += 1
@@ -62,51 +120,58 @@ class BackupCephTestCase(test.TestCase):
                                               'user_foo', 'conf_foo')
         return rbddriver.RBDImageIOWrapper(rbd_meta)
 
-    def _setup_mock_popen(self, inst, retval=None, p1hook=None, p2hook=None):
-        class stdout(object):
-            def close(self):
-                inst.called.append('stdout_close')
+    def _setup_mock_popen(self, mock_popen, retval=None, p1hook=None,
+                          p2hook=None):
 
-        class FakePopen(object):
+        class MockPopen(object):
+            hooks = [p2hook, p1hook]
 
-            PASS = 0
+            def __init__(mock_inst, cmd, *args, **kwargs):
+                self.callstack.append('popen_init')
+                mock_inst.stdout = mock.Mock()
+                mock_inst.stdout.close = mock.Mock()
+                mock_inst.stdout.close.side_effect = \
+                    lambda *args: self.callstack.append('stdout_close')
+                mock_inst.returncode = 0
+                hook = mock_inst.__class__.hooks.pop()
+                if hook is not None:
+                    hook()
 
-            def __init__(self, cmd, *args, **kwargs):
-                inst.called.append('popen_init')
-                self.stdout = stdout()
-                self.returncode = 0
-                self.__class__.PASS += 1
-                if self.__class__.PASS == 1 and p1hook:
-                    p1hook()
-                elif self.__class__.PASS == 2 and p2hook:
-                    p2hook()
-
-            def communicate(self):
-                inst.called.append('communicate')
+            def communicate(mock_inst):
+                self.callstack.append('communicate')
                 return retval
 
-        self.stubs.Set(subprocess, 'Popen', FakePopen)
+        mock_popen.side_effect = MockPopen
 
     def setUp(self):
+        global RAISED_EXCEPTIONS
+        RAISED_EXCEPTIONS = []
         super(BackupCephTestCase, self).setUp()
         self.ctxt = context.get_admin_context()
 
+        # Create volume.
+        self.volume_size = 1
         self.volume_id = str(uuid.uuid4())
+        self._create_volume_db_entry(self.volume_id, self.volume_size)
+        self.volume = db.volume_get(self.ctxt, self.volume_id)
+
+        # Create backup of volume.
         self.backup_id = str(uuid.uuid4())
+        self._create_backup_db_entry(self.backup_id, self.volume_id,
+                                     self.volume_size)
+        self.backup = db.backup_get(self.ctxt, self.backup_id)
 
-        # Setup librbd stubs
-        self.stubs.Set(ceph, 'rados', mock_rados)
-        self.stubs.Set(ceph, 'rbd', mock_rbd)
-
-        self._create_backup_db_entry(self.backup_id, self.volume_id, 1)
+        # Create alternate volume.
+        self.alt_volume_id = str(uuid.uuid4())
+        self._create_volume_db_entry(self.alt_volume_id, self.volume_size)
+        self.alt_volume = db.volume_get(self.ctxt, self.alt_volume_id)
 
         self.chunk_size = 1024
         self.num_chunks = 128
-        self.length = self.num_chunks * self.chunk_size
-
+        self.data_length = self.num_chunks * self.chunk_size
         self.checksum = hashlib.sha256()
 
-        # Create a file with some data in it
+        # Create a file with some data in it.
         self.volume_file = tempfile.NamedTemporaryFile()
         for i in xrange(0, self.num_chunks):
             data = os.urandom(self.chunk_size)
@@ -119,22 +184,22 @@ class BackupCephTestCase(test.TestCase):
         # always be dealt with gracefully. At time of writing on rbd
         # export/import-diff is executed and if they fail we expect to find
         # alternative means of backing up.
-        fake_exec = self.fake_execute_w_exception
-        self.service = ceph.CephBackupDriver(self.ctxt, execute=fake_exec)
+        mock_exec = mock.Mock()
+        mock_exec.side_effect = processutils.ProcessExecutionError
+
+        self.service = ceph.CephBackupDriver(self.ctxt, execute=mock_exec)
 
         # Ensure that time.time() always returns more than the last time it was
         # called to avoid div by zero errors.
         self.counter = float(0)
-        self.stubs.Set(time, 'time', self.time_inc)
-        self.stubs.Set(eventlet, 'sleep', lambda *args: None)
 
-        # Used to collect info on what was called during a test
-        self.called = []
+        self.callstack = []
 
-        # Do this to ensure that any test ending up in a subprocess fails if
-        # not properly mocked.
-        self.stubs.Set(subprocess, 'Popen', None)
+    def tearDown(self):
+        self.volume_file.close()
+        super(BackupCephTestCase, self).tearDown()
 
+    @common_mocks
     def test_get_rbd_support(self):
         self.assertFalse(hasattr(self.service.rbd, 'RBD_FEATURE_LAYERING'))
         self.assertFalse(hasattr(self.service.rbd, 'RBD_FEATURE_STRIPINGV2'))
@@ -155,87 +220,69 @@ class BackupCephTestCase(test.TestCase):
         self.assertFalse(oldformat)
         self.assertEqual(features, 1 | 2)
 
-    def _set_common_backup_stubs(self, service):
-        self.stubs.Set(self.service, '_get_rbd_support', lambda: (True, 3))
-        self.stubs.Set(self.service, 'get_backup_snaps',
-                       lambda *args, **kwargs: None)
-
-        def rbd_size(inst):
-            return self.chunk_size * self.num_chunks
-
-        self.stubs.Set(self.service.rbd.Image, 'size', rbd_size)
-
-    def _set_common_restore_stubs(self, service):
-        self._set_common_backup_stubs(self.service)
-
-        def rbd_size(inst):
-            return self.chunk_size * self.num_chunks
-
-        self.stubs.Set(self.service.rbd.Image, 'size', rbd_size)
-
+    @common_mocks
     def test_get_most_recent_snap(self):
         last = 'backup.%s.snap.9824923.1212' % (uuid.uuid4())
 
-        def list_snaps(inst, *args):
-            return [{'name': 'backup.%s.snap.6423868.2342' % (uuid.uuid4())},
-                    {'name': 'backup.%s.snap.1321319.3235' % (uuid.uuid4())},
-                    {'name': last},
-                    {'name': 'backup.%s.snap.3824923.1412' % (uuid.uuid4())}]
-
-        self.stubs.Set(self.service.rbd.Image, 'list_snaps', list_snaps)
+        self.mock_rbd.Image.list_snaps = mock.Mock()
+        self.mock_rbd.Image.list_snaps.return_value = \
+            [{'name': 'backup.%s.snap.6423868.2342' % (uuid.uuid4())},
+             {'name': 'backup.%s.snap.1321319.3235' % (uuid.uuid4())},
+             {'name': last},
+             {'name': 'backup.%s.snap.3824923.1412' % (uuid.uuid4())}]
 
         snap = self.service._get_most_recent_snap(self.service.rbd.Image())
-
         self.assertEqual(last, snap)
 
+    @common_mocks
     def test_get_backup_snap_name(self):
         snap_name = 'backup.%s.snap.3824923.1412' % (uuid.uuid4())
 
-        def mock_get_backup_snaps(inst, *args):
+        def get_backup_snaps(inst, *args):
             return [{'name': 'backup.%s.snap.6423868.2342' % (uuid.uuid4()),
                      'backup_id': str(uuid.uuid4())},
                     {'name': snap_name,
                      'backup_id': self.backup_id}]
 
-        self.stubs.Set(self.service, 'get_backup_snaps', lambda *args: None)
-        name = self.service._get_backup_snap_name(self.service.rbd.Image(),
-                                                  'base_foo',
-                                                  self.backup_id)
-        self.assertIsNone(name)
+        with mock.patch.object(self.service, 'get_backup_snaps'):
+            name = self.service._get_backup_snap_name(self.service.rbd.Image(),
+                                                      'base_foo',
+                                                      self.backup_id)
+            self.assertIsNone(name)
 
-        self.stubs.Set(self.service, 'get_backup_snaps', mock_get_backup_snaps)
-        name = self.service._get_backup_snap_name(self.service.rbd.Image(),
-                                                  'base_foo',
-                                                  self.backup_id)
-        self.assertEqual(name, snap_name)
+        with mock.patch.object(self.service, 'get_backup_snaps') as \
+                mock_get_backup_snaps:
+            mock_get_backup_snaps.side_effect = get_backup_snaps
+            name = self.service._get_backup_snap_name(self.service.rbd.Image(),
+                                                      'base_foo',
+                                                      self.backup_id)
+            self.assertEqual(name, snap_name)
+            self.assertTrue(mock_get_backup_snaps.called)
 
+    @common_mocks
     def test_get_backup_snaps(self):
-
-        def list_snaps(inst, *args):
-            return [{'name': 'backup.%s.snap.6423868.2342' % (uuid.uuid4())},
-                    {'name': 'backup.%s.wambam.6423868.2342' % (uuid.uuid4())},
-                    {'name': 'backup.%s.snap.1321319.3235' % (uuid.uuid4())},
-                    {'name': 'bbbackup.%s.snap.1321319.3235' % (uuid.uuid4())},
-                    {'name': 'backup.%s.snap.3824923.1412' % (uuid.uuid4())}]
-
-        self.stubs.Set(self.service.rbd.Image, 'list_snaps', list_snaps)
+        self.mock_rbd.Image.list_snaps = mock.Mock()
+        self.mock_rbd.Image.list_snaps.return_value = \
+            [{'name': 'backup.%s.snap.6423868.2342' % (uuid.uuid4())},
+             {'name': 'backup.%s.wambam.6423868.2342' % (uuid.uuid4())},
+             {'name': 'backup.%s.snap.1321319.3235' % (uuid.uuid4())},
+             {'name': 'bbbackup.%s.snap.1321319.3235' % (uuid.uuid4())},
+             {'name': 'backup.%s.snap.3824923.1412' % (uuid.uuid4())}]
         snaps = self.service.get_backup_snaps(self.service.rbd.Image())
         self.assertEqual(len(snaps), 3)
 
+    @common_mocks
     def test_transfer_data_from_rbd_to_file(self):
-        self._set_common_backup_stubs(self.service)
+        self.mock_rbd.Image.read = mock.Mock()
+        self.mock_rbd.Image.read.return_value = \
+            self.volume_file.read(self.data_length)
 
         with tempfile.NamedTemporaryFile() as test_file:
             self.volume_file.seek(0)
 
-            def read_data(inst, offset, length):
-                return self.volume_file.read(self.length)
-
-            self.stubs.Set(self.service.rbd.Image, 'read', read_data)
-
             rbd_io = self._get_wrapped_rbd_io(self.service.rbd.Image())
             self.service._transfer_data(rbd_io, 'src_foo', test_file,
-                                        'dest_foo', self.length)
+                                        'dest_foo', self.data_length)
 
             checksum = hashlib.sha256()
             test_file.seek(0)
@@ -245,24 +292,27 @@ class BackupCephTestCase(test.TestCase):
             # Ensure the files are equal
             self.assertEqual(checksum.digest(), self.checksum.digest())
 
+    @common_mocks
     def test_transfer_data_from_rbd_to_rbd(self):
-        def rbd_size(inst):
-            return self.chunk_size * self.num_chunks
+
+        def mock_write_data(data, offset):
+            checksum.update(data)
+            test_file.write(data)
+
+        self.mock_rbd.Image.read = mock.Mock()
+        self.mock_rbd.Image.read.return_value = \
+            self.volume_file.read(self.data_length)
+
+        self.mock_rbd.Image.size = mock.Mock()
+        self.mock_rbd.Image.size.return_value = \
+            self.chunk_size * self.num_chunks
+
+        self.mock_rbd.Image.write = mock.Mock()
+        self.mock_rbd.Image.write.side_effect = mock_write_data
 
         with tempfile.NamedTemporaryFile() as test_file:
             self.volume_file.seek(0)
             checksum = hashlib.sha256()
-
-            def read_data(inst, offset, length):
-                return self.volume_file.read(self.length)
-
-            def write_data(inst, data, offset):
-                checksum.update(data)
-                test_file.write(data)
-
-            self.stubs.Set(self.service.rbd.Image, 'read', read_data)
-            self.stubs.Set(self.service.rbd.Image, 'size', rbd_size)
-            self.stubs.Set(self.service.rbd.Image, 'write', write_data)
 
             rbd1 = self.service.rbd.Image()
             rbd2 = self.service.rbd.Image()
@@ -270,40 +320,40 @@ class BackupCephTestCase(test.TestCase):
             src_rbd_io = self._get_wrapped_rbd_io(rbd1)
             dest_rbd_io = self._get_wrapped_rbd_io(rbd2)
             self.service._transfer_data(src_rbd_io, 'src_foo', dest_rbd_io,
-                                        'dest_foo', self.length)
+                                        'dest_foo', self.data_length)
 
             # Ensure the files are equal
             self.assertEqual(checksum.digest(), self.checksum.digest())
 
+    @common_mocks
     def test_transfer_data_from_file_to_rbd(self):
-        self._set_common_backup_stubs(self.service)
+
+        def mock_write_data(data, offset):
+            checksum.update(data)
+            test_file.write(data)
+
+        self.mock_rbd.Image.write = mock.Mock()
+        self.mock_rbd.Image.write.side_effect = mock_write_data
 
         with tempfile.NamedTemporaryFile() as test_file:
             self.volume_file.seek(0)
             checksum = hashlib.sha256()
 
-            def write_data(inst, data, offset):
-                checksum.update(data)
-                test_file.write(data)
-
-            self.stubs.Set(self.service.rbd.Image, 'write', write_data)
-
             rbd_io = self._get_wrapped_rbd_io(self.service.rbd.Image())
             self.service._transfer_data(self.volume_file, 'src_foo',
-                                        rbd_io, 'dest_foo', self.length)
+                                        rbd_io, 'dest_foo', self.data_length)
 
             # Ensure the files are equal
             self.assertEqual(checksum.digest(), self.checksum.digest())
 
+    @common_mocks
     def test_transfer_data_from_file_to_file(self):
-        self._set_common_backup_stubs(self.service)
-
         with tempfile.NamedTemporaryFile() as test_file:
             self.volume_file.seek(0)
             checksum = hashlib.sha256()
 
             self.service._transfer_data(self.volume_file, 'src_foo', test_file,
-                                        'dest_foo', self.length)
+                                        'dest_foo', self.data_length)
 
             checksum = hashlib.sha256()
             test_file.seek(0)
@@ -313,29 +363,28 @@ class BackupCephTestCase(test.TestCase):
             # Ensure the files are equal
             self.assertEqual(checksum.digest(), self.checksum.digest())
 
+    @common_mocks
     def test_backup_volume_from_file(self):
-        self._create_volume_db_entry(self.volume_id, 1)
-        backup = db.backup_get(self.ctxt, self.backup_id)
+        checksum = hashlib.sha256()
 
-        self._set_common_backup_stubs(self.service)
+        def mock_write_data(data, offset):
+            checksum.update(data)
+            test_file.write(data)
 
-        with tempfile.NamedTemporaryFile() as test_file:
-            checksum = hashlib.sha256()
+        self.service.rbd.Image.write = mock.Mock()
+        self.service.rbd.Image.write.side_effect = mock_write_data
 
-            def write_data(inst, data, offset):
-                checksum.update(data)
-                test_file.write(data)
+        with mock.patch.object(self.service, '_backup_metadata'):
+            with mock.patch.object(self.service, '_discard_bytes'):
+                with tempfile.NamedTemporaryFile() as test_file:
+                    self.service.backup(self.backup, self.volume_file)
 
-            self.stubs.Set(self.service.rbd.Image, 'write', write_data)
+                    # Ensure the files are equal
+                    self.assertEqual(checksum.digest(), self.checksum.digest())
 
-            self.stubs.Set(self.service, '_discard_bytes',
-                           lambda *args: None)
+        self.assertTrue(self.service.rbd.Image.write.called)
 
-            self.service.backup(backup, self.volume_file)
-
-            # Ensure the files are equal
-            self.assertEqual(checksum.digest(), self.checksum.digest())
-
+    @common_mocks
     def test_get_backup_base_name(self):
         name = self.service._get_backup_base_name(self.volume_id,
                                                   diff_format=True)
@@ -349,319 +398,607 @@ class BackupCephTestCase(test.TestCase):
         self.assertEqual(name,
                          "volume-%s.backup.%s" % (self.volume_id, '1234'))
 
-    def test_backup_volume_from_rbd(self):
-        self._create_volume_db_entry(self.volume_id, 1)
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
-        self._set_common_backup_stubs(self.service)
-
+    @common_mocks
+    @mock.patch('fcntl.fcntl', spec=True)
+    @mock.patch('subprocess.Popen', spec=True)
+    def test_backup_volume_from_rbd(self, mock_popen, mock_fnctl):
         backup_name = self.service._get_backup_base_name(self.backup_id,
                                                          diff_format=True)
 
-        self.stubs.Set(self.service, '_try_delete_base_image',
-                       lambda *args, **kwargs: None)
+        def mock_write_data():
+            self.volume_file.seek(0)
+            data = self.volume_file.read(self.data_length)
+            self.callstack.append('write')
+            checksum.update(data)
+            test_file.write(data)
 
-        self.stubs.Set(fcntl, 'fcntl', lambda *args, **kwargs: 0)
+        def mock_read_data():
+            self.callstack.append('read')
+            return self.volume_file.read(self.data_length)
 
-        with tempfile.NamedTemporaryFile() as test_file:
-            checksum = hashlib.sha256()
+        self._setup_mock_popen(mock_popen,
+                               ['out', 'err'],
+                               p1hook=mock_read_data,
+                               p2hook=mock_write_data)
 
-            def write_data():
-                self.volume_file.seek(0)
-                data = self.volume_file.read(self.length)
-                self.called.append('write')
-                checksum.update(data)
-                test_file.write(data)
+        self.mock_rbd.RBD.list = mock.Mock()
+        self.mock_rbd.RBD.list.return_value = [backup_name]
 
-            def read_data():
-                self.called.append('read')
-                return self.volume_file.read(self.length)
+        with mock.patch.object(self.service, '_backup_metadata'):
+            with mock.patch.object(self.service, 'get_backup_snaps') as \
+                    mock_get_backup_snaps:
+                with mock.patch.object(self.service, '_full_backup') as \
+                        mock_full_backup:
+                    with mock.patch.object(self.service,
+                                           '_try_delete_base_image'):
+                        with tempfile.NamedTemporaryFile() as test_file:
+                            checksum = hashlib.sha256()
+                            image = self.service.rbd.Image()
+                            meta = rbddriver.RBDImageMetadata(image,
+                                                              'pool_foo',
+                                                              'user_foo',
+                                                              'conf_foo')
+                            rbdio = rbddriver.RBDImageIOWrapper(meta)
+                            self.service.backup(self.backup, rbdio)
 
-            def rbd_list(inst, ioctx):
-                self.called.append('list')
-                return [backup_name]
+                            self.assertEqual(self.callstack, ['popen_init',
+                                                              'read',
+                                                              'popen_init',
+                                                              'write',
+                                                              'stdout_close',
+                                                              'communicate'])
 
-            self._setup_mock_popen(self, ['out', 'err'],
-                                   p1hook=read_data,
-                                   p2hook=write_data)
+                            self.assertFalse(mock_full_backup.called)
+                            self.assertTrue(mock_get_backup_snaps.called)
 
-            self.stubs.Set(self.service.rbd.RBD, 'list', rbd_list)
+                            # Ensure the files are equal
+                            self.assertEqual(checksum.digest(),
+                                             self.checksum.digest())
 
-            self.stubs.Set(self.service, '_discard_bytes',
-                           lambda *args: None)
-
-            meta = rbddriver.RBDImageMetadata(self.service.rbd.Image(),
-                                              'pool_foo', 'user_foo',
-                                              'conf_foo')
-            rbd_io = rbddriver.RBDImageIOWrapper(meta)
-
-            self.service.backup(backup, rbd_io)
-
-            self.assertEqual(self.called, ['list', 'popen_init', 'read',
-                                           'popen_init', 'write',
-                                           'stdout_close', 'communicate'])
-
-            # Ensure the files are equal
-            self.assertEqual(checksum.digest(), self.checksum.digest())
-
+    @common_mocks
     def test_backup_vol_length_0(self):
-        self._set_common_backup_stubs(self.service)
+        volume_id = str(uuid.uuid4())
+        self._create_volume_db_entry(volume_id, 0)
+        volume = db.volume_get(self.ctxt, volume_id)
 
-        backup = db.backup_get(self.ctxt, self.backup_id)
-        self._create_volume_db_entry(self.volume_id, 0)
+        backup_id = str(uuid.uuid4())
+        self._create_backup_db_entry(backup_id, volume_id, 1)
+        backup = db.backup_get(self.ctxt, backup_id)
+
         self.assertRaises(exception.InvalidParameterValue, self.service.backup,
                           backup, self.volume_file)
 
+    @common_mocks
     def test_restore(self):
-        self._create_volume_db_entry(self.volume_id, 1)
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
-        self._set_common_restore_stubs(self.service)
-
         backup_name = self.service._get_backup_base_name(self.backup_id,
                                                          diff_format=True)
 
-        def rbd_list(inst, ioctx):
-            return [backup_name]
+        self.mock_rbd.RBD.list = mock.Mock()
+        self.mock_rbd.RBD.list.return_value = [backup_name]
 
-        self.stubs.Set(self.service.rbd.RBD, 'list', rbd_list)
+        def mock_read_data(offset, length):
+            return self.volume_file.read(self.data_length)
 
-        self.stubs.Set(self.service, '_discard_bytes', lambda *args: None)
+        self.mock_rbd.Image.read = mock.Mock()
+        self.mock_rbd.Image.read.side_effect = mock_read_data
 
-        with tempfile.NamedTemporaryFile() as test_file:
-            self.volume_file.seek(0)
+        self.mock_rbd.Image.size = mock.Mock()
+        self.mock_rbd.Image.size.return_value = \
+            self.chunk_size * self.num_chunks
 
-            def read_data(inst, offset, length):
-                return self.volume_file.read(self.length)
+        with mock.patch.object(self.service, '_restore_metadata') as \
+                mock_restore_metadata:
+            with mock.patch.object(self.service, '_discard_bytes') as \
+                    mock_discard_bytes:
+                with tempfile.NamedTemporaryFile() as test_file:
+                    self.volume_file.seek(0)
 
-            self.stubs.Set(self.service.rbd.Image, 'read', read_data)
+                    self.service.restore(self.backup, self.volume_id,
+                                         test_file)
 
-            self.service.restore(backup, self.volume_id, test_file)
+                    checksum = hashlib.sha256()
+                    test_file.seek(0)
+                    for c in xrange(0, self.num_chunks):
+                        checksum.update(test_file.read(self.chunk_size))
 
-            checksum = hashlib.sha256()
-            test_file.seek(0)
-            for c in xrange(0, self.num_chunks):
-                checksum.update(test_file.read(self.chunk_size))
+                    # Ensure the files are equal
+                    self.assertEqual(checksum.digest(), self.checksum.digest())
 
-            # Ensure the files are equal
-            self.assertEqual(checksum.digest(), self.checksum.digest())
+                    self.assertTrue(mock_restore_metadata.called)
+                    self.assertTrue(mock_discard_bytes.called)
+                    self.assertTrue(mock_discard_bytes.called)
 
+        self.assertTrue(self.service.rbd.Image.read.called)
+
+    @common_mocks
     def test_discard_bytes(self):
-        self.service._discard_bytes(mock_rbd(), 123456, 0)
-        calls = []
+        self.mock_rbd.Image.discard = mock.Mock()
+        wrapped_rbd = self._get_wrapped_rbd_io(self.mock_rbd.Image())
 
-        def _setter(*args, **kwargs):
-            calls.append(True)
+        self.service._discard_bytes(wrapped_rbd, 0, 0)
+        self.assertEqual(self.mock_rbd.Image.discard.call_count, 0)
 
-        self.stubs.Set(self.service.rbd.Image, 'discard', _setter)
+        self.service._discard_bytes(wrapped_rbd, 0, 1234)
+        self.assertEqual(self.mock_rbd.Image.discard.call_count, 1)
+        self.mock_rbd.Image.discard.reset_mock()
 
-        self.service._discard_bytes(mock_rbd(), 123456, 0)
-        self.assertEqual(len(calls), 0)
+        self.mock_rbd.Image.write = mock.Mock()
+        self.mock_rbd.Image.flush = mock.Mock()
 
-        image = mock_rbd().Image()
-        wrapped_rbd = self._get_wrapped_rbd_io(image)
-        self.service._discard_bytes(wrapped_rbd, 123456, 1234)
-        self.assertEqual(len(calls), 1)
+        # Test discard with no remainder
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = False
 
-        self.stubs.Set(image, 'write', _setter)
-        wrapped_rbd = self._get_wrapped_rbd_io(image)
-        self.stubs.Set(self.service, '_file_is_rbd',
-                       lambda *args: False)
-        self.service._discard_bytes(wrapped_rbd, 0,
-                                    self.service.chunk_size * 2)
-        self.assertEqual(len(calls), 3)
+            self.service._discard_bytes(wrapped_rbd, 0,
+                                        self.service.chunk_size * 2)
 
+            self.assertEqual(self.mock_rbd.Image.write.call_count, 2)
+            self.assertEqual(self.mock_rbd.Image.flush.call_count, 2)
+            self.assertFalse(self.mock_rbd.Image.discard.called)
+
+        self.mock_rbd.Image.write.reset_mock()
+        self.mock_rbd.Image.flush.reset_mock()
+        self.mock_rbd.Image.discard.reset_mock()
+
+        # Now test with a remainder.
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = False
+
+            self.service._discard_bytes(wrapped_rbd, 0,
+                                        (self.service.chunk_size * 2) + 1)
+
+            self.assertEqual(self.mock_rbd.Image.write.call_count, 3)
+            self.assertEqual(self.mock_rbd.Image.flush.call_count, 3)
+            self.assertFalse(self.mock_rbd.Image.discard.called)
+
+    @common_mocks
     def test_delete_backup_snapshot(self):
         snap_name = 'backup.%s.snap.3824923.1412' % (uuid.uuid4())
         base_name = self.service._get_backup_base_name(self.volume_id,
                                                        diff_format=True)
+        self.mock_rbd.RBD.remove_snap = mock.Mock()
 
-        self.stubs.Set(self.service, '_get_backup_snap_name',
-                       lambda *args: snap_name)
+        with mock.patch.object(self.service, '_get_backup_snap_name') as \
+                mock_get_backup_snap_name:
+            mock_get_backup_snap_name.return_value = snap_name
+            with mock.patch.object(self.service, 'get_backup_snaps') as \
+                    mock_get_backup_snaps:
+                mock_get_backup_snaps.return_value = None
+                rem = self.service._delete_backup_snapshot(self.mock_rados,
+                                                           base_name,
+                                                           self.backup_id)
 
-        self.stubs.Set(self.service, 'get_backup_snaps',
-                       lambda *args: None)
+                self.assertTrue(mock_get_backup_snap_name.called)
+                self.assertTrue(mock_get_backup_snaps.called)
+                self.assertEqual(rem, (snap_name, 0))
 
-        rem = self.service._delete_backup_snapshot(mock_rados(), base_name,
-                                                   self.backup_id)
-
-        self.assertEqual(rem, (snap_name, 0))
-
-    def test_try_delete_base_image_diff_format(self):
-        # don't create volume db entry since it should not be required
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
+    @common_mocks
+    @mock.patch('cinder.backup.drivers.ceph.VolumeMetadataBackup', spec=True)
+    def test_try_delete_base_image_diff_format(self, mock_meta_backup):
         backup_name = self.service._get_backup_base_name(self.volume_id,
                                                          diff_format=True)
 
-        snap_name = self.service._get_new_snap_name(self.backup_id)
-        snaps = [{'name': snap_name}]
+        self.mock_rbd.RBD.list = mock.Mock()
+        self.mock_rbd.RBD.list.return_value = [backup_name]
+        self.mock_rbd.RBD.remove = mock.Mock()
 
-        def rbd_list(*args):
-            return [backup_name]
+        with mock.patch.object(self.service, '_delete_backup_snapshot') as \
+                mock_del_backup_snap:
+            snap_name = self.service._get_new_snap_name(self.backup_id)
+            mock_del_backup_snap.return_value = (snap_name, 0)
 
-        def list_snaps(*args):
-            return snaps
+            self.service.delete(self.backup)
+            self.assertTrue(mock_del_backup_snap.called)
 
-        def remove_snap(*args):
-            snaps.pop()
+        #self.assertFalse(self.mock_rbd.ImageNotFound.called)
+        self.assertTrue(self.mock_rbd.RBD.list.called)
+        self.assertTrue(self.mock_rbd.RBD.remove.called)
 
-        self.stubs.Set(self.service.rbd.Image, 'remove_snap', remove_snap)
-        self.stubs.Set(self.service.rbd.Image, 'list_snaps', list_snaps)
-        self.stubs.Set(self.service.rbd.RBD, 'list', rbd_list)
-
-        def remove(inst, ioctx, name):
-            self.called.append('remove')
-
-        self.stubs.Set(self.service.rbd.RBD, 'remove', remove)
-        self.service.delete(backup)
-        self.assertEqual(self.called, ['remove'])
-
-    def test_try_delete_base_image(self):
-        # don't create volume db entry since it should not be required
-        self._create_volume_db_entry(self.volume_id, 1)
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
+    @common_mocks
+    @mock.patch('cinder.backup.drivers.ceph.VolumeMetadataBackup', spec=True)
+    def test_try_delete_base_image(self, mock_meta_backup):
         backup_name = self.service._get_backup_base_name(self.volume_id,
                                                          self.backup_id)
 
-        def rbd_list(inst, ioctx):
-            return [backup_name]
+        self.mock_rbd.RBD.list = mock.Mock()
+        self.mock_rbd.RBD.list.return_value = [backup_name]
+        self.mock_rbd.RBD.remove = mock.Mock()
 
-        self.stubs.Set(self.service.rbd.RBD, 'list', rbd_list)
+        with mock.patch.object(self.service, 'get_backup_snaps'):
+            self.service.delete(self.backup)
+            self.assertTrue(self.mock_rbd.RBD.remove.called)
 
-        self.stubs.Set(self.service, 'get_backup_snaps',
-                       lambda *args, **kwargs: None)
-
-        def remove(inst, ioctx, name):
-            self.called.append('remove')
-
-        self.stubs.Set(self.service.rbd.RBD, 'remove', remove)
-        self.service.delete(backup)
-        self.assertEqual(self.called, ['remove'])
-
+    @common_mocks
     def test_try_delete_base_image_busy(self):
         """This should induce retries then raise rbd.ImageBusy."""
-        # don't create volume db entry since it should not be required
-        self._create_volume_db_entry(self.volume_id, 1)
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
         backup_name = self.service._get_backup_base_name(self.volume_id,
                                                          self.backup_id)
 
-        def rbd_list(inst, ioctx):
-            return [backup_name]
+        self.mock_rbd.RBD.list = mock.Mock()
+        self.mock_rbd.RBD.list.return_value = [backup_name]
+        self.mock_rbd.RBD.remove = mock.Mock()
+        self.mock_rbd.RBD.remove.side_effect = self.mock_rbd.ImageBusy
 
-        self.stubs.Set(self.service.rbd.RBD, 'list', rbd_list)
+        with mock.patch.object(self.service, 'get_backup_snaps') as \
+                mock_get_backup_snaps:
+            self.assertRaises(self.mock_rbd.ImageBusy,
+                              self.service._try_delete_base_image,
+                              self.backup['id'], self.backup['volume_id'])
+            self.assertTrue(mock_get_backup_snaps.called)
 
-        self.stubs.Set(self.service, 'get_backup_snaps',
-                       lambda *args, **kwargs: None)
+        self.assertTrue(self.mock_rbd.RBD.list.called)
+        self.assertTrue(self.mock_rbd.RBD.remove.called)
+        self.assertTrue(MockImageBusyException in RAISED_EXCEPTIONS)
 
-        def remove(inst, ioctx, name):
-            raise self.service.rbd.ImageBusy("image busy")
+    @common_mocks
+    @mock.patch('cinder.backup.drivers.ceph.VolumeMetadataBackup', spec=True)
+    def test_delete(self, mock_meta_backup):
+        with mock.patch.object(self.service, '_try_delete_base_image'):
+            self.service.delete(self.backup)
+            self.assertEqual(RAISED_EXCEPTIONS, [])
 
-        self.stubs.Set(self.service.rbd.RBD, 'remove', remove)
+    @common_mocks
+    @mock.patch('cinder.backup.drivers.ceph.VolumeMetadataBackup', spec=True)
+    def test_delete_image_not_found(self, mock_meta_backup):
+        with mock.patch.object(self.service, '_try_delete_base_image') as \
+                mock_del_base:
+            mock_del_base.side_effect = self.mock_rbd.ImageNotFound
+            # ImageNotFound exception is caught so that db entry can be cleared
+            self.service.delete(self.backup)
+            self.assertEqual(RAISED_EXCEPTIONS, [MockImageNotFoundException])
 
-        self.assertRaises(self.service.rbd.ImageBusy,
-                          self.service._try_delete_base_image,
-                          backup['id'], backup['volume_id'])
-
-    def test_delete(self):
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
-        def del_base_image(*args):
-            pass
-
-        self.stubs.Set(self.service, '_try_delete_base_image',
-                       lambda *args: None)
-
-        self.service.delete(backup)
-
-    def test_delete_image_not_found(self):
-        backup = db.backup_get(self.ctxt, self.backup_id)
-
-        def del_base_image(*args):
-            raise self.service.rbd.ImageNotFound
-
-        self.stubs.Set(self.service, '_try_delete_base_image',
-                       lambda *args: None)
-
-        # ImageNotFound exception is caught so that db entry can be cleared
-        self.service.delete(backup)
-
-    def test_diff_restore_allowed_true(self):
-        restore_point = 'restore.foo'
-        is_allowed = (True, restore_point)
-        backup = db.backup_get(self.ctxt, self.backup_id)
-        alt_volume_id = str(uuid.uuid4())
-        volume_size = 1
-        self._create_volume_db_entry(alt_volume_id, volume_size)
-        alt_volume = db.volume_get(self.ctxt, alt_volume_id)
-        rbd_io = self._get_wrapped_rbd_io(self.service.rbd.Image())
-
-        self.stubs.Set(self.service, '_get_restore_point',
-                       lambda *args: restore_point)
-        self.stubs.Set(self.service, '_rbd_has_extents',
-                       lambda *args: False)
-        self.stubs.Set(self.service, '_rbd_image_exists',
-                       lambda *args: (True, 'foo'))
-        self.stubs.Set(self.service, '_file_is_rbd',
-                       lambda *args: True)
-        self.stubs.Set(self.service.rbd.Image, 'size',
-                       lambda *args: volume_size * units.GiB)
-
-        resp = self.service._diff_restore_allowed('foo', backup, alt_volume,
-                                                  rbd_io, mock_rados())
-        self.assertEqual(resp, is_allowed)
-
-    def _set_service_stub(self, method, retval):
-        self.stubs.Set(self.service, method, lambda *args, **kwargs: retval)
-
-    def test_diff_restore_allowed_false(self):
-        volume_size = 1
+    @common_mocks
+    def test_diff_restore_allowed(self):
         not_allowed = (False, None)
-        backup = db.backup_get(self.ctxt, self.backup_id)
-        self._create_volume_db_entry(self.volume_id, volume_size)
-        original_volume = db.volume_get(self.ctxt, self.volume_id)
+        backup_base = 'backup.base'
+        restore_point = 'backup.snap.1'
         rbd_io = self._get_wrapped_rbd_io(self.service.rbd.Image())
+        args_vols_different = [backup_base, self.backup, self.alt_volume,
+                               rbd_io, self.mock_rados]
+        args_vols_same = [backup_base, self.backup, self.volume, rbd_io,
+                          self.mock_rados]
 
-        test_args = 'foo', backup, original_volume, rbd_io, mock_rados()
+        # 1. destination volume is not an rbd
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = False
+            resp = self.service._diff_restore_allowed(*args_vols_different)
+            self.assertEqual(resp, not_allowed)
+            self.assertTrue(mock_file_is_rbd.called)
 
-        self._set_service_stub('_get_restore_point', None)
-        resp = self.service._diff_restore_allowed(*test_args)
-        self.assertEqual(resp, not_allowed)
-        self._set_service_stub('_get_restore_point', 'restore.foo')
+        # 1. destination volume is an rbd
+        # 2. backup base is not diff-format
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = True
+            with mock.patch.object(self.service, '_rbd_image_exists') as \
+                    mock_rbd_image_exists:
+                mock_rbd_image_exists.return_value = (False, backup_base)
+                resp = self.service._diff_restore_allowed(*args_vols_different)
+                self.assertEqual(resp, not_allowed)
+                self.assertTrue(mock_file_is_rbd.called)
+                self.assertTrue(mock_rbd_image_exists.called)
 
-        self._set_service_stub('_rbd_has_extents', True)
-        resp = self.service._diff_restore_allowed(*test_args)
-        self.assertEqual(resp, not_allowed)
-        self._set_service_stub('_rbd_has_extents', False)
+        # 1. destination volume is an rbd
+        # 2. backup base is diff-format
+        # 3. restore point does not exist
+        # 4. source and destination volumes are different
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = True
+            with mock.patch.object(self.service, '_rbd_image_exists') as \
+                    mock_rbd_image_exists:
+                mock_rbd_image_exists.return_value = (True, backup_base)
+                with mock.patch.object(self.service, '_get_restore_point') as \
+                        mock_get_restore_point:
+                    mock_get_restore_point.return_value = None
 
-        self._set_service_stub('_rbd_image_exists', (False, 'foo'))
-        resp = self.service._diff_restore_allowed(*test_args)
-        self.assertEqual(resp, not_allowed)
-        self._set_service_stub('_rbd_image_exists', None)
+                    args = args_vols_different
+                    resp = self.service._diff_restore_allowed(*args)
 
-        self.stubs.Set(self.service.rbd.Image, 'size',
-                       lambda *args, **kwargs: volume_size * units.GiB * 2)
-        resp = self.service._diff_restore_allowed(*test_args)
-        self.assertEqual(resp, not_allowed)
-        self.stubs.Set(self.service.rbd.Image, 'size',
-                       lambda *args, **kwargs: volume_size * units.GiB)
+                    self.assertEqual(resp, not_allowed)
+                    self.assertTrue(mock_file_is_rbd.called)
+                    self.assertTrue(mock_rbd_image_exists.called)
+                    self.assertTrue(mock_get_restore_point.called)
 
-        self._set_service_stub('_file_is_rbd', False)
-        resp = self.service._diff_restore_allowed(*test_args)
-        self.assertEqual(resp, not_allowed)
-        self._set_service_stub('_file_is_rbd', True)
+        # 1. destination volume is an rbd
+        # 2. backup base is diff-format
+        # 3. restore point does not exist
+        # 4. source and destination volumes are the same
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = True
+            with mock.patch.object(self.service, '_rbd_image_exists') as \
+                    mock_rbd_image_exists:
+                mock_rbd_image_exists.return_value = (True, backup_base)
+                with mock.patch.object(self.service, '_get_restore_point') as \
+                        mock_get_restore_point:
+                    mock_get_restore_point.return_value = None
 
-    def test_piped_execute(self):
-        self.stubs.Set(fcntl, 'fcntl', lambda *args, **kwargs: 0)
-        self._setup_mock_popen(self, ['out', 'err'])
+                    resp = self.service._diff_restore_allowed(*args_vols_same)
+
+                    self.assertEqual(resp, not_allowed)
+                    self.assertTrue(mock_file_is_rbd.called)
+                    self.assertTrue(mock_rbd_image_exists.called)
+                    self.assertTrue(mock_get_restore_point.called)
+
+        # 1. destination volume is an rbd
+        # 2. backup base is diff-format
+        # 3. restore point exists
+        # 4. source and destination volumes are different
+        # 5. destination volume has data on it - full copy is mandated
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = True
+            with mock.patch.object(self.service, '_rbd_image_exists') as \
+                    mock_rbd_image_exists:
+                mock_rbd_image_exists.return_value = (True, backup_base)
+                with mock.patch.object(self.service, '_get_restore_point') as \
+                        mock_get_restore_point:
+                    mock_get_restore_point.return_value = restore_point
+                    with mock.patch.object(self.service, '_rbd_has_extents') \
+                            as mock_rbd_has_extents:
+                        mock_rbd_has_extents.return_value = True
+
+                        args = args_vols_different
+                        resp = self.service._diff_restore_allowed(*args)
+
+                        self.assertEqual(resp, (False, restore_point))
+                        self.assertTrue(mock_file_is_rbd.called)
+                        self.assertTrue(mock_rbd_image_exists.called)
+                        self.assertTrue(mock_get_restore_point.called)
+                        self.assertTrue(mock_rbd_has_extents.called)
+
+        # 1. destination volume is an rbd
+        # 2. backup base is diff-format
+        # 3. restore point exists
+        # 4. source and destination volumes are different
+        # 5. destination volume no data on it
+        with mock.patch.object(self.service, '_file_is_rbd') as \
+                mock_file_is_rbd:
+            mock_file_is_rbd.return_value = True
+            with mock.patch.object(self.service, '_rbd_image_exists') as \
+                    mock_rbd_image_exists:
+                mock_rbd_image_exists.return_value = (True, backup_base)
+                with mock.patch.object(self.service, '_get_restore_point') as \
+                        mock_restore_point:
+                    mock_restore_point.return_value = restore_point
+                    with mock.patch.object(self.service, '_rbd_has_extents') \
+                            as mock_rbd_has_extents:
+                        mock_rbd_has_extents.return_value = False
+
+                        args = args_vols_different
+                        resp = self.service._diff_restore_allowed(*args)
+
+                        self.assertEqual(resp, (True, restore_point))
+                        self.assertTrue(mock_restore_point.called)
+                        self.assertTrue(mock_rbd_has_extents.called)
+                        self.assertTrue(mock_rbd_image_exists.called)
+                        self.assertTrue(mock_file_is_rbd.called)
+
+    @common_mocks
+    @mock.patch('fcntl.fcntl', spec=True)
+    @mock.patch('subprocess.Popen', spec=True)
+    def test_piped_execute(self, mock_popen, mock_fcntl):
+        mock_fcntl.return_value = 0
+        self._setup_mock_popen(mock_popen, ['out', 'err'])
         self.service._piped_execute(['foo'], ['bar'])
-        self.assertEqual(self.called, ['popen_init', 'popen_init',
-                                       'stdout_close', 'communicate'])
+        self.assertEqual(self.callstack, ['popen_init', 'popen_init',
+                                          'stdout_close', 'communicate'])
+
+    @common_mocks
+    def test_restore_metdata(self):
+        version = 1
+
+        def mock_read(*args):
+            base_tag = driver.BackupMetadataAPI.TYPE_TAG_VOL_BASE_META
+            glance_tag = driver.BackupMetadataAPI.TYPE_TAG_VOL_GLANCE_META
+            return jsonutils.dumps({base_tag: {'image_name': 'image.base'},
+                                    glance_tag: {'image_name': 'image.glance'},
+                                    'version': version})
+
+        self.mock_rados.Object = mock.Mock
+        self.mock_rados.Object.read = mock.Mock()
+        self.mock_rados.Object.read.side_effect = mock_read
+        self.mock_rados.Object.stat = mock.Mock()
+
+        self.service._restore_metadata(self.backup, self.volume_id)
+
+        self.assertTrue(self.mock_rados.Object.stat.called)
+        self.assertTrue(self.mock_rados.Object.read.called)
+
+        version = 2
+        try:
+            self.service._restore_metadata(self.backup, self.volume_id)
+        except exception.BackupOperationError as exc:
+            msg = _("Metadata restore failed due to incompatible version")
+            self.assertEqual(six.text_type(exc), msg)
+        else:
+            # Force a test failure
+            self.assertFalse(True)
+
+    @common_mocks
+    @mock.patch('cinder.backup.drivers.ceph.VolumeMetadataBackup', spec=True)
+    def test_backup_metata_already_exists(self, mock_meta_backup):
+
+        def mock_set(json_meta):
+            msg = (_("Metadata backup object '%s' already exists") %
+                   ("backup.%s.meta" % (self.backup_id)))
+            raise exception.VolumeMetadataBackupExists(msg)
+
+        mock_meta_backup.return_value.set = mock.Mock()
+        mock_meta_backup.return_value.set.side_effect = mock_set
+
+        with mock.patch.object(self.service, 'get_metadata') as \
+                mock_get_metadata:
+            mock_get_metadata.return_value = "some.json.metadata"
+            try:
+                self.service._backup_metadata(self.backup)
+            except exception.BackupOperationError as e:
+                msg = (_("Failed to backup volume metadata - Metadata backup "
+                         "object 'backup.%s.meta' already exists") %
+                       (self.backup_id))
+                self.assertEqual(six.text_type(e), msg)
+            else:
+                # Make the test fail
+                self.assertFalse(True)
+
+        self.assertFalse(mock_meta_backup.set.called)
+
+    @common_mocks
+    def test_backup_metata_error(self):
+        """Ensure that delete() is called if the metadata backup fails.
+
+        Also ensure that the exception is propagated to the caller.
+        """
+        with mock.patch.object(self.service, '_backup_metadata') as \
+                mock_backup_metadata:
+            mock_backup_metadata.side_effect = exception.BackupOperationError
+            with mock.patch.object(self.service, '_get_volume_size_gb'):
+                with mock.patch.object(self.service, '_file_is_rbd',
+                                       return_value=False):
+                    with mock.patch.object(self.service, '_full_backup'):
+                        with mock.patch.object(self.service, 'delete') as \
+                                mock_delete:
+                            self.assertRaises(exception.BackupOperationError,
+                                              self.service.backup, self.backup,
+                                              mock.Mock(),
+                                              backup_metadata=True)
+                            self.assertTrue(mock_delete.called)
+
+    @common_mocks
+    def test_restore_invalid_metadata_version(self):
+
+        def mock_read(*args):
+            base_tag = driver.BackupMetadataAPI.TYPE_TAG_VOL_BASE_META
+            glance_tag = driver.BackupMetadataAPI.TYPE_TAG_VOL_GLANCE_META
+            return jsonutils.dumps({base_tag: {'image_name': 'image.base'},
+                                    glance_tag: {'image_name': 'image.glance'},
+                                    'version': 2})
+
+        self.mock_rados.Object = mock.Mock
+        self.mock_rados.Object.read = mock.Mock()
+        self.mock_rados.Object.read.side_effect = mock_read
+        with mock.patch.object(ceph.VolumeMetadataBackup, '_exists') as \
+                mock_exists:
+            mock_exists.return_value = True
+
+            self.assertRaises(exception.BackupOperationError,
+                              self.service._restore_metadata,
+                              self.backup, self.volume_id)
+
+            self.assertTrue(mock_exists.called)
+
+        self.assertTrue(self.mock_rados.Object.read.called)
+
+
+def common_meta_backup_mocks(f):
+    """Decorator to set mocks common to all metadata backup tests.
+
+    The point of doing these mocks here is so that we don't accidentally set
+    mocks that can't/dont't get unset.
+    """
+    def _common_inner_inner1(inst, *args, **kwargs):
+        @mock.patch('cinder.backup.drivers.ceph.rbd', spec=object)
+        @mock.patch('cinder.backup.drivers.ceph.rados', spec=object)
+        def _common_inner_inner2(mock_rados, mock_rbd):
+            inst.mock_rados = mock_rados
+            inst.mock_rbd = mock_rbd
+            inst.mock_rados.Object = mock.Mock
+            inst.mock_rados.ObjectNotFound = MockObjectNotFoundException
+            return f(inst, *args, **kwargs)
+
+        return _common_inner_inner2()
+    return _common_inner_inner1
+
+
+class VolumeMetadataBackupTestCase(test.TestCase):
+
+    def setUp(self):
+        global RAISED_EXCEPTIONS
+        RAISED_EXCEPTIONS = []
+        super(VolumeMetadataBackupTestCase, self).setUp()
+        self.backup_id = str(uuid.uuid4())
+        self.mb = ceph.VolumeMetadataBackup(mock.Mock(), self.backup_id)
 
     def tearDown(self):
-        self.volume_file.close()
-        self.stubs.UnsetAll()
-        super(BackupCephTestCase, self).tearDown()
+        super(VolumeMetadataBackupTestCase, self).tearDown()
+
+    @common_meta_backup_mocks
+    def test_name(self):
+        self.assertEqual(self.mb.name, 'backup.%s.meta' % (self.backup_id))
+
+    @common_meta_backup_mocks
+    def test_exists(self):
+        # True
+        with mock.patch.object(self.mock_rados.Object, 'stat') as mock_stat:
+            self.assertTrue(self.mb.exists)
+            self.assertTrue(mock_stat.called)
+
+        # False
+        with mock.patch.object(self.mock_rados.Object, 'stat') as mock_stat:
+            mock_stat.side_effect = self.mock_rados.ObjectNotFound
+            self.assertFalse(self.mb.exists)
+            self.assertTrue(mock_stat.called)
+            self.assertEqual(RAISED_EXCEPTIONS, [MockObjectNotFoundException])
+
+    @common_meta_backup_mocks
+    def test_set(self):
+        obj_data = []
+        called = []
+
+        def mock_read(*args):
+            called.append('read')
+            self.assertTrue(len(obj_data) == 1)
+            return obj_data[0]
+
+        def _mock_write(data):
+            obj_data.append(data)
+            called.append('write')
+
+        self.mb.get = mock.Mock()
+        self.mb.get.side_effect = mock_read
+
+        with mock.patch.object(ceph.VolumeMetadataBackup, 'set') as mock_write:
+            mock_write.side_effect = _mock_write
+
+            self.mb.set({'foo': 'bar'})
+            self.assertEqual(self.mb.get(), {'foo': 'bar'})
+            self.assertTrue(self.mb.get.called)
+
+            self.mb._exists = mock.Mock()
+            self.mb._exists.return_value = True
+
+        # use the unmocked set() method.
+        self.assertRaises(exception.VolumeMetadataBackupExists, self.mb.set,
+                          {'doo': 'dah'})
+
+        # check the meta obj state has not changed.
+        self.assertEqual(self.mb.get(), {'foo': 'bar'})
+
+        self.assertEqual(called, ['write', 'read', 'read'])
+
+    @common_meta_backup_mocks
+    def test_get(self):
+        with mock.patch.object(self.mock_rados.Object, 'stat') as mock_stat:
+            mock_stat.side_effect = self.mock_rados.ObjectNotFound
+            with mock.patch.object(self.mock_rados.Object, 'read') as \
+                    mock_read:
+                mock_read.return_value = 'meta'
+                self.assertIsNone(self.mb.get())
+                mock_stat.side_effect = None
+                self.assertEqual(self.mb.get(), 'meta')
+
+    @common_meta_backup_mocks
+    def remove_if_exists(self):
+        with mock.patch.object(self.mock_rados.Object, 'remove') as \
+                mock_remove:
+            mock_remove.side_effect = self.mock_rados.ObjectNotFound
+            self.mb.remove_if_exists()
+            self.assertEqual(RAISED_EXCEPTIONS, [MockObjectNotFoundException])
+
+            self.mock_rados.Object.remove.side_effect = None
+            self.mb.remove_if_exists()
+            self.assertEqual(RAISED_EXCEPTIONS, [])

@@ -56,7 +56,10 @@
     "volume_extension:hosts": [["rule:admin_api"]],
     "volume_extension:quotas:show": [],
     "volume_extension:quotas:update": [],
+    "volume_extension:quotas:delete": [],
     "volume_extension:quota_classes": [],
+    "volume_extension:volume_manage": [["rule:admin_api"]],
+    "volume_extension:volume_unmanage": [["rule:admin_api"]],
 
     "limits_extension:used_limits": [],
 
@@ -71,5 +74,8 @@
     "backup:delete": [],
     "backup:get": [],
     "backup:get_all": [],
-    "backup:restore": []
+    "backup:restore": [],
+    "backup:backup-import": [["rule:admin_api"]],
+    "backup:backup-export": [["rule:admin_api"]]
+
 }

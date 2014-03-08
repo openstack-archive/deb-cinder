@@ -27,6 +27,7 @@ from cinder.openstack.common import log as logging
 from cinder.openstack.common import uuidutils
 from cinder import utils
 from cinder import volume as cinder_volume
+from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
 
 
@@ -104,6 +105,8 @@ def _translate_volume_summary_view(context, vol, image_id=None):
 
     d['snapshot_id'] = vol['snapshot_id']
     d['source_volid'] = vol['source_volid']
+
+    d['encrypted'] = vol['encryption_key_id'] is not None
 
     if image_id:
         d['image_id'] = image_id
@@ -469,6 +472,8 @@ class VolumeController(wsgi.Controller):
 
         try:
             volume = self.volume_api.get(context, id)
+            volume_utils.notify_about_volume_usage(context, volume,
+                                                   'update.start')
             self.volume_api.update(context, volume, update_dict)
         except exception.NotFound:
             raise exc.HTTPNotFound()
@@ -476,6 +481,9 @@ class VolumeController(wsgi.Controller):
         volume.update(update_dict)
 
         self._add_visible_admin_metadata(context, volume)
+
+        volume_utils.notify_about_volume_usage(context, volume,
+                                               'update.end')
 
         return {'volume': _translate_volume_detail_view(context, volume)}
 

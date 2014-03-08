@@ -47,6 +47,7 @@ from cinder.image import glance
 from cinder import manager
 from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
+from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import periodic_task
 from cinder.openstack.common import timeutils
@@ -54,10 +55,12 @@ from cinder.openstack.common import uuidutils
 from cinder import quota
 from cinder import utils
 from cinder.volume.configuration import Configuration
-from cinder.volume.flows import create_volume
+from cinder.volume.flows.manager import create_volume
+from cinder.volume.flows.manager import manage_existing
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
+from cinder.zonemanager.fc_zone_manager import ZoneManager
 
 from eventlet.greenpool import GreenPool
 
@@ -77,61 +80,47 @@ volume_manager_opts = [
                 default=False,
                 help='Offload pending volume delete during '
                      'volume service startup'),
+    cfg.StrOpt('zoning_mode',
+               default='none',
+               help='FC Zoning mode configured'),
+    cfg.StrOpt('extra_capabilities',
+               default='{}',
+               help='User defined capabilities, a JSON formatted string '
+                    'specifying key/value pairs.'),
 ]
 
 CONF = cfg.CONF
 CONF.register_opts(volume_manager_opts)
 
 MAPPING = {
-    'cinder.volume.driver.RBDDriver': 'cinder.volume.drivers.rbd.RBDDriver',
-    'cinder.volume.driver.SheepdogDriver':
-    'cinder.volume.drivers.sheepdog.SheepdogDriver',
-    'cinder.volume.nexenta.volume.NexentaDriver':
-    'cinder.volume.drivers.nexenta.iscsi.NexentaISCSIDriver',
     'cinder.volume.drivers.nexenta.volume.NexentaDriver':
     'cinder.volume.drivers.nexenta.iscsi.NexentaISCSIDriver',
-    'cinder.volume.san.SanISCSIDriver':
-    'cinder.volume.drivers.san.san.SanISCSIDriver',
-    'cinder.volume.san.SolarisISCSIDriver':
-    'cinder.volume.drivers.san.solaris.SolarisISCSIDriver',
-    'cinder.volume.san.HpSanISCSIDriver':
-    'cinder.volume.drivers.san.hp_lefthand.HpSanISCSIDriver',
-    'cinder.volume.nfs.NfsDriver':
-    'cinder.volume.drivers.nfs.NfsDriver',
-    'cinder.volume.solidfire.SolidFire':
-    'cinder.volume.drivers.solidfire.SolidFireDriver',
     'cinder.volume.drivers.solidfire.SolidFire':
     'cinder.volume.drivers.solidfire.SolidFireDriver',
-    'cinder.volume.storwize_svc.StorwizeSVCDriver':
-    'cinder.volume.drivers.storwize_svc.StorwizeSVCDriver',
-    'cinder.volume.windows.WindowsDriver':
-    'cinder.volume.drivers.windows.windows.WindowsDriver',
+    'cinder.volume.drivers.storwize_svc.StorwizeSVCDriver':
+    'cinder.volume.drivers.ibm.storwize_svc.StorwizeSVCDriver',
     'cinder.volume.drivers.windows.WindowsDriver':
     'cinder.volume.drivers.windows.windows.WindowsDriver',
-    'cinder.volume.xiv.XIVDriver':
-    'cinder.volume.drivers.xiv_ds8k.XIVDS8KDriver',
     'cinder.volume.drivers.xiv.XIVDriver':
-    'cinder.volume.drivers.xiv_ds8k.XIVDS8KDriver',
-    'cinder.volume.zadara.ZadaraVPSAISCSIDriver':
-    'cinder.volume.drivers.zadara.ZadaraVPSAISCSIDriver',
+    'cinder.volume.drivers.ibm.xiv_ds8k.XIVDS8KDriver',
+    'cinder.volume.drivers.xiv_ds8k.XIVDS8KDriver':
+    'cinder.volume.drivers.ibm.xiv_ds8k.XIVDS8KDriver',
     'cinder.volume.driver.ISCSIDriver':
     'cinder.volume.drivers.lvm.LVMISCSIDriver',
-    'cinder.volume.netapp.NetAppISCSIDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.netapp.iscsi.NetAppISCSIDriver':
     'cinder.volume.drivers.netapp.common.Deprecated',
-    'cinder.volume.netapp.NetAppCmodeISCSIDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.netapp.iscsi.NetAppCmodeISCSIDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
-    'cinder.volume.netapp_nfs.NetAppNFSDriver':
     'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.netapp.nfs.NetAppNFSDriver':
     'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.netapp.nfs.NetAppCmodeNfsDriver':
     'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.huawei.HuaweiISCSIDriver':
-    'cinder.volume.drivers.huawei.HuaweiVolumeDriver'}
+    'cinder.volume.drivers.huawei.HuaweiVolumeDriver',
+    'cinder.volume.drivers.san.hp_lefthand.HpSanISCSIDriver':
+    'cinder.volume.drivers.san.hp.hp_lefthand_iscsi.HPLeftHandISCSIDriver',
+    'cinder.volume.drivers.gpfs.GPFSDriver':
+    'cinder.volume.drivers.ibm.gpfs.GPFSDriver', }
 
 
 def locked_volume_operation(f):
@@ -180,7 +169,7 @@ def locked_snapshot_operation(f):
 class VolumeManager(manager.SchedulerDependentManager):
     """Manages attachable block storage devices."""
 
-    RPC_API_VERSION = '1.12'
+    RPC_API_VERSION = '1.15'
 
     def __init__(self, volume_driver=None, service_name=None,
                  *args, **kwargs):
@@ -212,7 +201,19 @@ class VolumeManager(manager.SchedulerDependentManager):
         self.driver = importutils.import_object(
             volume_driver,
             configuration=self.configuration,
-            db=self.db)
+            db=self.db,
+            host=self.host)
+
+        self.zonemanager = None
+        try:
+            self.extra_capabilities = jsonutils.loads(
+                self.driver.configuration.extra_capabilities)
+        except AttributeError:
+            self.extra_capabilities = {}
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error("Invalid JSON: %s" %
+                          self.driver.configuration.extra_capabilities)
 
     def _add_to_threadpool(self, func, *args, **kwargs):
         self._tp.spawn_n(func, *args, **kwargs)
@@ -223,6 +224,14 @@ class VolumeManager(manager.SchedulerDependentManager):
         """
 
         ctxt = context.get_admin_context()
+        if self.configuration.safe_get('zoning_mode') == 'fabric':
+            self.zonemanager = ZoneManager(configuration=self.configuration)
+            LOG.info(_("Starting FC Zone Manager %(zm_version)s,"
+                       " Driver %(drv_name)s %(drv_version)s") %
+                     {'zm_version': self.zonemanager.get_version(),
+                      'drv_name': self.zonemanager.driver.__class__.__name__,
+                      'drv_version': self.zonemanager.driver.get_version()})
+
         LOG.info(_("Starting volume driver %(driver_name)s (%(version)s)") %
                  {'driver_name': self.driver.__class__.__name__,
                   'version': self.driver.get_version()})
@@ -245,11 +254,19 @@ class VolumeManager(manager.SchedulerDependentManager):
             sum = 0
             self.stats.update({'allocated_capacity_gb': sum})
             for volume in volumes:
-                if volume['status'] in ['available', 'in-use']:
+                if volume['status'] in ['in-use']:
                     # calculate allocated capacity for driver
                     sum += volume['size']
                     self.stats['allocated_capacity_gb'] = sum
-                    self.driver.ensure_export(ctxt, volume)
+                    try:
+                        self.driver.ensure_export(ctxt, volume)
+                    except Exception as export_ex:
+                        LOG.error(_("Failed to re-export volume %s: "
+                                    "setting to error state"), volume['id'])
+                        LOG.exception(export_ex)
+                        self.db.volume_update(ctxt,
+                                              volume['id'],
+                                              {'status': 'error'})
                 elif volume['status'] == 'downloading':
                     LOG.info(_("volume %s stuck in a downloading state"),
                              volume['id'])
@@ -300,7 +317,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         try:
             # NOTE(flaper87): Driver initialization is
             # verified by the task itself.
-            flow_engine = create_volume.get_manager_flow(
+            flow_engine = create_volume.get_flow(
                 context,
                 self.db,
                 self.driver,
@@ -351,7 +368,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         return volume_ref['id']
 
     @locked_volume_operation
-    def delete_volume(self, context, volume_id):
+    def delete_volume(self, context, volume_id, unmanage_only=False):
         """Deletes and unexports volume."""
         context = context.elevated()
         volume_ref = self.db.volume_get(context, volume_id)
@@ -379,11 +396,13 @@ class VolumeManager(manager.SchedulerDependentManager):
             LOG.debug(_("volume %s: removing export"), volume_ref['id'])
             self.driver.remove_export(context, volume_ref)
             LOG.debug(_("volume %s: deleting"), volume_ref['id'])
-            self.driver.delete_volume(volume_ref)
+            if unmanage_only:
+                self.driver.unmanage(volume_ref)
+            else:
+                self.driver.delete_volume(volume_ref)
         except exception.VolumeIsBusy:
             LOG.error(_("Cannot delete volume %s: volume is busy"),
                       volume_ref['id'])
-            self.driver.ensure_export(context, volume_ref)
             self.db.volume_update(context, volume_ref['id'],
                                   {'status': 'available'})
             return True
@@ -412,13 +431,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             LOG.exception(_("Failed to update usages deleting volume"))
 
         # Delete glance metadata if it exists
-        try:
-            self.db.volume_glance_metadata_delete_by_volume(context, volume_id)
-            LOG.debug(_("volume %s: glance metadata deleted"),
-                      volume_ref['id'])
-        except exception.GlanceMetadataNotFound:
-            LOG.debug(_("no glance metadata found for volume %s"),
-                      volume_ref['id'])
+        self.db.volume_glance_metadata_delete_by_volume(context, volume_id)
 
         self.db.volume_destroy(context, volume_id)
         LOG.info(_("volume %s: deleted successfully"), volume_ref['id'])
@@ -634,10 +647,10 @@ class VolumeManager(manager.SchedulerDependentManager):
             self._notify_about_volume_usage(context, volume, "attach.end")
         return do_attach()
 
+    @locked_volume_operation
     def detach_volume(self, context, volume_id):
         """Updates db to show volume is detached."""
         # TODO(vish): refactor this into a more general "unreserve"
-        # TODO(sleepsonthefloor): Is this 'elevated' appropriate?
 
         volume = self.db.volume_get(context, volume_id)
         self._notify_about_volume_usage(context, volume, "detach.start")
@@ -658,11 +671,29 @@ class VolumeManager(manager.SchedulerDependentManager):
         self.db.volume_admin_metadata_delete(context.elevated(), volume_id,
                                              'attached_mode')
 
-        # Check for https://bugs.launchpad.net/cinder/+bug/1065702
+        # NOTE(jdg): We used to do an ensure export here to
+        # catch upgrades while volumes were attached (E->F)
+        # this was necessary to convert in-use volumes from
+        # int ID's to UUID's.  Don't need this any longer
+
+        # We're going to remove the export here
+        # (delete the iscsi target)
         volume = self.db.volume_get(context, volume_id)
-        if (volume['provider_location'] and
-                volume['name'] not in volume['provider_location']):
-            self.driver.ensure_export(context, volume)
+        try:
+            utils.require_driver_initialized(self.driver)
+            LOG.debug(_("volume %s: removing export"), volume_id)
+            self.driver.remove_export(context, volume)
+        except exception.DriverNotInitialized as ex:
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("Error detaching volume %(volume)s, "
+                                "due to uninitialized driver."),
+                              {"volume": volume_id})
+        except Exception as ex:
+            LOG.exception(_("Error detaching volume %(volume)s, "
+                            "due to remove export failure."),
+                          {"volume": volume_id})
+            raise exception.RemoveExportException(volume=volume_id, reason=ex)
+
         self._notify_about_volume_usage(context, volume, "detach.end")
 
     def copy_volume_to_image(self, context, volume_id, image_meta):
@@ -680,7 +711,6 @@ class VolumeManager(manager.SchedulerDependentManager):
             utils.require_driver_initialized(self.driver)
 
             volume = self.db.volume_get(context, volume_id)
-            self.driver.ensure_export(context.elevated(), volume)
             image_service, image_id = \
                 glance.get_remote_image_service(context, image_meta['id'])
             self.driver.copy_volume_to_image(context, volume, image_service,
@@ -741,14 +771,36 @@ class VolumeManager(manager.SchedulerDependentManager):
         # before going forward. The exception will be caught
         # and the volume status updated.
         utils.require_driver_initialized(self.driver)
+        try:
+            self.driver.validate_connector(connector)
+        except Exception as err:
+            err_msg = (_('Unable to fetch connection information from '
+                         'backend: %(err)s') % {'err': err})
+            LOG.error(err_msg)
+            raise exception.VolumeBackendAPIException(data=err_msg)
 
         volume = self.db.volume_get(context, volume_id)
-        self.driver.validate_connector(connector)
+        model_update = None
+        try:
+            LOG.debug(_("Volume %s: creating export"), volume_id)
+            model_update = self.driver.create_export(context, volume)
+            if model_update:
+                volume = self.db.volume_update(context,
+                                               volume_id,
+                                               model_update)
+        except exception.CinderException as ex:
+            if model_update:
+                LOG.exception(_("Failed updating model of volume %(volume_id)s"
+                              " with driver provided model %(model)s") %
+                              {'volume_id': volume_id, 'model': model_update})
+                raise exception.ExportFailure(reason=ex)
+
         try:
             conn_info = self.driver.initialize_connection(volume, connector)
         except Exception as err:
+            self.driver.remove_export(context, volume)
             err_msg = (_('Unable to fetch connection information from '
-                         'backend: %(err)s') % {'err': str(err)})
+                         'backend: %(err)s') % {'err': err})
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
 
@@ -777,6 +829,13 @@ class VolumeManager(manager.SchedulerDependentManager):
                                if volume_metadata.get('readonly') == 'True'
                                else 'rw')
             conn_info['data']['access_mode'] = access_mode
+        # NOTE(skolathur): If volume_type is fibre_channel, invoke
+        # FCZoneManager to add access control via FC zoning.
+        vol_type = conn_info.get('driver_volume_type', None)
+        mode = self.configuration.zoning_mode
+        LOG.debug(_("Zoning Mode: %s"), mode)
+        if vol_type == 'fibre_channel' and self.zonemanager:
+            self._add_or_delete_fc_connection(conn_info, 1)
         return conn_info
 
     def terminate_connection(self, context, volume_id, connector, force=False):
@@ -791,11 +850,20 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         volume_ref = self.db.volume_get(context, volume_id)
         try:
-            self.driver.terminate_connection(volume_ref,
-                                             connector, force=force)
+            conn_info = self.driver.terminate_connection(volume_ref,
+                                                         connector,
+                                                         force=force)
+            # NOTE(skolathur): If volume_type is fibre_channel, invoke
+            # FCZoneManager to remove access control via FC zoning.
+            if conn_info:
+                vol_type = conn_info.get('driver_volume_type', None)
+                mode = self.configuration.zoning_mode
+                LOG.debug(_("Zoning Mode: %s"), mode)
+                if vol_type == 'fibre_channel' and self.zonemanager:
+                    self._add_or_delete_fc_connection(conn_info, 0)
         except Exception as err:
             err_msg = (_('Unable to terminate volume connection: %(err)s')
-                       % {'err': str(err)})
+                       % {'err': err})
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
 
@@ -1019,6 +1087,8 @@ class VolumeManager(manager.SchedulerDependentManager):
                          'config_group': config_group})
         else:
             volume_stats = self.driver.get_volume_stats(refresh=True)
+            if self.extra_capabilities:
+                volume_stats.update(self.extra_capabilities)
             if volume_stats:
                 # Append volume stats with 'allocated_capacity_gb'
                 volume_stats.update(self.stats)
@@ -1051,7 +1121,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             context, snapshot, event_suffix,
             extra_usage_info=extra_usage_info, host=self.host)
 
-    def extend_volume(self, context, volume_id, new_size):
+    def extend_volume(self, context, volume_id, new_size, reservations):
         try:
             # NOTE(flaper87): Verify the driver is enabled
             # before going forward. The exception will be caught
@@ -1064,30 +1134,6 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         volume = self.db.volume_get(context, volume_id)
         size_increase = (int(new_size)) - volume['size']
-
-        try:
-            reservations = QUOTAS.reserve(context, gigabytes=+size_increase)
-        except exception.OverQuota as exc:
-            self.db.volume_update(context, volume['id'],
-                                  {'status': 'error_extending'})
-            overs = exc.kwargs['overs']
-            usages = exc.kwargs['usages']
-            quotas = exc.kwargs['quotas']
-
-            def _consumed(name):
-                return (usages[name]['reserved'] + usages[name]['in_use'])
-
-            if 'gigabytes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, "
-                        "tried to extend volume by "
-                        "%(s_size)sG, (%(d_consumed)dG of %(d_quota)dG "
-                        "already consumed)")
-                LOG.error(msg % {'s_pid': context.project_id,
-                                 's_size': size_increase,
-                                 'd_consumed': _consumed('gigabytes'),
-                                 'd_quota': quotas['gigabytes']})
-            return
-
         self._notify_about_volume_usage(context, volume, "resize.start")
         try:
             LOG.info(_("volume %s: extending"), volume['id'])
@@ -1099,6 +1145,9 @@ class VolumeManager(manager.SchedulerDependentManager):
             try:
                 self.db.volume_update(context, volume['id'],
                                       {'status': 'error_extending'})
+                raise exception.CinderException(_("Volume %s: Error trying "
+                                                  "to extend volume") %
+                                                volume_id)
             finally:
                 QUOTAS.rollback(context, reservations)
                 return
@@ -1177,7 +1226,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                 retyped = self.driver.retype(context, volume_ref, new_type,
                                              diff, host)
                 if retyped:
-                    LOG.info(_("Volume %s: retyped succesfully"), volume_id)
+                    LOG.info(_("Volume %s: retyped successfully"), volume_id)
             except Exception as ex:
                 retyped = False
                 LOG.error(_("Volume %s: driver error when trying to retype, "
@@ -1223,3 +1272,56 @@ class VolumeManager(manager.SchedulerDependentManager):
         if new_reservations:
             QUOTAS.commit(context, new_reservations, project_id=project_id)
         self.publish_service_capabilities(context)
+
+    def manage_existing(self, ctxt, volume_id, ref=None):
+        LOG.debug('manage_existing: managing %s' % ref)
+        try:
+            flow_engine = manage_existing.get_flow(
+                ctxt,
+                self.db,
+                self.driver,
+                self.host,
+                volume_id,
+                ref)
+        except Exception:
+            LOG.exception(_("Failed to create manage_existing flow."))
+            raise exception.CinderException(
+                _("Failed to create manage existing flow."))
+        flow_engine.run()
+
+        # Fetch created volume from storage
+        volume_ref = flow_engine.storage.fetch('volume')
+        # Update volume stats
+        self.stats['allocated_capacity_gb'] += volume_ref['size']
+        return volume_ref['id']
+
+    def _add_or_delete_fc_connection(self, conn_info, zone_op):
+        """Add or delete connection control to fibre channel network.
+
+        In case of fibre channel, when zoning mode is set as fabric
+        ZoneManager is invoked to apply FC zoning configuration to the network
+        using initiator and target WWNs used for attach/detach.
+
+        params conn_info: connector passed by volume driver after
+        initialize_connection or terminate_connection.
+        params zone_op: Indicates if it is a zone add or delete operation
+        zone_op=0 for delete connection and 1 for add connection
+        """
+        _initiator_target_map = None
+        if 'initiator_target_map' in conn_info['data']:
+            _initiator_target_map = conn_info['data']['initiator_target_map']
+        LOG.debug(_("Initiator Target map:%s"), _initiator_target_map)
+        # NOTE(skolathur): Invoke Zonemanager to handle automated FC zone
+        # management when vol_type is fibre_channel and zoning_mode is fabric
+        # Initiator_target map associating each initiator WWN to one or more
+        # target WWN is passed to ZoneManager to add or update zone config.
+        LOG.debug(_("Zoning op: %s"), zone_op)
+        if _initiator_target_map is not None:
+            try:
+                if zone_op == 1:
+                    self.zonemanager.add_connection(_initiator_target_map)
+                elif zone_op == 0:
+                    self.zonemanager.delete_connection(_initiator_target_map)
+            except exception.ZoneManagerException as e:
+                with excutils.save_and_reraise_exception():
+                    LOG.error(e)

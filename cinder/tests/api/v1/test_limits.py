@@ -18,7 +18,7 @@ Tests dealing with HTTP rate-limiting.
 """
 
 import httplib
-import StringIO
+import six
 from xml.dom import minidom
 
 from lxml import etree
@@ -362,7 +362,7 @@ class ParseLimitsTest(BaseLimitTestSuite):
                                             '(POST, /bar*, /bar.*, 5, second);'
                                             '(Say, /derp*, /derp.*, 1, day)')
         except ValueError as e:
-            assert False, str(e)
+            assert False, e
 
         # Make sure the number of returned limits are correct
         self.assertEqual(len(l), 4)
@@ -637,7 +637,7 @@ class FakeHttplibSocket(object):
 
     def __init__(self, response_string):
         """Initialize new `FakeHttplibSocket`."""
-        self._buffer = StringIO.StringIO(response_string)
+        self._buffer = six.StringIO(response_string)
 
     def makefile(self, _mode, _other):
         """Returns the socket's internal buffer."""

@@ -23,11 +23,13 @@ import time
 
 from oslo.config import cfg
 
+from cinder.brick.remotefs import remotefs
 from cinder import compute
 from cinder import db
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import processutils
 from cinder import units
 from cinder import utils
 from cinder.volume.drivers import nfs
@@ -68,12 +70,25 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
     driver_volume_type = 'glusterfs'
     driver_prefix = 'glusterfs'
     volume_backend_name = 'GlusterFS'
-    VERSION = '1.1.0'
+    VERSION = '1.1.1'
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, execute=processutils.execute, *args, **kwargs):
+        self._remotefsclient = None
         super(GlusterfsDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(volume_opts)
         self._nova = None
+        self.base = getattr(self.configuration,
+                            'glusterfs_mount_point_base',
+                            CONF.glusterfs_mount_point_base)
+        self._remotefsclient = remotefs.RemoteFsClient(
+            'glusterfs',
+            execute,
+            glusterfs_mount_point_base=self.base)
+
+    def set_execute(self, execute):
+        super(GlusterfsDriver, self).set_execute(execute)
+        if self._remotefsclient:
+            self._remotefsclient.set_execute(execute)
 
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""
@@ -180,14 +195,14 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                          'volume_id': src_vref['id'],
                          'id': 'tmp-snap-%s' % src_vref['id'],
                          'volume': src_vref}
-        self.create_snapshot(temp_snapshot)
+        self._create_snapshot(temp_snapshot)
         try:
             self._copy_volume_from_snapshot(temp_snapshot,
                                             volume_info,
                                             src_vref['size'])
 
         finally:
-            self.delete_snapshot(temp_snapshot)
+            self._delete_snapshot(temp_snapshot)
 
         return {'provider_location': src_vref['provider_location']}
 
@@ -205,6 +220,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
         return {'provider_location': volume['provider_location']}
 
+    @utils.synchronized('glusterfs', external=False)
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot.
 
@@ -283,6 +299,11 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
     @utils.synchronized('glusterfs', external=False)
     def create_snapshot(self, snapshot):
+        """Apply locking to the create snapshot operation."""
+
+        return self._create_snapshot(snapshot)
+
+    def _create_snapshot(self, snapshot):
         """Create a snapshot.
 
         If volume is attached, call to Nova to create snapshot,
@@ -451,7 +472,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         LOG.debug(_('volume id: %s') % snapshot['volume_id'])
 
         path_to_disk = self._local_path_volume(snapshot['volume'])
-        self._create_snapshot(snapshot, path_to_disk)
+        self._create_snapshot_offline(snapshot, path_to_disk)
 
     def _create_qcow2_snap_file(self, snapshot, backing_filename,
                                 new_snap_path):
@@ -480,7 +501,9 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
                    new_snap_path]
         self._execute(*command, run_as_root=True)
 
-    def _create_snapshot(self, snapshot, path_to_disk):
+        self._set_rw_permissions_for_all(new_snap_path)
+
+    def _create_snapshot_offline(self, snapshot, path_to_disk):
         """Create snapshot (offline case)."""
 
         # Requires volume status = 'available'
@@ -535,6 +558,10 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
     @utils.synchronized('glusterfs', external=False)
     def delete_snapshot(self, snapshot):
+        """Apply locking to the delete snapshot operation."""
+        self._delete_snapshot(snapshot)
+
+    def _delete_snapshot(self, snapshot):
         """Delete a snapshot.
 
         If volume status is 'available', delete snapshot here in Cinder
@@ -774,7 +801,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         # An update of progress = '90%' means that Nova is done
         seconds_elapsed = 0
         increment = 1
-        timeout = 600
+        timeout = 7200
         while True:
             s = db.snapshot_get(context, snapshot['id'])
 
@@ -896,7 +923,8 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
 
         return {
             'driver_volume_type': 'glusterfs',
-            'data': data
+            'data': data,
+            'mount_point_base': self._get_mount_point_base()
         }
 
     def terminate_connection(self, volume, connector, **kwargs):
@@ -1008,7 +1036,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             except Exception as exc:
                 LOG.warning(_('Exception during mounting %s') % (exc,))
 
-        LOG.debug(_('Available shares: %s') % str(self._mounted_shares))
+        LOG.debug(_('Available shares: %s') % self._mounted_shares)
 
     def _ensure_share_writable(self, path):
         """Ensure that the Cinder user can write to the share.
@@ -1085,8 +1113,7 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
         """Return mount point for share.
         :param glusterfs_share: example 172.18.194.100:/var/glusterfs
         """
-        return os.path.join(self.configuration.glusterfs_mount_point_base,
-                            self._get_hash_str(glusterfs_share))
+        return self._remotefsclient.get_mount_point(glusterfs_share)
 
     def _get_available_capacity(self, glusterfs_share):
         """Calculate available space on the GlusterFS share.
@@ -1117,3 +1144,47 @@ class GlusterfsDriver(nfs.RemoteFsDriver):
             command.extend(self.shares[glusterfs_share].split())
 
         self._do_mount(command, ensure, glusterfs_share)
+
+    def _get_mount_point_base(self):
+        return self.base
+
+    def backup_volume(self, context, backup, backup_service):
+        """Create a new backup from an existing volume.
+
+        Allow a backup to occur only if no snapshots exist.
+        Check both Cinder and the file on-disk.  The latter is only
+        a safety mechanism to prevent further damage if the snapshot
+        information is already inconsistent.
+        """
+
+        snapshots = self.db.snapshot_get_all_for_volume(context,
+                                                        backup['volume_id'])
+        snap_error_msg = _('Backup is not supported for GlusterFS '
+                           'volumes with snapshots.')
+        if len(snapshots) > 0:
+            raise exception.InvalidVolume(snap_error_msg)
+
+        volume = self.db.volume_get(context, backup['volume_id'])
+
+        volume_dir = self._local_volume_dir(volume)
+        active_file_path = os.path.join(
+            volume_dir,
+            self.get_active_image_from_info(volume))
+
+        info = self._qemu_img_info(active_file_path)
+
+        if info.backing_file is not None:
+            msg = _('No snapshots found in database, but '
+                    '%(path)s has backing file '
+                    '%(backing_file)s!') % {'path': active_file_path,
+                                            'backing_file': info.backing_file}
+            LOG.error(msg)
+            raise exception.InvalidVolume(snap_error_msg)
+
+        if info.file_format != 'raw':
+            msg = _('Backup is only supported for raw-formatted '
+                    'GlusterFS volumes.')
+            raise exception.InvalidVolume(msg)
+
+        return super(GlusterfsDriver, self).backup_volume(
+            context, backup, backup_service)

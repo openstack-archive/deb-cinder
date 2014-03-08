@@ -22,7 +22,6 @@ import time
 
 from oslo.config import cfg
 
-from cinder.brick.iscsi import iscsi
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import excutils
@@ -30,6 +29,7 @@ from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import utils
+from cinder.volume import iscsi
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import utils as volume_utils
 
@@ -73,6 +73,11 @@ volume_opts = [
     cfg.IntOpt('volume_clear_size',
                default=0,
                help='Size in MiB to wipe at start of old volumes. 0 => all'),
+    cfg.StrOpt('volume_clear_ionice',
+               default=None,
+               help='The flag to pass to ionice to alter the i/o priority '
+                    'of the process used to zero a volume after deletion, '
+                    'for example "-c3" for idle only priority.'),
     cfg.StrOpt('iscsi_helper',
                default='tgtadm',
                help='iscsi target user-land tool to use'),
@@ -137,6 +142,7 @@ class VolumeDriver(object):
     def __init__(self, execute=utils.execute, *args, **kwargs):
         # NOTE(vish): db is set by Manager
         self.db = kwargs.get('db')
+        self.host = kwargs.get('host')
         self.configuration = kwargs.get('configuration', None)
         if self.configuration:
             self.configuration.append_config_values(volume_opts)
@@ -373,8 +379,10 @@ class VolumeDriver(object):
         """Attach the volume."""
         if remote:
             rpcapi = volume_rpcapi.VolumeAPI()
+            rpcapi.create_export(context, volume)
             conn = rpcapi.initialize_connection(context, volume, properties)
         else:
+            self.create_export(context, volume)
             conn = self.initialize_connection(volume, properties)
 
         # Use Brick's code to do attach/detach
@@ -502,6 +510,61 @@ class VolumeDriver(object):
                      dictionary of its reported capabilities.
         """
         return False
+
+    def accept_transfer(self, context, volume, new_user, new_project):
+        """Accept the transfer of a volume for a new user/project."""
+        pass
+
+    def manage_existing(self, volume, existing_ref):
+        """Brings an existing backend storage object under Cinder management.
+
+        existing_ref is passed straight through from the API request's
+        manage_existing_ref value, and it is up to the driver how this should
+        be interpreted.  It should be sufficient to identify a storage object
+        that the driver should somehow associate with the newly-created cinder
+        volume structure.
+
+        There are two ways to do this:
+
+        1. Rename the backend storage object so that it matches the,
+           volume['name'] which is how drivers traditionally map between a
+           cinder volume and the associated backend storage object.
+
+        2. Place some metadata on the volume, or somewhere in the backend, that
+           allows other driver requests (e.g. delete, clone, attach, detach...)
+           to locate the backend storage object when required.
+
+        If the existing_ref doesn't make sense, or doesn't refer to an existing
+        backend storage object, raise a ManageExistingInvalidReference
+        exception.
+
+        The volume may have a volume_type, and the driver can inspect that and
+        compare against the properties of the referenced backend storage
+        object.  If they are incompatible, raise a
+        ManageExistingVolumeTypeMismatch, specifying a reason for the failure.
+        """
+        msg = _("Manage existing volume not implemented.")
+        raise NotImplementedError(msg)
+
+    def manage_existing_get_size(self, volume, existing_ref):
+        """Return size of volume to be managed by manage_existing.
+
+        When calculating the size, round up to the next GB.
+        """
+        msg = _("Manage existing volume not implemented.")
+        raise NotImplementedError(msg)
+
+    def unmanage(self, volume):
+        """Removes the specified volume from Cinder management.
+
+        Does not delete the underlying backend storage object.
+
+        For most drivers, this will not need to do anything.  However, some
+        drivers might use this call as an opportunity to clean up any
+        Cinder-specific configuration that they have associated with the
+        backend storage object.
+        """
+        pass
 
 
 class ISCSIDriver(VolumeDriver):
@@ -678,7 +741,7 @@ class ISCSIDriver(VolumeDriver):
         """
 
         if CONF.iscsi_helper == 'lioadm':
-            self.tgtadm.initialize_connection(volume, connector)
+            self.target_helper.initialize_connection(volume, connector)
 
         iscsi_properties = self._get_iscsi_properties(volume)
         return {
@@ -696,15 +759,6 @@ class ISCSIDriver(VolumeDriver):
 
     def terminate_connection(self, volume, connector, **kwargs):
         pass
-
-    def _get_iscsi_initiator(self):
-        """Get iscsi initiator name for this machine."""
-        # NOTE openiscsi stores initiator name in a file that
-        #      needs root permission to read.
-        contents = utils.read_file_as_root('/etc/iscsi/initiatorname.iscsi')
-        for l in contents.split('\n'):
-            if l.startswith('InitiatorName='):
-                return l[l.index('=') + 1:].strip()
 
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
@@ -733,26 +787,25 @@ class ISCSIDriver(VolumeDriver):
         data['QoS_support'] = False
         self._stats = data
 
-    def accept_transfer(self, context, volume, new_user, new_project):
-        pass
-
-    def get_target_admin(self):
+    def get_target_helper(self, db):
         root_helper = utils.get_root_helper()
         if CONF.iscsi_helper == 'iseradm':
             return iscsi.ISERTgtAdm(root_helper, CONF.volumes_dir,
-                                    CONF.iscsi_target_prefix)
+                                    CONF.iscsi_target_prefix, db=db)
         elif CONF.iscsi_helper == 'tgtadm':
             return iscsi.TgtAdm(root_helper,
                                 CONF.volumes_dir,
-                                CONF.iscsi_target_prefix)
+                                CONF.iscsi_target_prefix,
+                                db=db)
         elif CONF.iscsi_helper == 'fake':
             return iscsi.FakeIscsiHelper()
         elif CONF.iscsi_helper == 'lioadm':
             return iscsi.LioAdm(root_helper,
                                 CONF.lio_initiator_iqns,
-                                CONF.iscsi_target_prefix)
+                                CONF.iscsi_target_prefix, db=db)
         else:
-            return iscsi.IetAdm(root_helper, CONF.iet_conf, CONF.iscsi_iotype)
+            return iscsi.IetAdm(root_helper, CONF.iet_conf, CONF.iscsi_iotype,
+                                db=db)
 
 
 class FakeISCSIDriver(ISCSIDriver):
@@ -855,14 +908,14 @@ class ISERDriver(ISCSIDriver):
         data['QoS_support'] = False
         self._stats = data
 
-    def get_target_admin(self):
+    def get_target_helper(self, db):
         root_helper = utils.get_root_helper()
 
         if CONF.iser_helper == 'fake':
             return iscsi.FakeIscsiHelper()
         else:
             return iscsi.ISERTgtAdm(root_helper,
-                                    CONF.volumes_dir)
+                                    CONF.volumes_dir, db=db)
 
 
 class FakeISERDriver(FakeISCSIDriver):

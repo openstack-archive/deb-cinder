@@ -18,13 +18,14 @@ import datetime
 import hashlib
 import os
 import socket
-import StringIO
 import tempfile
 import uuid
 
+import mock
 import mox
 from oslo.config import cfg
 import paramiko
+import six
 
 import cinder
 from cinder.brick.initiator import connector
@@ -446,7 +447,7 @@ class GenericUtilsTestCase(test.TestCase):
 
     def test_hash_file(self):
         data = 'Mary had a little lamb, its fleece as white as snow'
-        flo = StringIO.StringIO(data)
+        flo = six.StringIO(data)
         h1 = utils.hash_file(flo)
         h2 = hashlib.sha1(data).hexdigest()
         self.assertEqual(h1, h2)
@@ -614,17 +615,16 @@ class AuditPeriodTest(test.TestCase):
     def setUp(self):
         super(AuditPeriodTest, self).setUp()
         #a fairly random time to test with
-        self.test_time = datetime.datetime(second=23,
-                                           minute=12,
-                                           hour=8,
-                                           day=5,
-                                           month=3,
-                                           year=2012)
-        timeutils.set_time_override(override_time=self.test_time)
-
-    def tearDown(self):
-        timeutils.clear_time_override()
-        super(AuditPeriodTest, self).tearDown()
+        test_time = datetime.datetime(second=23,
+                                      minute=12,
+                                      hour=8,
+                                      day=5,
+                                      month=3,
+                                      year=2012)
+        patcher = mock.patch.object(timeutils, 'utcnow')
+        self.addCleanup(patcher.stop)
+        self.mock_utcnow = patcher.start()
+        self.mock_utcnow.return_value = test_time
 
     def test_hour(self):
         begin, end = utils.last_completed_audit_period(unit='hour')
@@ -900,3 +900,18 @@ class BrickUtils(test.TestCase):
         utils.brick_get_connector('aoe')
         utils.brick_get_connector('local')
         self.mox.VerifyAll()
+
+
+class StringLengthTestCase(test.TestCase):
+    def test_check_string_length(self):
+        self.assertIsNone(utils.check_string_length(
+                          'test', 'name', max_length=255))
+        self.assertRaises(exception.InvalidInput,
+                          utils.check_string_length,
+                          11, 'name', max_length=255)
+        self.assertRaises(exception.InvalidInput,
+                          utils.check_string_length,
+                          '', 'name', min_length=1)
+        self.assertRaises(exception.InvalidInput,
+                          utils.check_string_length,
+                          'a' * 256, 'name', max_length=255)

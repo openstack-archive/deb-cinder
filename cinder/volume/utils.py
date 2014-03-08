@@ -20,11 +20,11 @@ import math
 from oslo.config import cfg
 
 from cinder.brick.local_dev import lvm as brick_lvm
+from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier_api
 from cinder.openstack.common import processutils
 from cinder.openstack.common import strutils
-from cinder.openstack.common import timeutils
 from cinder import units
 from cinder import utils
 
@@ -32,34 +32,6 @@ from cinder import utils
 CONF = cfg.CONF
 
 LOG = logging.getLogger(__name__)
-
-
-def get_host_from_queue(queuename):
-    # This assumes the queue is named something like cinder-volume
-    # and does not have dot separators in the queue name
-    return queuename.split('@', 1)[0].split('.', 1)[1]
-
-
-def notify_usage_exists(context, volume_ref, current_period=False):
-    """Generates 'exists' notification for a volume for usage auditing
-       purposes.
-
-       Generates usage for last completed period, unless 'current_period'
-       is True.
-    """
-    begin, end = utils.last_completed_audit_period()
-    if current_period:
-        audit_start = end
-        audit_end = timeutils.utcnow()
-    else:
-        audit_start = begin
-        audit_end = end
-
-    extra_usage_info = dict(audit_period_beginning=str(audit_start),
-                            audit_period_ending=str(audit_end))
-
-    notify_about_volume_usage(context, volume_ref,
-                              'exists', extra_usage_info=extra_usage_info)
 
 
 def null_safe_str(s):
@@ -135,12 +107,12 @@ def _calculate_count(size_in_m, blocksize):
 
     # Check if volume_dd_blocksize is valid
     try:
-        # Rule out zero-sized/negative dd blocksize which
+        # Rule out zero-sized/negative/float dd blocksize which
         # cannot be caught by strutils
-        if blocksize.startswith(('-', '0')):
+        if blocksize.startswith(('-', '0')) or '.' in blocksize:
             raise ValueError
-        bs = strutils.to_bytes(blocksize)
-    except (ValueError, TypeError):
+        bs = strutils.string_to_bytes('%sB' % blocksize)
+    except ValueError:
         msg = (_("Incorrect value error: %(blocksize)s, "
                  "it may indicate that \'volume_dd_blocksize\' "
                  "was configured incorrectly. Fall back to default.")
@@ -149,15 +121,15 @@ def _calculate_count(size_in_m, blocksize):
         # Fall back to default blocksize
         CONF.clear_override('volume_dd_blocksize')
         blocksize = CONF.volume_dd_blocksize
-        bs = strutils.to_bytes(blocksize)
+        bs = strutils.string_to_bytes('%sB' % blocksize)
 
-    count = math.ceil(size_in_m * units.MiB / float(bs))
+    count = math.ceil(size_in_m * units.MiB / bs)
 
     return blocksize, int(count)
 
 
 def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
-                execute=utils.execute):
+                execute=utils.execute, ionice=None):
     # Use O_DIRECT to avoid thrashing the system buffer cache
     extra_flags = ['iflag=direct', 'oflag=direct']
 
@@ -176,11 +148,50 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
 
     blocksize, count = _calculate_count(size_in_m, blocksize)
 
+    cmd = ['dd', 'if=%s' % srcstr, 'of=%s' % deststr,
+           'count=%d' % count, 'bs=%s' % blocksize]
+    cmd.extend(extra_flags)
+
+    if ionice is not None:
+        cmd = ['ionice', ionice] + cmd
+
     # Perform the copy
-    execute('dd', 'if=%s' % srcstr, 'of=%s' % deststr,
-            'count=%d' % count,
-            'bs=%s' % blocksize,
-            *extra_flags, run_as_root=True)
+    execute(*cmd, run_as_root=True)
+
+
+def clear_volume(volume_size, volume_path, volume_clear=None,
+                 volume_clear_size=None, volume_clear_ionice=None):
+    """Unprovision old volumes to prevent data leaking between users."""
+    if volume_clear is None:
+        volume_clear = CONF.volume_clear
+
+    if volume_clear_size is None:
+        volume_clear_size = CONF.volume_clear_size
+
+    if volume_clear_size == 0:
+        volume_clear_size = volume_size
+
+    if volume_clear_ionice is None:
+        volume_clear_ionice = CONF.volume_clear_ionice
+
+    LOG.info(_("Performing secure delete on volume: %s") % volume_path)
+
+    if volume_clear == 'zero':
+        return copy_volume('/dev/zero', volume_path, volume_clear_size,
+                           CONF.volume_dd_blocksize,
+                           sync=True, execute=utils.execute,
+                           ionice=volume_clear_ionice)
+    elif volume_clear == 'shred':
+        clear_cmd = ['shred', '-n3']
+        if volume_clear_size:
+            clear_cmd.append('-s%dMiB' % volume_clear_size)
+    else:
+        raise exception.InvalidConfigurationValue(
+            option='volume_clear',
+            value=volume_clear)
+
+    clear_cmd.append(volume_path)
+    utils.execute(*clear_cmd, run_as_root=True)
 
 
 def supports_thin_provisioning():
@@ -188,19 +199,19 @@ def supports_thin_provisioning():
         utils.get_root_helper())
 
 
-def get_all_volumes(vg_name=None, no_suffix=True):
+def get_all_volumes(vg_name=None):
     return brick_lvm.LVM.get_all_volumes(
         utils.get_root_helper(),
-        vg_name, no_suffix)
+        vg_name)
 
 
-def get_all_physical_volumes(vg_name=None, no_suffix=True):
+def get_all_physical_volumes(vg_name=None):
     return brick_lvm.LVM.get_all_physical_volumes(
         utils.get_root_helper(),
-        vg_name, no_suffix)
+        vg_name)
 
 
-def get_all_volume_groups(vg_name=None, no_suffix=True):
+def get_all_volume_groups(vg_name=None):
     return brick_lvm.LVM.get_all_volume_groups(
         utils.get_root_helper(),
-        vg_name, no_suffix)
+        vg_name)

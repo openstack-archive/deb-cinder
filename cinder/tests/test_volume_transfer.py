@@ -28,7 +28,7 @@ LOG = logging.getLogger(__name__)
 
 
 class VolumeTransferTestCase(test.TestCase):
-    """Test cases for volume type code."""
+    """Test cases for volume transfer code."""
     def setUp(self):
         super(VolumeTransferTestCase, self).setUp()
         self.ctxt = context.RequestContext(user_id='user_id',
@@ -37,8 +37,8 @@ class VolumeTransferTestCase(test.TestCase):
 
     def test_transfer_volume_create_delete(self):
         tx_api = transfer_api.API()
-        volume = utils.create_volume(self.ctxt, id='1',
-                                     updated_at=self.updated_at)
+        utils.create_volume(self.ctxt, id='1',
+                            updated_at=self.updated_at)
         response = tx_api.create(self.ctxt, '1', 'Description')
         volume = db.volume_get(self.ctxt, '1')
         self.assertEqual('awaiting-transfer', volume['status'],
@@ -50,8 +50,8 @@ class VolumeTransferTestCase(test.TestCase):
 
     def test_transfer_invalid_volume(self):
         tx_api = transfer_api.API()
-        volume = utils.create_volume(self.ctxt, id='1', status='in-use',
-                                     updated_at=self.updated_at)
+        utils.create_volume(self.ctxt, id='1', status='in-use',
+                            updated_at=self.updated_at)
         self.assertRaises(exception.InvalidVolume,
                           tx_api.create,
                           self.ctxt, '1', 'Description')
@@ -60,8 +60,8 @@ class VolumeTransferTestCase(test.TestCase):
 
     def test_transfer_accept(self):
         tx_api = transfer_api.API()
-        volume = utils.create_volume(self.ctxt, id='1',
-                                     updated_at=self.updated_at)
+        utils.create_volume(self.ctxt, id='1',
+                            updated_at=self.updated_at)
         transfer = tx_api.create(self.ctxt, '1', 'Description')
         volume = db.volume_get(self.ctxt, '1')
         self.assertEqual('awaiting-transfer', volume['status'],
@@ -118,3 +118,20 @@ class VolumeTransferTestCase(test.TestCase):
 
         ts = tx_api.get_all(nctxt)
         self.assertEqual(len(ts), 0, 'Unexpected transfers listed.')
+
+    def test_delete_transfer_with_deleted_volume(self):
+        #create a volume
+        volume = utils.create_volume(self.ctxt, id='1',
+                                     updated_at=self.updated_at)
+        #create a transfer
+        tx_api = transfer_api.API()
+        transfer = tx_api.create(self.ctxt, volume['id'], 'Description')
+        t = tx_api.get(self.ctxt, transfer['id'])
+        self.assertEqual(t['id'], transfer['id'], 'Unexpected transfer id')
+        #force delete volume
+        db.volume_destroy(context.get_admin_context(), volume['id'])
+        #Make sure transfer has been deleted.
+        self.assertRaises(exception.TransferNotFound,
+                          tx_api.get,
+                          self.ctxt,
+                          transfer['id'])

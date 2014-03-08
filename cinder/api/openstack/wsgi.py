@@ -37,14 +37,6 @@ XMLNS_ATOM = 'http://www.w3.org/2005/Atom'
 
 LOG = logging.getLogger(__name__)
 
-# The vendor content types should serialize identically to the non-vendor
-# content types. So to avoid littering the code with both options, we
-# map the vendor to the other when looking up the type
-_CONTENT_TYPE_MAP = {
-    'application/vnd.openstack.volume+json': 'application/json',
-    'application/vnd.openstack.volume+xml': 'application/xml',
-}
-
 SUPPORTED_CONTENT_TYPES = (
     'application/json',
     'application/vnd.openstack.volume+json',
@@ -290,11 +282,13 @@ class XMLDeserializer(TextDeserializer):
 
     def extract_text(self, node):
         """Get the text field contained by the given node."""
-        if len(node.childNodes) == 1:
-            child = node.childNodes[0]
+        text = []
+        # Cannot assume entire text will be in a single child node because SAX
+        # parsers may split contiguous character data into multiple chunks
+        for child in node.childNodes:
             if child.nodeType == child.TEXT_NODE:
-                return child.nodeValue
-        return ""
+                text.append(child.nodeValue)
+        return ''.join(text)
 
     def find_attribute_or_element(self, parent, name):
         """Get an attribute value; fallback to an element if not found."""
@@ -1164,8 +1158,7 @@ class Fault(webob.exc.HTTPException):
         fault_data = {
             fault_name: {
                 'code': code,
-                'message': gettextutils.get_localized_message(explanation,
-                                                              locale)}}
+                'message': gettextutils.translate(explanation, locale)}}
         if code == 413:
             retry = self.wrapped_exc.headers.get('Retry-After', None)
             if retry:
@@ -1228,7 +1221,7 @@ class OverLimitFault(webob.exc.HTTPException):
 
         def translate(msg):
             locale = request.best_match_language()
-            return gettextutils.get_localized_message(msg, locale)
+            return gettextutils.translate(msg, locale)
 
         self.content['overLimitFault']['message'] = \
             translate(self.content['overLimitFault']['message'])

@@ -1,7 +1,5 @@
-#    (c) Copyright 2012-2013 Hewlett-Packard Development Company, L.P.
+#    (c) Copyright 2012-2014 Hewlett-Packard Development Company, L.P.
 #    All Rights Reserved.
-#
-#    Copyright 2012 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -18,7 +16,7 @@
 """
 Volume driver common utilities for HP 3PAR Storage array
 
-The 3PAR drivers requires 3.1.2 MU2 firmware on the 3PAR array.
+The 3PAR drivers requires 3.1.3 firmware on the 3PAR array.
 
 You will need to install the python hp3parclient.
 sudo pip install hp3parclient
@@ -40,11 +38,9 @@ import ast
 import base64
 import json
 import pprint
-from random import randint
 import re
 import uuid
 
-from eventlet import greenthread
 import hp3parclient
 from hp3parclient import client
 from hp3parclient import exceptions as hpexceptions
@@ -54,14 +50,15 @@ from cinder import context
 from cinder import exception
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder import utils
+from cinder.openstack.common import loopingcall
+from cinder import units
+from cinder.volume import qos_specs
 from cinder.volume import volume_types
 
 
 LOG = logging.getLogger(__name__)
 
-MIN_CLIENT_VERSION = '2.0.0'
+MIN_CLIENT_VERSION = '3.0.0'
 
 hp3par_opts = [
     cfg.StrOpt('hp3par_api_url',
@@ -113,12 +110,29 @@ class HP3PARCommon(object):
         1.2.3 - Methods to update key/value pair bug #1258033
         1.2.4 - Remove deprecated config option hp3par_domain
         1.2.5 - Raise Ex when deleting snapshot with dependencies bug #1250249
+        1.2.6 - Allow optional specifying n:s:p for vlun creation bug #1269515
+                This update now requires 3.1.2 MU3 firmware
+        1.3.0 - Removed all SSH code.  We rely on the hp3parclient now.
+        2.0.0 - Update hp3parclient API uses 3.0.x
+        2.0.1 - Updated to use qos_specs, added new qos settings and personas
+        2.0.2 - Add back-end assisted volume migrate
+        2.0.3 - Allow deleting missing snapshots bug #1283233
+        2.0.4 - Allow volumes created from snapshots to be larger bug #1279478
+        2.0.5 - Fix extend volume units bug #1284368
+        2.0.6 - use loopingcall.wait instead of time.sleep
 
     """
 
-    VERSION = "1.2.5"
+    VERSION = "2.0.6"
 
     stats = {}
+
+    # TODO(Ramy): move these to the 3PAR Client
+    VLUN_TYPE_EMPTY = 1
+    VLUN_TYPE_PORT = 2
+    VLUN_TYPE_HOST = 3
+    VLUN_TYPE_MATCHED_SET = 4
+    VLUN_TYPE_HOST_SET = 5
 
     # Valid values for volume type extra specs
     # The first value in the list is the default value
@@ -131,12 +145,15 @@ class HP3PARCommon(object):
                             '9 - EGENERA',
                             '10 - ONTAP-legacy',
                             '11 - VMware',
-                            '12 - OpenVMS']
-    hp_qos_keys = ['maxIOPS', 'maxBWS']
+                            '12 - OpenVMS',
+                            '13 - HPUX',
+                            '15 - WindowsServer']
+    hp_qos_keys = ['minIOPS', 'maxIOPS', 'minBWS', 'maxBWS', 'latency',
+                   'priority']
+    qos_priority_level = {'low': 1, 'normal': 2, 'high': 3}
     hp3par_valid_keys = ['cpg', 'snap_cpg', 'provisioning', 'persona', 'vvs']
 
     def __init__(self, config):
-        self.sshpool = None
         self.config = config
         self.hosts_naming_dict = dict()
         self.client = None
@@ -156,10 +173,19 @@ class HP3PARCommon(object):
         client_version = hp3parclient.version
 
         if (client_version < MIN_CLIENT_VERSION):
-            ex_msg = (_('Invalid hp3parclient version. Version %s or greater '
-                        'required.') % MIN_CLIENT_VERSION)
+            ex_msg = (_('Invalid hp3parclient version found (%(found)s). '
+                        'Version %(minimum)s or greater required.')
+                      % {'found': client_version,
+                         'minimum': MIN_CLIENT_VERSION})
             LOG.error(ex_msg)
             raise exception.InvalidInput(reason=ex_msg)
+
+        cl.setSSHOptions(self.config.san_ip,
+                         self.config.san_login,
+                         self.config.san_password,
+                         port=self.config.san_ssh_port,
+                         conn_timeout=self.config.ssh_conn_timeout,
+                         privatekey=self.config.san_private_key)
 
         return cl
 
@@ -170,7 +196,7 @@ class HP3PARCommon(object):
                               self.config.hp3par_password)
         except hpexceptions.HTTPUnauthorized as ex:
             msg = (_("Failed to Login to 3PAR (%(url)s) because %(err)s") %
-                   {'url': self.config.hp3par_api_url, 'err': str(ex)})
+                   {'url': self.config.hp3par_api_url, 'err': ex})
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
 
@@ -182,7 +208,7 @@ class HP3PARCommon(object):
         try:
             self.client = self._create_client()
         except hpexceptions.UnsupportedVersion as ex:
-            raise exception.InvalidInput(str(ex))
+            raise exception.InvalidInput(ex)
         LOG.info(_("HP3PARCommon %(common_ver)s, hp3parclient %(rest_ver)s")
                  % {"common_ver": self.VERSION,
                      "rest_ver": hp3parclient.get_version_string()})
@@ -194,7 +220,6 @@ class HP3PARCommon(object):
         try:
             # make sure the default CPG exists
             self.validate_cpg(self.config.hp3par_cpg)
-            self._set_connections()
         finally:
             self.client_logout()
 
@@ -205,14 +230,6 @@ class HP3PARCommon(object):
             err = (_("CPG (%s) doesn't exist on array") % cpg_name)
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
-
-    def _set_connections(self):
-        """Set the number of concurrent connections.
-
-        The 3PAR WS API server has a limit of concurrent connections.
-        This is setting the number to the highest allowed, 15 connections.
-        """
-        self._cli_run(['setwsapi', '-sru', 'high'])
 
     def get_domain(self, cpg_name):
         try:
@@ -229,12 +246,13 @@ class HP3PARCommon(object):
 
     def extend_volume(self, volume, new_size):
         volume_name = self._get_3par_vol_name(volume['id'])
-        old_size = volume.size
+        old_size = volume['size']
         growth_size = int(new_size) - old_size
         LOG.debug("Extending Volume %s from %s to %s, by %s GB." %
                   (volume_name, old_size, new_size, growth_size))
+        growth_size_mib = growth_size * units.KiB
         try:
-            self._cli_run(['growvv', '-f', volume_name, '%dg' % growth_size])
+            self.client.growVolume(volume_name, growth_size_mib)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_("Error extending volume %s") % volume)
@@ -292,102 +310,18 @@ class HP3PARCommon(object):
         capacity = int(round(capacity / MiB))
         return capacity
 
-    def _cli_run(self, cmd):
-        """Runs a CLI command over SSH, without doing any result parsing."""
-        LOG.debug("SSH CMD = %s " % cmd)
-
-        (stdout, stderr) = self._run_ssh(cmd, False)
-        # we have to strip out the input and exit lines
-        tmp = stdout.split("\r\n")
-        out = tmp[5:len(tmp) - 2]
-        return out
-
-    def _ssh_execute(self, ssh, cmd, check_exit_code=True):
-        """We have to do this in order to get CSV output from the CLI command.
-
-        We first have to issue a command to tell the CLI that we want the
-        output to be formatted in CSV, then we issue the real command.
-        """
-        LOG.debug(_('Running cmd (SSH): %s'), cmd)
-
-        channel = ssh.invoke_shell()
-        stdin_stream = channel.makefile('wb')
-        stdout_stream = channel.makefile('rb')
-        stderr_stream = channel.makefile('rb')
-
-        stdin_stream.write('''setclienv csvtable 1
-%s
-exit
-''' % cmd)
-
-        # stdin.write('process_input would go here')
-        # stdin.flush()
-
-        # NOTE(justinsb): This seems suspicious...
-        # ...other SSH clients have buffering issues with this approach
-        stdout = stdout_stream.read()
-        stderr = stderr_stream.read()
-        stdin_stream.close()
-        stdout_stream.close()
-        stderr_stream.close()
-
-        exit_status = channel.recv_exit_status()
-
-        # exit_status == -1 if no exit code was returned
-        if exit_status != -1:
-            LOG.debug(_('Result was %s') % exit_status)
-            if check_exit_code and exit_status != 0:
-                msg = _("command %s failed") % cmd
-                LOG.error(msg)
-                raise processutils.ProcessExecutionError(exit_code=exit_status,
-                                                         stdout=stdout,
-                                                         stderr=stderr,
-                                                         cmd=cmd)
-        channel.close()
-        return (stdout, stderr)
-
-    def _run_ssh(self, cmd_list, check_exit=True, attempts=1):
-        utils.check_ssh_injection(cmd_list)
-        command = ' '. join(cmd_list)
-
-        if not self.sshpool:
-            self.sshpool = utils.SSHPool(self.config.san_ip,
-                                         self.config.san_ssh_port,
-                                         self.config.ssh_conn_timeout,
-                                         self.config.san_login,
-                                         password=self.config.san_password,
-                                         privatekey=
-                                         self.config.san_private_key,
-                                         min_size=
-                                         self.config.ssh_min_pool_conn,
-                                         max_size=
-                                         self.config.ssh_max_pool_conn)
-        try:
-            total_attempts = attempts
-            with self.sshpool.item() as ssh:
-                while attempts > 0:
-                    attempts -= 1
-                    try:
-                        return self._ssh_execute(ssh, command,
-                                                 check_exit_code=check_exit)
-                    except Exception as e:
-                        LOG.error(e)
-                        greenthread.sleep(randint(20, 500) / 100.0)
-                msg = (_("SSH Command failed after '%(total_attempts)r' "
-                         "attempts : '%(command)s'") %
-                       {'total_attempts': total_attempts, 'command': command})
-                LOG.error(msg)
-                raise exception.CinderException(message=msg)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                LOG.error(_("Error running ssh command: %s") % command)
-
     def _delete_3par_host(self, hostname):
         self.client.deleteHost(hostname)
 
-    def _create_3par_vlun(self, volume, hostname):
+    def _create_3par_vlun(self, volume, hostname, nsp):
         try:
-            self.client.createVLUN(volume, hostname=hostname, auto=True)
+            if nsp is None:
+                self.client.createVLUN(volume, hostname=hostname, auto=True)
+            else:
+                port = self.build_portPos(nsp)
+                self.client.createVLUN(volume, hostname=hostname, auto=True,
+                                       portPos=port)
+
         except hpexceptions.HTTPBadRequest as e:
             if 'must be in the same domain' in e.get_description():
                 LOG.error(e.get_description())
@@ -483,23 +417,35 @@ exit
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
 
+        info = self.client.getStorageSystemInfo()
+        stats['location_info'] = ('HP3PARDriver:%(sys_id)s:%(dest_cpg)s' %
+                                  {'sys_id': info['serialNumber'],
+                                   'dest_cpg': self.config.safe_get(
+                                       'hp3par_cpg')})
         self.stats = stats
 
-    def create_vlun(self, volume, host):
+    def create_vlun(self, volume, host, nsp=None):
         """Create a VLUN.
 
         In order to export a volume on a 3PAR box, we have to create a VLUN.
         """
         volume_name = self._get_3par_vol_name(volume['id'])
-        self._create_3par_vlun(volume_name, host['name'])
+        self._create_3par_vlun(volume_name, host['name'], nsp)
         return self.client.getVLUN(volume_name)
 
     def delete_vlun(self, volume, hostname):
         volume_name = self._get_3par_vol_name(volume['id'])
         vlun = self.client.getVLUN(volume_name)
-        self.client.deleteVLUN(volume_name, vlun['lun'], hostname)
+        # VLUN Type of MATCHED_SET 4 requires the port to be provided
+        if self.VLUN_TYPE_MATCHED_SET == vlun['type']:
+            self.client.deleteVLUN(volume_name, vlun['lun'], hostname,
+                                   vlun['portPos'])
+        else:
+            self.client.deleteVLUN(volume_name, vlun['lun'], hostname)
+
         try:
             self._delete_3par_host(hostname)
+            self._remove_hosts_naming_dict_host(hostname)
         except hpexceptions.HTTPConflict as ex:
             # host will only be removed after all vluns
             # have been removed
@@ -507,6 +453,15 @@ exit
                 pass
             else:
                 raise
+
+    def _remove_hosts_naming_dict_host(self, hostname):
+        items = self.hosts_naming_dict.items()
+        lkey = None
+        for key, value in items:
+            if value == hostname:
+                lkey = key
+        if lkey is not None:
+            del self.hosts_naming_dict[lkey]
 
     def _get_volume_type(self, type_id):
         ctxt = context.get_admin_context()
@@ -526,13 +481,24 @@ exit
 
     def _get_qos_by_volume_type(self, volume_type):
         qos = {}
+        qos_specs_id = volume_type.get('qos_specs_id')
         specs = volume_type.get('extra_specs')
-        for key, value in specs.iteritems():
+
+        #NOTE(kmartin): We prefer the qos_specs association
+        # and override any existing extra-specs settings
+        # if present.
+        if qos_specs_id is not None:
+            kvs = qos_specs.get_qos_specs(context.get_admin_context(),
+                                          qos_specs_id)['specs']
+        else:
+            kvs = specs
+
+        for key, value in kvs.iteritems():
             if 'qos:' in key:
                 fields = key.split(':')
                 key = fields[1]
             if key in self.hp_qos_keys:
-                qos[key] = int(value)
+                qos[key] = value
         return qos
 
     def _get_keys_by_volume_type(self, volume_type):
@@ -547,43 +513,63 @@ exit
         return hp3par_keys
 
     def _set_qos_rule(self, qos, vvs_name):
+        min_io = self._get_qos_value(qos, 'minIOPS')
         max_io = self._get_qos_value(qos, 'maxIOPS')
+        min_bw = self._get_qos_value(qos, 'minBWS')
         max_bw = self._get_qos_value(qos, 'maxBWS')
-        cmd = ['setqos']
-        if max_io is not None:
-            cmd.extend(['-io', '%s' % max_io])
-        if max_bw is not None:
-            cmd.extend(['-bw', '%sM' % max_bw])
-        cmd.append('vvset:' + vvs_name)
-        self._cli_run(cmd)
+        latency = self._get_qos_value(qos, 'latency')
+        priority = self._get_qos_value(qos, 'priority', 'normal')
+
+        qosRule = {}
+        if min_io:
+            qosRule['ioMinGoal'] = int(min_io)
+            if max_io is None:
+                qosRule['ioMaxLimit'] = int(min_io)
+        if max_io:
+            qosRule['ioMaxLimit'] = int(max_io)
+            if min_io is None:
+                qosRule['ioMinGoal'] = int(max_io)
+        if min_bw:
+            qosRule['bwMinGoalKB'] = int(min_bw) * units.KiB
+            if max_bw is None:
+                qosRule['bwMaxLimitKB'] = int(min_bw) * units.KiB
+        if max_bw:
+            qosRule['bwMaxLimitKB'] = int(max_bw) * units.KiB
+            if min_bw is None:
+                qosRule['bwMinGoalKB'] = int(max_bw) * units.KiB
+        if latency:
+            qosRule['latencyGoal'] = int(latency)
+        if priority:
+            qosRule['priority'] = self.qos_priority_level.get(priority.lower())
+
+        try:
+            self.client.createQoSRules(vvs_name, qosRule)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_("Error creating QOS rule %s") % qosRule)
 
     def _add_volume_to_volume_set(self, volume, volume_name,
                                   cpg, vvs_name, qos):
         if vvs_name is not None:
             # Admin has set a volume set name to add the volume to
-            out = self._cli_run(['createvvset', '-add', vvs_name, volume_name])
-            if out and len(out) == 1:
-                if 'does not exist' in out[0]:
-                    msg = _('VV Set %s does not exist.') % vvs_name
-                    LOG.error(msg)
-                    raise exception.InvalidInput(reason=msg)
+            try:
+                self.client.addVolumeToVolumeSet(vvs_name, volume_name)
+            except hpexceptions.HTTPNotFound:
+                msg = _('VV Set %s does not exist.') % vvs_name
+                LOG.error(msg)
+                raise exception.InvalidInput(reason=msg)
         else:
             vvs_name = self._get_3par_vvs_name(volume['id'])
             domain = self.get_domain(cpg)
-            if domain is not None:
-                self._cli_run(['createvvset', '-domain', domain, vvs_name])
-            else:
-                self._cli_run(['createvvset', vvs_name])
-            self._set_qos_rule(qos, vvs_name)
-            self._cli_run(['createvvset', '-add', vvs_name, volume_name])
-
-    def _remove_volume_set(self, vvs_name):
-        # Must first clear the QoS rules before removing the volume set
-        self._cli_run(['setqos', '-clear', 'vvset:%s' % (vvs_name)])
-        self._cli_run(['removevvset', '-f', vvs_name])
-
-    def _remove_volume_from_volume_set(self, volume_name, vvs_name):
-        self._cli_run(['removevvset', '-f', vvs_name, volume_name])
+            self.client.createVolumeSet(vvs_name, domain)
+            try:
+                self._set_qos_rule(qos, vvs_name)
+                self.client.addVolumeToVolumeSet(vvs_name, volume_name)
+            except Exception as ex:
+                # Cleanup the volume set if unable to create the qos rule
+                # or add the volume to the volume set
+                self.client.deleteVolumeSet(vvs_name)
+                raise exception.CinderException(ex)
 
     def get_cpg(self, volume, allowSnap=False):
         volume_name = self._get_3par_vol_name(volume['id'])
@@ -727,38 +713,37 @@ exit
                 except exception.InvalidInput as ex:
                     # Delete the volume if unable to add it to the volume set
                     self.client.deleteVolume(volume_name)
-                    LOG.error(str(ex))
-                    raise exception.CinderException(str(ex))
+                    LOG.error(ex)
+                    raise exception.CinderException(ex)
         except hpexceptions.HTTPConflict:
             msg = _("Volume (%s) already exists on array") % volume_name
             LOG.error(msg)
             raise exception.Duplicate(msg)
         except hpexceptions.HTTPBadRequest as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.Invalid(ex.get_description())
         except exception.InvalidInput as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise ex
         except exception.CinderException as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise ex
         except Exception as ex:
-            LOG.error(str(ex))
-            raise exception.CinderException(ex.get_description())
+            LOG.error(ex)
+            raise exception.CinderException(ex)
 
-    def _copy_volume(self, src_name, dest_name, cpg=None, snap_cpg=None,
+    def _copy_volume(self, src_name, dest_name, cpg, snap_cpg=None,
                      tpvv=True):
         # Virtual volume sets are not supported with the -online option
-        cmd = ['createvvcopy', '-p', src_name, '-online']
-        if snap_cpg:
-            cmd.extend(['-snp_cpg', snap_cpg])
-        if tpvv:
-            cmd.append('-tpvv')
-        if cpg:
-            cmd.append(cpg)
-        cmd.append(dest_name)
-        LOG.debug('Creating clone of a volume with %s' % cmd)
-        self._cli_run(cmd)
+        LOG.debug(_('Creating clone of a volume %(src)s to %(dest)s.') %
+                  {'src': src_name, 'dest': dest_name})
+
+        optional = {'tpvv': tpvv, 'online': True}
+        if snap_cpg is not None:
+            optional['snapCPG'] = snap_cpg
+
+        body = self.client.copyVolume(src_name, dest_name, cpg, optional)
+        return body['taskid']
 
     def get_next_word(self, s, search_string):
         """Return the next word.
@@ -793,28 +778,8 @@ exit
         except hpexceptions.HTTPNotFound:
             raise exception.NotFound()
         except Exception as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.CinderException(ex)
-
-    def _get_vvset_from_3par(self, volume_name):
-        """Get Virtual Volume Set from 3PAR.
-
-        The only way to do this currently is to try and delete the volume
-        to get the error message.
-
-        NOTE(walter-boring): don't call this unless you know the volume is
-        already in a vvset!
-        """
-        cmd = ['removevv', '-f', volume_name]
-        LOG.debug("Issuing remove command to find vvset name %s" % cmd)
-        out = self._cli_run(cmd)
-        vvset_name = None
-        if out and len(out) > 1:
-            if out[1].startswith("Attempt to delete "):
-                words = out[1].split(" ")
-                vvset_name = words[len(words) - 1]
-
-        return vvset_name
 
     def delete_volume(self, volume):
         try:
@@ -824,51 +789,70 @@ exit
             # volume set name in the error.
             try:
                 self.client.deleteVolume(volume_name)
+            except hpexceptions.HTTPBadRequest as ex:
+                if ex.get_code() == 29:
+                    if self.client.isOnlinePhysicalCopy(volume_name):
+                        LOG.debug(_("Found an online copy for %(volume)s")
+                                  % {'volume': volume_name})
+                        # the volume is in process of being cloned.
+                        # stopOnlinePhysicalCopy will also delete
+                        # the volume once it stops the copy.
+                        self.client.stopOnlinePhysicalCopy(volume_name)
+                    else:
+                        LOG.error(ex)
+                        raise ex
+                else:
+                    LOG.error(ex)
+                    raise ex
             except hpexceptions.HTTPConflict as ex:
                 if ex.get_code() == 34:
                     # This is a special case which means the
                     # volume is part of a volume set.
-                    vvset_name = self._get_vvset_from_3par(volume_name)
+                    vvset_name = self.client.findVolumeSet(volume_name)
                     LOG.debug("Returned vvset_name = %s" % vvset_name)
                     if vvset_name is not None and \
                        vvset_name.startswith('vvs-'):
                         # We have a single volume per volume set, so
                         # remove the volume set.
-                        self._remove_volume_set(
+                        self.client.deleteVolumeSet(
                             self._get_3par_vvs_name(volume['id']))
                     elif vvset_name is not None:
                         # We have a pre-defined volume set just remove the
                         # volume and leave the volume set.
-                        self._remove_volume_from_volume_set(volume_name,
-                                                            vvset_name)
+                        self.client.removeVolumeFromVolumeSet(vvset_name,
+                                                              volume_name)
                     self.client.deleteVolume(volume_name)
                 else:
-                    LOG.error(str(ex))
+                    LOG.error(ex)
                     raise ex
 
         except hpexceptions.HTTPNotFound as ex:
             # We'll let this act as if it worked
             # it helps clean up the cinder entries.
-            LOG.error(str(ex))
+            msg = _("Delete volume id not found. Removing from cinder: "
+                    "%(id)s Ex: %(msg)s") % {'id': volume['id'], 'msg': ex}
+            LOG.warning(msg)
         except hpexceptions.HTTPForbidden as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.NotAuthorized(ex.get_description())
+        except hpexceptions.HTTPConflict as ex:
+            LOG.error(ex)
+            raise exception.VolumeIsBusy(ex.get_description())
         except Exception as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.CinderException(ex)
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot.
 
-        TODO: support using the size from the user.
         """
         LOG.debug("Create Volume from Snapshot\n%s\n%s" %
                   (pprint.pformat(volume['display_name']),
                    pprint.pformat(snapshot['display_name'])))
 
-        if snapshot['volume_size'] != volume['size']:
-            err = "You cannot change size of the volume.  It must "
-            "be the same as the snapshot."
+        if volume['size'] < snapshot['volume_size']:
+            err = ("You cannot reduce size of the volume.  It must "
+                   "be greater than or equal to the snapshot.")
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
 
@@ -903,6 +887,25 @@ exit
                         'readOnly': False}
 
             self.client.createSnapshot(volume_name, snap_name, optional)
+
+            # Grow the snapshot if needed
+            growth_size = volume['size'] - snapshot['volume_size']
+            if growth_size > 0:
+                try:
+                    LOG.debug(_('Converting to base volume type: %s.') %
+                              volume['id'])
+                    self._convert_to_base_volume(volume)
+                    growth_size_mib = growth_size * units.GiB / units.MiB
+                    LOG.debug(_('Growing volume: %(id)s by %(size)s GiB.') %
+                              {'id': volume['id'], 'size': growth_size})
+                    self.client.growVolume(volume_name, growth_size_mib)
+                except Exception as ex:
+                    LOG.error(_("Error extending volume %(id)s. Ex: %(ex)s") %
+                              {'id': volume['id'], 'ex': ex})
+                    # Delete the volume if unable to grow it
+                    self.client.deleteVolume(volume_name)
+                    raise exception.CinderException(ex)
+
             if qos or vvs_name is not None:
                 cpg = self._get_key_value(hp3par_keys, 'cpg',
                                           self.config.hp3par_cpg)
@@ -912,17 +915,17 @@ exit
                 except Exception as ex:
                     # Delete the volume if unable to add it to the volume set
                     self.client.deleteVolume(volume_name)
-                    LOG.error(str(ex))
-                    raise exception.CinderException(ex.get_description())
+                    LOG.error(ex)
+                    raise exception.CinderException(ex)
         except hpexceptions.HTTPForbidden as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.NotAuthorized()
         except hpexceptions.HTTPNotFound as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.NotFound()
         except Exception as ex:
-            LOG.error(str(ex))
-            raise exception.CinderException(ex.get_description())
+            LOG.error(ex)
+            raise exception.CinderException(ex)
 
     def create_snapshot(self, snapshot):
         LOG.debug("Create Snapshot\n%s" % pprint.pformat(snapshot))
@@ -958,10 +961,10 @@ exit
 
             self.client.createSnapshot(snap_name, vol_name, optional)
         except hpexceptions.HTTPForbidden as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.NotAuthorized()
         except hpexceptions.HTTPNotFound as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.NotFound()
 
     def update_volume_key_value_pair(self, volume, key, value):
@@ -973,16 +976,15 @@ exit
                   (volume['display_name'],
                    volume['name'],
                    self._get_3par_vol_name(volume['id']),
-                   str(key),
-                   str(value)))
+                   key,
+                   value))
         try:
             volume_name = self._get_3par_vol_name(volume['id'])
             if value is None:
                 value = ''
-            cmd = ['setvv', '-setkv', key + '=' + value, volume_name]
-            self._cli_run(cmd)
+            self.client.setVolumeMetaData(volume_name, key, value)
         except Exception as ex:
-            msg = _('Failure in update_volume_key_value_pair:%s') % str(ex)
+            msg = _('Failure in update_volume_key_value_pair:%s') % ex
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
@@ -991,13 +993,12 @@ exit
 
         LOG.debug("VOLUME (%s : %s %s) Clearing Key : %s)" %
                   (volume['display_name'], volume['name'],
-                   self._get_3par_vol_name(volume['id']), str(key)))
+                   self._get_3par_vol_name(volume['id']), key))
         try:
             volume_name = self._get_3par_vol_name(volume['id'])
-            cmd = ['setvv', '-clrkey', key, volume_name]
-            self._cli_run(cmd)
+            self.client.removeVolumeMetaData(volume_name, key)
         except Exception as ex:
-            msg = _('Failure in clear_volume_key_value_pair:%s') % str(ex)
+            msg = _('Failure in clear_volume_key_value_pair:%s') % ex
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
@@ -1019,6 +1020,144 @@ exit
             with excutils.save_and_reraise_exception():
                 LOG.error(_("Error detaching volume %s") % volume)
 
+    def migrate_volume(self, volume, host):
+        """Migrate directly if source and dest are managed by same storage.
+
+        :param volume: A dictionary describing the volume to migrate
+        :param host: A dictionary describing the host to migrate to, where
+                     host['host'] is its name, and host['capabilities'] is a
+                     dictionary of its reported capabilities.
+        :returns (False, None) if the driver does not support migration,
+                 (True, None) if sucessful
+
+        """
+
+        dbg = {'id': volume['id'], 'host': host['host']}
+        LOG.debug(_('enter: migrate_volume: id=%(id)s, host=%(host)s.') % dbg)
+
+        false_ret = (False, None)
+
+        # Make sure volume is not attached
+        if volume['status'] != 'available':
+            LOG.debug(_('Volume is attached: migrate_volume: '
+                        'id=%(id)s, host=%(host)s.') % dbg)
+            return false_ret
+
+        if 'location_info' not in host['capabilities']:
+            return false_ret
+
+        info = host['capabilities']['location_info']
+        try:
+            (dest_type, dest_id, dest_cpg) = info.split(':')
+        except ValueError:
+            return false_ret
+
+        sys_info = self.client.getStorageSystemInfo()
+        if not (dest_type == 'HP3PARDriver' and
+                dest_id == sys_info['serialNumber']):
+            LOG.debug(_('Dest does not match: migrate_volume: '
+                        'id=%(id)s, host=%(host)s.') % dbg)
+            return false_ret
+
+        type_info = self.get_volume_settings_from_type(volume)
+
+        if dest_cpg == type_info['cpg']:
+            LOG.debug(_('CPGs are the same: migrate_volume: '
+                        'id=%(id)s, host=%(host)s.') % dbg)
+            return false_ret
+
+        # Check to make sure CPGs are in the same domain
+        src_domain = self.get_domain(type_info['cpg'])
+        dst_domain = self.get_domain(dest_cpg)
+        if src_domain != dst_domain:
+            LOG.debug(_('CPGs in different domains: migrate_volume: '
+                        'id=%(id)s, host=%(host)s.') % dbg)
+            return false_ret
+
+        self._convert_to_base_volume(volume, new_cpg=dest_cpg)
+
+        # TODO(Ramy) When volume retype is available,
+        # use that to change the type
+        LOG.debug(_('leave: migrate_volume: id=%(id)s, host=%(host)s.') % dbg)
+        return (True, None)
+
+    def _convert_to_base_volume(self, volume, new_cpg=None):
+        try:
+            type_info = self.get_volume_settings_from_type(volume)
+            if new_cpg:
+                cpg = new_cpg
+            else:
+                cpg = type_info['cpg']
+
+            # Change the name such that it is unique since 3PAR
+            # names must be unique across all CPGs
+            volume_name = self._get_3par_vol_name(volume['id'])
+            temp_vol_name = volume_name.replace("osv-", "omv-")
+
+            # Create a physical copy of the volume
+            task_id = self._copy_volume(volume_name, temp_vol_name,
+                                        cpg, cpg, type_info['tpvv'])
+
+            LOG.debug(_('Copy volume scheduled: convert_to_base_volume: '
+                        'id=%s.') % volume['id'])
+
+            # Wait for the physical copy task to complete
+            def _wait_for_task(task_id):
+                status = self.client.getTask(task_id)
+                LOG.debug("3PAR Task id %(id)s status = %(status)s" %
+                          {'id': task_id,
+                           'status': status['status']})
+                if status['status'] is not self.client.TASK_ACTIVE:
+                    self._task_status = status
+                    raise loopingcall.LoopingCallDone()
+
+            self._task_status = None
+            timer = loopingcall.FixedIntervalLoopingCall(
+                _wait_for_task, task_id)
+            timer.start(interval=1).wait()
+
+            if self._task_status['status'] is not self.client.TASK_DONE:
+                dbg = {'status': self._task_status, 'id': volume['id']}
+                msg = _('Copy volume task failed: convert_to_base_volume: '
+                        'id=%(id)s, status=%(status)s.') % dbg
+                raise exception.CinderException(msg)
+            else:
+                LOG.debug(_('Copy volume completed: convert_to_base_volume: '
+                            'id=%s.') % volume['id'])
+
+            comment = self._get_3par_vol_comment(volume_name)
+            if comment:
+                self.client.modifyVolume(temp_vol_name, {'comment': comment})
+            LOG.debug(_('Volume rename completed: convert_to_base_volume: '
+                        'id=%s.') % volume['id'])
+
+            # Delete source volume after the copy is complete
+            self.client.deleteVolume(volume_name)
+            LOG.debug(_('Delete src volume completed: convert_to_base_volume: '
+                        'id=%s.') % volume['id'])
+
+            # Rename the new volume to the original name
+            self.client.modifyVolume(temp_vol_name, {'newName': volume_name})
+
+            LOG.info(_('Completed: convert_to_base_volume: '
+                       'id=%s.') % volume['id'])
+        except hpexceptions.HTTPConflict:
+            msg = _("Volume (%s) already exists on array.") % volume_name
+            LOG.error(msg)
+            raise exception.Duplicate(msg)
+        except hpexceptions.HTTPBadRequest as ex:
+            LOG.error(ex)
+            raise exception.Invalid(ex.get_description())
+        except exception.InvalidInput as ex:
+            LOG.error(ex)
+            raise ex
+        except exception.CinderException as ex:
+            LOG.error(ex)
+            raise ex
+        except Exception as ex:
+            LOG.error(ex)
+            raise exception.CinderException(ex)
+
     def delete_snapshot(self, snapshot):
         LOG.debug("Delete Snapshot id %s %s" % (snapshot['id'],
                                                 pprint.pformat(snapshot)))
@@ -1027,13 +1166,16 @@ exit
             snap_name = self._get_3par_snap_name(snapshot['id'])
             self.client.deleteVolume(snap_name)
         except hpexceptions.HTTPForbidden as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.NotAuthorized()
         except hpexceptions.HTTPNotFound as ex:
-            LOG.error(str(ex))
-            raise exception.NotFound()
+            # We'll let this act as if it worked
+            # it helps clean up the cinder entries.
+            msg = _("Delete Snapshot id not found. Removing from cinder: "
+                    "%(id)s Ex: %(msg)s") % {'id': snapshot['id'], 'msg': ex}
+            LOG.warning(msg)
         except hpexceptions.HTTPConflict as ex:
-            LOG.error(str(ex))
+            LOG.error(ex)
             raise exception.SnapshotIsBusy(snapshot_name=snapshot['id'])
 
     def _get_3par_hostname_from_wwn_iqn(self, wwns, iqns):
@@ -1056,7 +1198,7 @@ exit
                 fc_paths = host['FCPaths']
                 for fc in fc_paths:
                     for wwn in wwns:
-                        if wwn == fc['WWN']:
+                        if wwn == fc['wwn']:
                             return host['name']
 
     def terminate_connection(self, volume, hostname, wwn=None, iqn=None):
@@ -1073,11 +1215,11 @@ exit
                 hostname = self._get_3par_hostname_from_wwn_iqn(wwn, iqn)
                 # no 3par host, re-throw
                 if (hostname is None):
-                    LOG.error(str(e))
+                    LOG.error(e)
                     raise
             else:
                 # not a 'host does not exist' HTTPNotFound exception, re-throw
-                LOG.error(str(e))
+                LOG.error(e)
                 raise
 
         # try again with name retrieved from 3par
@@ -1095,3 +1237,11 @@ exit
         return '%s:%s:%s' % (portPos['node'],
                              portPos['slot'],
                              portPos['cardPort'])
+
+    def build_portPos(self, nsp):
+        split = nsp.split(":")
+        portPos = {}
+        portPos['node'] = int(split[0])
+        portPos['slot'] = int(split[1])
+        portPos['cardPort'] = int(split[2])
+        return portPos

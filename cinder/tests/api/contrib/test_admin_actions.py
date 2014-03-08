@@ -12,8 +12,6 @@
 
 import ast
 import os
-import shutil
-import tempfile
 import webob
 
 from oslo.config import cfg
@@ -28,6 +26,7 @@ from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
 from cinder.volume import api as volume_api
+from cinder.volume import utils as volutils
 
 CONF = cfg.CONF
 
@@ -44,15 +43,8 @@ class AdminActionsTest(test.TestCase):
 
     def setUp(self):
         super(AdminActionsTest, self).setUp()
-        self.tempdir = tempfile.mkdtemp()
-        self.flags(rpc_backend='cinder.openstack.common.rpc.impl_fake')
-        self.flags(lock_path=self.tempdir)
         self.volume_api = volume_api.API()
         self.stubs.Set(brick_lvm.LVM, '_vg_exists', lambda x: True)
-
-    def tearDown(self):
-        shutil.rmtree(self.tempdir)
-        super(AdminActionsTest, self).tearDown()
 
     def test_reset_status_as_admin(self):
         # admin context
@@ -264,6 +256,9 @@ class AdminActionsTest(test.TestCase):
 
     def test_force_delete_snapshot(self):
         self.stubs.Set(os.path, 'exists', lambda x: True)
+        self.stubs.Set(volutils, 'clear_volume',
+                       lambda a, b, volume_clear=CONF.volume_clear,
+                       volume_clear_size=CONF.volume_clear_size: None)
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is creating
@@ -653,12 +648,15 @@ class AdminActionsTest(test.TestCase):
                                   force_host_copy=1)
 
     def _migrate_volume_comp_exec(self, ctx, volume, new_volume, error,
-                                  expected_status, expected_id):
+                                  expected_status, expected_id, no_body=False):
         req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        body_dict = {'new_volume': new_volume['id'], 'error': error}
-        req.body = jsonutils.dumps({'os-migrate_volume_completion': body_dict})
+        body = {'new_volume': new_volume['id'], 'error': error}
+        if no_body:
+            req.body = jsonutils.dumps({'': body})
+        else:
+            req.body = jsonutils.dumps({'os-migrate_volume_completion': body})
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         resp_dict = ast.literal_eval(resp.body)
@@ -706,6 +704,16 @@ class AdminActionsTest(test.TestCase):
         ctx = context.RequestContext('admin', 'fake', True)
         volume = self._migrate_volume_comp_exec(ctx, volume1, volume2, False,
                                                 expected_status, expected_id)
+
+    def test_migrate_volume_comp_no_action(self):
+        admin_ctx = context.get_admin_context()
+        volume = db.volume_create(admin_ctx, {'id': 'fake1'})
+        new_volume = db.volume_create(admin_ctx, {'id': 'fake2'})
+        expected_status = 400
+        expected_id = None
+        ctx = context.RequestContext('fake', 'fake')
+        self._migrate_volume_comp_exec(ctx, volume, new_volume, False,
+                                       expected_status, expected_id, True)
 
     def test_migrate_volume_comp_from_nova(self):
         admin_ctx = context.get_admin_context()

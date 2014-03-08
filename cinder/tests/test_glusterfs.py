@@ -1,4 +1,3 @@
-
 # Copyright (c) 2013 Red Hat, Inc.
 # All Rights Reserved.
 #
@@ -24,6 +23,7 @@ from mox import IgnoreArg
 from mox import IsA
 from mox import stubout
 
+from cinder import brick
 from cinder import context
 from cinder import db
 from cinder import exception
@@ -34,6 +34,7 @@ from cinder import test
 from cinder import units
 from cinder import utils
 from cinder.volume import configuration as conf
+from cinder.volume import driver as base_driver
 from cinder.volume.drivers import glusterfs
 
 
@@ -45,6 +46,17 @@ class DumbVolume(object):
 
     def __getitem__(self, item):
         return self.fields[item]
+
+
+class FakeDb(object):
+    msg = "Tests are broken: mock this out."
+
+    def volume_get(self, *a, **kw):
+        raise Exception(self.msg)
+
+    def snapshot_get_all_for_volume(self, *a, **kw):
+        """Mock this if you want results from it."""
+        return []
 
 
 class GlusterFsDriverTestCase(test.TestCase):
@@ -78,7 +90,8 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         self.stubs = stubout.StubOutForTesting()
         self._driver =\
-            glusterfs.GlusterfsDriver(configuration=self._configuration)
+            glusterfs.GlusterfsDriver(configuration=self._configuration,
+                                      db=FakeDb())
         self._driver.shares = {}
 
     def tearDown(self):
@@ -90,6 +103,23 @@ class GlusterFsDriverTestCase(test.TestCase):
         attr_to_replace = getattr(obj, attr_name)
         stub = mox_lib.MockObject(attr_to_replace)
         self.stubs.Set(obj, attr_name, stub)
+
+    def test_set_execute(self):
+        mox = self._mox
+        drv = self._driver
+
+        rfsclient = brick.remotefs.remotefs.RemoteFsClient
+
+        mox.StubOutWithMock(rfsclient, 'set_execute')
+
+        def my_execute(*a, **k):
+            pass
+
+        rfsclient.set_execute(my_execute)
+
+        mox.ReplayAll()
+
+        drv.set_execute(my_execute)
 
     def test_local_path(self):
         """local_path common use case."""
@@ -191,14 +221,22 @@ class GlusterFsDriverTestCase(test.TestCase):
                          drv._get_hash_str(self.TEST_EXPORT1))
 
     def test_get_mount_point_for_share(self):
-        """_get_mount_point_for_share should calculate correct value."""
+        """_get_mount_point_for_share should call RemoteFsClient."""
+        mox = self._mox
         drv = self._driver
+        hashed_path = '/mnt/test/abcdefabcdef'
+
+        mox.StubOutWithMock(brick.remotefs.remotefs.RemoteFsClient,
+                            'get_mount_point')
 
         glusterfs.CONF.glusterfs_mount_point_base = self.TEST_MNT_POINT_BASE
 
-        self.assertEqual('/mnt/test/ab03ab34eaca46a5fb81878f7e9b91fc',
-                         drv._get_mount_point_for_share(
-                             self.TEST_EXPORT1))
+        brick.remotefs.remotefs.RemoteFsClient.\
+            get_mount_point(self.TEST_EXPORT1).AndReturn(hashed_path)
+
+        mox.ReplayAll()
+
+        drv._get_mount_point_for_share(self.TEST_EXPORT1)
 
     def test_get_available_capacity_with_df(self):
         """_get_available_capacity should calculate correct value."""
@@ -596,8 +634,8 @@ class GlusterFsDriverTestCase(test.TestCase):
     def test_create_cloned_volume(self):
         (mox, drv) = self._mox, self._driver
 
-        mox.StubOutWithMock(drv, 'create_snapshot')
-        mox.StubOutWithMock(drv, 'delete_snapshot')
+        mox.StubOutWithMock(drv, '_create_snapshot')
+        mox.StubOutWithMock(drv, '_delete_snapshot')
         mox.StubOutWithMock(drv, '_read_info_file')
         mox.StubOutWithMock(image_utils, 'convert_image')
         mox.StubOutWithMock(drv, '_copy_volume_from_snapshot')
@@ -630,7 +668,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                     'id': 'tmp-snap-%s' % src_vref['id'],
                     'volume': src_vref}
 
-        drv.create_snapshot(snap_ref)
+        drv._create_snapshot(snap_ref)
 
         snap_info = {'active': volume_file,
                      snap_ref['id']: volume_path + '-clone'}
@@ -639,7 +677,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         drv._copy_volume_from_snapshot(snap_ref, volume_ref, volume['size'])
 
-        drv.delete_snapshot(mox_lib.IgnoreArg())
+        drv._delete_snapshot(mox_lib.IgnoreArg())
 
         mox.ReplayAll()
 
@@ -1590,9 +1628,9 @@ class GlusterFsDriverTestCase(test.TestCase):
         volume = self._simple_volume('c1073000-0000-0000-0000-0000000c1073')
         src_volume = self._simple_volume()
 
-        mox.StubOutWithMock(drv, 'create_snapshot')
+        mox.StubOutWithMock(drv, '_create_snapshot')
         mox.StubOutWithMock(drv, '_copy_volume_from_snapshot')
-        mox.StubOutWithMock(drv, 'delete_snapshot')
+        mox.StubOutWithMock(drv, '_delete_snapshot')
 
         snap_ref = {'volume_name': src_volume['name'],
                     'name': 'clone-snap-%s' % src_volume['id'],
@@ -1608,11 +1646,11 @@ class GlusterFsDriverTestCase(test.TestCase):
                       'provider_location': volume['provider_location'],
                       'name': 'volume-' + volume['id']}
 
-        drv.create_snapshot(snap_ref)
+        drv._create_snapshot(snap_ref)
         drv._copy_volume_from_snapshot(snap_ref,
                                        volume_ref,
                                        src_volume['size'])
-        drv.delete_snapshot(snap_ref)
+        drv._delete_snapshot(snap_ref)
 
         mox.ReplayAll()
 
@@ -1646,3 +1684,177 @@ class GlusterFsDriverTestCase(test.TestCase):
         self.assertEqual(conn_info['data']['format'], 'raw')
         self.assertEqual(conn_info['driver_volume_type'], 'glusterfs')
         self.assertEqual(conn_info['data']['name'], volume['name'])
+        self.assertEqual(conn_info['mount_point_base'],
+                         self.TEST_MNT_POINT_BASE)
+
+    def test_get_mount_point_base(self):
+        (mox, drv) = self._mox, self._driver
+
+        self.assertEqual(drv._get_mount_point_base(),
+                         self.TEST_MNT_POINT_BASE)
+
+    def test_backup_volume(self):
+        """Backup a volume with no snapshots."""
+
+        (mox, drv) = self._mox, self._driver
+
+        mox.StubOutWithMock(drv, '_qemu_img_info')
+        mox.StubOutWithMock(drv.db, 'volume_get')
+        mox.StubOutWithMock(base_driver.VolumeDriver, 'backup_volume')
+        mox.StubOutWithMock(drv, '_read_info_file')
+        mox.StubOutWithMock(drv, 'get_active_image_from_info')
+
+        ctxt = context.RequestContext('fake_user', 'fake_project')
+        volume = self._simple_volume()
+        backup = {'volume_id': volume['id']}
+
+        drv._read_info_file(IgnoreArg(), empty_if_missing=True).AndReturn({})
+        drv.get_active_image_from_info(IgnoreArg()).AndReturn('/some/path')
+
+        info = imageutils.QemuImgInfo()
+        info.file_format = 'raw'
+
+        drv.db.volume_get(ctxt, volume['id']).AndReturn(volume)
+        drv._qemu_img_info(IgnoreArg()).AndReturn(info)
+
+        base_driver.VolumeDriver.backup_volume(IgnoreArg(),
+                                               IgnoreArg(),
+                                               IgnoreArg())
+
+        mox.ReplayAll()
+
+        drv.backup_volume(ctxt, backup, IgnoreArg())
+
+    def test_backup_volume_previous_snap(self):
+        """Backup a volume that previously had a snapshot.
+
+           Snapshot was deleted, snap_info is different from above.
+        """
+
+        (mox, drv) = self._mox, self._driver
+
+        mox.StubOutWithMock(drv, '_qemu_img_info')
+        mox.StubOutWithMock(drv.db, 'volume_get')
+        mox.StubOutWithMock(drv, '_read_info_file')
+        mox.StubOutWithMock(drv, 'get_active_image_from_info')
+        mox.StubOutWithMock(base_driver.VolumeDriver, 'backup_volume')
+
+        ctxt = context.RequestContext('fake_user', 'fake_project')
+        volume = self._simple_volume()
+        backup = {'volume_id': volume['id']}
+
+        drv._read_info_file(IgnoreArg(), empty_if_missing=True).AndReturn(
+            {'active': 'file2'})
+        drv.get_active_image_from_info(IgnoreArg()).AndReturn('/some/file2')
+
+        info = imageutils.QemuImgInfo()
+        info.file_format = 'raw'
+
+        drv.db.volume_get(ctxt, volume['id']).AndReturn(volume)
+        drv._qemu_img_info(IgnoreArg()).AndReturn(info)
+
+        base_driver.VolumeDriver.backup_volume(IgnoreArg(),
+                                               IgnoreArg(),
+                                               IgnoreArg())
+
+        mox.ReplayAll()
+
+        drv.backup_volume(ctxt, backup, IgnoreArg())
+
+    def test_backup_snap_failure_1(self):
+        """Backup fails if snapshot exists (database)."""
+
+        (mox, drv) = self._mox, self._driver
+        mox.StubOutWithMock(drv.db, 'snapshot_get_all_for_volume')
+        mox.StubOutWithMock(base_driver.VolumeDriver, 'backup_volume')
+
+        ctxt = context.RequestContext('fake_user', 'fake_project')
+        volume = self._simple_volume()
+        backup = {'volume_id': volume['id']}
+
+        drv.db.snapshot_get_all_for_volume(ctxt, volume['id']).AndReturn(
+            [{'snap1': 'a'}, {'snap2': 'b'}])
+
+        base_driver.VolumeDriver.backup_volume(IgnoreArg(),
+                                               IgnoreArg(),
+                                               IgnoreArg())
+
+        mox.ReplayAll()
+
+        self.assertRaises(exception.InvalidVolume,
+                          drv.backup_volume,
+                          ctxt, backup, IgnoreArg())
+
+    def test_backup_snap_failure_2(self):
+        """Backup fails if snapshot exists (on-disk)."""
+
+        (mox, drv) = self._mox, self._driver
+        mox.StubOutWithMock(drv, '_read_info_file')
+        mox.StubOutWithMock(drv.db, 'volume_get')
+        mox.StubOutWithMock(drv, 'get_active_image_from_info')
+        mox.StubOutWithMock(drv, '_qemu_img_info')
+        mox.StubOutWithMock(base_driver.VolumeDriver, 'backup_volume')
+
+        ctxt = context.RequestContext('fake_user', 'fake_project')
+        volume = self._simple_volume()
+        backup = {'volume_id': volume['id']}
+
+        drv.db.volume_get(ctxt, volume['id']).AndReturn(volume)
+
+        drv._read_info_file(IgnoreArg(), empty_if_missing=True).AndReturn(
+            {'id1': 'file1',
+             'id2': 'file2',
+             'active': 'file2'})
+
+        drv.get_active_image_from_info(IgnoreArg()).\
+            AndReturn('/some/path/file2')
+
+        info = imageutils.QemuImgInfo()
+        info.file_format = 'raw'
+        info.backing_file = 'file1'
+
+        drv._qemu_img_info(IgnoreArg()).AndReturn(info)
+
+        base_driver.VolumeDriver.backup_volume(IgnoreArg(),
+                                               IgnoreArg(),
+                                               IgnoreArg())
+
+        mox.ReplayAll()
+
+        self.assertRaises(exception.InvalidVolume,
+                          drv.backup_volume,
+                          ctxt, backup, IgnoreArg())
+
+    def test_backup_failure_unsupported_format(self):
+        """Attempt to backup a volume with a qcow2 base."""
+
+        (mox, drv) = self._mox, self._driver
+
+        mox.StubOutWithMock(drv, '_qemu_img_info')
+        mox.StubOutWithMock(drv.db, 'volume_get')
+        mox.StubOutWithMock(base_driver.VolumeDriver, 'backup_volume')
+        mox.StubOutWithMock(drv, '_read_info_file')
+        mox.StubOutWithMock(drv, 'get_active_image_from_info')
+
+        ctxt = context.RequestContext('fake_user', 'fake_project')
+        volume = self._simple_volume()
+        backup = {'volume_id': volume['id']}
+
+        drv._read_info_file(IgnoreArg(), empty_if_missing=True).AndReturn({})
+        drv.get_active_image_from_info(IgnoreArg()).AndReturn('/some/path')
+
+        info = imageutils.QemuImgInfo()
+        info.file_format = 'qcow2'
+
+        drv.db.volume_get(ctxt, volume['id']).AndReturn(volume)
+        drv._qemu_img_info(IgnoreArg()).AndReturn(info)
+
+        base_driver.VolumeDriver.backup_volume(IgnoreArg(),
+                                               IgnoreArg(),
+                                               IgnoreArg())
+
+        mox.ReplayAll()
+
+        self.assertRaises(exception.InvalidVolume,
+                          drv.backup_volume,
+                          ctxt, backup, IgnoreArg())

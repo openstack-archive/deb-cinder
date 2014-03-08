@@ -29,11 +29,12 @@ class TargetAdminTestCase(object):
         self.cmds = []
 
         self.tid = 1
-        self.target_name = 'iqn.2011-09.org.foo.bar:blaa'
+        self.target_name = 'iqn.2011-09.org.foo.bar:volume-blaa'
         self.lun = 10
         self.path = '/foo'
         self.vol_id = 'blaa'
         self.vol_name = 'volume-blaa'
+        self.db = {}
 
         self.script_template = None
         self.stubs.Set(os.path, 'isfile', lambda _: True)
@@ -47,6 +48,7 @@ class TargetAdminTestCase(object):
         self.stubs.Set(iscsi.TgtAdm, '_verify_backing_lun',
                        self.fake_verify_backing_lun)
         self.driver = driver.ISCSIDriver()
+        self.flags(iscsi_target_prefix='iqn.2011-09.org.foo.bar:')
 
     def fake_verify_backing_lun(obj, iqn, tid):
         return True
@@ -88,13 +90,13 @@ class TargetAdminTestCase(object):
         self.verify_cmds(cmds)
 
     def run_commands(self):
-        tgtadm = self.driver.get_target_admin()
-        tgtadm.set_execute(self.fake_execute)
-        tgtadm.create_iscsi_target(self.target_name, self.tid,
-                                   self.lun, self.path)
-        tgtadm.show_target(self.tid, iqn=self.target_name)
-        tgtadm.remove_iscsi_target(self.tid, self.lun, self.vol_id,
-                                   self.vol_name)
+        target_helper = self.driver.get_target_helper(self.db)
+        target_helper.set_execute(self.fake_execute)
+        target_helper.create_iscsi_target(self.target_name, self.tid,
+                                          self.lun, self.path)
+        target_helper.show_target(self.tid, iqn=self.target_name)
+        target_helper.remove_iscsi_target(self.tid, self.lun, self.vol_id,
+                                          self.vol_name)
 
     def test_target_admin(self):
         self.clear_cmds()
@@ -111,9 +113,9 @@ class TgtAdmTestCase(test.TestCase, TargetAdminTestCase):
         self.flags(iscsi_helper='tgtadm')
         self.flags(volumes_dir=self.persist_tempdir)
         self.script_template = "\n".join([
-            'tgt-admin --update iqn.2011-09.org.foo.bar:blaa',
+            'tgt-admin --update %(target_name)s',
             'tgt-admin --force '
-            '--delete iqn.2010-10.org.openstack:volume-blaa',
+            '--delete %(target_name)s',
             'tgtadm --lld iscsi --op show --mode target'])
 
     def tearDown(self):
@@ -197,8 +199,8 @@ class LioAdmTestCase(test.TestCase, TargetAdminTestCase):
         self.flags(iscsi_helper='lioadm')
         self.script_template = "\n".join([
             'cinder-rtstool create '
-            '/foo iqn.2011-09.org.foo.bar:blaa test_id test_pass',
-            'cinder-rtstool delete iqn.2010-10.org.openstack:volume-blaa'])
+            '%(path)s %(target_name)s test_id test_pass',
+            'cinder-rtstool delete %(target_name)s'])
 
 
 class ISERTgtAdmTestCase(TgtAdmTestCase):

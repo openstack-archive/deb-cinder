@@ -27,7 +27,6 @@ import time
 from cinder.brick import exception
 from cinder.brick import executor
 from cinder.openstack.common import fileutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils as putils
 
@@ -154,7 +153,7 @@ class TgtAdm(TargetAdmin):
             LOG.error(_("Failed to recover attempt to create "
                         "iscsi backing lun for volume "
                         "id:%(vol_id)s: %(e)s")
-                      % {'vol_id': name, 'e': str(e)})
+                      % {'vol_id': name, 'e': e})
 
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
@@ -177,6 +176,9 @@ class TgtAdm(TargetAdmin):
         f = open(volume_path, 'w+')
         f.write(volume_conf)
         f.close()
+        LOG.debug(_('Created volume path %(vp)s,\n'
+                    'content: %(vc)%')
+                  % {'vp': volume_path, 'vc': volume_conf})
 
         old_persist_file = None
         old_name = kwargs.get('old_name', None)
@@ -184,7 +186,14 @@ class TgtAdm(TargetAdmin):
             old_persist_file = os.path.join(volumes_dir, old_name)
 
         try:
-            self.update_iscsi_target(name)
+            # with the persistent tgts we create them
+            # by creating the entry in the persist file
+            # and then doing an update to get the target
+            # created.
+            (out, err) = self._execute('tgt-admin', '--update', name,
+                                       run_as_root=True)
+            LOG.debug("StdOut from tgt-admin --update: %s", out)
+            LOG.debug("StdErr from tgt-admin --update: %s", err)
 
             # Grab targets list for debug
             # Consider adding a check for lun 0 and 1 for tgtadm
@@ -201,7 +210,7 @@ class TgtAdm(TargetAdmin):
         except putils.ProcessExecutionError as e:
             LOG.warning(_("Failed to create iscsi target for volume "
                         "id:%(vol_id)s: %(e)s")
-                        % {'vol_id': vol_id, 'e': str(e)})
+                        % {'vol_id': vol_id, 'e': e})
 
             #Don't forget to remove the persistent file we created
             os.unlink(volume_path)
@@ -213,9 +222,8 @@ class TgtAdm(TargetAdmin):
             LOG.error(_("Failed to create iscsi target for volume "
                         "id:%(vol_id)s. Please ensure your tgtd config file "
                         "contains 'include %(volumes_dir)s/*'") % {
-                            'vol_id': vol_id,
-                            'volumes_dir': volumes_dir,
-                        })
+                      'vol_id': vol_id,
+                      'volumes_dir': volumes_dir, })
             raise exception.NotFound()
 
         # NOTE(jdg): Sometimes we have some issues with the backing lun
@@ -240,24 +248,15 @@ class TgtAdm(TargetAdmin):
 
         return tid
 
-    def update_iscsi_target(self, name):
-
-        LOG.info(_('Updating iscsi target: %s') % name)
-
-        try:
-            (out, err) = self._execute('tgt-admin', '--update', name,
-                                       run_as_root=True)
-        except putils.ProcessExecutionError as e:
-            LOG.error(_("Failed to update iscsi target %(name)s: %(e)s") %
-                      {'name': name, 'e': str(e)})
-            LOG.debug("StdOut from tgt-admin --update: %s", e.stdout)
-            LOG.debug("StdErr from tgt-admin --update: %s", e.stderr)
-            raise exception.ISCSITargetUpdateFailed(name=name)
-
     def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
         LOG.info(_('Removing iscsi_target for: %s') % vol_id)
         vol_uuid_file = vol_name
         volume_path = os.path.join(self.volumes_dir, vol_uuid_file)
+        if not os.path.exists(volume_path):
+            LOG.warning(_('Volume path %s does not exist, '
+                          'nothing to remove.') % volume_path)
+            return
+
         if os.path.isfile(volume_path):
             iqn = '%s%s' % (self.iscsi_target_prefix,
                             vol_uuid_file)
@@ -274,10 +273,18 @@ class TgtAdm(TargetAdmin):
         except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to remove iscsi target for volume "
                         "id:%(vol_id)s: %(e)s")
-                      % {'vol_id': vol_id, 'e': str(e)})
+                      % {'vol_id': vol_id, 'e': e})
             raise exception.ISCSITargetRemoveFailed(volume_id=vol_id)
 
-        os.unlink(volume_path)
+        # NOTE(jdg): This *should* be there still but incase
+        # it's not we don't care, so just ignore it if was
+        # somehow deleted between entry of this method
+        # and here
+        if os.path.exists(volume_path):
+            os.unlink(volume_path)
+        else:
+            LOG.debug('Volume path %s not found at end, '
+                      'of remove_iscsi_target.' % volume_path)
 
     def show_target(self, tid, iqn=None, **kwargs):
         if iqn is None:
@@ -359,7 +366,7 @@ class IetAdm(TargetAdmin):
                 vol_id = name.split(':')[1]
                 LOG.error(_("Failed to create iscsi target for volume "
                             "id:%(vol_id)s: %(e)s")
-                          % {'vol_id': vol_id, 'e': str(e)})
+                          % {'vol_id': vol_id, 'e': e})
                 raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
         return tid
 
@@ -442,9 +449,6 @@ class FakeIscsiHelper(object):
         self.tid += 1
         return self.tid
 
-    def update_iscsi_target(self, name):
-        return
-
 
 class LioAdm(TargetAdmin):
     """iSCSI target administration for LIO using python-rtslib."""
@@ -507,7 +511,7 @@ class LioAdm(TargetAdmin):
         except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to create iscsi target for volume "
                         "id:%s.") % vol_id)
-            LOG.error("%s" % str(e))
+            LOG.error("%s" % e)
 
             raise exception.ISCSITargetCreateFailed(volume_id=vol_id)
 
@@ -533,7 +537,7 @@ class LioAdm(TargetAdmin):
         except putils.ProcessExecutionError as e:
             LOG.error(_("Failed to remove iscsi target for volume "
                         "id:%s.") % vol_id)
-            LOG.error("%s" % str(e))
+            LOG.error("%s" % e)
             raise exception.ISCSITargetRemoveFailed(volume_id=vol_id)
 
     def show_target(self, tid, iqn=None, **kwargs):

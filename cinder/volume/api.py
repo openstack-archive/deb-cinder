@@ -38,7 +38,7 @@ from cinder import quota
 from cinder import quota_utils
 from cinder.scheduler import rpcapi as scheduler_rpcapi
 from cinder import utils
-from cinder.volume.flows import create_volume
+from cinder.volume.flows.api import create_volume
 from cinder.volume import qos_specs
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import utils as volume_utils
@@ -136,6 +136,20 @@ class API(base.Base):
                availability_zone=None, source_volume=None,
                scheduler_hints=None, backup_source_volume=None):
 
+        if source_volume and volume_type:
+            if volume_type['id'] != source_volume['volume_type_id']:
+                msg = _("Invalid volume_type provided (requested type "
+                        "must match source volume, or be omitted). "
+                        "You should omit the argument.")
+                raise exception.InvalidInput(reason=msg)
+
+        if snapshot and volume_type:
+            if volume_type['id'] != snapshot['volume_type_id']:
+                msg = _("Invalid volume_type provided (requested type "
+                        "must match source snapshot, or be omitted). "
+                        "You should omit the argument.")
+                raise exception.InvalidInput(reason=msg)
+
         def check_volume_az_zone(availability_zone):
             try:
                 return self._valid_availability_zone(availability_zone)
@@ -161,12 +175,12 @@ class API(base.Base):
         }
 
         try:
-            flow_engine = create_volume.get_api_flow(self.scheduler_rpcapi,
-                                                     self.volume_rpcapi,
-                                                     self.db,
-                                                     self.image_service,
-                                                     check_volume_az_zone,
-                                                     create_what)
+            flow_engine = create_volume.get_flow(self.scheduler_rpcapi,
+                                                 self.volume_rpcapi,
+                                                 self.db,
+                                                 self.image_service,
+                                                 check_volume_az_zone,
+                                                 create_what)
         except Exception:
             LOG.exception(_("Failed to create api volume flow"))
             raise exception.CinderException(
@@ -177,7 +191,7 @@ class API(base.Base):
         return volume
 
     @wrap_check_policy
-    def delete(self, context, volume, force=False):
+    def delete(self, context, volume, force=False, unmanage_only=False):
         if context.is_admin and context.project_id != volume['project_id']:
             project_id = volume['project_id']
         else:
@@ -219,7 +233,7 @@ class API(base.Base):
             # Volume is still attached, need to detach first
             raise exception.VolumeAttached(volume_id=volume_id)
 
-        if volume['migration_status'] != None:
+        if volume['migration_status'] is not None:
             # Volume is migrating, wait until done
             msg = _("Volume cannot be deleted while migrating")
             raise exception.InvalidVolume(reason=msg)
@@ -240,7 +254,7 @@ class API(base.Base):
         self.db.volume_update(context, volume_id, {'status': 'deleting',
                                                    'terminated_at': now})
 
-        self.volume_rpcapi.delete_volume(context, volume)
+        self.volume_rpcapi.delete_volume(context, volume, unmanage_only)
 
     @wrap_check_policy
     def update(self, context, volume, fields):
@@ -282,7 +296,7 @@ class API(base.Base):
             filters['no_migration_targets'] = True
 
         if filters:
-            LOG.debug(_("Searching by: %s") % str(filters))
+            LOG.debug(_("Searching by: %s") % filters)
 
             def _check_metadata_match(volume, searchdict):
                 volume_metadata = {}
@@ -347,7 +361,7 @@ class API(base.Base):
                 context, context.project_id)
 
         if search_opts:
-            LOG.debug(_("Searching by: %s") % str(search_opts))
+            LOG.debug(_("Searching by: %s") % search_opts)
 
             results = []
             not_found = object()
@@ -459,7 +473,7 @@ class API(base.Base):
                          force=False, metadata=None):
         check_policy(context, 'create_snapshot', volume)
 
-        if volume['migration_status'] != None:
+        if volume['migration_status'] is not None:
             # Volume is migrating, wait until done
             msg = _("Snapshot cannot be created while volume is migrating")
             raise exception.InvalidVolume(reason=msg)
@@ -760,8 +774,30 @@ class API(base.Base):
                                                    'size': volume['size']})
             raise exception.InvalidInput(reason=msg)
 
+        try:
+            reservations = QUOTAS.reserve(context, gigabytes=+size_increase)
+        except exception.OverQuota as exc:
+            usages = exc.kwargs['usages']
+            quotas = exc.kwargs['quotas']
+
+            def _consumed(name):
+                return (usages[name]['reserved'] + usages[name]['in_use'])
+
+            msg = _("Quota exceeded for %(s_pid)s, tried to extend volume by "
+                    "%(s_size)sG, (%(d_consumed)dG of %(d_quota)dG already "
+                    "consumed).")
+            LOG.error(msg % {'s_pid': context.project_id,
+                             's_size': size_increase,
+                             'd_consumed': _consumed('gigabytes'),
+                             'd_quota': quotas['gigabytes']})
+            raise exception.VolumeSizeExceedsAvailableQuota(
+                requested=size_increase,
+                consumed=_consumed('gigabytes'),
+                quota=quotas['gigabytes'])
+
         self.update(context, volume, {'status': 'extending'})
-        self.volume_rpcapi.extend_volume(context, volume, new_size)
+        self.volume_rpcapi.extend_volume(context, volume, new_size,
+                                         reservations)
 
     @wrap_check_policy
     def migrate_volume(self, context, volume, host, force_host_copy):
@@ -774,7 +810,7 @@ class API(base.Base):
             raise exception.InvalidVolume(reason=msg)
 
         # Make sure volume is not part of a migration
-        if volume['migration_status'] != None:
+        if volume['migration_status'] is not None:
             msg = _("Volume is already part of an active migration")
             raise exception.InvalidVolume(reason=msg)
 
@@ -872,7 +908,7 @@ class API(base.Base):
 
         if migration_policy and migration_policy not in ['on-demand', 'never']:
             msg = _('migration_policy must be \'on-demand\' or \'never\', '
-                    'passed: %s') % str(new_type)
+                    'passed: %s') % new_type
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
 
@@ -884,7 +920,7 @@ class API(base.Base):
                 vol_type = volume_types.get_volume_type_by_name(context,
                                                                 new_type)
         except exception.InvalidVolumeType:
-            msg = _('Invalid volume_type passed: %s') % str(new_type)
+            msg = _('Invalid volume_type passed: %s') % new_type
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
 
@@ -897,7 +933,7 @@ class API(base.Base):
 
         # Error if the original and new type are the same
         if volume['volume_type_id'] == vol_type_id:
-            msg = _('New volume_type same as original: %s') % str(new_type)
+            msg = (_('New volume_type same as original: %s') % new_type)
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
 
@@ -944,6 +980,47 @@ class API(base.Base):
         self.scheduler_rpcapi.retype(context, CONF.volume_topic, volume['id'],
                                      request_spec=request_spec,
                                      filter_properties={})
+
+    def manage_existing(self, context, host, ref, name=None, description=None,
+                        volume_type=None, metadata=None,
+                        availability_zone=None):
+        if availability_zone is None:
+            elevated = context.elevated()
+            try:
+                service = self.db.service_get_by_host_and_topic(
+                    elevated, host, CONF.volume_topic)
+            except exception.ServiceNotFound:
+                with excutils.save_and_reraise_exception():
+                    LOG.error(_('Unable to find service for given host.'))
+            availability_zone = service.get('availability_zone')
+
+        volume_type_id = volume_type['id'] if volume_type else None
+        volume_properties = {
+            'size': 0,
+            'user_id': context.user_id,
+            'project_id': context.project_id,
+            'status': 'creating',
+            'attach_status': 'detached',
+            # Rename these to the internal name.
+            'display_description': description,
+            'display_name': name,
+            'host': host,
+            'availability_zone': availability_zone,
+            'volume_type_id': volume_type_id,
+            'metadata': metadata
+        }
+
+        # Call the scheduler to ensure that the host exists and that it can
+        # accept the volume
+        volume = self.db.volume_create(context, volume_properties)
+        request_spec = {'volume_properties': volume,
+                        'volume_type': volume_type,
+                        'volume_id': volume['id'],
+                        'ref': ref}
+        self.scheduler_rpcapi.manage_existing(context, CONF.volume_topic,
+                                              volume['id'],
+                                              request_spec=request_spec)
+        return volume
 
 
 class HostAPI(base.Base):

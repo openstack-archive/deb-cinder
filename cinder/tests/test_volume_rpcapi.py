@@ -54,6 +54,7 @@ class VolumeRpcAPITestCase(test.TestCase):
         self.fake_volume = jsonutils.to_primitive(volume)
         self.fake_volume_metadata = volume["volume_metadata"]
         self.fake_snapshot = jsonutils.to_primitive(snapshot)
+        self.fake_reservations = ["RESERVATION"]
 
     def test_serialized_volume_has_id(self):
         self.assertIn('id', self.fake_volume)
@@ -103,7 +104,7 @@ class VolumeRpcAPITestCase(test.TestCase):
             host = kwargs['host']
         else:
             host = kwargs['volume']['host']
-        expected_topic = '%s:%s' % (CONF.volume_topic, host)
+        expected_topic = '%s.%s' % (CONF.volume_topic, host)
 
         self.fake_args = None
         self.fake_kwargs = None
@@ -153,7 +154,9 @@ class VolumeRpcAPITestCase(test.TestCase):
     def test_delete_volume(self):
         self._test_volume_api('delete_volume',
                               rpc_method='cast',
-                              volume=self.fake_volume)
+                              volume=self.fake_volume,
+                              unmanage_only=False,
+                              version='1.15')
 
     def test_create_snapshot(self):
         self._test_volume_api('create_snapshot',
@@ -229,7 +232,8 @@ class VolumeRpcAPITestCase(test.TestCase):
                               rpc_method='cast',
                               volume=self.fake_volume,
                               new_size=1,
-                              version='1.6')
+                              reservations=self.fake_reservations,
+                              version='1.14')
 
     def test_migrate_volume(self):
         class FakeHost(object):
@@ -266,3 +270,10 @@ class VolumeRpcAPITestCase(test.TestCase):
                               migration_policy='never',
                               reservations=None,
                               version='1.12')
+
+    def test_manage_existing(self):
+        self._test_volume_api('manage_existing',
+                              rpc_method='cast',
+                              volume=self.fake_volume,
+                              ref={'lv_name': 'foo'},
+                              version='1.15')

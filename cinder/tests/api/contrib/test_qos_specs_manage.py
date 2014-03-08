@@ -82,7 +82,7 @@ def return_qos_specs_update(context, id, specs):
     if id == "777":
         raise exception.QoSSpecsNotFound(specs_id=id)
     elif id == "888":
-        raise exception.InvalidQoSSpecs(reason=str(id))
+        raise exception.InvalidQoSSpecs(reason=id)
     elif id == "999":
         raise exception.QoSSpecsUpdateFailed(specs_id=id,
                                              qos_specs=specs)
@@ -147,10 +147,7 @@ class QoSSpecManageApiTest(test.TestCase):
         #reset notifier drivers left over from other api/contrib tests
         notifier_api._reset_drivers()
         test_notifier.NOTIFICATIONS = []
-
-    def tearDown(self):
-        notifier_api._reset_drivers()
-        super(QoSSpecManageApiTest, self).tearDown()
+        self.addCleanup(notifier_api._reset_drivers)
 
     def test_index(self):
         self.stubs.Set(qos_specs, 'get_all_specs',

@@ -30,7 +30,7 @@ from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.notifier import api as notifier
 from cinder import quota
-from cinder.volume.flows import create_volume
+from cinder.scheduler.flows import create_volume
 from cinder.volume import rpcapi as volume_rpcapi
 
 
@@ -50,7 +50,7 @@ LOG = logging.getLogger(__name__)
 class SchedulerManager(manager.Manager):
     """Chooses a host to create volumes."""
 
-    RPC_API_VERSION = '1.4'
+    RPC_API_VERSION = '1.5'
 
     def __init__(self, scheduler_driver=None, service_name=None,
                  *args, **kwargs):
@@ -87,13 +87,13 @@ class SchedulerManager(manager.Manager):
                       filter_properties=None):
 
         try:
-            flow_engine = create_volume.get_scheduler_flow(context,
-                                                           db, self.driver,
-                                                           request_spec,
-                                                           filter_properties,
-                                                           volume_id,
-                                                           snapshot_id,
-                                                           image_id)
+            flow_engine = create_volume.get_flow(context,
+                                                 db, self.driver,
+                                                 request_spec,
+                                                 filter_properties,
+                                                 volume_id,
+                                                 snapshot_id,
+                                                 image_id)
         except Exception:
             LOG.exception(_("Failed to create scheduler manager volume flow"))
             raise exception.CinderException(
@@ -184,6 +184,30 @@ class SchedulerManager(manager.Manager):
             volume_rpcapi.VolumeAPI().retype(context, volume_ref,
                                              new_type['id'], tgt_host,
                                              migration_policy, reservations)
+
+    def manage_existing(self, context, topic, volume_id,
+                        request_spec, filter_properties=None):
+        """Ensure that the host exists and can accept the volume."""
+
+        def _manage_existing_set_error(self, context, ex, request_spec):
+            volume_state = {'volume_state': {'status': 'error'}}
+            self._set_volume_state_and_notify('manage_existing', volume_state,
+                                              context, ex, request_spec)
+
+        volume_ref = db.volume_get(context, volume_id)
+        try:
+            tgt_host = self.driver.host_passes_filters(context,
+                                                       volume_ref['host'],
+                                                       request_spec,
+                                                       filter_properties)
+        except exception.NoValidHost as ex:
+            _manage_existing_set_error(self, context, ex, request_spec)
+        except Exception as ex:
+            with excutils.save_and_reraise_exception():
+                _manage_existing_set_error(self, context, ex, request_spec)
+        else:
+            volume_rpcapi.VolumeAPI().manage_existing(context, volume_ref,
+                                                      request_spec.get('ref'))
 
     def _set_volume_state_and_notify(self, method, updates, context, ex,
                                      request_spec, msg=None):

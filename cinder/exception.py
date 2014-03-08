@@ -352,10 +352,6 @@ class OverQuota(CinderException):
     message = _("Quota exceeded for resources: %(overs)s")
 
 
-class MigrationNotFound(NotFound):
-    message = _("Migration %(migration_id)s could not be found.")
-
-
 class FileNotFound(NotFound):
     message = _("File %(file_path)s could not be found.")
 
@@ -371,6 +367,10 @@ class VolumeTypeExists(Duplicate):
 
 class VolumeTypeEncryptionExists(Invalid):
     message = _("Volume type encryption for type %(type_id)s already exists.")
+
+
+class VolumeTypeEncryptionNotFound(NotFound):
+    message = _("Volume type encryption for type %(type_id)s does not exist.")
 
 
 class MalformedRequestBody(CinderException):
@@ -396,10 +396,6 @@ class NoValidHost(CinderException):
 class NoMoreTargets(CinderException):
     """No more available targets."""
     pass
-
-
-class WillNotSchedule(CinderException):
-    message = _("Host %(host)s is not up or doesn't exist.")
 
 
 class QuotaError(CinderException):
@@ -440,16 +436,8 @@ class MalformedResponse(VolumeDriverException):
     message = _("Malformed response to command %(cmd)s: %(reason)s")
 
 
-class BadDriverResponseStatus(VolumeDriverException):
-    message = _("Bad driver response status: %(status)s")
-
-
 class FailedCmdWithDump(VolumeDriverException):
     message = _("Operation failed with status=%(status)s. Full dump: %(data)s")
-
-
-class InstanceNotFound(NotFound):
-    message = _("Instance %(instance_id)s could not be found.")
 
 
 class GlanceMetadataExists(Invalid):
@@ -487,6 +475,14 @@ class BackupInvalidCephArgs(BackupDriverException):
 
 class BackupOperationError(Invalid):
     message = _("An error has occurred during backup operation")
+
+
+class BackupMetadataUnsupportedVersion(BackupDriverException):
+    message = _("Unsupported backup metadata version requested")
+
+
+class VolumeMetadataBackupExists(BackupDriverException):
+    message = _("Metadata backup already exists for this volume")
 
 
 class BackupRBDOperationFailed(BackupDriverException):
@@ -566,8 +562,14 @@ class KeyManagerError(CinderException):
     msg_fmt = _("key manager error: %(reason)s")
 
 
-class VolumeRetypeFailed(CinderException):
-    message = _("Volume retype failed: %(reason)s")
+class ManageExistingInvalidReference(CinderException):
+    message = _("Manage existing volume failed due to invalid backend "
+                "reference %(existing_ref)s: %(reason)s")
+
+
+class ManageExistingVolumeTypeMismatch(CinderException):
+    message = _("Manage existing volume failed due to volume type mismatch: "
+                "%(reason)s")
 
 
 # Driver specific exceptions
@@ -647,10 +649,6 @@ class SolidFireAccountNotFound(SolidFireDriverException):
                 "Solidfire device")
 
 
-class DuplicateSolidFireVolumeNames(SolidFireDriverException):
-    message = _("Detected more than one volume with name %(vol_name)s")
-
-
 # HP 3Par
 class Invalid3PARDomain(VolumeDriverException):
     message = _("Invalid 3PAR Domain: %(err)s")
@@ -680,3 +678,45 @@ class GlusterfsNoSharesMounted(VolumeDriverException):
 
 class GlusterfsNoSuitableShareFound(VolumeDriverException):
     message = _("There is no share which can host %(volume_size)sG")
+
+
+class RemoveExportException(VolumeDriverException):
+    message = _("Failed to remove export for volume %(volume)s: %(reason)s")
+
+
+# HP MSA
+class HPMSAVolumeDriverException(VolumeDriverException):
+    message = _("HP MSA Volume Driver exception")
+
+
+class HPMSAInvalidVDisk(HPMSAVolumeDriverException):
+    message = _("VDisk doesn't exist (%(vdisk)s)")
+
+
+class HPMSAConnectionError(HPMSAVolumeDriverException):
+    message = _("Unable to connect to MSA array")
+
+
+class HPMSANotEnoughSpace(HPMSAVolumeDriverException):
+    message = _("Not enough space on VDisk (%(vdisk)s)")
+
+
+# Fibre Channel Zone Manager
+class ZoneManagerException(CinderException):
+    message = _("Fibre Channel connection control failure: %(reason)s")
+
+
+class FCZoneDriverException(CinderException):
+    message = _("Fibre Channel Zone operation failed: %(reason)s")
+
+
+class FCSanLookupServiceException(CinderException):
+    message = _("Fibre Channel SAN Lookup failure: %(reason)s")
+
+
+class BrocadeZoningCliException(CinderException):
+    message = _("Fibre Channel Zoning CLI error: %(reason)s")
+
+
+class NetAppDriverException(VolumeDriverException):
+    message = _("NetApp Cinder Driver exception.")

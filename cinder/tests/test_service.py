@@ -195,6 +195,13 @@ class ServiceTestCase(test.TestCase):
 
         self.assertFalse(serv.model_disconnected)
 
+    def test_service_with_long_report_interval(self):
+        CONF.set_override('service_down_time', 10)
+        CONF.set_override('report_interval', 10)
+        service.Service.create(binary="test_service",
+                               manager="cinder.tests.test_service.FakeManager")
+        self.assertEqual(CONF.service_down_time, 25)
+
 
 class TestWSGIService(test.TestCase):
 
@@ -208,24 +215,3 @@ class TestWSGIService(test.TestCase):
         test_service.start()
         self.assertNotEqual(0, test_service.port)
         test_service.stop()
-
-    def test_service_with_min_down_time(self):
-        CONF.set_override('service_down_time', 10)
-        CONF.set_override('report_interval', 10)
-        service.WSGIService("test_service")
-        self.assertEqual(CONF.service_down_time, 25)
-
-
-class TestLauncher(test.TestCase):
-
-    def setUp(self):
-        super(TestLauncher, self).setUp()
-        self.stubs.Set(wsgi.Loader, "load_app", mox.MockAnything())
-        self.service = service.WSGIService("test_service")
-
-    def test_launch_app(self):
-        self.assertEqual(0, self.service.port)
-        launcher = service.Launcher()
-        launcher.launch_server(self.service)
-        self.assertEqual(0, self.service.port)
-        launcher.stop()

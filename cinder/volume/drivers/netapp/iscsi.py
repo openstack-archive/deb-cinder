@@ -21,6 +21,7 @@ storage systems with installed iSCSI licenses.
 """
 
 import copy
+import math
 import sys
 import time
 import uuid
@@ -229,7 +230,7 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         LOG.debug(msg % msg_fmt)
         iqn = self._get_iscsi_service_details()
         target_details_list = self._get_target_details()
-        msg = _("Succesfully fetched target details for LUN %(name)s and "
+        msg = _("Successfully fetched target details for LUN %(name)s and "
                 "initiator %(initiator_name)s")
         msg_fmt = {'name': name, 'initiator_name': initiator_name}
         LOG.debug(msg % msg_fmt)
@@ -526,7 +527,7 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         return lun
 
     def _clone_lun(self, name, new_name, space_reserved='true',
-                   start_block=0, end_block=0, block_count=0):
+                   src_block=0, dest_block=0, block_count=0):
         """Clone LUN with the given name to the new name."""
         raise NotImplementedError()
 
@@ -591,7 +592,8 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         if curr_size_bytes != new_size_bytes:
             lun_geometry = self._get_lun_geometry(path)
             if (lun_geometry and lun_geometry.get("max_resize")
-                    and lun_geometry.get("max_resize") >= new_size_bytes):
+                    and int(lun_geometry.get("max_resize")) >=
+                    int(new_size_bytes)):
                 self._do_direct_resize(path, new_size_bytes)
             else:
                 self._do_sub_clone_resize(path, new_size_bytes)
@@ -961,7 +963,7 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
         return igroup_list
 
     def _clone_lun(self, name, new_name, space_reserved='true',
-                   start_block=0, end_block=0, block_count=0):
+                   src_block=0, dest_block=0, block_count=0):
         """Clone LUN with the given handle to the new name."""
         metadata = self._get_lun_attr(name, 'metadata')
         volume = metadata['Volume']
@@ -971,19 +973,31 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
                 'destination-path': new_name, 'space-reserve': space_reserved})
         if block_count > 0:
             block_ranges = NaElement("block-ranges")
-            block_range = NaElement.create_node_with_children(
-                'block-range',
-                **{'source-block-number': str(start_block),
-                   'destination-block-number': str(end_block),
-                   'block-count': str(block_count)})
-            block_ranges.add_child_elem(block_range)
+            # zAPI can only handle 2^24 block ranges
+            bc_limit = 2 ** 24  # 8GB
+            segments = int(math.ceil(float(block_count) / float(bc_limit)))
+            bc = block_count
+            for segment in range(0, segments):
+                if bc > bc_limit:
+                    block_count = bc_limit
+                    bc -= bc_limit
+                else:
+                    block_count = bc
+                block_range = NaElement.create_node_with_children(
+                    'block-range',
+                    **{'source-block-number': str(src_block),
+                       'destination-block-number': str(dest_block),
+                       'block-count': str(block_count)})
+                block_ranges.add_child_elem(block_range)
+                src_block = int(src_block) + int(block_count)
+                dest_block = int(dest_block) + int(block_count)
             clone_create.add_child_elem(block_ranges)
         self.client.invoke_successfully(clone_create, True)
         LOG.debug(_("Cloned LUN with new name %s") % new_name)
         lun = self._get_lun_by_args(vserver=self.vserver, path='/vol/%s/%s'
                                     % (volume, new_name))
         if len(lun) == 0:
-            msg = _("No clonned lun named %s found on the filer")
+            msg = _("No cloned lun named %s found on the filer")
             raise exception.VolumeBackendAPIException(data=msg % (new_name))
         clone_meta = self._create_lun_meta(lun[0])
         self._add_lun_to_table(NetAppLun('%s:%s' % (clone_meta['Vserver'],
@@ -1060,7 +1074,7 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
                 else 'false'
             data['netapp_dedup'] = 'true'\
                 if self.ssc_vols['dedup'] else 'false'
-            data['netapp_nodedupe'] = 'true'\
+            data['netapp_nodedup'] = 'true'\
                 if len(self.ssc_vols['all']) > len(self.ssc_vols['dedup'])\
                 else 'false'
             data['netapp_compression'] = 'true'\
@@ -1312,7 +1326,7 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         return (igroup, lun_id)
 
     def _clone_lun(self, name, new_name, space_reserved='true',
-                   start_block=0, end_block=0, block_count=0):
+                   src_block=0, dest_block=0, block_count=0):
         """Clone LUN with the given handle to the new name."""
         metadata = self._get_lun_attr(name, 'metadata')
         path = metadata['Path']
@@ -1324,12 +1338,24 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
                               'no-snap': 'true'})
         if block_count > 0:
             block_ranges = NaElement("block-ranges")
-            block_range = NaElement.create_node_with_children(
-                'block-range',
-                **{'source-block-number': str(start_block),
-                    'destination-block-number': str(end_block),
-                    'block-count': str(block_count)})
-            block_ranges.add_child_elem(block_range)
+            # zAPI can only handle 2^24 block ranges
+            bc_limit = 2 ** 24  # 8GB
+            segments = int(math.ceil(float(block_count) / float(bc_limit)))
+            bc = block_count
+            for segment in range(0, segments):
+                if bc > bc_limit:
+                    block_count = bc_limit
+                    bc -= bc_limit
+                else:
+                    block_count = bc
+                block_range = NaElement.create_node_with_children(
+                    'block-range',
+                    **{'source-block-number': str(src_block),
+                        'destination-block-number': str(dest_block),
+                        'block-count': str(block_count)})
+                block_ranges.add_child_elem(block_range)
+                src_block = int(src_block) + int(block_count)
+                dest_block = int(dest_block) + int(block_count)
             clone_start.add_child_elem(block_ranges)
         result = self.client.invoke_successfully(clone_start, True)
         clone_id_el = result.get_child_by_name('clone-id')

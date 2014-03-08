@@ -56,13 +56,13 @@ class LVM(executor.Executor):
         self.vg_name = vg_name
         self.pv_list = []
         self.lv_list = []
-        self.vg_size = 0
-        self.vg_free_space = 0
+        self.vg_size = 0.0
+        self.vg_free_space = 0.0
         self.vg_lv_count = 0
         self.vg_uuid = None
         self.vg_thin_pool = None
-        self.vg_thin_pool_size = 0
-        self.vg_thin_pool_free_space = 0
+        self.vg_thin_pool_size = 0.0
+        self.vg_thin_pool_free_space = 0.0
         self._supports_snapshot_lv_activation = None
         self._supports_lvchange_ignoreskipactivation = None
 
@@ -92,6 +92,7 @@ class LVM(executor.Executor):
                 self.vg_thin_pool = pool_name
 
             self.activate_lv(self.vg_thin_pool)
+        self.pv_list = self.get_all_physical_volumes(root_helper, vg_name)
 
     def _vg_exists(self):
         """Simple check to see if VG exists.
@@ -128,7 +129,7 @@ class LVM(executor.Executor):
 
         :param vg_name: the vg where the pool is placed
         :param thin_pool_name: the thin pool to gather info for
-        :returns: Free space, calculated after the data_percent value
+        :returns: Free space in GB (float), calculated using data_percent
 
         """
         cmd = ['env', 'LC_ALL=C', 'lvs', '--noheadings', '--unit=g',
@@ -138,7 +139,7 @@ class LVM(executor.Executor):
         # make sure to append the actual thin pool name
         cmd.append("/dev/%s/%s" % (vg_name, thin_pool_name))
 
-        free_space = 0
+        free_space = 0.0
 
         try:
             (out, err) = self._execute(*cmd,
@@ -201,7 +202,7 @@ class LVM(executor.Executor):
     def supports_snapshot_lv_activation(self):
         """Property indicating whether snap activation changes are supported.
 
-        Check for LVM version > 2.02.91.
+        Check for LVM version >= 2.02.91.
         (LVM2 git: e8a40f6 Allow to activate snapshot)
 
         :returns: True/False indicating support
@@ -219,40 +220,30 @@ class LVM(executor.Executor):
     def supports_lvchange_ignoreskipactivation(self):
         """Property indicating whether lvchange can ignore skip activation.
 
-        Tests whether lvchange -K/--ignoreactivationskip exists.
+        Check for LVM version >= 2.02.99.
+        (LVM2 git: ab789c1bc add --ignoreactivationskip to lvchange)
         """
 
         if self._supports_lvchange_ignoreskipactivation is not None:
             return self._supports_lvchange_ignoreskipactivation
 
-        cmd = ['lvchange', '--help']
-        (out, err) = self._execute(*cmd)
-
-        self._supports_lvchange_ignoreskipactivation = False
-
-        lines = out.split('\n')
-        for line in lines:
-            if '-K' in line and '--ignoreactivationskip' in line:
-                self._supports_lvchange_ignoreskipactivation = True
-                break
+        self._supports_lvchange_ignoreskipactivation = (
+            self.get_lvm_version(self._root_helper) >= (2, 2, 99))
 
         return self._supports_lvchange_ignoreskipactivation
 
     @staticmethod
-    def get_all_volumes(root_helper, vg_name=None, no_suffix=True):
+    def get_all_volumes(root_helper, vg_name=None):
         """Static method to get all LV's on a system.
 
         :param root_helper: root_helper to use for execute
         :param vg_name: optional, gathers info for only the specified VG
-        :param no_suffix: optional, reports sizes in g with no suffix
         :returns: List of Dictionaries with LV info
 
         """
-        cmd = ['env', 'LC_ALL=C', 'lvs', '--noheadings', '--unit=g',
-               '-o', 'vg_name,name,size']
 
-        if no_suffix:
-            cmd.append('--nosuffix')
+        cmd = ['env', 'LC_ALL=C', 'lvs', '--noheadings', '--unit=g',
+               '-o', 'vg_name,name,size', '--nosuffix']
 
         if vg_name is not None:
             cmd.append(vg_name)
@@ -290,39 +281,35 @@ class LVM(executor.Executor):
                 return r
 
     @staticmethod
-    def get_all_physical_volumes(root_helper, vg_name=None, no_suffix=True):
+    def get_all_physical_volumes(root_helper, vg_name=None):
         """Static method to get all PVs on a system.
 
         :param root_helper: root_helper to use for execute
         :param vg_name: optional, gathers info for only the specified VG
-        :param no_suffix: optional, reports sizes in g with no suffix
         :returns: List of Dictionaries with PV info
 
         """
         cmd = ['env', 'LC_ALL=C', 'pvs', '--noheadings',
                '--unit=g',
                '-o', 'vg_name,name,size,free',
-               '--separator', ':']
-        if no_suffix:
-            cmd.append('--nosuffix')
-
-        if vg_name is not None:
-            cmd.append(vg_name)
+               '--separator', ':',
+               '--nosuffix']
 
         (out, err) = putils.execute(*cmd,
                                     root_helper=root_helper,
                                     run_as_root=True)
 
-        pv_list = []
-        if out is not None:
-            pvs = out.split()
-            for pv in pvs:
-                fields = pv.split(':')
-                pv_list.append({'vg': fields[0],
-                                'name': fields[1],
-                                'size': fields[2],
-                                'available': fields[3]})
+        pvs = out.split()
+        if vg_name is not None:
+            pvs = [pv for pv in pvs if vg_name == pv.split(':')[0]]
 
+        pv_list = []
+        for pv in pvs:
+            fields = pv.split(':')
+            pv_list.append({'vg': fields[0],
+                            'name': fields[1],
+                            'size': float(fields[2]),
+                            'available': float(fields[3])})
         return pv_list
 
     def get_physical_volumes(self):
@@ -336,20 +323,17 @@ class LVM(executor.Executor):
         return self.pv_list
 
     @staticmethod
-    def get_all_volume_groups(root_helper, vg_name=None, no_suffix=True):
+    def get_all_volume_groups(root_helper, vg_name=None):
         """Static method to get all VGs on a system.
 
         :param root_helper: root_helper to use for execute
         :param vg_name: optional, gathers info for only the specified VG
-        :param no_suffix: optional, reports sizes in g with no suffix
         :returns: List of Dictionaries with VG info
 
         """
         cmd = ['env', 'LC_ALL=C', 'vgs', '--noheadings', '--unit=g',
-               '-o', 'name,size,free,lv_count,uuid', '--separator', ':']
-
-        if no_suffix:
-            cmd.append('--nosuffix')
+               '-o', 'name,size,free,lv_count,uuid', '--separator', ':',
+               '--nosuffix']
 
         if vg_name is not None:
             cmd.append(vg_name)
@@ -364,9 +348,9 @@ class LVM(executor.Executor):
             for vg in vgs:
                 fields = vg.split(':')
                 vg_list.append({'name': fields[0],
-                                'size': fields[1],
-                                'available': fields[2],
-                                'lv_count': fields[3],
+                                'size': float(fields[1]),
+                                'available': float(fields[2]),
+                                'lv_count': int(fields[3]),
                                 'uuid': fields[4]})
 
         return vg_list
@@ -386,9 +370,9 @@ class LVM(executor.Executor):
             LOG.error(_('Unable to find VG: %s') % self.vg_name)
             raise exception.VolumeGroupNotFound(vg_name=self.vg_name)
 
-        self.vg_size = vg_list[0]['size']
-        self.vg_free_space = vg_list[0]['available']
-        self.vg_lv_count = vg_list[0]['lv_count']
+        self.vg_size = float(vg_list[0]['size'])
+        self.vg_free_space = float(vg_list[0]['available'])
+        self.vg_lv_count = int(vg_list[0]['lv_count'])
         self.vg_uuid = vg_list[0]['uuid']
 
         if self.vg_thin_pool is not None:
@@ -417,7 +401,7 @@ class LVM(executor.Executor):
         self.update_volume_group_info()
 
         # leave 5% free for metadata
-        return "%sg" % (float(self.vg_free_space) * 0.95)
+        return "%sg" % (self.vg_free_space * 0.95)
 
     def create_thin_pool(self, name=None, size_str=None):
         """Creates a thin provisioning pool for this VG.
@@ -441,12 +425,16 @@ class LVM(executor.Executor):
         if name is None:
             name = '%s-pool' % self.vg_name
 
-        self.vg_pool_name = '%s/%s' % (self.vg_name, name)
+        vg_pool_name = '%s/%s' % (self.vg_name, name)
 
         if not size_str:
             size_str = self._calculate_thin_pool_size()
 
-        cmd = ['lvcreate', '-T', '-L', size_str, self.vg_pool_name]
+        cmd = ['lvcreate', '-T', '-L', size_str, vg_pool_name]
+        LOG.debug(_('Created thin pool \'%(pool)s\' with size %(size)s of '
+                    'total %(free)sg') % {'pool': vg_pool_name,
+                                          'size': size_str,
+                                          'free': self.vg_free_space})
 
         self._execute(*cmd,
                       root_helper=self._root_helper,
@@ -472,7 +460,8 @@ class LVM(executor.Executor):
             cmd = ['lvcreate', '-n', name, self.vg_name, '-L', size_str]
 
         if mirror_count > 0:
-            cmd.extend(['-m', mirror_count, '--nosync'])
+            cmd.extend(['-m', mirror_count, '--nosync',
+                        '--mirrorlog mirrored'])
             terras = int(size_str[:-1]) / 1024.0
             if terras >= 1.5:
                 rsize = int(2 ** math.ceil(math.log(terras) / math.log(2)))
@@ -569,10 +558,41 @@ class LVM(executor.Executor):
         :param name: Name of LV to delete
 
         """
+
+        def run_udevadm_settle():
+            self._execute('udevadm', 'settle',
+                          root_helper=self._root_helper, run_as_root=True,
+                          check_exit_code=False)
+
         try:
-            self._execute('lvremove',
-                          '-f',
-                          '%s/%s' % (self.vg_name, name),
+            need_force_remove = False
+            # LV removal seems to be a race with udev in
+            # some cases (see LP #1270192), so we do it in several steps:
+
+            # - Deactivate the LV/Snapshot, which triggers udev events
+            # - Wait for udev to finish its job with udevadmn settle
+            # - Remove the LV
+
+            try:
+                self._execute('lvchange', '-y', '-an',
+                              '%s/%s' % (self.vg_name, name),
+                              root_helper=self._root_helper, run_as_root=True)
+            except putils.ProcessExecutionError as err:
+                mesg = (_('Error during lvchange -an: CMD: %(command)s, '
+                        'RESPONSE: %(response)s') %
+                        {'command': err.cmd, 'response': err.stderr})
+                LOG.debug(mesg)
+                need_force_remove = True
+
+            run_udevadm_settle()
+
+            cmd = ['lvremove', ]
+
+            # if deactivation failed, use the --force, lvm!
+            if need_force_remove:
+                cmd.append('-f')
+            cmd.append('%s/%s' % (self.vg_name, name))
+            self._execute(*cmd,
                           root_helper=self._root_helper, run_as_root=True)
         except putils.ProcessExecutionError as err:
             mesg = (_('Error reported running lvremove: CMD: %(command)s, '
@@ -581,9 +601,7 @@ class LVM(executor.Executor):
             LOG.debug(mesg)
 
             LOG.debug(_('Attempting udev settle and retry of lvremove...'))
-            self._execute('udevadm', 'settle',
-                          root_helper=self._root_helper,
-                          run_as_root=True)
+            run_udevadm_settle()
 
             self._execute('lvremove',
                           '-f',
@@ -621,6 +639,44 @@ class LVM(executor.Executor):
                           run_as_root=True)
         except putils.ProcessExecutionError as err:
             LOG.exception(_('Error extending Volume'))
+            LOG.error(_('Cmd     :%s') % err.cmd)
+            LOG.error(_('StdOut  :%s') % err.stdout)
+            LOG.error(_('StdErr  :%s') % err.stderr)
+            raise
+
+    def vg_mirror_free_space(self, mirror_count):
+        free_capacity = 0.0
+
+        disks = []
+        for pv in self.pv_list:
+            disks.append(float(pv['available']))
+
+        while True:
+            disks = sorted([a for a in disks if a > 0.0], reverse=True)
+            if len(disks) <= mirror_count:
+                break
+            # consume the smallest disk
+            disk = disks[-1]
+            disks = disks[:-1]
+            # match extents for each mirror on the largest disks
+            for index in list(range(mirror_count)):
+                disks[index] -= disk
+            free_capacity += disk
+
+        return free_capacity
+
+    def vg_mirror_size(self, mirror_count):
+        return (self.vg_free_space / (mirror_count + 1))
+
+    def rename_volume(self, lv_name, new_name):
+        """Change the name of an existing volume."""
+
+        try:
+            self._execute('lvrename', self.vg_name, lv_name, new_name,
+                          root_helper=self._root_helper,
+                          run_as_root=True)
+        except putils.ProcessExecutionError as err:
+            LOG.exception(_('Error renaming logical volume'))
             LOG.error(_('Cmd     :%s') % err.cmd)
             LOG.error(_('StdOut  :%s') % err.stdout)
             LOG.error(_('StdErr  :%s') % err.stderr)

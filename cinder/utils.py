@@ -34,6 +34,7 @@ import tempfile
 from eventlet import pools
 from oslo.config import cfg
 import paramiko
+import six
 from xml.dom import minidom
 from xml.parsers import expat
 from xml import sax
@@ -151,12 +152,12 @@ def check_ssh_injection(cmd_list):
             if quoted:
                 if (re.match('[\'"]', quoted) or
                         re.search('[^\\\\][\'"]', quoted)):
-                    raise exception.SSHInjectionThreat(command=str(cmd_list))
+                    raise exception.SSHInjectionThreat(command=cmd_list)
         else:
             # We only allow spaces within quoted arguments, and that
             # is the only special character allowed within quotes
             if len(arg.split()) > 1:
-                raise exception.SSHInjectionThreat(command=str(cmd_list))
+                raise exception.SSHInjectionThreat(command=cmd_list)
 
         # Second, check whether danger character in command. So the shell
         # special operator must be a single argument.
@@ -695,7 +696,7 @@ def tempdir(**kwargs):
         try:
             shutil.rmtree(tmpdir)
         except OSError as e:
-            LOG.debug(_('Could not remove tmpdir: %s'), str(e))
+            LOG.debug(_('Could not remove tmpdir: %s'), e)
 
 
 def walk_class_hierarchy(clazz, encountered=None):
@@ -768,3 +769,79 @@ def get_file_mode(path):
 def get_file_gid(path):
     """This primarily exists to make unit testing easier."""
     return os.stat(path).st_gid
+
+
+def check_string_length(value, name, min_length=0, max_length=None):
+    """Check the length of specified string
+    :param value: the value of the string
+    :param name: the name of the string
+    :param min_length: the min_length of the string
+    :param max_length: the max_length of the string
+    """
+    if not isinstance(value, six.string_types):
+        msg = _("%s is not a string or unicode") % name
+        raise exception.InvalidInput(message=msg)
+
+    if len(value) < min_length:
+        msg = _("%(name)s has a minimum character requirement of "
+                "%(min_length)s.") % {'name': name, 'min_length': min_length}
+        raise exception.InvalidInput(message=msg)
+
+    if max_length and len(value) > max_length:
+        msg = _("%(name)s has more than %(max_length)s "
+                "characters.") % {'name': name, 'max_length': max_length}
+        raise exception.InvalidInput(message=msg)
+
+_visible_admin_metadata_keys = ['readonly', 'attached_mode']
+
+
+def add_visible_admin_metadata(context, volume, volume_api):
+    """Add user-visible admin metadata to regular metadata.
+
+    Extracts the admin metadata keys that are to be made visible to
+    non-administrators, and adds them to the regular metadata structure for the
+    passed-in volume.
+    """
+    if context is None:
+        return
+
+    visible_admin_meta = {}
+
+    if context.is_admin:
+        volume_tmp = volume
+    else:
+        try:
+            volume_tmp = volume_api.get(context.elevated(), volume['id'])
+        except Exception:
+            return
+
+    if volume_tmp.get('volume_admin_metadata'):
+        for item in volume_tmp['volume_admin_metadata']:
+            if item['key'] in _visible_admin_metadata_keys:
+                visible_admin_meta[item['key']] = item['value']
+    # avoid circular ref when volume is a Volume instance
+    elif (volume_tmp.get('admin_metadata') and
+            isinstance(volume_tmp.get('admin_metadata'), dict)):
+        for key in _visible_admin_metadata_keys:
+            if key in volume_tmp['admin_metadata'].keys():
+                visible_admin_meta[key] = volume_tmp['admin_metadata'][key]
+
+    if not visible_admin_meta:
+        return
+
+    # NOTE(zhiyan): update visible administration metadata to
+    # volume metadata, administration metadata will rewrite existing key.
+    if volume.get('volume_metadata'):
+        orig_meta = list(volume.get('volume_metadata'))
+        for item in orig_meta:
+            if item['key'] in visible_admin_meta.keys():
+                item['value'] = visible_admin_meta.pop(item['key'])
+        for key, value in visible_admin_meta.iteritems():
+            orig_meta.append({'key': key, 'value': value})
+        volume['volume_metadata'] = orig_meta
+    # avoid circular ref when vol is a Volume instance
+    elif (volume.get('metadata') and
+            isinstance(volume.get('metadata'), dict)):
+        volume['metadata'].update(visible_admin_meta)
+    else:
+        volume['metadata'] = visible_admin_meta

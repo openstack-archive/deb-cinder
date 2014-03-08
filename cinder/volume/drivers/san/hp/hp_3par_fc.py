@@ -17,11 +17,11 @@
 #
 """
 Volume driver for HP 3PAR Storage array.
-This driver requires 3.1.2 MU2 firmware on the 3PAR array, using
-the 2.x version of the hp3parclient.
+This driver requires 3.1.3 firmware on the 3PAR array, using
+the 3.x version of the hp3parclient.
 
 You will need to install the python hp3parclient.
-sudo pip install --upgrade "hp3parclient>=2.0"
+sudo pip install --upgrade "hp3parclient>=3.0"
 
 Set the following in the cinder.conf file to enable the
 3PAR Fibre Channel Driver along with the required flags:
@@ -54,10 +54,14 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         1.2.2 - Added try/finally around client login/logout.
         1.2.3 - Added ability to add WWNs to host.
         1.2.4 - Added metadata during attach/detach bug #1258033.
+        1.3.0 - Removed all SSH code.  We rely on the hp3parclient now.
+        2.0.0 - Update hp3parclient API uses 3.0.x
+        2.0.2 - Add back-end assisted volume migrate
+        2.0.3 - Added initiator-target map for FC Zone Manager
 
     """
 
-    VERSION = "1.2.4"
+    VERSION = "2.0.3"
 
     def __init__(self, *args, **kwargs):
         super(HP3PARFCDriver, self).__init__(*args, **kwargs)
@@ -200,16 +204,14 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
             # now that we have a host, create the VLUN
             vlun = self.common.create_vlun(volume, host)
 
-            fc_ports = self.common.get_active_fc_target_ports()
-            wwns = []
-
-            for port in fc_ports:
-                wwns.append(port['portWWN'])
+            target_wwns, init_targ_map = self._build_initiator_target_map(
+                connector)
 
             info = {'driver_volume_type': 'fibre_channel',
                     'data': {'target_lun': vlun['lun'],
                              'target_discovered': True,
-                             'target_wwn': wwns}}
+                             'target_wwn': target_wwns,
+                             'initiator_target_map': init_targ_map}}
             return info
         finally:
             self.common.client_logout()
@@ -222,8 +224,34 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
             hostname = self.common._safe_hostname(connector['host'])
             self.common.terminate_connection(volume, hostname,
                                              wwn=connector['wwpns'])
+
+            target_wwns, init_targ_map = self._build_initiator_target_map(
+                connector)
+
+            info = {'driver_volume_type': 'fibre_channel',
+                    'data': {'target_wwn': target_wwns,
+                             'initiator_target_map': init_targ_map}}
+            return info
+
         finally:
             self.common.client_logout()
+
+    def _build_initiator_target_map(self, connector):
+        """Build the target_wwns and the initiator target map."""
+
+        fc_ports = self.common.get_active_fc_target_ports()
+        target_wwns = []
+
+        for port in fc_ports:
+            target_wwns.append(port['portWWN'])
+
+        initiator_wwns = connector['wwpns']
+
+        init_targ_map = {}
+        for initiator in initiator_wwns:
+            init_targ_map[initiator] = target_wwns
+
+        return target_wwns, init_targ_map
 
     def _create_3par_fibrechan_host(self, hostname, wwns, domain, persona_id):
         """Create a 3PAR host.
@@ -232,19 +260,22 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         the same wwn but with a different hostname, return the hostname
         used by 3PAR.
         """
-        if domain is not None:
-            command = ['createhost', '-persona', persona_id, '-domain', domain,
-                       hostname]
-        else:
-            command = ['createhost', '-persona', persona_id, hostname]
+        # first search for an existing host
+        host_found = None
         for wwn in wwns:
-            command.append(wwn)
+            host_found = self.common.client.findHost(wwn=wwn)
+            if host_found is not None:
+                break
 
-        out = self.common._cli_run(command)
-        if out and len(out) > 1:
-            return self.common.parse_create_host_error(hostname, out)
-
-        return hostname
+        if host_found is not None:
+            self.common.hosts_naming_dict[hostname] = host_found
+            return host_found
+        else:
+            persona_id = int(persona_id)
+            self.common.client.createHost(hostname, FCWwns=wwns,
+                                          optional={'domain': domain,
+                                                    'persona': persona_id})
+            return hostname
 
     def _modify_3par_fibrechan_host(self, hostname, wwn):
         mod_request = {'pathOperation': self.common.client.HOST_EDIT_ADD,
@@ -315,7 +346,11 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
 
     @utils.synchronized('3par', external=True)
     def extend_volume(self, volume, new_size):
-        self.common.extend_volume(volume, new_size)
+        self.common.client_login()
+        try:
+            self.common.extend_volume(volume, new_size)
+        finally:
+            self.common.client_logout()
 
     @utils.synchronized('3par', external=True)
     def attach_volume(self, context, volume, instance_uuid, host_name,
@@ -325,3 +360,11 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
     @utils.synchronized('3par', external=True)
     def detach_volume(self, context, volume):
         self.common.detach_volume(volume)
+
+    @utils.synchronized('3par', external=True)
+    def migrate_volume(self, context, volume, host):
+        self.common.client_login()
+        try:
+            return self.common.migrate_volume(volume, host)
+        finally:
+            self.common.client_logout()

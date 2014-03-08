@@ -31,11 +31,10 @@
 """
 
 import hashlib
-import httplib
 import json
 import os
+import six
 import socket
-import StringIO
 
 import eventlet
 from oslo.config import cfg
@@ -107,7 +106,7 @@ class SwiftBackupDriver(BackupDriver):
         raise ValueError(unicode(err))
 
     def __init__(self, context, db_driver=None):
-        self.context = context
+        super(SwiftBackupDriver, self).__init__(context, db_driver)
         self.swift_url = '%s%s' % (CONF.backup_swift_url,
                                    self.context.project_id)
         self.az = CONF.storage_availability_zone
@@ -135,22 +134,6 @@ class SwiftBackupDriver(BackupDriver):
                                          preauthtoken=self.context.auth_token,
                                          starting_backoff=self.swift_backoff)
 
-        super(SwiftBackupDriver, self).__init__(db_driver)
-
-    def _check_container_exists(self, container):
-        LOG.debug(_('_check_container_exists: container: %s') % container)
-        try:
-            self.conn.head_container(container)
-        except swift.ClientException as error:
-            if error.http_status == httplib.NOT_FOUND:
-                LOG.debug(_('container %s does not exist') % container)
-                return False
-            else:
-                raise
-        else:
-            LOG.debug(_('container %s exists') % container)
-            return True
-
     def _create_container(self, context, backup):
         backup_id = backup['id']
         container = backup['container']
@@ -160,8 +143,11 @@ class SwiftBackupDriver(BackupDriver):
         if container is None:
             container = CONF.backup_swift_container
             self.db.backup_update(context, backup_id, {'container': container})
-        if not self._check_container_exists(container):
-            self.conn.put_container(container)
+        # NOTE(gfidente): accordingly to the Object Storage API reference, we
+        # do not need to check if a container already exists, container PUT
+        # requests are idempotent and a code of 202 (Accepted) is returned when
+        # the container already existed.
+        self.conn.put_container(container)
         return container
 
     def _generate_swift_object_name_prefix(self, backup):
@@ -187,7 +173,8 @@ class SwiftBackupDriver(BackupDriver):
         filename = '%s_metadata' % swift_object_name
         return filename
 
-    def _write_metadata(self, backup, volume_id, container, object_list):
+    def _write_metadata(self, backup, volume_id, container, object_list,
+                        volume_meta):
         filename = self._metadata_filename(backup)
         LOG.debug(_('_write_metadata started, container name: %(container)s,'
                     ' metadata filename: %(filename)s') %
@@ -200,8 +187,9 @@ class SwiftBackupDriver(BackupDriver):
         metadata['backup_description'] = backup['display_description']
         metadata['created_at'] = str(backup['created_at'])
         metadata['objects'] = object_list
+        metadata['volume_meta'] = volume_meta
         metadata_json = json.dumps(metadata, sort_keys=True, indent=2)
-        reader = StringIO.StringIO(metadata_json)
+        reader = six.StringIO(metadata_json)
         etag = self.conn.put_object(container, filename, reader,
                                     content_length=reader.len)
         md5 = hashlib.md5(metadata_json).hexdigest()
@@ -237,7 +225,7 @@ class SwiftBackupDriver(BackupDriver):
         try:
             container = self._create_container(self.context, backup)
         except socket.error as err:
-            raise exception.SwiftConnectionFailed(reason=str(err))
+            raise exception.SwiftConnectionFailed(reason=err)
 
         object_prefix = self._generate_swift_object_name_prefix(backup)
         backup['service_metadata'] = object_prefix
@@ -255,7 +243,8 @@ class SwiftBackupDriver(BackupDriver):
                       'object_prefix': object_prefix,
                       'availability_zone': availability_zone,
                   })
-        object_meta = {'id': 1, 'list': [], 'prefix': object_prefix}
+        object_meta = {'id': 1, 'list': [], 'prefix': object_prefix,
+                       'volume_meta': None}
         return object_meta, container
 
     def _backup_chunk(self, backup, container, data, data_offset, object_meta):
@@ -287,13 +276,13 @@ class SwiftBackupDriver(BackupDriver):
             LOG.debug(_('not compressing data'))
             obj[object_name]['compression'] = 'none'
 
-        reader = StringIO.StringIO(data)
+        reader = six.StringIO(data)
         LOG.debug(_('About to put_object'))
         try:
             etag = self.conn.put_object(container, object_name, reader,
                                         content_length=len(data))
         except socket.error as err:
-            raise exception.SwiftConnectionFailed(reason=str(err))
+            raise exception.SwiftConnectionFailed(reason=err)
         LOG.debug(_('swift MD5 for %(object_name)s: %(etag)s') %
                   {'object_name': object_name, 'etag': etag, })
         md5 = hashlib.md5(data).hexdigest()
@@ -316,19 +305,37 @@ class SwiftBackupDriver(BackupDriver):
         """Finalize the backup by updating its metadata on Swift."""
         object_list = object_meta['list']
         object_id = object_meta['id']
+        volume_meta = object_meta['volume_meta']
         try:
             self._write_metadata(backup,
                                  backup['volume_id'],
                                  container,
-                                 object_list)
+                                 object_list,
+                                 volume_meta)
         except socket.error as err:
-            raise exception.SwiftConnectionFailed(reason=str(err))
+            raise exception.SwiftConnectionFailed(reason=err)
         self.db.backup_update(self.context, backup['id'],
                               {'object_count': object_id})
         LOG.debug(_('backup %s finished.') % backup['id'])
 
-    def backup(self, backup, volume_file):
-        """Backup the given volume to swift using the given backup metadata."""
+    def _backup_metadata(self, backup, object_meta):
+        """Backup volume metadata.
+
+        NOTE(dosaboy): the metadata we are backing up is obtained from a
+                       versioned api so we should not alter it in any way here.
+                       We must also be sure that the service that will perform
+                       the restore is compatible with version used.
+        """
+        json_meta = self.get_metadata(backup['volume_id'])
+        if not json_meta:
+            LOG.debug("No volume metadata to backup")
+            return
+
+        object_meta["volume_meta"] = json_meta
+
+    def backup(self, backup, volume_file, backup_metadata=True):
+        """Backup the given volume to Swift."""
+
         object_meta, container = self._prepare_backup(backup)
         while True:
             data = volume_file.read(self.data_block_size_bytes)
@@ -337,6 +344,16 @@ class SwiftBackupDriver(BackupDriver):
                 break
             self._backup_chunk(backup, container, data,
                                data_offset, object_meta)
+
+        if backup_metadata:
+            try:
+                self._backup_metadata(backup, object_meta)
+            except Exception as err:
+                LOG.exception(_("Backup volume metadata to swift failed: %s")
+                              % six.text_type(err))
+                self.delete(backup)
+                raise
+
         self._finalize_backup(backup, container, object_meta)
 
     def _restore_v1(self, backup, volume_id, metadata, volume_file):
@@ -371,7 +388,7 @@ class SwiftBackupDriver(BackupDriver):
             try:
                 (resp, body) = self.conn.get_object(container, object_name)
             except socket.error as err:
-                raise exception.SwiftConnectionFailed(reason=str(err))
+                raise exception.SwiftConnectionFailed(reason=err)
             compression_algorithm = metadata_object[object_name]['compression']
             decompressor = self._get_compressor(compression_algorithm)
             if decompressor is not None:
@@ -418,7 +435,7 @@ class SwiftBackupDriver(BackupDriver):
         try:
             metadata = self._read_metadata(backup)
         except socket.error as err:
-            raise exception.SwiftConnectionFailed(reason=str(err))
+            raise exception.SwiftConnectionFailed(reason=err)
         metadata_version = metadata['version']
         LOG.debug(_('Restoring swift backup version %s'), metadata_version)
         try:
@@ -429,6 +446,18 @@ class SwiftBackupDriver(BackupDriver):
                    % metadata_version)
             raise exception.InvalidBackup(reason=err)
         restore_func(backup, volume_id, metadata, volume_file)
+
+        volume_meta = metadata.get('volume_meta', None)
+        try:
+            if volume_meta:
+                self.put_metadata(volume_id, volume_meta)
+            else:
+                LOG.debug("No volume metadata in this backup")
+        except exception.BackupMetadataUnsupportedVersion:
+            msg = _("Metadata restore failed due to incompatible version")
+            LOG.error(msg)
+            raise exception.BackupOperationError(msg)
+
         LOG.debug(_('restore %(backup_id)s to %(volume_id)s finished.') %
                   {'backup_id': backup_id, 'volume_id': volume_id})
 
@@ -450,7 +479,7 @@ class SwiftBackupDriver(BackupDriver):
                 try:
                     self.conn.delete_object(container, swift_object_name)
                 except socket.error as err:
-                    raise exception.SwiftConnectionFailed(reason=str(err))
+                    raise exception.SwiftConnectionFailed(reason=err)
                 except Exception:
                     LOG.warn(_('swift error while deleting object %s, '
                                'continuing with delete') % swift_object_name)

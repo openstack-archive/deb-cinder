@@ -16,7 +16,6 @@
 import base64
 import httplib
 import json
-import math
 import random
 import socket
 import string
@@ -29,6 +28,7 @@ from cinder import context
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
+from cinder import units
 from cinder.volume.drivers.san.san import SanISCSIDriver
 from cinder.volume import qos_specs
 from cinder.volume import volume_types
@@ -88,8 +88,6 @@ class SolidFireDriver(SanISCSIDriver):
 
     sf_qos_keys = ['minIOPS', 'maxIOPS', 'burstIOPS']
     cluster_stats = {}
-
-    GB = math.pow(2, 30)
 
     def __init__(self, *args, **kwargs):
         super(SolidFireDriver, self).__init__(*args, **kwargs)
@@ -358,7 +356,7 @@ class SolidFireDriver(SanISCSIDriver):
 
         params = {'volumeID': int(sf_vol['volumeID']),
                   'name': 'UUID-%s' % v_ref['id'],
-                  'newSize': int(new_size * self.GB),
+                  'newSize': int(new_size * units.GiB),
                   'newAccountID': sfaccount['accountID']}
         data = self._issue_api_request('CloneVolume', params)
 
@@ -523,7 +521,7 @@ class SolidFireDriver(SanISCSIDriver):
         params = {'name': 'UUID-%s' % volume['id'],
                   'accountID': None,
                   'sliceCount': slice_count,
-                  'totalSize': int(volume['size'] * self.GB),
+                  'totalSize': int(volume['size'] * units.GiB),
                   'enable512e': self.configuration.sf_emulate_512,
                   'attributes': attributes,
                   'qos': qos}
@@ -649,7 +647,7 @@ class SolidFireDriver(SanISCSIDriver):
 
         params = {
             'volumeID': sf_vol['volumeID'],
-            'totalSize': int(new_size * self.GB)
+            'totalSize': int(new_size * units.GiB)
         }
         data = self._issue_api_request('ModifyVolume',
                                        params, version='5.0')
@@ -685,7 +683,7 @@ class SolidFireDriver(SanISCSIDriver):
 
         data['total_capacity_gb'] = results['maxProvisionedSpace']
 
-        data['free_capacity_gb'] = float(free_capacity)
+        data['free_capacity_gb'] = float(free_capacity / units.GiB)
         data['reserved_percentage'] = 0
         data['QoS_support'] = True
         data['compression_percent'] =\
@@ -771,3 +769,41 @@ class SolidFireDriver(SanISCSIDriver):
             raise exception.SolidFireAPIDataException(data=data)
 
         LOG.debug(_("Leaving SolidFire transfer volume"))
+
+    def retype(self, ctxt, volume, new_type, diff, host):
+        """Convert the volume to be of the new type.
+
+        Returns a boolean indicating whether the retype occurred.
+
+        :param ctxt: Context
+        :param volume: A dictionary describing the volume to migrate
+        :param new_type: A dictionary describing the volume type to convert to
+        :param diff: A dictionary with the difference between the two types
+        :param host: A dictionary describing the host to migrate to, where
+                     host['host'] is its name, and host['capabilities'] is a
+                     dictionary of its reported capabilities (Not Used).
+
+        """
+        qos = {}
+        attributes = {}
+
+        sfaccount = self._get_sfaccount(volume['project_id'])
+        params = {'accountID': sfaccount['accountID']}
+        sf_vol = self._get_sf_volume(volume['id'], params)
+
+        if sf_vol is None:
+            raise exception.VolumeNotFound(volume_id=volume['id'])
+
+        attributes = sf_vol['attributes']
+        attributes['retyped_at'] = timeutils.strtime()
+        params = {'volumeID': sf_vol['volumeID']}
+        qos = self._set_qos_by_volume_type(ctxt, new_type['id'])
+
+        if qos:
+            params['qos'] = qos
+            for k, v in qos.items():
+                attributes[k] = str(v)
+            params['attributes'] = attributes
+
+        self._issue_api_request('ModifyVolume', params)
+        return True

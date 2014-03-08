@@ -46,10 +46,7 @@ from cinder.tests import conf_fixture
 test_opts = [
     cfg.StrOpt('sqlite_clean_db',
                default='clean.sqlite',
-               help='File name of clean sqlite db'),
-    cfg.BoolOpt('fake_tests',
-                default=True,
-                help='should we use everything for testing'), ]
+               help='File name of clean sqlite db'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(test_opts)
@@ -199,6 +196,11 @@ class TestCase(testtools.TestCase):
         for k, v in kw.iteritems():
             CONF.set_override(k, v)
 
+    def log_level(self, level):
+        """Set logging level to the specified value."""
+        log_root = logging.getLogger(None).logger
+        log_root.setLevel(level)
+
     def start_service(self, name, host=None, **kwargs):
         host = host and host or uuid.uuid4().hex
         kwargs.setdefault('host', host)
@@ -223,8 +225,8 @@ class TestCase(testtools.TestCase):
 
         """
         def raise_assertion(msg):
-            d1str = str(d1)
-            d2str = str(d2)
+            d1str = d1
+            d2str = d2
             base_msg = ('Dictionaries do not match. %(msg)s d1: %(d1str)s '
                         'd2: %(d2str)s' %
                         {'msg': msg, 'd1str': d1str, 'd2str': d2str})

@@ -60,9 +60,28 @@ volume_opts = [
                      'of the nfs man page for details.')),
 ]
 
+nas_opts = [
+    cfg.StrOpt('nas_ip',
+               default='',
+               help='IP address or Hostname of NAS system.'),
+    cfg.StrOpt('nas_login',
+               default='admin',
+               help='User name to connect to NAS system.'),
+    cfg.StrOpt('nas_password',
+               default='',
+               help='Password to connect to NAS system.',
+               secret=True),
+    cfg.IntOpt('nas_ssh_port',
+               default=22,
+               help='SSH port to use to connect to NAS system.'),
+    cfg.StrOpt('nas_private_key',
+               default='',
+               help='Filename of private key to use for SSH authentication.'),
+]
 
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
+CONF.register_opts(nas_opts)
 
 
 class RemoteFsDriver(driver.VolumeDriver):
@@ -158,7 +177,7 @@ class RemoteFsDriver(driver.VolumeDriver):
             except Exception as exc:
                 LOG.warning(_('Exception during mounting %s') % (exc,))
 
-        LOG.debug('Available shares %s' % str(self._mounted_shares))
+        LOG.debug('Available shares %s' % self._mounted_shares)
 
     def create_cloned_volume(self, volume, src_vref):
         raise NotImplementedError()
@@ -369,14 +388,6 @@ class RemoteFsDriver(driver.VolumeDriver):
         raise NotImplementedError()
 
     def _ensure_share_mounted(self, nfs_share):
-        raise NotImplementedError()
-
-    def backup_volume(self, context, backup, backup_service):
-        """Create a new backup from an existing volume."""
-        raise NotImplementedError()
-
-    def restore_backup(self, context, backup, volume, backup_service):
-        """Restore an existing backup to a new or existing volume."""
         raise NotImplementedError()
 
 

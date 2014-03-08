@@ -26,12 +26,14 @@ from cinder.api.v2 import volumes
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.notifier import api as notifier_api
+from cinder.openstack.common.notifier import test_notifier
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
 from cinder.tests.image import fake as fake_image
+from cinder import utils
 from cinder.volume import api as volume_api
-
 
 CONF = cfg.CONF
 
@@ -63,11 +65,19 @@ class VolumeApiTest(test.TestCase):
         fake_image.stub_out_image_service(self.stubs)
         self.controller = volumes.VolumeController(self.ext_mgr)
 
+        self.flags(host='fake',
+                   notification_driver=[test_notifier.__name__])
+        test_notifier.NOTIFICATIONS = []
+
         self.stubs.Set(db, 'volume_get_all', stubs.stub_volume_get_all)
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
         self.stubs.Set(db, 'service_get_all_by_topic',
                        stubs.stub_service_get_all_by_topic)
         self.maxDiff = None
+
+    def tearDown(self):
+        notifier_api._reset_drivers()
+        super(VolumeApiTest, self).tearDown()
 
     def test_volume_create(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -106,7 +116,8 @@ class VolumeApiTest(test.TestCase):
                          'source_volid': None,
                          'status': 'fakestatus',
                          'user_id': 'fakeuser',
-                         'volume_type': 'vol_type_name'}}
+                         'volume_type': 'vol_type_name',
+                         'encrypted': False}}
         self.assertEqual(res_dict, ex)
 
     def test_volume_create_with_type(self):
@@ -194,6 +205,7 @@ class VolumeApiTest(test.TestCase):
                          'bootable': 'false',
                          'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
                          'description': 'Volume Test Desc',
+                         'encrypted': False,
                          'id': '1',
                          'links':
                          [{'href': 'http://localhost/v2/fake/volumes/1',
@@ -257,11 +269,13 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
+        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
         res_dict = self.controller.update(req, '1', body)
         expected = {
             'volume': {
                 'status': 'fakestatus',
                 'description': 'displaydesc',
+                'encrypted': False,
                 'availability_zone': 'fakeaz',
                 'bootable': 'false',
                 'name': 'Updated Test Name',
@@ -295,6 +309,7 @@ class VolumeApiTest(test.TestCase):
             }
         }
         self.assertEqual(res_dict, expected)
+        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
 
     def test_volume_update_metadata(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -305,10 +320,12 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
+        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
             'description': 'displaydesc',
+            'encrypted': False,
             'availability_zone': 'fakeaz',
             'bootable': 'false',
             'name': 'displayname',
@@ -341,6 +358,7 @@ class VolumeApiTest(test.TestCase):
             ],
         }}
         self.assertEqual(res_dict, expected)
+        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
 
     def test_volume_update_with_admin_metadata(self):
         self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
@@ -361,12 +379,14 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
+        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
         admin_ctx = context.RequestContext('admin', 'fake', True)
         req.environ['cinder.context'] = admin_ctx
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
             'description': 'displaydesc',
+            'encrypted': False,
             'availability_zone': 'fakeaz',
             'bootable': 'false',
             'name': 'displayname',
@@ -398,6 +418,7 @@ class VolumeApiTest(test.TestCase):
             ],
         }}
         self.assertEqual(res_dict, expected)
+        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
 
     def test_update_empty_body(self):
         body = {}
@@ -467,6 +488,7 @@ class VolumeApiTest(test.TestCase):
                 {
                     'status': 'fakestatus',
                     'description': 'displaydesc',
+                    'encrypted': False,
                     'availability_zone': 'fakeaz',
                     'bootable': 'false',
                     'name': 'displayname',
@@ -525,6 +547,7 @@ class VolumeApiTest(test.TestCase):
                 {
                     'status': 'fakestatus',
                     'description': 'displaydesc',
+                    'encrypted': False,
                     'availability_zone': 'fakeaz',
                     'bootable': 'false',
                     'name': 'displayname',
@@ -857,6 +880,7 @@ class VolumeApiTest(test.TestCase):
             'volume': {
                 'status': 'fakestatus',
                 'description': 'displaydesc',
+                'encrypted': False,
                 'availability_zone': 'fakeaz',
                 'bootable': 'false',
                 'name': 'displayname',
@@ -905,6 +929,7 @@ class VolumeApiTest(test.TestCase):
             'volume': {
                 'status': 'fakestatus',
                 'description': 'displaydesc',
+                'encrypted': False,
                 'availability_zone': 'fakeaz',
                 'bootable': 'false',
                 'name': 'displayname',
@@ -961,6 +986,7 @@ class VolumeApiTest(test.TestCase):
             'volume': {
                 'status': 'fakestatus',
                 'description': 'displaydesc',
+                'encrypted': False,
                 'availability_zone': 'fakeaz',
                 'bootable': 'false',
                 'name': 'displayname',
@@ -995,6 +1021,26 @@ class VolumeApiTest(test.TestCase):
             }
         }
         self.assertEqual(res_dict, expected)
+
+    def test_volume_show_with_encrypted_volume(self):
+        def stub_volume_get(self, context, volume_id):
+            return stubs.stub_volume(volume_id, encryption_key_id='fake_id')
+
+        self.stubs.Set(volume_api.API, 'get', stub_volume_get)
+
+        req = fakes.HTTPRequest.blank('/v2/volumes/1')
+        res_dict = self.controller.show(req, 1)
+        self.assertEqual(res_dict['volume']['encrypted'], True)
+
+    def test_volume_show_with_unencrypted_volume(self):
+        def stub_volume_get(self, context, volume_id):
+            return stubs.stub_volume(volume_id, encryption_key_id=None)
+
+        self.stubs.Set(volume_api.API, 'get', stub_volume_get)
+
+        req = fakes.HTTPRequest.blank('/v2/volumes/1')
+        res_dict = self.controller.show(req, 1)
+        self.assertEqual(res_dict['volume']['encrypted'], False)
 
     def test_volume_delete(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -1088,8 +1134,9 @@ class VolumeApiTest(test.TestCase):
         volume = dict(volume_admin_metadata=admin_metadata,
                       volume_metadata=metadata)
         admin_ctx = context.get_admin_context()
-        self.controller._add_visible_admin_metadata(admin_ctx,
-                                                    volume)
+        utils.add_visible_admin_metadata(admin_ctx, volume,
+                                         self.controller.volume_api)
+
         self.assertEqual(volume['volume_metadata'],
                          [{"key": "key", "value": "value"},
                           {"key": "readonly", "value": "visible"},
@@ -1102,8 +1149,8 @@ class VolumeApiTest(test.TestCase):
         volume = dict(admin_metadata=admin_metadata,
                       metadata=metadata)
         admin_ctx = context.get_admin_context()
-        self.controller._add_visible_admin_metadata(admin_ctx,
-                                                    volume)
+        utils.add_visible_admin_metadata(admin_ctx, volume,
+                                         self.controller.volume_api)
         self.assertEqual(volume['metadata'],
                          {'key': 'value',
                           'attached_mode': 'visible',

@@ -47,6 +47,9 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
         1.11 - Adds mode parameter to attach_volume()
                to support volume read-only attaching.
         1.12 - Adds retype.
+        1.13 - Adds create_export.
+        1.14 - Adds reservation parameter to extend_volume().
+        1.15 - Adds manage_existing and unmanage_only flag to delete_volume.
     '''
 
     BASE_RPC_API_VERSION = '1.0'
@@ -77,11 +80,13 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
                                           host),
                   version='1.4')
 
-    def delete_volume(self, ctxt, volume):
+    def delete_volume(self, ctxt, volume, unmanage_only=False):
         self.cast(ctxt,
                   self.make_msg('delete_volume',
-                                volume_id=volume['id']),
-                  topic=rpc.queue_get_for(ctxt, self.topic, volume['host']))
+                                volume_id=volume['id'],
+                                unmanage_only=unmanage_only),
+                  topic=rpc.queue_get_for(ctxt, self.topic, volume['host']),
+                  version='1.15')
 
     def create_snapshot(self, ctxt, volume, snapshot):
         self.cast(ctxt, self.make_msg('create_snapshot',
@@ -153,13 +158,14 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
                   topic=rpc.queue_get_for(ctxt, self.topic, volume['host']),
                   version='1.9')
 
-    def extend_volume(self, ctxt, volume, new_size):
+    def extend_volume(self, ctxt, volume, new_size, reservations):
         self.cast(ctxt,
                   self.make_msg('extend_volume',
                                 volume_id=volume['id'],
-                                new_size=new_size),
+                                new_size=new_size,
+                                reservations=reservations),
                   topic=rpc.queue_get_for(ctxt, self.topic, volume['host']),
-                  version='1.6')
+                  version='1.14')
 
     def migrate_volume(self, ctxt, volume, dest_host, force_host_copy):
         host_p = {'host': dest_host.host,
@@ -195,3 +201,20 @@ class VolumeAPI(cinder.openstack.common.rpc.proxy.RpcProxy):
                                 reservations=reservations),
                   topic=rpc.queue_get_for(ctxt, self.topic, volume['host']),
                   version='1.12')
+
+    def create_export(self, ctxt, volume):
+        return self.call(ctxt, self.make_msg('create_export',
+                                             volume_id=volume['id']),
+                         topic=rpc.queue_get_for(ctxt,
+                                                 self.topic,
+                                                 volume['host']),
+                         version='1.13')
+
+    def manage_existing(self, ctxt, volume, ref):
+        return self.cast(ctxt, self.make_msg('manage_existing',
+                                             volume_id=volume['id'],
+                                             ref=ref),
+                         topic=rpc.queue_get_for(ctxt,
+                                                 self.topic,
+                                                 volume['host']),
+                         version='1.15')
