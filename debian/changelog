@@ -2,6 +2,7 @@ cinder (2014.1~rc1-1) experimental; urgency=low
 
   * New upstream release.
   * Removed now useless fix-sqlalchemy-version patch.
+  * Fixed new (build-)dependencies for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 28 Mar 2014 18:40:20 +0800
 
