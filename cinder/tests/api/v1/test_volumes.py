@@ -17,7 +17,6 @@ import datetime
 
 from lxml import etree
 from oslo.config import cfg
-import urllib
 import webob
 
 from cinder.api import extensions
@@ -25,11 +24,10 @@ from cinder.api.v1 import volumes
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.openstack.common.notifier import api as notifier_api
-from cinder.openstack.common.notifier import test_notifier
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
+from cinder.tests import fake_notifier
 from cinder.tests.image import fake as fake_image
 from cinder.volume import api as volume_api
 
@@ -63,8 +61,7 @@ class VolumeApiTest(test.TestCase):
         self.controller = volumes.VolumeController(self.ext_mgr)
 
         self.flags(host='fake',
-                   notification_driver=[test_notifier.__name__])
-        test_notifier.NOTIFICATIONS = []
+                   notification_driver=[fake_notifier.__name__])
 
         self.stubs.Set(db, 'volume_get_all', stubs.stub_volume_get_all)
         self.stubs.Set(db, 'service_get_all_by_topic',
@@ -72,8 +69,8 @@ class VolumeApiTest(test.TestCase):
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
 
     def tearDown(self):
-        notifier_api._reset_drivers()
         super(VolumeApiTest, self).tearDown()
+        fake_notifier.reset()
 
     def test_volume_create(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -243,7 +240,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 0)
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
@@ -268,7 +265,7 @@ class VolumeApiTest(test.TestCase):
             'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
             'size': 1}}
         self.assertEqual(res_dict, expected)
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 2)
 
     def test_volume_update_metadata(self):
         self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
@@ -279,7 +276,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 0)
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
@@ -306,7 +303,7 @@ class VolumeApiTest(test.TestCase):
             'size': 1
         }}
         self.assertEqual(res_dict, expected)
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 2)
 
     def test_volume_update_with_admin_metadata(self):
         self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
@@ -327,7 +324,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 0)
         admin_ctx = context.RequestContext('admin', 'fakeproject', True)
         req.environ['cinder.context'] = admin_ctx
         res_dict = self.controller.update(req, '1', body)
@@ -354,7 +351,7 @@ class VolumeApiTest(test.TestCase):
             'created_at': datetime.datetime(1, 1, 1, 1, 1, 1),
             'size': 1}}
         self.assertEqual(res_dict, expected)
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 2)
 
     def test_update_empty_body(self):
         body = {}
@@ -519,130 +516,6 @@ class VolumeApiTest(test.TestCase):
                                  'size': 1}]}
         self.assertEqual(res_dict, expected)
 
-    def test_volume_list_by_name(self):
-        def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
-            return [
-                stubs.stub_volume(1, display_name='vol1'),
-                stubs.stub_volume(2, display_name='vol2'),
-                stubs.stub_volume(3, display_name='vol3'),
-            ]
-        self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
-        self.stubs.Set(db, 'volume_get_all_by_project',
-                       stub_volume_get_all_by_project)
-
-        # no display_name filter
-        req = fakes.HTTPRequest.blank('/v1/volumes')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 3)
-        # filter on display_name
-        req = fakes.HTTPRequest.blank('/v1/volumes?display_name=vol2')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['display_name'], 'vol2')
-        # filter no match
-        req = fakes.HTTPRequest.blank('/v1/volumes?display_name=vol4')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 0)
-
-    def test_volume_list_by_metadata(self):
-        def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
-            return [
-                stubs.stub_volume(1, display_name='vol1',
-                                  status='available',
-                                  volume_metadata=[{'key': 'key1',
-                                                    'value': 'value1'}]),
-                stubs.stub_volume(2, display_name='vol2',
-                                  status='available',
-                                  volume_metadata=[{'key': 'key1',
-                                                    'value': 'value2'}]),
-                stubs.stub_volume(3, display_name='vol3',
-                                  status='in-use',
-                                  volume_metadata=[{'key': 'key1',
-                                                    'value': 'value2'}]),
-            ]
-        self.stubs.Set(db, 'volume_get_all_by_project',
-                       stub_volume_get_all_by_project)
-
-        # no metadata filter
-        req = fakes.HTTPRequest.blank('/v1/volumes', use_admin_context=True)
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 3)
-
-        # single match
-        qparams = urllib.urlencode({'metadata': {'key1': 'value1'}})
-        req = fakes.HTTPRequest.blank('/v1/volumes?%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['display_name'], 'vol1')
-        self.assertEqual(resp['volumes'][0]['metadata']['key1'], 'value1')
-
-        # multiple matches
-        qparams = urllib.urlencode({'metadata': {'key1': 'value2'}})
-        req = fakes.HTTPRequest.blank('/v1/volumes?%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 2)
-        for volume in resp['volumes']:
-            self.assertEqual(volume['metadata']['key1'], 'value2')
-
-        # multiple filters
-        qparams = urllib.urlencode({'metadata': {'key1': 'value2'}})
-        req = fakes.HTTPRequest.blank('/v1/volumes?status=in-use&%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['display_name'], 'vol3')
-
-        # no match
-        qparams = urllib.urlencode({'metadata': {'key1': 'value3'}})
-        req = fakes.HTTPRequest.blank('/v1/volumes?%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 0)
-
-    def test_volume_list_by_status(self):
-        def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
-            return [
-                stubs.stub_volume(1, display_name='vol1', status='available'),
-                stubs.stub_volume(2, display_name='vol2', status='available'),
-                stubs.stub_volume(3, display_name='vol3', status='in-use'),
-            ]
-        self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
-        self.stubs.Set(db, 'volume_get_all_by_project',
-                       stub_volume_get_all_by_project)
-
-        # no status filter
-        req = fakes.HTTPRequest.blank('/v1/volumes')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 3)
-        # single match
-        req = fakes.HTTPRequest.blank('/v1/volumes?status=in-use')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['status'], 'in-use')
-        # multiple match
-        req = fakes.HTTPRequest.blank('/v1/volumes?status=available')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 2)
-        for volume in resp['volumes']:
-            self.assertEqual(volume['status'], 'available')
-        # multiple filters
-        req = fakes.HTTPRequest.blank('/v1/volumes?status=available&'
-                                      'display_name=vol1')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['display_name'], 'vol1')
-        self.assertEqual(resp['volumes'][0]['status'], 'available')
-        # no match
-        req = fakes.HTTPRequest.blank('/v1/volumes?status=in-use&'
-                                      'display_name=vol1')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 0)
-
     def test_volume_show(self):
         self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
 
@@ -742,7 +615,8 @@ class VolumeApiTest(test.TestCase):
     def test_volume_detail_limit_offset(self):
         def volume_detail_limit_offset(is_admin):
             def stub_volume_get_all_by_project(context, project_id, marker,
-                                               limit, sort_key, sort_dir):
+                                               limit, sort_key, sort_dir,
+                                               filters=None):
                 return [
                     stubs.stub_volume(1, display_name='vol1'),
                     stubs.stub_volume(2, display_name='vol2'),

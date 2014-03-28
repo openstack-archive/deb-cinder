@@ -26,6 +26,8 @@ from cinder.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 
+ESIS_CLONE_NOT_LICENSED = '14956'
+
 
 class NaServer(object):
     """Encapsulates server connection logic."""
@@ -214,9 +216,12 @@ class NaServer(object):
         code = result.get_attr('errno')\
             or result.get_child_content('errorno')\
             or 'ESTATUSFAILED'
-        msg = result.get_attr('reason')\
-            or result.get_child_content('reason')\
-            or 'Execution status is failed due to unknown reason'
+        if code == ESIS_CLONE_NOT_LICENSED:
+            msg = 'Clone operation failed: FlexClone not licensed.'
+        else:
+            msg = result.get_attr('reason')\
+                or result.get_child_content('reason')\
+                or 'Execution status is failed due to unknown reason'
         raise NaApiError(code, msg)
 
     def _create_request(self, na_element, enable_tunneling=False):
@@ -419,20 +424,19 @@ class NaElement(object):
         raise KeyError(_('No element by given name %s.') % (key))
 
     def __setitem__(self, key, value):
-        """Dict setter method for NaElement."""
+        """Dict setter method for NaElement.
+
+           Accepts dict, list, tuple, str, int, float and long as valid value.
+        """
         if key:
             if value:
                 if isinstance(value, NaElement):
                     child = NaElement(key)
                     child.add_child_elem(value)
                     self.add_child_elem(child)
-                elif isinstance(value, str):
-                    child = self.get_child_by_name(key)
-                    if child:
-                        child.set_content(value)
-                    else:
-                        self.add_new_child(key, value)
-                elif isinstance(value, dict):
+                elif isinstance(value, (str, int, float, long)):
+                    self.add_new_child(key, str(value))
+                elif isinstance(value, (list, tuple, dict)):
                     child = NaElement(key)
                     child.translate_struct(value)
                     self.add_child_elem(child)
@@ -446,19 +450,38 @@ class NaElement(object):
     def translate_struct(self, data_struct):
         """Convert list, tuple, dict to NaElement and appends.
 
-            Useful for NaElement queries which have unique
-            query parameters.
+           Example usage:
+           1.
+           <root>
+               <elem1>vl1</elem1>
+               <elem2>vl2</elem2>
+               <elem3>vl3</elem3>
+           </root>
+           The above can be achieved by doing
+           root = NaElement('root')
+           root.translate_struct({'elem1': 'vl1', 'elem2': 'vl2',
+                                  'elem3': 'vl3'})
+           2.
+           <root>
+               <elem1>vl1</elem1>
+               <elem2>vl2</elem2>
+               <elem1>vl3</elem1>
+           </root>
+           The above can be achieved by doing
+           root = NaElement('root')
+           root.translate_struct([{'elem1': 'vl1', 'elem2': 'vl2'},
+                                  {'elem1': 'vl3'}])
         """
-
-        if isinstance(data_struct, list) or isinstance(data_struct, tuple):
+        if isinstance(data_struct, (list, tuple)):
             for el in data_struct:
-                self.add_child_elem(NaElement(el))
+                if isinstance(el, (list, tuple, dict)):
+                    self.translate_struct(el)
+                else:
+                    self.add_child_elem(NaElement(el))
         elif isinstance(data_struct, dict):
             for k in data_struct.keys():
                 child = NaElement(k)
-                if (isinstance(data_struct[k], dict) or
-                        isinstance(data_struct[k], list) or
-                        isinstance(data_struct[k], tuple)):
+                if isinstance(data_struct[k], (dict, list, tuple)):
                     child.translate_struct(data_struct[k])
                 else:
                     if data_struct[k]:

@@ -18,7 +18,6 @@ import datetime
 
 from lxml import etree
 from oslo.config import cfg
-import urllib
 import webob
 
 from cinder.api import extensions
@@ -26,11 +25,10 @@ from cinder.api.v2 import volumes
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.openstack.common.notifier import api as notifier_api
-from cinder.openstack.common.notifier import test_notifier
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
+from cinder.tests import fake_notifier
 from cinder.tests.image import fake as fake_image
 from cinder import utils
 from cinder.volume import api as volume_api
@@ -66,8 +64,7 @@ class VolumeApiTest(test.TestCase):
         self.controller = volumes.VolumeController(self.ext_mgr)
 
         self.flags(host='fake',
-                   notification_driver=[test_notifier.__name__])
-        test_notifier.NOTIFICATIONS = []
+                   notification_driver=[fake_notifier.__name__])
 
         self.stubs.Set(db, 'volume_get_all', stubs.stub_volume_get_all)
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
@@ -76,8 +73,8 @@ class VolumeApiTest(test.TestCase):
         self.maxDiff = None
 
     def tearDown(self):
-        notifier_api._reset_drivers()
         super(VolumeApiTest, self).tearDown()
+        fake_notifier.reset()
 
     def test_volume_create(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -269,7 +266,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 0)
         res_dict = self.controller.update(req, '1', body)
         expected = {
             'volume': {
@@ -309,7 +306,7 @@ class VolumeApiTest(test.TestCase):
             }
         }
         self.assertEqual(res_dict, expected)
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 2)
 
     def test_volume_update_metadata(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -320,7 +317,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 0)
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
@@ -358,7 +355,7 @@ class VolumeApiTest(test.TestCase):
             ],
         }}
         self.assertEqual(res_dict, expected)
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 2)
 
     def test_volume_update_with_admin_metadata(self):
         self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
@@ -379,7 +376,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v2/volumes/1')
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 0)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 0)
         admin_ctx = context.RequestContext('admin', 'fake', True)
         req.environ['cinder.context'] = admin_ctx
         res_dict = self.controller.update(req, '1', body)
@@ -418,7 +415,7 @@ class VolumeApiTest(test.TestCase):
             ],
         }}
         self.assertEqual(res_dict, expected)
-        self.assertEqual(len(test_notifier.NOTIFICATIONS), 2)
+        self.assertEqual(len(fake_notifier.NOTIFICATIONS), 2)
 
     def test_update_empty_body(self):
         body = {}
@@ -586,7 +583,7 @@ class VolumeApiTest(test.TestCase):
 
     def test_volume_index_with_marker(self):
         def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
+                                           sort_key, sort_dir, filters=None):
             return [
                 stubs.stub_volume(1, display_name='vol1'),
                 stubs.stub_volume(2, display_name='vol2'),
@@ -637,7 +634,7 @@ class VolumeApiTest(test.TestCase):
 
     def test_volume_index_limit_offset(self):
         def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
+                                           sort_key, sort_dir, filters=None):
             return [
                 stubs.stub_volume(1, display_name='vol1'),
                 stubs.stub_volume(2, display_name='vol2'),
@@ -664,7 +661,7 @@ class VolumeApiTest(test.TestCase):
 
     def test_volume_detail_with_marker(self):
         def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
+                                           sort_key, sort_dir, filters=None):
             return [
                 stubs.stub_volume(1, display_name='vol1'),
                 stubs.stub_volume(2, display_name='vol2'),
@@ -715,7 +712,7 @@ class VolumeApiTest(test.TestCase):
 
     def test_volume_detail_limit_offset(self):
         def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
+                                           sort_key, sort_dir, filters=None):
             return [
                 stubs.stub_volume(1, display_name='vol1'),
                 stubs.stub_volume(2, display_name='vol2'),
@@ -747,129 +744,154 @@ class VolumeApiTest(test.TestCase):
                           self.controller.index,
                           req)
 
-    def test_volume_list_by_name(self):
-        def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
-            return [
-                stubs.stub_volume(1, display_name='vol1'),
-                stubs.stub_volume(2, display_name='vol2'),
-                stubs.stub_volume(3, display_name='vol3'),
-            ]
-        self.stubs.Set(db, 'volume_get_all_by_project',
-                       stub_volume_get_all_by_project)
+    def test_volume_with_limit_zero(self):
+        def stub_volume_get_all(context, marker, limit,
+                                sort_key, sort_dir):
+            return []
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all)
+        req = fakes.HTTPRequest.blank('/v2/volumes?limit=0')
+        res_dict = self.controller.index(req)
+        expected = {'volumes': []}
+        self.assertEqual(res_dict, expected)
+
+    def test_volume_default_limit(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
 
-        # no name filter
-        req = fakes.HTTPRequest.blank('/v2/volumes')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 3)
-        # filter on name
-        req = fakes.HTTPRequest.blank('/v2/volumes?name=vol2')
+        # Number of volumes equals the max, include next link
+        def stub_volume_get_all(context, marker, limit,
+                                sort_key, sort_dir,
+                                filters=None):
+            vols = [stubs.stub_volume(i)
+                    for i in xrange(CONF.osapi_max_limit)]
+            if limit == None or limit >= len(vols):
+                return vols
+            return vols[:limit]
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all)
+        for key in ['volumes', 'volumes/detail']:
+            req = fakes.HTTPRequest.blank('/v2/%s?all_tenants=1' % key,
+                                          use_admin_context=True)
+            res_dict = self.controller.index(req)
+            self.assertEqual(len(res_dict['volumes']), CONF.osapi_max_limit)
+            volumes_links = res_dict['volumes_links']
+            self.assertEqual(volumes_links[0]['rel'], 'next')
+
+        # Number of volumes less then max, do not include
+        def stub_volume_get_all2(context, marker, limit,
+                                 sort_key, sort_dir,
+                                 filters=None):
+            vols = [stubs.stub_volume(i)
+                    for i in xrange(100)]
+            if limit == None or limit >= len(vols):
+                return vols
+            return vols[:limit]
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all2)
+        for key in ['volumes', 'volumes/detail']:
+            req = fakes.HTTPRequest.blank('/v2/%s?all_tenants=1' % key,
+                                          use_admin_context=True)
+            res_dict = self.controller.index(req)
+            self.assertEqual(len(res_dict['volumes']), 100)
+            self.assertFalse('volumes_links' in res_dict)
+
+        # Number of volumes more then the max, include next link
+        def stub_volume_get_all3(context, marker, limit,
+                                 sort_key, sort_dir,
+                                 filters=None):
+            vols = [stubs.stub_volume(i)
+                    for i in xrange(CONF.osapi_max_limit + 100)]
+            if limit == None or limit >= len(vols):
+                return vols
+            return vols[:limit]
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all3)
+        for key in ['volumes', 'volumes/detail']:
+            req = fakes.HTTPRequest.blank('/v2/%s?all_tenants=1' % key,
+                                          use_admin_context=True)
+            res_dict = self.controller.index(req)
+            self.assertEqual(len(res_dict['volumes']), CONF.osapi_max_limit)
+            volumes_links = res_dict['volumes_links']
+            self.assertEqual(volumes_links[0]['rel'], 'next')
+        # Pass a limit that is greater then the max and the total number of
+        # volumes, ensure only the maximum is returned and that the next
+        # link is present
+        for key in ['volumes', 'volumes/detail']:
+            req = fakes.HTTPRequest.blank('/v2/%s?all_tenants=1&limit=%d'
+                                          % (key, CONF.osapi_max_limit * 2),
+                                          use_admin_context=True)
+            res_dict = self.controller.index(req)
+            self.assertEqual(len(res_dict['volumes']), CONF.osapi_max_limit)
+            volumes_links = res_dict['volumes_links']
+            self.assertEqual(volumes_links[0]['rel'], 'next')
+
+    def test_volume_list_default_filters(self):
+        """Tests that the default filters from volume.api.API.get_all are set.
+
+        1. 'no_migration_status'=True for non-admins and get_all_by_project is
+        invoked.
+        2. 'no_migration_status' is not included for admins.
+        3. When 'all_tenants' is not specified, then it is removed and
+        get_all_by_project is invoked for admins.
+        3. When 'all_tenants' is specified, then it is removed and get_all
+        is invoked for admins.
+        """
+        # Non-admin, project function should be called with no_migration_status
+        def stub_volume_get_all_by_project(context, project_id, marker, limit,
+                                           sort_key, sort_dir, filters=None):
+            self.assertEqual(filters['no_migration_targets'], True)
+            self.assertFalse('all_tenants' in filters)
+            return [stubs.stub_volume(1, display_name='vol1')]
+
+        def stub_volume_get_all(context, marker, limit,
+                                sort_key, sort_dir, filters=None):
+            return []
+        self.stubs.Set(db, 'volume_get_all_by_project',
+                       stub_volume_get_all_by_project)
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all)
+
+        # all_tenants does not matter for non-admin
+        for params in ['', '?all_tenants=1']:
+            req = fakes.HTTPRequest.blank('/v2/volumes%s' % params)
+            resp = self.controller.index(req)
+            self.assertEqual(len(resp['volumes']), 1)
+            self.assertEqual(resp['volumes'][0]['name'], 'vol1')
+
+        # Admin, all_tenants is not set, project function should be called
+        # without no_migration_status
+        def stub_volume_get_all_by_project2(context, project_id, marker, limit,
+                                            sort_key, sort_dir, filters=None):
+            self.assertFalse('no_migration_targets' in filters)
+            return [stubs.stub_volume(1, display_name='vol2')]
+
+        def stub_volume_get_all2(context, marker, limit,
+                                 sort_key, sort_dir, filters=None):
+            return []
+        self.stubs.Set(db, 'volume_get_all_by_project',
+                       stub_volume_get_all_by_project2)
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all2)
+
+        req = fakes.HTTPRequest.blank('/v2/volumes', use_admin_context=True)
         resp = self.controller.index(req)
         self.assertEqual(len(resp['volumes']), 1)
         self.assertEqual(resp['volumes'][0]['name'], 'vol2')
-        # filter no match
-        req = fakes.HTTPRequest.blank('/v2/volumes?name=vol4')
-        resp = self.controller.index(req)
-        self.assertEqual(len(resp['volumes']), 0)
 
-    def test_volume_list_by_metadata(self):
-        def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
-            return [
-                stubs.stub_volume(1, display_name='vol1',
-                                  status='available',
-                                  volume_metadata=[{'key': 'key1',
-                                                    'value': 'value1'}]),
-                stubs.stub_volume(2, display_name='vol2',
-                                  status='available',
-                                  volume_metadata=[{'key': 'key1',
-                                                    'value': 'value2'}]),
-                stubs.stub_volume(3, display_name='vol3',
-                                  status='in-use',
-                                  volume_metadata=[{'key': 'key1',
-                                                    'value': 'value2'}]),
-            ]
+        # Admin, all_tenants is set, get_all function should be called
+        # without no_migration_status
+        def stub_volume_get_all_by_project3(context, project_id, marker, limit,
+                                            sort_key, sort_dir, filters=None):
+            return []
+
+        def stub_volume_get_all3(context, marker, limit,
+                                 sort_key, sort_dir, filters=None):
+            self.assertFalse('no_migration_targets' in filters)
+            self.assertFalse('all_tenants' in filters)
+            return [stubs.stub_volume(1, display_name='vol3')]
         self.stubs.Set(db, 'volume_get_all_by_project',
-                       stub_volume_get_all_by_project)
+                       stub_volume_get_all_by_project3)
+        self.stubs.Set(db, 'volume_get_all', stub_volume_get_all3)
 
-        # no metadata filter
-        req = fakes.HTTPRequest.blank('/v2/volumes', use_admin_context=True)
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 3)
-
-        # single match
-        qparams = urllib.urlencode({'metadata': {'key1': 'value1'}})
-        req = fakes.HTTPRequest.blank('/v2/volumes?%s' % qparams,
+        req = fakes.HTTPRequest.blank('/v2/volumes?all_tenants=1',
                                       use_admin_context=True)
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['name'], 'vol1')
-        self.assertEqual(resp['volumes'][0]['metadata']['key1'], 'value1')
-
-        # multiple matches
-        qparams = urllib.urlencode({'metadata': {'key1': 'value2'}})
-        req = fakes.HTTPRequest.blank('/v2/volumes?%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 2)
-        for volume in resp['volumes']:
-            self.assertEqual(volume['metadata']['key1'], 'value2')
-
-        # multiple filters
-        qparams = urllib.urlencode({'metadata': {'key1': 'value2'}})
-        req = fakes.HTTPRequest.blank('/v2/volumes?status=in-use&%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.detail(req)
+        resp = self.controller.index(req)
         self.assertEqual(len(resp['volumes']), 1)
         self.assertEqual(resp['volumes'][0]['name'], 'vol3')
-
-        # no match
-        qparams = urllib.urlencode({'metadata': {'key1': 'value3'}})
-        req = fakes.HTTPRequest.blank('/v2/volumes?%s' % qparams,
-                                      use_admin_context=True)
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 0)
-
-    def test_volume_list_by_status(self):
-        def stub_volume_get_all_by_project(context, project_id, marker, limit,
-                                           sort_key, sort_dir):
-            return [
-                stubs.stub_volume(1, display_name='vol1', status='available'),
-                stubs.stub_volume(2, display_name='vol2', status='available'),
-                stubs.stub_volume(3, display_name='vol3', status='in-use'),
-            ]
-        self.stubs.Set(db, 'volume_get_all_by_project',
-                       stub_volume_get_all_by_project)
-        self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
-
-        # no status filter
-        req = fakes.HTTPRequest.blank('/v2/volumes/details')
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 3)
-        # single match
-        req = fakes.HTTPRequest.blank('/v2/volumes/details?status=in-use')
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['status'], 'in-use')
-        # multiple match
-        req = fakes.HTTPRequest.blank('/v2/volumes/details/?status=available')
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 2)
-        for volume in resp['volumes']:
-            self.assertEqual(volume['status'], 'available')
-        # multiple filters
-        req = fakes.HTTPRequest.blank('/v2/volumes/details/?status=available&'
-                                      'name=vol1')
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 1)
-        self.assertEqual(resp['volumes'][0]['name'], 'vol1')
-        self.assertEqual(resp['volumes'][0]['status'], 'available')
-        # no match
-        req = fakes.HTTPRequest.blank('/v2/volumes/details?status=in-use&'
-                                      'name=vol1')
-        resp = self.controller.detail(req)
-        self.assertEqual(len(resp['volumes']), 0)
 
     def test_volume_show(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)

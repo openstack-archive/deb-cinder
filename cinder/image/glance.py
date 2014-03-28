@@ -25,10 +25,10 @@ import random
 import shutil
 import sys
 import time
-import urlparse
 
 import glanceclient.exc
 from oslo.config import cfg
+import six.moves.urllib.parse as urlparse
 
 from cinder import exception
 from cinder.openstack.common import jsonutils
@@ -44,6 +44,7 @@ glance_opts = [
 ]
 CONF = cfg.CONF
 CONF.register_opts(glance_opts)
+CONF.import_opt('glance_api_version', 'cinder.common.config')
 
 LOG = logging.getLogger(__name__)
 

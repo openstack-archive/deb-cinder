@@ -398,8 +398,12 @@ class FakeEcomConnection():
     def _assoc_hdwid(self):
         assocs = []
         assoc = {}
-        assoc['StorageID'] = self.data.initiator1
+        assoc['StorageID'] = self.data.connector['initiator']
         assocs.append(assoc)
+        for wwpn in self.data.connector['wwpns']:
+            assoc2 = {}
+            assoc2['StorageID'] = wwpn
+            assocs.append(assoc2)
         return assocs
 
     def _assoc_endpoint(self):
@@ -947,6 +951,11 @@ class EMCSMISISCSIDriverTestCase(test.TestCase):
         emc.appendChild(ecompassword)
         ecompassword.appendChild(ecompasswordtext)
 
+        timeout = doc.createElement("Timeout")
+        timeouttext = doc.createTextNode("0")
+        emc.appendChild(timeout)
+        timeout.appendChild(timeouttext)
+
         self.config_file_path = self.tempdir + '/' + self.data.config_file_name
         f = open(self.config_file_path, 'w')
         doc.writexml(f)
@@ -1148,6 +1157,11 @@ class EMCSMISFCDriverTestCase(test.TestCase):
         ecompasswordtext = doc.createTextNode("pass")
         emc.appendChild(ecompassword)
         ecompassword.appendChild(ecompasswordtext)
+
+        timeout = doc.createElement("Timeout")
+        timeouttext = doc.createTextNode("0")
+        emc.appendChild(timeout)
+        timeout.appendChild(timeouttext)
 
         self.config_file_path = self.tempdir + '/' + self.data.config_file_name
         f = open(self.config_file_path, 'w')

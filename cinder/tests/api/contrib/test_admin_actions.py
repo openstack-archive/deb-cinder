@@ -11,7 +11,7 @@
 # under the License.
 
 import ast
-import os
+import tempfile
 import webob
 
 from oslo.config import cfg
@@ -25,8 +25,8 @@ from cinder.openstack.common import timeutils
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
+from cinder.tests import cast_as_call
 from cinder.volume import api as volume_api
-from cinder.volume import utils as volutils
 
 CONF = cfg.CONF
 
@@ -43,7 +43,15 @@ class AdminActionsTest(test.TestCase):
 
     def setUp(self):
         super(AdminActionsTest, self).setUp()
+
+        self.tempdir = tempfile.mkdtemp()
+        self.flags(rpc_backend='cinder.openstack.common.rpc.impl_fake')
+        self.flags(lock_path=self.tempdir,
+                   disable_process_locking=True)
+
         self.volume_api = volume_api.API()
+        cast_as_call.mock_cast_as_call(self.volume_api.volume_rpcapi.client)
+        cast_as_call.mock_cast_as_call(self.volume_api.scheduler_rpcapi.client)
         self.stubs.Set(brick_lvm.LVM, '_vg_exists', lambda x: True)
 
     def test_reset_status_as_admin(self):
@@ -255,17 +263,11 @@ class AdminActionsTest(test.TestCase):
         self.assertRaises(exception.NotFound, db.volume_get, ctx, volume['id'])
 
     def test_force_delete_snapshot(self):
-        self.stubs.Set(os.path, 'exists', lambda x: True)
-        self.stubs.Set(volutils, 'clear_volume',
-                       lambda a, b, volume_clear=CONF.volume_clear,
-                       volume_clear_size=CONF.volume_clear_size: None)
-        # admin context
         ctx = context.RequestContext('admin', 'fake', True)
-        # current status is creating
-        volume = db.volume_create(ctx, {'host': 'test', 'size': 1})
-        snapshot = db.snapshot_create(ctx, {'status': 'creating',
-                                            'volume_size': 1,
-                                            'volume_id': volume['id']})
+        snapshot = stubs.stub_snapshot(1, host='foo')
+        self.stubs.Set(db, 'volume_get', lambda x, y: snapshot)
+        self.stubs.Set(db, 'snapshot_get', lambda x, y: snapshot)
+        self.stubs.Set(volume_api.API, 'delete_snapshot', lambda *x, **y: True)
         path = '/v2/fake/snapshots/%s/action' % snapshot['id']
         req = webob.Request.blank(path)
         req.method = 'POST'
@@ -273,17 +275,8 @@ class AdminActionsTest(test.TestCase):
         req.body = jsonutils.dumps({'os-force_delete': {}})
         # attach admin context to request
         req.environ['cinder.context'] = ctx
-        # start service to handle rpc.cast for 'delete snapshot'
-        svc = self.start_service('volume', host='test')
-        # make request
         resp = req.get_response(app())
-        # request is accepted
         self.assertEqual(resp.status_int, 202)
-        # snapshot is deleted
-        self.assertRaises(exception.NotFound, db.snapshot_get, ctx,
-                          snapshot['id'])
-        # cleanup
-        svc.stop()
 
     def test_force_detach_instance_attached_volume(self):
         # admin context

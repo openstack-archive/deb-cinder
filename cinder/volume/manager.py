@@ -39,6 +39,7 @@ intact.
 import time
 
 from oslo.config import cfg
+from oslo import messaging
 
 from cinder import compute
 from cinder import context
@@ -169,7 +170,9 @@ def locked_snapshot_operation(f):
 class VolumeManager(manager.SchedulerDependentManager):
     """Manages attachable block storage devices."""
 
-    RPC_API_VERSION = '1.15'
+    RPC_API_VERSION = '1.16'
+
+    target = messaging.Target(version=RPC_API_VERSION)
 
     def __init__(self, volume_driver=None, service_name=None,
                  *args, **kwargs):
@@ -308,7 +311,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                       filter_properties=None, allow_reschedule=True,
                       snapshot_id=None, image_id=None, source_volid=None):
 
-        """Creates and exports the volume."""
+        """Creates the volume."""
         context_saved = context.deepcopy()
         context = context.elevated()
         if filter_properties is None:
@@ -681,18 +684,11 @@ class VolumeManager(manager.SchedulerDependentManager):
         volume = self.db.volume_get(context, volume_id)
         try:
             utils.require_driver_initialized(self.driver)
-            LOG.debug(_("volume %s: removing export"), volume_id)
-            self.driver.remove_export(context, volume)
         except exception.DriverNotInitialized as ex:
             with excutils.save_and_reraise_exception():
                 LOG.exception(_("Error detaching volume %(volume)s, "
                                 "due to uninitialized driver."),
                               {"volume": volume_id})
-        except Exception as ex:
-            LOG.exception(_("Error detaching volume %(volume)s, "
-                            "due to remove export failure."),
-                          {"volume": volume_id})
-            raise exception.RemoveExportException(volume=volume_id, reason=ex)
 
         self._notify_about_volume_usage(context, volume, "detach.end")
 
@@ -866,6 +862,15 @@ class VolumeManager(manager.SchedulerDependentManager):
                        % {'err': err})
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
+
+        try:
+            LOG.debug(_("volume %s: removing export"), volume_id)
+            self.driver.remove_export(context, volume_ref)
+        except Exception as ex:
+            LOG.exception(_("Error detaching volume %(volume)s, "
+                            "due to remove export failure."),
+                          {"volume": volume_id})
+            raise exception.RemoveExportException(volume=volume_id, reason=ex)
 
     def accept_transfer(self, context, volume_id, new_user, new_project):
         # NOTE(flaper87): Verify the driver is enabled
