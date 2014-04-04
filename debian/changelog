@@ -1,3 +1,9 @@
+cinder (2014.1~rc1-2) experimental; urgency=medium
+
+  * Re-add missing authtoken fields in config file.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 04 Apr 2014 09:32:02 +0000
+
 cinder (2014.1~rc1-1) experimental; urgency=low
 
   * New upstream release.
