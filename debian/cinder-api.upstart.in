@@ -14,5 +14,13 @@ pre-start script
     chown cinder:root /var/lock/cinder
 end script
 
-exec start-stop-daemon --start --chuid cinder --exec /usr/bin/cinder-api \
-     -- --config-file=/etc/cinder/cinder.conf --log-file=/var/log/cinder/cinder-api.log
+script
+	[ -r /etc/default/openstack ] && . /etc/default/openstack
+	[ -r /etc/default/$UPSTART_JOB ] && . /etc/default/$UPSTART_JOB
+
+	[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+	[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file /var/log/cinder/$UPSTART_JOB.log"
+
+	exec start-stop-daemon --start --chuid cinder --exec /usr/bin/cinder-api -- \
+	                       --config-file=/etc/cinder/cinder.conf $DAEMON_ARGS
+end script

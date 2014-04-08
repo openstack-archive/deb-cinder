@@ -19,7 +19,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Cinder Scheduler"
 NAME=cinder-scheduler
 DAEMON=/usr/bin/cinder-scheduler
-DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf --log-file=/var/log/cinder/cinder-scheduler.log"
+DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CINDER_USER=cinder
@@ -32,6 +32,12 @@ mkdir -p ${LOCK_DIR}
 chown ${CINDER_USER} ${LOCK_DIR}
 
 . /lib/lsb/init-functions
+
+[ -r /etc/default/openstack ] && . /etc/default/openstack
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file=/var/log/cinder/cinder-scheduler.log"
 
 do_start() {
 	start-stop-daemon --start --quiet --background --chuid ${CINDER_USER}:cinder --make-pidfile --pidfile $PIDFILE --startas $DAEMON --test > /dev/null \
