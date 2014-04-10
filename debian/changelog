@@ -1,6 +1,8 @@
 cinder (2014.1~rc2-1) experimental; urgency=low
 
   * New upstream release.
+  * Applied patch from Sylvain Baubeau <sylvain.baubeau@enovance.com> to select
+    log destination (to syslog or to a file).
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 09 Apr 2014 22:09:38 +0800
 
