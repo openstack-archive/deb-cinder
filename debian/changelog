@@ -1,4 +1,4 @@
-cinder (2014.1~rc2-1) experimental; urgency=low
+cinder (2014.1~rc3-1) experimental; urgency=low
 
   * New upstream release.
   * Applied patch from Sylvain Baubeau <sylvain.baubeau@enovance.com> to select
