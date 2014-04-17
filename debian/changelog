@@ -1,8 +1,11 @@
-cinder (2014.1~rc1-2) experimental; urgency=medium
+cinder (2014.1-1) unstable; urgency=low
 
-  * Re-add missing authtoken fields in config file.
+  * New upstream release.
+  * Uploading to unstable.
+  * Applied patch from Sylvain Baubeau <sylvain.baubeau@enovance.com> to select
+    log destination (to syslog or to a file).
 
- -- Thomas Goirand <zigo@debian.org>  Fri, 04 Apr 2014 09:32:02 +0000
+ -- Thomas Goirand <zigo@debian.org>  Wed, 09 Apr 2014 22:09:38 +0800
 
 cinder (2014.1~rc1-1) experimental; urgency=low
 
