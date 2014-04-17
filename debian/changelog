@@ -1,6 +1,7 @@
-cinder (2014.1~rc3-1) experimental; urgency=low
+cinder (2014.1-1) unstable; urgency=low
 
   * New upstream release.
+  * Uploading to unstable.
   * Applied patch from Sylvain Baubeau <sylvain.baubeau@enovance.com> to select
     log destination (to syslog or to a file).
 
