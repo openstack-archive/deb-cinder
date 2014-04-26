@@ -1,3 +1,10 @@
+cinder (2014.1-2) unstable; urgency=medium
+
+  * Applied patch from Mike Perez <thingee@gmail.com> to be able to create
+    volume from glance image without checksum.
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 26 Apr 2014 23:12:30 +0800
+
 cinder (2014.1-1) unstable; urgency=medium
 
   * New upstream release.
