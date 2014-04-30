@@ -4,14 +4,13 @@ set -e
 
 . /usr/share/debconf/confmodule
 CINDER_CONF=/etc/cinder/cinder.conf
-CINDER_API=/etc/cinder/api-paste.ini
 
 #PKGOS-INCLUDE#
 
 pkgos_var_user_group cinder
 pkgos_dbc_read_conf -pkg cinder-common ${CINDER_CONF} DEFAULT sql_connection cinder $@
 pkgos_rabbit_read_conf ${CINDER_CONF} DEFAULT cinder
-pkgos_read_admin_creds ${CINDER_API} filter:authtoken cinder
+pkgos_read_admin_creds ${CINDER_CONF} keystone_authtoken cinder
 
 pkgos_inifile get ${CINDER_CONF} DEFAULT volume_group
 if [ -n "${RET}" ] && [ ! "${RET}" = "NOT_FOUND" ] ; then

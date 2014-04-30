@@ -1,3 +1,2 @@
 install-missing-files.patch
-re-add-filter-authtoken.patch
 fallback-to-None-on-missing-Glance-image-attrs.patch

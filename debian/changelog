@@ -1,3 +1,11 @@
+cinder (2014.1-3) unstable; urgency=medium
+
+  * Now using keystone_authtoken in cinder.conf instead of api-paste.ini:
+    - Fixed config and postinst scripts of cinder-common to use that.
+    - Removed patch for api-paste.ini.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 01 May 2014 00:01:50 +0800
+
 cinder (2014.1-2) unstable; urgency=medium
 
   * Applied patch from Mike Perez <thingee@gmail.com> to be able to create
