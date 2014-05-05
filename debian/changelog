@@ -1,3 +1,9 @@
+cinder (2014.1-5) unstable; urgency=medium
+
+  * Disable https for the default keystone conf, as this makes our CI fail.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 05 May 2014 13:14:58 +0800
+
 cinder (2014.1-4) unstable; urgency=medium
 
   * Updated intalian debconf translations (Closes: #745386).

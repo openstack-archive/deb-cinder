@@ -21,6 +21,8 @@ override_dh_install:
 	dh_install --fail-missing -Xbin/cinder-all
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 	install -D -m 0644 $(CURDIR)/etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	# Disable https in default setup, as this makes our CI fail
+	sed -i 's/#auth_protocol=https/auth_protocol=http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	install -D -m 0644 $(CURDIR)/etc/cinder/logging_sample.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/logging.conf
 	sed -i 's|#rootwrap_config=<None>|rootwrap_config=/etc/cinder/rootwrap.conf|' $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 	echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
