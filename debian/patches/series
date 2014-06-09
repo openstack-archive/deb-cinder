@@ -1,2 +1,1 @@
 install-missing-files.patch
-fallback-to-None-on-missing-Glance-image-attrs.patch

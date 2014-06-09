@@ -1,6 +1,8 @@
 cinder (2014.1.1-1) unstable; urgency=medium
 
   * New upstream release.
+  * Removed fallback-to-None-on-missing-Glance-image-attrs.patch applied
+    upstream.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 09 Jun 2014 22:08:57 +0800
 
