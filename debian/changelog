@@ -1,3 +1,9 @@
+cinder (2014.1.1-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 09 Jun 2014 22:08:57 +0800
+
 cinder (2014.1-7) unstable; urgency=medium
 
   * Now build-depends on openstack-pkg-tools >= 0.12~.
