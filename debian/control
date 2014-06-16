@@ -166,7 +166,7 @@ Depends: adduser,
          cinder-common (= ${binary:Version}),
          lvm2,
          qemu-utils,
-         tgt,
+         tgt (>= 1:1.0.17-1.1~),
          ${misc:Depends},
          ${ostack-lsb-base},
          ${python:Depends}
