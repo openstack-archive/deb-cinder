@@ -94,30 +94,10 @@ CONF = cfg.CONF
 CONF.register_opts(volume_manager_opts)
 
 MAPPING = {
-    'cinder.volume.drivers.nexenta.volume.NexentaDriver':
-    'cinder.volume.drivers.nexenta.iscsi.NexentaISCSIDriver',
-    'cinder.volume.drivers.solidfire.SolidFire':
-    'cinder.volume.drivers.solidfire.SolidFireDriver',
     'cinder.volume.drivers.storwize_svc.StorwizeSVCDriver':
     'cinder.volume.drivers.ibm.storwize_svc.StorwizeSVCDriver',
-    'cinder.volume.drivers.windows.WindowsDriver':
-    'cinder.volume.drivers.windows.windows.WindowsDriver',
-    'cinder.volume.drivers.xiv.XIVDriver':
-    'cinder.volume.drivers.ibm.xiv_ds8k.XIVDS8KDriver',
     'cinder.volume.drivers.xiv_ds8k.XIVDS8KDriver':
     'cinder.volume.drivers.ibm.xiv_ds8k.XIVDS8KDriver',
-    'cinder.volume.driver.ISCSIDriver':
-    'cinder.volume.drivers.lvm.LVMISCSIDriver',
-    'cinder.volume.drivers.netapp.iscsi.NetAppISCSIDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
-    'cinder.volume.drivers.netapp.iscsi.NetAppCmodeISCSIDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
-    'cinder.volume.drivers.netapp.nfs.NetAppNFSDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
-    'cinder.volume.drivers.netapp.nfs.NetAppCmodeNfsDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
-    'cinder.volume.drivers.huawei.HuaweiISCSIDriver':
-    'cinder.volume.drivers.huawei.HuaweiVolumeDriver',
     'cinder.volume.drivers.san.hp_lefthand.HpSanISCSIDriver':
     'cinder.volume.drivers.san.hp.hp_lefthand_iscsi.HPLeftHandISCSIDriver',
     'cinder.volume.drivers.gpfs.GPFSDriver':
@@ -193,14 +173,6 @@ class VolumeManager(manager.SchedulerDependentManager):
             LOG.warn(_("Driver path %s is deprecated, update your "
                        "configuration to the new path."), volume_driver)
             volume_driver = MAPPING[volume_driver]
-        if volume_driver == 'cinder.volume.drivers.lvm.ThinLVMVolumeDriver':
-            # Deprecated in Havana
-            # Not handled in MAPPING because it requires setting a conf option
-            LOG.warn(_("ThinLVMVolumeDriver is deprecated, please configure "
-                       "LVMISCSIDriver and lvm_type=thin.  Continuing with "
-                       "those settings."))
-            volume_driver = 'cinder.volume.drivers.lvm.LVMISCSIDriver'
-            self.configuration.lvm_type = 'thin'
         self.driver = importutils.import_object(
             volume_driver,
             configuration=self.configuration,
@@ -374,7 +346,15 @@ class VolumeManager(manager.SchedulerDependentManager):
     def delete_volume(self, context, volume_id, unmanage_only=False):
         """Deletes and unexports volume."""
         context = context.elevated()
-        volume_ref = self.db.volume_get(context, volume_id)
+
+        try:
+            volume_ref = self.db.volume_get(context, volume_id)
+        except exception.VolumeNotFound:
+            # NOTE(thingee): It could be possible for a volume to
+            # be deleted when resuming deletes from init_host().
+            LOG.info(_("Tried to delete volume %s, but it no longer exists, "
+                       "moving on") % (volume_id))
+            return True
 
         if context.project_id != volume_ref['project_id']:
             project_id = volume_ref['project_id']
@@ -483,10 +463,6 @@ class VolumeManager(manager.SchedulerDependentManager):
                                         snapshot_ref['id'],
                                         {'status': 'error'})
 
-        self.db.snapshot_update(context,
-                                snapshot_ref['id'], {'status': 'available',
-                                                     'progress': '100%'})
-
         vol_ref = self.db.volume_get(context, volume_id)
         if vol_ref.bootable:
             try:
@@ -498,7 +474,15 @@ class VolumeManager(manager.SchedulerDependentManager):
                                 " %(volume_id)s metadata") %
                               {'volume_id': volume_id,
                                'snapshot_id': snapshot_id})
+                self.db.snapshot_update(context,
+                                        snapshot_ref['id'],
+                                        {'status': 'error'})
                 raise exception.MetadataCopyFailure(reason=ex)
+
+        self.db.snapshot_update(context,
+                                snapshot_ref['id'], {'status': 'available',
+                                                     'progress': '100%'})
+
         LOG.info(_("snapshot %s: created successfully"), snapshot_ref['id'])
         self._notify_about_snapshot_usage(context, snapshot_ref, "create.end")
         return snapshot_id
@@ -684,7 +668,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         volume = self.db.volume_get(context, volume_id)
         try:
             utils.require_driver_initialized(self.driver)
-        except exception.DriverNotInitialized as ex:
+        except exception.DriverNotInitialized:
             with excutils.save_and_reraise_exception():
                 LOG.exception(_("Error detaching volume %(volume)s, "
                                 "due to uninitialized driver."),
@@ -700,13 +684,15 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         """
         payload = {'volume_id': volume_id, 'image_id': image_meta['id']}
+        image_service = None
         try:
+            volume = self.db.volume_get(context, volume_id)
+
             # NOTE(flaper87): Verify the driver is enabled
             # before going forward. The exception will be caught
             # and the volume status updated.
             utils.require_driver_initialized(self.driver)
 
-            volume = self.db.volume_get(context, volume_id)
             image_service, image_id = \
                 glance.get_remote_image_service(context, image_meta['id'])
             self.driver.copy_volume_to_image(context, volume, image_service,
@@ -715,6 +701,13 @@ class VolumeManager(manager.SchedulerDependentManager):
                         "image (%(image_id)s) successfully"),
                       {'volume_id': volume_id, 'image_id': image_id})
         except Exception as error:
+            LOG.error(_("Error occurred while uploading volume %(volume_id)s "
+                        "to image %(image_id)s."),
+                      {'volume_id': volume_id, 'image_id': image_meta['id']})
+            if image_service is not None:
+                # Deletes the image if it is in queued or saving state
+                self._delete_image(context, image_meta['id'], image_service)
+
             with excutils.save_and_reraise_exception():
                 payload['message'] = unicode(error)
         finally:
@@ -725,6 +718,21 @@ class VolumeManager(manager.SchedulerDependentManager):
             else:
                 self.db.volume_update(context, volume_id,
                                       {'status': 'in-use'})
+
+    def _delete_image(self, context, image_id, image_service):
+        """Deletes an image stuck in queued or saving state."""
+        try:
+            image_meta = image_service.show(context, image_id)
+            image_status = image_meta.get('status')
+            if image_status == 'queued' or image_status == 'saving':
+                LOG.warn("Deleting image %(image_id)s in %(image_status)s "
+                         "state.",
+                         {'image_id': image_id,
+                          'image_status': image_status})
+                image_service.delete(context, image_id)
+        except Exception:
+            LOG.warn(_("Error occurred while deleting image %s."),
+                     image_id, exc_info=True)
 
     def initialize_connection(self, context, volume_id, connector):
         """Prepare volume for connection from host represented by connector.
@@ -798,7 +806,9 @@ class VolumeManager(manager.SchedulerDependentManager):
             err_msg = (_('Unable to fetch connection information from '
                          'backend: %(err)s') % {'err': err})
             LOG.error(err_msg)
+
             self.driver.remove_export(context.elevated(), volume)
+
             raise exception.VolumeBackendAPIException(data=err_msg)
 
         # Add qos_specs to connection info

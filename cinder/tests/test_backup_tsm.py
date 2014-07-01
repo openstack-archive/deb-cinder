@@ -126,8 +126,6 @@ class TSMBackupSimulator:
 
     def _cmd_to_dict(self, arg_list):
         """Convert command for kwargs (assumes a properly formed command)."""
-        path = arg_list[-1]
-        other = arg_list[-2]
         ret = {'cmd': arg_list[0],
                'type': arg_list[1],
                'path': arg_list[-1]}
@@ -243,9 +241,6 @@ class BackupTSMTestCase(test.TestCase):
         self.driver = tsm.TSMBackupDriver(self.ctxt)
         self.stubs.Set(utils, 'execute', fake_exec)
         self.stubs.Set(os, 'stat', fake_stat_image)
-
-    def tearDown(self):
-        super(BackupTSMTestCase, self).tearDown()
 
     def _create_volume_db_entry(self, volume_id):
         vol = {'id': volume_id,

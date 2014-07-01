@@ -279,12 +279,15 @@ def service_get_all(context, disabled=None):
 
 
 @require_admin_context
-def service_get_all_by_topic(context, topic):
-    return model_query(
+def service_get_all_by_topic(context, topic, disabled=None):
+    query = model_query(
         context, models.Service, read_deleted="no").\
-        filter_by(disabled=False).\
-        filter_by(topic=topic).\
-        all()
+        filter_by(topic=topic)
+
+    if disabled is not None:
+        query = query.filter_by(disabled=disabled)
+
+    return query.all()
 
 
 @require_admin_context
@@ -630,39 +633,6 @@ def _quota_usage_create(context, project_id, resource, in_use, reserved,
 ###################
 
 
-@require_context
-def _reservation_get(context, uuid, session=None):
-    result = model_query(context, models.Reservation, session=session,
-                         read_deleted="no").\
-        filter_by(uuid=uuid).first()
-
-    if not result:
-        raise exception.ReservationNotFound(uuid=uuid)
-
-    return result
-
-
-@require_context
-def reservation_get(context, uuid):
-    return _reservation_get(context, uuid)
-
-
-@require_context
-def reservation_get_all_by_project(context, project_id):
-    authorize_project_context(context, project_id)
-
-    rows = model_query(context, models.Reservation, read_deleted="no").\
-        filter_by(project_id=project_id).all()
-
-    result = {'project_id': project_id}
-    for row in rows:
-        result.setdefault(row.resource, {})
-        result[row.resource][row.uuid] = row.delta
-
-    return result
-
-
-@require_admin_context
 def _reservation_create(context, uuid, usage, project_id, resource, delta,
                         expire, session=None):
     reservation_ref = models.Reservation()
@@ -674,21 +644,6 @@ def _reservation_create(context, uuid, usage, project_id, resource, delta,
     reservation_ref.expire = expire
     reservation_ref.save(session=session)
     return reservation_ref
-
-
-@require_admin_context
-def reservation_create(context, uuid, usage, project_id, resource, delta,
-                       expire):
-    return _reservation_create(context, uuid, usage, project_id, resource,
-                               delta, expire)
-
-
-@require_admin_context
-def reservation_destroy(context, uuid):
-    session = get_session()
-    with session.begin():
-        reservation_ref = _reservation_get(context, uuid, session=session)
-        reservation_ref.delete(session=session)
 
 
 ###################
@@ -1187,21 +1142,6 @@ def volume_get_all_by_host(context, host):
     return _volume_get_query(context).filter_by(host=host).all()
 
 
-@require_admin_context
-def volume_get_all_by_instance_uuid(context, instance_uuid):
-    result = model_query(context, models.Volume, read_deleted="no").\
-        options(joinedload('volume_metadata')).\
-        options(joinedload('volume_admin_metadata')).\
-        options(joinedload('volume_type')).\
-        filter_by(instance_uuid=instance_uuid).\
-        all()
-
-    if not result:
-        return []
-
-    return result
-
-
 @require_context
 def volume_get_all_by_project(context, project_id, marker, limit, sort_key,
                               sort_dir, filters=None):
@@ -1307,11 +1247,13 @@ def _generate_paginate_query(context, session, marker, limit, sort_key,
         for key, value in filters.iteritems():
             if key == 'metadata':
                 # model.VolumeMetadata defines the backref to Volumes as
-                # 'volume_metadata', use that column attribute key
-                key = 'volume_metadata'
-                column_attr = getattr(models.Volume, key)
+                # 'volume_metadata' or 'volume_admin_metadata', use those as
+                # column attribute keys
+                col_attr = getattr(models.Volume, 'volume_metadata')
+                col_ad_attr = getattr(models.Volume, 'volume_admin_metadata')
                 for k, v in value.iteritems():
-                    query = query.filter(column_attr.any(key=k, value=v))
+                    query = query.filter(or_(col_attr.any(key=k, value=v),
+                                             col_ad_attr.any(key=k, value=v)))
             elif isinstance(value, (list, tuple, set, frozenset)):
                 # Looking for values in a list; apply to query directly
                 column_attr = getattr(models.Volume, key)
@@ -1759,7 +1701,7 @@ def snapshot_metadata_update(context, snapshot_id, metadata, delete):
             try:
                 meta_ref = _snapshot_metadata_get_item(context, snapshot_id,
                                                        meta_key, session)
-            except exception.SnapshotMetadataNotFound as e:
+            except exception.SnapshotMetadataNotFound:
                 meta_ref = models.SnapshotMetadata()
                 item.update({"key": meta_key, "snapshot_id": snapshot_id})
 
@@ -2054,7 +1996,7 @@ def volume_type_extra_specs_update_or_create(context, volume_type_id,
             try:
                 spec_ref = _volume_type_extra_specs_get_item(
                     context, volume_type_id, key, session)
-            except exception.VolumeTypeExtraSpecsNotFound as e:
+            except exception.VolumeTypeExtraSpecsNotFound:
                 spec_ref = models.VolumeTypeExtraSpecs()
             spec_ref.update({"key": key, "value": value,
                              "volume_type_id": volume_type_id,
@@ -2328,7 +2270,7 @@ def qos_specs_update(context, qos_specs_id, specs):
             try:
                 spec_ref = _qos_specs_get_item(
                     context, qos_specs_id, key, session)
-            except exception.QoSSpecsKeyNotFound as e:
+            except exception.QoSSpecsKeyNotFound:
                 spec_ref = models.QualityOfServiceSpecs()
             id = None
             if spec_ref.get('id', None):
@@ -2794,7 +2736,6 @@ def transfer_accept(context, transfer_id, user_id, project_id):
         volume_id = transfer_ref['volume_id']
         volume_ref = _volume_get(context, volume_id, session=session)
         if volume_ref['status'] != 'awaiting-transfer':
-            volume_status = volume_ref['status']
             msg = _('Transfer %(transfer_id)s: Volume id %(volume_id)s in '
                     'unexpected state %(status)s, expected '
                     'awaiting-transfer') % {'transfer_id': transfer_id,

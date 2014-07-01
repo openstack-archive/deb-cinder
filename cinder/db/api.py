@@ -99,9 +99,9 @@ def service_get_all(context, disabled=None):
     return IMPL.service_get_all(context, disabled)
 
 
-def service_get_all_by_topic(context, topic):
+def service_get_all_by_topic(context, topic, disabled=None):
     """Get all services for a given topic."""
-    return IMPL.service_get_all_by_topic(context, topic)
+    return IMPL.service_get_all_by_topic(context, topic, disabled=disabled)
 
 
 def service_get_all_by_host(context, host):
@@ -215,11 +215,6 @@ def volume_get_all(context, marker, limit, sort_key, sort_dir,
 def volume_get_all_by_host(context, host):
     """Get all volumes belonging to a host."""
     return IMPL.volume_get_all_by_host(context, host)
-
-
-def volume_get_all_by_instance_uuid(context, instance_uuid):
-    """Get all volumes belonging to a instance."""
-    return IMPL.volume_get_all_by_instance_uuid(context, instance_uuid)
 
 
 def volume_get_all_by_project(context, project_id, marker, limit, sort_key,
@@ -685,31 +680,6 @@ def quota_usage_get(context, project_id, resource):
 def quota_usage_get_all_by_project(context, project_id):
     """Retrieve all usage associated with a given resource."""
     return IMPL.quota_usage_get_all_by_project(context, project_id)
-
-
-###################
-
-
-def reservation_create(context, uuid, usage, project_id, resource, delta,
-                       expire):
-    """Create a reservation for the given project and resource."""
-    return IMPL.reservation_create(context, uuid, usage, project_id,
-                                   resource, delta, expire)
-
-
-def reservation_get(context, uuid):
-    """Retrieve a reservation or raise if it does not exist."""
-    return IMPL.reservation_get(context, uuid)
-
-
-def reservation_get_all_by_project(context, project_id):
-    """Retrieve all reservations associated with a given project."""
-    return IMPL.reservation_get_all_by_project(context, project_id)
-
-
-def reservation_destroy(context, uuid):
-    """Destroy the reservation or raise if it does not exist."""
-    return IMPL.reservation_destroy(context, uuid)
 
 
 ###################

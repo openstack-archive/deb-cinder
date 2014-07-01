@@ -41,9 +41,12 @@ import pprint
 import re
 import uuid
 
-import hp3parclient
-from hp3parclient import client
-from hp3parclient import exceptions as hpexceptions
+from cinder.openstack.common import importutils
+hp3parclient = importutils.try_import("hp3parclient")
+if hp3parclient:
+    from hp3parclient import client
+    from hp3parclient import exceptions as hpexceptions
+
 from oslo.config import cfg
 
 from cinder import context
@@ -121,11 +124,15 @@ class HP3PARCommon(object):
         2.0.5 - Fix extend volume units bug #1284368
         2.0.6 - use loopingcall.wait instead of time.sleep
         2.0.7 - Allow extend volume based on snapshot bug #1285906
-        2.0.8 - Fix detach issue for multiple hosts Bug #1288927
+        2.0.8 - Fix detach issue for multiple hosts bug #1288927
+        2.0.9 - Remove unused 3PAR driver method bug #1310807
+        2.0.10 - Fixed an issue with 3PAR vlun location bug #1315542
+        2.0.11 - Remove hp3parclient requirement from unit tests #1315195
+        2.0.12 - Volume detach hangs when host is in a host set bug #1317134
 
     """
 
-    VERSION = "2.0.8"
+    VERSION = "2.0.12"
 
     stats = {}
 
@@ -207,6 +214,9 @@ class HP3PARCommon(object):
         LOG.debug("Disconnect from 3PAR")
 
     def do_setup(self, context):
+        if hp3parclient is None:
+            msg = _('You must install hp3parclient before using 3PAR drivers.')
+            raise exception.VolumeBackendAPIException(data=msg)
         try:
             self.client = self._create_client()
         except hpexceptions.UnsupportedVersion as ex:
@@ -227,8 +237,8 @@ class HP3PARCommon(object):
 
     def validate_cpg(self, cpg_name):
         try:
-            cpg = self.client.getCPG(cpg_name)
-        except hpexceptions.HTTPNotFound as ex:
+            self.client.getCPG(cpg_name)
+        except hpexceptions.HTTPNotFound:
             err = (_("CPG (%s) doesn't exist on array") % cpg_name)
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
@@ -342,12 +352,27 @@ class HP3PARCommon(object):
 
     def _create_3par_vlun(self, volume, hostname, nsp):
         try:
+            location = None
             if nsp is None:
-                self.client.createVLUN(volume, hostname=hostname, auto=True)
+                location = self.client.createVLUN(volume, hostname=hostname,
+                                                  auto=True)
             else:
                 port = self.build_portPos(nsp)
-                self.client.createVLUN(volume, hostname=hostname, auto=True,
-                                       portPos=port)
+                location = self.client.createVLUN(volume, hostname=hostname,
+                                                  auto=True, portPos=port)
+
+            vlun_info = None
+            if location:
+                # The LUN id is returned as part of the location URI
+                vlun = location.split(',')
+                vlun_info = {'volume_name': vlun[0],
+                             'lun_id': int(vlun[1]),
+                             'host_name': vlun[2],
+                             }
+                if len(vlun) > 3:
+                    vlun_info['nsp'] = vlun[3]
+
+            return vlun_info
 
         except hpexceptions.HTTPBadRequest as e:
             if 'must be in the same domain' in e.get_description():
@@ -451,19 +476,24 @@ class HP3PARCommon(object):
                                        'hp3par_cpg')})
         self.stats = stats
 
-    def _get_vlun(self, volume_name, hostname):
+    def _get_vlun(self, volume_name, hostname, lun_id=None):
         """find a VLUN on a 3PAR host."""
         vluns = self.client.getHostVLUNs(hostname)
         found_vlun = None
         for vlun in vluns:
             if volume_name in vlun['volumeName']:
-                found_vlun = vlun
-                break
+                if lun_id:
+                    if vlun['lun'] == lun_id:
+                        found_vlun = vlun
+                        break
+                else:
+                    found_vlun = vlun
+                    break
 
-        msg = (_("3PAR vlun %(name)s not found on host %(host)s") %
-               {'name': volume_name, 'host': hostname})
         if found_vlun is None:
-            LOG.warn(msg)
+            msg = (_("3PAR vlun %(name)s not found on host %(host)s") %
+                   {'name': volume_name, 'host': hostname})
+            LOG.info(msg)
         return found_vlun
 
     def create_vlun(self, volume, host, nsp=None):
@@ -472,31 +502,64 @@ class HP3PARCommon(object):
         In order to export a volume on a 3PAR box, we have to create a VLUN.
         """
         volume_name = self._get_3par_vol_name(volume['id'])
-        self._create_3par_vlun(volume_name, host['name'], nsp)
-        return self._get_vlun(volume_name, host['name'])
+        vlun_info = self._create_3par_vlun(volume_name, host['name'], nsp)
+        return self._get_vlun(volume_name, host['name'], vlun_info['lun_id'])
 
     def delete_vlun(self, volume, hostname):
         volume_name = self._get_3par_vol_name(volume['id'])
-        vlun = self._get_vlun(volume_name, hostname)
+        vluns = self.client.getHostVLUNs(hostname)
 
-        if vlun is not None:
-            # VLUN Type of MATCHED_SET 4 requires the port to be provided
-            if self.VLUN_TYPE_MATCHED_SET == vlun['type']:
-                self.client.deleteVLUN(volume_name, vlun['lun'], hostname,
-                                       vlun['portPos'])
-            else:
-                self.client.deleteVLUN(volume_name, vlun['lun'], hostname)
+        for vlun in vluns:
+            if volume_name in vlun['volumeName']:
+                break
+        else:
+            msg = (
+                _("3PAR vlun for volume %(name)s not found on host %(host)s") %
+                {'name': volume_name, 'host': hostname})
+            LOG.info(msg)
+            return
 
-        try:
-            self._delete_3par_host(hostname)
-            self._remove_hosts_naming_dict_host(hostname)
-        except hpexceptions.HTTPConflict as ex:
-            # host will only be removed after all vluns
-            # have been removed
-            if 'has exported VLUN' in ex.get_description():
-                pass
-            else:
-                raise
+        # VLUN Type of MATCHED_SET 4 requires the port to be provided
+        if self.VLUN_TYPE_MATCHED_SET == vlun['type']:
+            self.client.deleteVLUN(volume_name, vlun['lun'], hostname,
+                                   vlun['portPos'])
+        else:
+            self.client.deleteVLUN(volume_name, vlun['lun'], hostname)
+
+        # Determine if there are other volumes attached to the host.
+        # This will determine whether we should try removing host from host set
+        # and deleting the host.
+        for vlun in vluns:
+            if volume_name not in vlun['volumeName']:
+                # Found another volume
+                break
+        else:
+            # We deleted the last vlun, so try to delete the host too.
+            # This check avoids the old unnecessary try/fail when vluns exist
+            # but adds a minor race condition if a vlun is manually deleted
+            # externally at precisely the wrong time. Worst case is leftover
+            # host, so it is worth the unlikely risk.
+
+            try:
+                self._delete_3par_host(hostname)
+                self._remove_hosts_naming_dict_host(hostname)
+            except Exception as ex:
+                # Any exception down here is only logged.  The vlun is deleted.
+
+                # If the host is in a host set, the delete host will fail and
+                # the host will remain in the host set.  This is desired
+                # because cinder was not responsible for the host set
+                # assignment.  The host set could be used outside of cinder
+                # for future needs (e.g. export volume to host set).
+
+                # The log info explains why the host was left alone.
+                msg = (_("3PAR vlun for volume '%(name)s' was deleted, "
+                         "but the host '%(host)s' was not deleted because: "
+                         "%(reason)s") %
+                       {'name': volume_name,
+                        'host': hostname,
+                        'reason': ex.get_description()})
+                LOG.info(msg)
 
     def _remove_hosts_naming_dict_host(self, hostname):
         items = self.hosts_naming_dict.items()
@@ -1268,14 +1331,6 @@ class HP3PARCommon(object):
 
         # try again with name retrieved from 3par
         self.delete_vlun(volume, hostname)
-
-    def parse_create_host_error(self, hostname, out):
-        search_str = "already used by host "
-        if search_str in out[1]:
-            # host exists, return name used by 3par
-            hostname_3par = self.get_next_word(out[1], search_str)
-            self.hosts_naming_dict[hostname] = hostname_3par
-            return hostname_3par
 
     def build_nsp(self, portPos):
         return '%s:%s:%s' % (portPos['node'],

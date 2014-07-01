@@ -29,7 +29,10 @@ Set the following in the cinder.conf file to enable the
 volume_driver=cinder.volume.drivers.san.hp.hp_3par_fc.HP3PARFCDriver
 """
 
-from hp3parclient import exceptions as hpexceptions
+try:
+    from hp3parclient import exceptions as hpexceptions
+except ImportError:
+    hpexceptions = None
 
 from cinder.openstack.common import log as logging
 from cinder import utils
@@ -291,7 +294,7 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         domain = self.common.get_domain(cpg)
         try:
             host = self.common._get_3par_host(hostname)
-        except hpexceptions.HTTPNotFound as ex:
+        except hpexceptions.HTTPNotFound:
             # get persona from the volume type extra specs
             persona_id = self.common.get_persona_type(volume)
             # host doesn't exist, we have to create it

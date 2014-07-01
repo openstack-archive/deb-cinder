@@ -159,9 +159,6 @@ class RBDTestCase(test.TestCase):
         self.snapshot = dict(volume_name=self.volume_name,
                              name=self.snapshot_name)
 
-    def tearDown(self):
-        super(RBDTestCase, self).tearDown()
-
     @common_mocks
     def test_create_volume(self):
         client = self.mock_client.return_value
@@ -739,9 +736,6 @@ class RBDImageIOWrapperTestCase(test.TestCase):
         self.data_length = 1024
         self.full_data = 'abcd' * 256
 
-    def tearDown(self):
-        super(RBDImageIOWrapperTestCase, self).tearDown()
-
     def test_init(self):
         self.assertEqual(self.mock_rbd_wrapper._rbd_meta, self.meta)
         self.assertEqual(self.mock_rbd_wrapper._offset, 0)
@@ -943,8 +937,7 @@ class ManagedRBDTestCase(DriverTestCase):
         with mock.patch.object(self.volume.driver, 'clone_image') as \
                 mock_clone_image:
             mock_clone_image.side_effect = exception.CinderException
-            with mock.patch.object(self.volume.driver, 'create_volume') as \
-                    mock_create:
+            with mock.patch.object(self.volume.driver, 'create_volume'):
                 with mock.patch.object(create_volume.CreateVolumeFromSpecTask,
                                        '_copy_image_to_volume') as mock_copy:
                     self._create_volume_from_image('error', raw=True,

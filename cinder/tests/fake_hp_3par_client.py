@@ -1,6 +1,5 @@
-# Copyright 2010 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
+# (c) Copyright 2014 Hewlett-Packard Development Company, L.P.
+#    All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -13,8 +12,16 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-"""
-DB abstraction for Cinder
-"""
+#
+"""Fake HP client for testing 3PAR without installing the client."""
 
-from cinder.db.api import *  # noqa
+import mock
+import sys
+
+from cinder.tests import fake_hp_client_exceptions as hpexceptions
+
+hp3par = mock.Mock()
+hp3par.version = "3.0.0"
+hp3par.exceptions = hpexceptions
+
+sys.modules['hp3parclient'] = hp3par

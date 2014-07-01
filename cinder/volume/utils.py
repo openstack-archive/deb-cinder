@@ -41,6 +41,7 @@ def null_safe_str(s):
 def _usage_from_volume(context, volume_ref, **kw):
     usage_info = dict(tenant_id=volume_ref['project_id'],
                       user_id=volume_ref['user_id'],
+                      instance_uuid=volume_ref['instance_uuid'],
                       availability_zone=volume_ref['availability_zone'],
                       volume_id=volume_ref['id'],
                       volume_type=volume_ref['volume_type_id'],
@@ -130,14 +131,15 @@ def _calculate_count(size_in_m, blocksize):
 def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
                 execute=utils.execute, ionice=None):
     # Use O_DIRECT to avoid thrashing the system buffer cache
-    extra_flags = ['iflag=direct', 'oflag=direct']
-
-    # Check whether O_DIRECT is supported
-    try:
-        execute('dd', 'count=0', 'if=%s' % srcstr, 'of=%s' % deststr,
-                *extra_flags, run_as_root=True)
-    except processutils.ProcessExecutionError:
-        extra_flags = []
+    extra_flags = []
+    # Check whether O_DIRECT is supported to iflag and oflag separately
+    for flag in ['iflag=direct', 'oflag=direct']:
+        try:
+            execute('dd', 'count=0', 'if=%s' % srcstr, 'of=%s' % deststr,
+                    flag, run_as_root=True)
+            extra_flags.append(flag)
+        except processutils.ProcessExecutionError:
+            pass
 
     # If the volume is being unprovisioned then
     # request the data is persisted before returning,

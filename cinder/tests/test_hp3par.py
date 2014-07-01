@@ -17,18 +17,19 @@
 
 import mock
 
-from hp3parclient import client
-from hp3parclient import exceptions as hpexceptions
-
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder import test
 from cinder import units
+
+from cinder.tests import fake_hp_3par_client as hp3parclient
 from cinder.volume.drivers.san.hp import hp_3par_fc as hpfcdriver
 from cinder.volume.drivers.san.hp import hp_3par_iscsi as hpdriver
 from cinder.volume import qos_specs
 from cinder.volume import volume_types
+
+hpexceptions = hp3parclient.hpexceptions
 
 LOG = logging.getLogger(__name__)
 
@@ -157,6 +158,18 @@ class HP3PARBaseDriver(object):
          'state': 1,
          'uuid': '29c214aa-62b9-41c8-b198-543f6cf24edf'}]
 
+    mock_client_conf = {
+        'PORT_MODE_TARGET': 2,
+        'PORT_STATE_READY': 4,
+        'PORT_PROTO_ISCSI': 2,
+        'PORT_PROTO_FC': 1,
+        'TASK_DONE': 1,
+        'HOST_EDIT_ADD': 1,
+        'getPorts.return_value': {
+            'members': FAKE_FC_PORTS + [FAKE_ISCSI_PORT]
+        }
+    }
+
     def setup_configuration(self):
         configuration = mock.Mock()
         configuration.hp3par_debug = False
@@ -181,15 +194,15 @@ class HP3PARBaseDriver(object):
     @mock.patch(
         'hp3parclient.client.HP3ParClient',
         spec=True,
-        PORT_MODE_TARGET=client.HP3ParClient.PORT_MODE_TARGET,
-        PORT_STATE_READY=client.HP3ParClient.PORT_STATE_READY,
-        PORT_PROTO_ISCSI=client.HP3ParClient.PORT_PROTO_ISCSI,
-        PORT_PROTO_FC=client.HP3ParClient.PORT_PROTO_FC,
-        TASK_DONE=client.HP3ParClient.TASK_DONE,
-        HOST_EDIT_ADD=client.HP3ParClient.HOST_EDIT_ADD)
+    )
     def setup_mock_client(self, _m_client, driver, conf=None, m_conf=None):
 
         _m_client = _m_client.return_value
+
+        # Configure the base constants, defaults etc...
+        _m_client.configure_mock(**self.mock_client_conf)
+
+        # If m_conf, drop those over the top of the base_conf.
         if m_conf is not None:
             _m_client.configure_mock(**m_conf)
 
@@ -304,8 +317,6 @@ class HP3PARBaseDriver(object):
     def test_migrate_volume(self):
 
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getStorageSystemInfo.return_value': {
                 'serialNumber': '1234'},
             'getTask.return_value': {
@@ -356,13 +367,11 @@ class HP3PARBaseDriver(object):
 
     def test_migrate_volume_diff_host(self):
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getStorageSystemInfo.return_value': {
                 'serialNumber': 'different'},
         }
 
-        mock_client = self.setup_driver(mock_conf=conf)
+        self.setup_driver(mock_conf=conf)
 
         volume = {'name': HP3PARBaseDriver.VOLUME_NAME,
                   'id': HP3PARBaseDriver.CLONE_ID,
@@ -383,8 +392,6 @@ class HP3PARBaseDriver(object):
 
     def test_migrate_volume_diff_domain(self):
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getStorageSystemInfo.return_value': {
                 'serialNumber': '1234'},
             'getTask.return_value': {
@@ -393,7 +400,7 @@ class HP3PARBaseDriver(object):
             lambda x: {'OpenStackCPG': {'domain': 'OpenStack'}}.get(x, {})
         }
 
-        mock_client = self.setup_driver(mock_conf=conf)
+        self.setup_driver(mock_conf=conf)
 
         volume = {'name': HP3PARBaseDriver.VOLUME_NAME,
                   'id': HP3PARBaseDriver.CLONE_ID,
@@ -413,16 +420,8 @@ class HP3PARBaseDriver(object):
         self.assertEqual((False, None), result)
 
     def test_migrate_volume_attached(self):
-        conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
-            'getStorageSystemInfo.return_value': {
-                'serialNumber': '1234'},
-            'getTask.return_value': {
-                'status': 1}
-        }
 
-        mock_client = self.setup_driver(mock_conf=conf)
+        mock_client = self.setup_driver()
 
         volume = {'name': HP3PARBaseDriver.VOLUME_NAME,
                   'id': HP3PARBaseDriver.CLONE_ID,
@@ -596,8 +595,6 @@ class HP3PARBaseDriver(object):
         # setup_mock_client drive with default configuration
         # and return the mock HTTP 3PAR client
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getTask.return_value': {
                 'status': 1},
             'copyVolume.return_value': {'taskid': 1},
@@ -641,8 +638,6 @@ class HP3PARBaseDriver(object):
         # setup_mock_client drive with default configuration
         # and return the mock HTTP 3PAR client
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getTask.return_value': {
                 'status': 4,
                 'failure message': 'out of disk space'},
@@ -650,7 +645,7 @@ class HP3PARBaseDriver(object):
             'getVolume.return_value': {}
         }
 
-        mock_client = self.setup_driver(mock_conf=conf)
+        self.setup_driver(mock_conf=conf)
 
         volume = self.volume.copy()
         volume['size'] = self.volume['size'] + 10
@@ -787,8 +782,6 @@ class HP3PARBaseDriver(object):
     def test_extend_volume_non_base(self):
         extend_ex = hpexceptions.HTTPForbidden(error={'code': 150})
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getTask.return_value': {
                 'status': 1},
             'getCPG.return_value': {},
@@ -810,8 +803,6 @@ class HP3PARBaseDriver(object):
     def test_extend_volume_non_base_failure(self):
         extend_ex = hpexceptions.HTTPForbidden(error={'code': 150})
         conf = {
-            'getPorts.return_value': {
-                'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]},
             'getTask.return_value': {
                 'status': 1},
             'getCPG.return_value': {},
@@ -821,7 +812,7 @@ class HP3PARBaseDriver(object):
             'growVolume.side_effect': extend_ex
         }
 
-        mock_client = self.setup_driver(mock_conf=conf)
+        self.setup_driver(mock_conf=conf)
         grow_size = 3
         old_size = self.volume['size']
         new_size = old_size + grow_size
@@ -919,6 +910,38 @@ class HP3PARBaseDriver(object):
                                'minIOPS': '10', 'minBWS': '20',
                                'latency': '5', 'priority': 'high'})
 
+    def test_create_vlun(self):
+        host = 'fake-host'
+        lun_id = 11
+        nsp = '1:2:3'
+        mock_client = self.setup_driver()
+        location = ("%(name)s,%(lunid)s,%(host)s,%(nsp)s" %
+                    {'name': self.VOLUME_NAME,
+                     'lunid': lun_id,
+                     'host': host,
+                     'nsp': nsp})
+        mock_client.createVLUN.return_value = location
+
+        expected_info = {'volume_name': self.VOLUME_NAME,
+                         'lun_id': lun_id,
+                         'host_name': host,
+                         'nsp': nsp}
+        vlun_info = self.driver.common._create_3par_vlun(self.VOLUME_NAME,
+                                                         host, nsp)
+        self.assertEqual(expected_info, vlun_info)
+
+        location = ("%(name)s,%(lunid)s,%(host)s" %
+                    {'name': self.VOLUME_NAME,
+                     'lunid': lun_id,
+                     'host': host})
+        mock_client.createVLUN.return_value = location
+        expected_info = {'volume_name': self.VOLUME_NAME,
+                         'lun_id': lun_id,
+                         'host_name': host}
+        vlun_info = self.driver.common._create_3par_vlun(self.VOLUME_NAME,
+                                                         host, None)
+        self.assertEqual(expected_info, vlun_info)
+
 
 class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
 
@@ -933,12 +956,6 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
                                      '123456789054321':
                                      ['0987654321234', '123456789000987'],
                                      }}}
-
-    def setUp(self):
-        super(TestHP3PARFCDriver, self).setUp()
-
-    def tearDown(self):
-        super(TestHP3PARFCDriver, self).tearDown()
 
     def setup_driver(self, config=None, mock_conf=None):
 
@@ -993,8 +1010,12 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
             {'active': True,
              'volumeName': self.VOLUME_3PAR_NAME,
              'lun': 90, 'type': 0}]
-        mock_client.getPorts.return_value = {
-            'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]}
+        location = ("%(volume_name)s,%(lun_id)s,%(host)s,%(nsp)s" %
+                    {'volume_name': self.VOLUME_3PAR_NAME,
+                     'lun_id': 90,
+                     'host': self.FAKE_HOST,
+                     'nsp': 'something'})
+        mock_client.createVLUN.return_value = location
 
         result = self.driver.initialize_connection(self.volume, self.connector)
 
@@ -1025,13 +1046,6 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
             {'active': True,
              'volumeName': self.VOLUME_3PAR_NAME,
              'lun': None, 'type': 0}]
-        mock_client.getPorts.return_value = {
-            'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]}
-
-        self.driver.terminate_connection(
-            self.volume,
-            self.connector,
-            force=True)
 
         expected = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
@@ -1044,7 +1058,50 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
             mock.call.getPorts(),
             mock.call.logout()]
 
+        self.driver.terminate_connection(self.volume, self.connector)
         mock_client.assert_has_calls(expected)
+        mock_client.reset_mock()
+
+        # mock some deleteHost exceptions that are handled
+        delete_with_vlun = hpexceptions.HTTPConflict(
+            error={'message': "has exported VLUN"})
+        delete_with_hostset = hpexceptions.HTTPConflict(
+            error={'message': "host is a member of a set"})
+        mock_client.deleteHost = mock.Mock(
+            side_effect=[delete_with_vlun, delete_with_hostset])
+
+        self.driver.terminate_connection(self.volume, self.connector)
+        mock_client.assert_has_calls(expected)
+        mock_client.reset_mock()
+
+        self.driver.terminate_connection(self.volume, self.connector)
+        mock_client.assert_has_calls(expected)
+
+    def test_terminate_connection_more_vols(self):
+        mock_client = self.setup_driver()
+        # mock more than one vlun on the host (don't even try to remove host)
+        mock_client.getHostVLUNs.return_value = \
+            [
+                {'active': True,
+                 'volumeName': self.VOLUME_3PAR_NAME,
+                 'lun': None, 'type': 0},
+                {'active': True,
+                 'volumeName': 'there-is-another-volume',
+                 'lun': None, 'type': 0},
+            ]
+
+        expect_less = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getHostVLUNs(self.FAKE_HOST),
+            mock.call.deleteVLUN(
+                self.VOLUME_3PAR_NAME,
+                None,
+                self.FAKE_HOST),
+            mock.call.getPorts(),
+            mock.call.logout()]
+
+        self.driver.terminate_connection(self.volume, self.connector)
+        mock_client.assert_has_calls(expect_less)
 
     def test_get_volume_stats(self):
         # setup_mock_client drive with default configuration
@@ -1264,20 +1321,9 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
             'target_lun': TARGET_LUN,
             'target_portal': '1.1.1.2:1234'}}
 
-    def setUp(self):
-        super(TestHP3PARISCSIDriver, self).setUp()
-
-    def tearDown(self):
-        super(TestHP3PARISCSIDriver, self).tearDown()
-
     def setup_driver(self, config=None, mock_conf=None):
 
         self.ctxt = context.get_admin_context()
-        # setup_mock_client default config, if necessary
-        if mock_conf is None:
-            mock_conf = {
-                'getPorts.return_value': {
-                    'members': self.FAKE_FC_PORTS + [self.FAKE_ISCSI_PORT]}}
 
         mock_client = self.setup_mock_client(
             conf=config,
@@ -1317,6 +1363,12 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
             {'active': True,
              'volumeName': self.VOLUME_3PAR_NAME,
              'lun': self.TARGET_LUN, 'type': 0}]
+        location = ("%(volume_name)s,%(lun_id)s,%(host)s,%(nsp)s" %
+                    {'volume_name': self.VOLUME_3PAR_NAME,
+                     'lun_id': self.TARGET_LUN,
+                     'host': self.FAKE_HOST,
+                     'nsp': 'something'})
+        mock_client.createVLUN.return_value = location
 
         result = self.driver.initialize_connection(self.volume, self.connector)
 

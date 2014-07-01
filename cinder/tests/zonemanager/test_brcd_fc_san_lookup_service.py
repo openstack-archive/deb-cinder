@@ -76,12 +76,25 @@ class TestBrcdFCSanLookupService(brcd_lookup.BrcdFCSanLookupService,
         config = conf.Configuration(fc_fabric_opts, 'BRCD_FAB_2')
         self.fabric_configs = {'BRCD_FAB_2': config}
 
+    @mock.patch.object(paramiko.hostkeys.HostKeys, 'load')
+    def test_create_ssh_client(self, load_mock):
+        mock_args = {}
+        mock_args['known_hosts_file'] = 'dummy_host_key_file'
+        mock_args['missing_key_policy'] = paramiko.RejectPolicy()
+        ssh_client = self.create_ssh_client(**mock_args)
+        self.assertEqual(ssh_client._host_keys_filename, 'dummy_host_key_file')
+        self.assertTrue(isinstance(ssh_client._policy, paramiko.RejectPolicy))
+        mock_args = {}
+        ssh_client = self.create_ssh_client(**mock_args)
+        self.assertIsNone(ssh_client._host_keys_filename)
+        self.assertTrue(isinstance(ssh_client._policy, paramiko.WarningPolicy))
+
     @mock.patch.object(brcd_lookup.BrcdFCSanLookupService,
                        'get_nameserver_info')
     def test_get_device_mapping_from_network(self, get_nameserver_info_mock):
         initiator_list = ['10008c7cff523b01']
         target_list = ['20240002ac000a50', '20240002ac000a40']
-        with mock.patch.object(self.client, 'connect') as client_connect_mock:
+        with mock.patch.object(self.client, 'connect'):
             get_nameserver_info_mock.return_value = (nsshow_data)
             device_map = self.get_device_mapping_from_network(
                 initiator_list, target_list)

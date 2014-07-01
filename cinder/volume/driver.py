@@ -38,16 +38,16 @@ LOG = logging.getLogger(__name__)
 volume_opts = [
     cfg.IntOpt('num_shell_tries',
                default=3,
-               help='number of times to attempt to run flakey shell commands'),
+               help='Number of times to attempt to run flakey shell commands'),
     cfg.IntOpt('reserved_percentage',
                default=0,
                help='The percentage of backend capacity is reserved'),
     cfg.IntOpt('iscsi_num_targets',
                default=100,
-               help='The maximum number of iscsi target ids per host'),
+               help='The maximum number of iSCSI target IDs per host'),
     cfg.StrOpt('iscsi_target_prefix',
                default='iqn.2010-10.org.openstack:',
-               help='prefix for iscsi volumes'),
+               help='Prefix for iSCSI volumes'),
     cfg.StrOpt('iscsi_ip_address',
                default='$my_ip',
                help='The IP address that the iSCSI daemon is listening on'),
@@ -68,7 +68,7 @@ volume_opts = [
                      'for volume to image and image to volume transfers?'),
     cfg.StrOpt('volume_clear',
                default='zero',
-               help='Method used to wipe old voumes (valid options are: '
+               help='Method used to wipe old volumes (valid options are: '
                     'none, zero, shred)'),
     cfg.IntOpt('volume_clear_size',
                default=0,
@@ -80,7 +80,7 @@ volume_opts = [
                     'for example "-c3" for idle only priority.'),
     cfg.StrOpt('iscsi_helper',
                default='tgtadm',
-               help='iscsi target user-land tool to use'),
+               help='iSCSI target user-land tool to use'),
     cfg.StrOpt('volumes_dir',
                default='$state_path/volumes',
                help='Volume configuration file storage '
@@ -113,10 +113,10 @@ iser_opts = [
                     'to find volume'),
     cfg.IntOpt('iser_num_targets',
                default=100,
-               help='The maximum number of iser target ids per host'),
+               help='The maximum number of iSER target IDs per host'),
     cfg.StrOpt('iser_target_prefix',
                default='iqn.2010-10.org.iser.openstack:',
-               help='prefix for iser volumes'),
+               help='Prefix for iSER volumes'),
     cfg.StrOpt('iser_ip_address',
                default='$my_ip',
                help='The IP address that the iSER daemon is listening on'),
@@ -125,7 +125,7 @@ iser_opts = [
                help='The port that the iSER daemon is listening on'),
     cfg.StrOpt('iser_helper',
                default='tgtadm',
-               help='iser target user-land tool to use'),
+               help='The name of the iSER target user-land tool to use'),
 ]
 
 
@@ -309,6 +309,7 @@ class VolumeDriver(object):
                 self._detach_volume(context, dest_attach_info, dest_vol,
                                     properties, force=True, remote=dest_remote)
 
+        copy_error = True
         try:
             size_in_mb = int(src_vol['size']) * 1024    # vol size is in GB
             volume_utils.copy_volume(
@@ -319,9 +320,8 @@ class VolumeDriver(object):
             copy_error = False
         except Exception:
             with excutils.save_and_reraise_exception():
-                msg = _("Failed to copy volume %(src)s to %(dest)d")
+                msg = _("Failed to copy volume %(src)s to %(dest)s.")
                 LOG.error(msg % {'src': src_vol['id'], 'dest': dest_vol['id']})
-                copy_error = True
         finally:
             self._detach_volume(context, dest_attach_info, dest_vol,
                                 properties, force=copy_error,
@@ -883,6 +883,43 @@ class FakeISCSIDriver(ISCSIDriver):
         LOG.debug(_("FAKE ISCSI: %s"), cmd)
         return (None, None)
 
+    def create_volume_from_snapshot(self, volume, snapshot):
+        """Creates a volume from a snapshot."""
+        pass
+
+    def create_cloned_volume(self, volume, src_vref):
+        """Creates a clone of the specified volume."""
+        pass
+
+    def delete_volume(self, volume):
+        """Deletes a volume."""
+        pass
+
+    def create_snapshot(self, snapshot):
+        """Creates a snapshot."""
+        pass
+
+    def delete_snapshot(self, snapshot):
+        """Deletes a snapshot."""
+        pass
+
+    def local_path(self, volume):
+        return '/tmp/volume-%s' % volume.id
+
+    def ensure_export(self, context, volume):
+        """Synchronously recreates an export for a volume."""
+        pass
+
+    def create_export(self, context, volume):
+        """Exports the volume. Can optionally return a Dictionary of changes
+        to the volume object to be persisted.
+        """
+        pass
+
+    def remove_export(self, context, volume):
+        """Removes an export for a volume."""
+        pass
+
 
 class ISERDriver(ISCSIDriver):
     """Executes commands relating to ISER volumes.
@@ -902,7 +939,7 @@ class ISERDriver(ISCSIDriver):
     def __init__(self, *args, **kwargs):
         super(ISERDriver, self).__init__(*args, **kwargs)
         # for backward compatibility
-        self.configuration.num_iscsi_scan_tries = \
+        self.configuration.num_volume_device_scan_tries = \
             self.configuration.num_iser_scan_tries
         self.configuration.iscsi_num_targets = \
             self.configuration.iser_num_targets
@@ -1022,3 +1059,21 @@ class FibreChannelDriver(VolumeDriver):
         """
         msg = _("Driver must implement initialize_connection")
         raise NotImplementedError(msg)
+
+    def validate_connector(self, connector):
+        """Fail if connector doesn't contain all the data needed by driver.
+
+        Do a check on the connector and ensure that it has wwnns, wwpns.
+        """
+        self.validate_connector_has_setting(connector, 'wwpns')
+        self.validate_connector_has_setting(connector, 'wwnns')
+
+    @staticmethod
+    def validate_connector_has_setting(connector, setting):
+        """Test for non-empty setting in connector."""
+        if setting not in connector or not connector[setting]:
+            msg = (_(
+                "FibreChannelDriver validate_connector failed. "
+                "No '%s'. Make sure HBA state is Online.") % setting)
+            LOG.error(msg)
+            raise exception.VolumeDriverException(message=msg)

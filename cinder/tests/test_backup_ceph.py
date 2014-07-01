@@ -173,6 +173,7 @@ class BackupCephTestCase(test.TestCase):
 
         # Create a file with some data in it.
         self.volume_file = tempfile.NamedTemporaryFile()
+        self.addCleanup(self.volume_file.close)
         for i in xrange(0, self.num_chunks):
             data = os.urandom(self.chunk_size)
             self.checksum.update(data)
@@ -194,10 +195,6 @@ class BackupCephTestCase(test.TestCase):
         self.counter = float(0)
 
         self.callstack = []
-
-    def tearDown(self):
-        self.volume_file.close()
-        super(BackupCephTestCase, self).tearDown()
 
     @common_mocks
     def test_get_rbd_support(self):
@@ -459,7 +456,6 @@ class BackupCephTestCase(test.TestCase):
     def test_backup_vol_length_0(self):
         volume_id = str(uuid.uuid4())
         self._create_volume_db_entry(volume_id, 0)
-        volume = db.volume_get(self.ctxt, volume_id)
 
         backup_id = str(uuid.uuid4())
         self._create_backup_db_entry(backup_id, volume_id, 1)
@@ -922,9 +918,6 @@ class VolumeMetadataBackupTestCase(test.TestCase):
         super(VolumeMetadataBackupTestCase, self).setUp()
         self.backup_id = str(uuid.uuid4())
         self.mb = ceph.VolumeMetadataBackup(mock.Mock(), self.backup_id)
-
-    def tearDown(self):
-        super(VolumeMetadataBackupTestCase, self).tearDown()
 
     @common_meta_backup_mocks
     def test_name(self):

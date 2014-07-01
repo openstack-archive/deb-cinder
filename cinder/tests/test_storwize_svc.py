@@ -1931,7 +1931,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             types[protocol] = volume_types.create(ctxt, protocol, opts)
 
         expected = {'FC': {'driver_volume_type': 'fibre_channel',
-                           'data': {'target_lun': '0',
+                           'data': {'target_lun': 0,
                                     'target_wwn': 'AABBCCDDEEFF0011',
                                     'target_discovered': False}},
                     'iSCSI': {'driver_volume_type': 'iscsi',
@@ -1939,7 +1939,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                                        'target_iqn':
                                        'iqn.1982-01.com.ibm:1234.sim.node1',
                                        'target_portal': '1.234.56.78:3260',
-                                       'target_lun': '0',
+                                       'target_lun': 0,
                                        'auth_method': 'CHAP'}}}
 
         for protocol in ['FC', 'iSCSI']:
@@ -2397,16 +2397,138 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.driver.delete_volume(volume)
             self.assertNotIn(volume['id'], self.driver._vdiskcopyops)
 
-    def test_storwize_initiator_target_map(self):
-        # Create two volumes to be used in mappings
-        ctxt = context.get_admin_context()
+    def test_storwize_initiator_multiple_preferred_nodes_matching(self):
 
         # Generate us a test volume
-        volume = self._generate_vol_info(None, None)
-        self.driver.create_volume(volume)
+        volume = self._create_volume()
+
+        # Fibre Channel volume type
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type = volume_types.create(self.ctxt, 'FC', extra_spec)
+
+        volume['volume_type_id'] = vol_type['id']
+
+        # Make sure that the volumes have been created
+        self._assert_vol_exists(volume['name'], True)
+
+        #Set up one WWPN that won't match and one that will.
+        self.driver._state['storage_nodes']['1']['WWPN'] = ['123456789ABCDEF0',
+                                                            'AABBCCDDEEFF0010']
+
+        wwpns = ['ff00000000000000', 'ff00000000000001']
+        connector = {'host': 'storwize-svc-test', 'wwpns': wwpns}
+
+        with mock.patch.object(helpers.StorwizeHelpers,
+                               'get_conn_fc_wwpns') as get_mappings:
+            get_mappings.return_value = ['AABBCCDDEEFF0001',
+                                         'AABBCCDDEEFF0002',
+                                         'AABBCCDDEEFF0010',
+                                         'AABBCCDDEEFF0012']
+
+            # Initialize the connection
+            init_ret = self.driver.initialize_connection(volume, connector)
+
+            # Make sure we use the preferred WWPN.
+            self.assertEqual(init_ret['data']['target_wwn'],
+                             'AABBCCDDEEFF0010')
+
+    def test_storwize_initiator_multiple_preferred_nodes_no_matching(self):
+        # Generate us a test volume
+        volume = self._create_volume()
+
+        # Fibre Channel volume type
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type = volume_types.create(self.ctxt, 'FC', extra_spec)
+
+        volume['volume_type_id'] = vol_type['id']
+
+        # Make sure that the volumes have been created
+        self._assert_vol_exists(volume['name'], True)
+
+        #Set up WWPNs that will not match what is available.
+        self.driver._state['storage_nodes']['1']['WWPN'] = ['123456789ABCDEF0',
+                                                            '123456789ABCDEF1']
+
+        wwpns = ['ff00000000000000', 'ff00000000000001']
+        connector = {'host': 'storwize-svc-test', 'wwpns': wwpns}
+
+        with mock.patch.object(helpers.StorwizeHelpers,
+                               'get_conn_fc_wwpns') as get_mappings:
+            get_mappings.return_value = ['AABBCCDDEEFF0001',
+                                         'AABBCCDDEEFF0002',
+                                         'AABBCCDDEEFF0010',
+                                         'AABBCCDDEEFF0012']
+
+            # Initialize the connection
+            init_ret = self.driver.initialize_connection(volume, connector)
+
+            # Make sure we use the first available WWPN.
+            self.assertEqual(init_ret['data']['target_wwn'],
+                             'AABBCCDDEEFF0001')
+
+    def test_storwize_initiator_single_preferred_node_matching(self):
+        # Generate us a test volume
+        volume = self._create_volume()
+
+        # Fibre Channel volume type
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type = volume_types.create(self.ctxt, 'FC', extra_spec)
+
+        volume['volume_type_id'] = vol_type['id']
+
+        # Make sure that the volumes have been created
+        self._assert_vol_exists(volume['name'], True)
+
+        #Set up one WWPN.
+        self.driver._state['storage_nodes']['1']['WWPN'] = ['AABBCCDDEEFF0012']
+
+        wwpns = ['ff00000000000000', 'ff00000000000001']
+        connector = {'host': 'storwize-svc-test', 'wwpns': wwpns}
+
+        with mock.patch.object(helpers.StorwizeHelpers,
+                               'get_conn_fc_wwpns') as get_mappings:
+            get_mappings.return_value = ['AABBCCDDEEFF0001',
+                                         'AABBCCDDEEFF0002',
+                                         'AABBCCDDEEFF0010',
+                                         'AABBCCDDEEFF0012']
+
+            # Initialize the connection
+            init_ret = self.driver.initialize_connection(volume, connector)
+
+            # Make sure we use the preferred WWPN.
+            self.assertEqual(init_ret['data']['target_wwn'],
+                             'AABBCCDDEEFF0012')
+
+    def test_storwize_terminate_connection(self):
+        # create a FC volume
+        volume_fc = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type_fc = volume_types.create(self.ctxt, 'FC', extra_spec)
+        volume_fc['volume_type_id'] = vol_type_fc['id']
+
+        # create a iSCSI volume
+        volume_iSCSI = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> iSCSI'}
+        vol_type_iSCSI = volume_types.create(self.ctxt, 'iSCSI', extra_spec)
+        volume_iSCSI['volume_type_id'] = vol_type_iSCSI['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+
+        self.driver.initialize_connection(volume_fc, connector)
+        self.driver.initialize_connection(volume_iSCSI, connector)
+        self.driver.terminate_connection(volume_iSCSI, connector)
+        self.driver.terminate_connection(volume_fc, connector)
+
+    def test_storwize_initiator_target_map(self):
+        # Generate us a test volume
+        volume = self._create_volume()
 
         # FIbre Channel volume type
-        vol_type = volume_types.create(ctxt, 'FC', {'protocol': 'FC'})
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type = volume_types.create(self.ctxt, 'FC', extra_spec)
 
         volume['volume_type_id'] = vol_type['id']
 
@@ -2425,7 +2547,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                               {'ff00000000000000': ['AABBCCDDEEFF0011'],
                                'ff00000000000001': ['AABBCCDDEEFF0011']},
                               'target_discovered': False,
-                              'target_lun': '0',
+                              'target_lun': 0,
                               'target_wwn': 'AABBCCDDEEFF0011',
                               'volume_id': volume['id']
                               }

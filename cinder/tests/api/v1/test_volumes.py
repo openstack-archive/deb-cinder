@@ -55,6 +55,7 @@ def stub_snapshot_get(self, context, snapshot_id):
 class VolumeApiTest(test.TestCase):
     def setUp(self):
         super(VolumeApiTest, self).setUp()
+        self.addCleanup(fake_notifier.reset)
         self.ext_mgr = extensions.ExtensionManager()
         self.ext_mgr.extensions = {}
         fake_image.stub_out_image_service(self.stubs)
@@ -62,15 +63,10 @@ class VolumeApiTest(test.TestCase):
 
         self.flags(host='fake',
                    notification_driver=[fake_notifier.__name__])
-
         self.stubs.Set(db, 'volume_get_all', stubs.stub_volume_get_all)
         self.stubs.Set(db, 'service_get_all_by_topic',
                        stubs.stub_service_get_all_by_topic)
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
-
-    def tearDown(self):
-        super(VolumeApiTest, self).tearDown()
-        fake_notifier.reset()
 
     def test_volume_create(self):
         self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_get)
@@ -127,7 +123,7 @@ class VolumeApiTest(test.TestCase):
         vol.update(dict(volume_type=CONF.default_volume_type))
         body.update(dict(volume=vol))
         res_dict = self.controller.create(req, body)
-        volume_id = res_dict['volume']['id']
+        self.assertIn('id', res_dict['volume'])
         self.assertEqual(len(res_dict), 1)
         self.assertEqual(res_dict['volume']['volume_type'],
                          db_vol_type['name'])
@@ -136,7 +132,7 @@ class VolumeApiTest(test.TestCase):
         vol.update(dict(volume_type=db_vol_type['id']))
         body.update(dict(volume=vol))
         res_dict = self.controller.create(req, body)
-        volume_id = res_dict['volume']['id']
+        self.assertIn('id', res_dict['volume'])
         self.assertEqual(len(res_dict), 1)
         self.assertEqual(res_dict['volume']['volume_type'],
                          db_vol_type['name'])
@@ -224,6 +220,21 @@ class VolumeApiTest(test.TestCase):
                "display_description": "Volume Test Desc",
                "availability_zone": "cinder",
                "imageRef": '12345'}
+        body = {"volume": vol}
+        req = fakes.HTTPRequest.blank('/v1/volumes')
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.create,
+                          req,
+                          body)
+
+    def test_volume_create_with_image_id_with_empty_string(self):
+        self.stubs.Set(volume_api.API, "create", stubs.stub_volume_create)
+        self.ext_mgr.extensions = {'os-image-create': 'fake'}
+        vol = {"size": 1,
+               "display_name": "Volume Test Name",
+               "display_description": "Volume Test Desc",
+               "availability_zone": "cinder",
+               "imageRef": ''}
         body = {"volume": vol}
         req = fakes.HTTPRequest.blank('/v1/volumes')
         self.assertRaises(webob.exc.HTTPBadRequest,

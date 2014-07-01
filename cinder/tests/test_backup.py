@@ -37,7 +37,7 @@ LOG = logging.getLogger(__name__)
 
 
 class FakeBackupException(Exception):
-        pass
+    pass
 
 
 class BackupTestCase(test.TestCase):
@@ -52,9 +52,6 @@ class BackupTestCase(test.TestCase):
         self.backup_mgr.host = 'testhost'
         self.ctxt = context.get_admin_context()
         self.backup_mgr.driver.set_initialized()
-
-    def tearDown(self):
-        super(BackupTestCase, self).tearDown()
 
     def _create_backup_db_entry(self, volume_id=1, display_name='test_backup',
                                 display_description='this is a test backup',
@@ -370,7 +367,7 @@ class BackupTestCase(test.TestCase):
         backups = db.backup_get_all_by_project(self.ctxt, 'project1')
         self.assertEqual(len(backups), 0)
 
-        b1 = self._create_backup_db_entry()
+        self._create_backup_db_entry()
         b2 = self._create_backup_db_entry(project_id='project1')
         backups = db.backup_get_all_by_project(self.ctxt, 'project1')
         self.assertEqual(len(backups), 1)
@@ -416,14 +413,11 @@ class BackupTestCase(test.TestCase):
 
     def test_backup_manager_driver_name(self):
         """"Test mapping between backup services and backup drivers."""
-
-        old_setting = CONF.backup_driver
-        setattr(cfg.CONF, 'backup_driver', "cinder.backup.services.swift")
+        cfg.CONF.set_override('backup_driver', "cinder.backup.services.swift")
         backup_mgr = \
             importutils.import_object(CONF.backup_manager)
         self.assertEqual('cinder.backup.drivers.swift',
                          backup_mgr.driver_name)
-        setattr(cfg.CONF, 'backup_driver', old_setting)
 
     def test_export_record_with_bad_service(self):
         """Test error handling when attempting an export of a backup
@@ -505,7 +499,7 @@ class BackupTestCase(test.TestCase):
                                      (backup_driver.__module__,
                                       backup_driver.__class__.__name__,
                                       'verify'))
-        with mock.patch(_mock_backup_verify_class) as _mock_record_verify:
+        with mock.patch(_mock_backup_verify_class):
             self.backup_mgr.import_record(self.ctxt,
                                           imported_record,
                                           export['backup_service'],
