@@ -1,6 +1,7 @@
 cinder (2014.2~b1-1) experimental; urgency=medium
 
   * New upstream release.
+  * New (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 01 Jul 2014 22:26:43 +0800
 
