@@ -27,8 +27,9 @@ from xml.etree import ElementTree as ET
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder import units
+from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume.drivers.huawei import huawei_utils
 from cinder.volume import volume_types
@@ -56,8 +57,8 @@ class HVSCommon():
         Convert response into Python Object and return it.
         """
 
-        LOG.debug(_('HVS Request URL: %(url)s') % {'url': url})
-        LOG.debug(_('HVS Request Data: %(data)s') % {'data': data})
+        LOG.debug('HVS Request URL: %(url)s' % {'url': url})
+        LOG.debug('HVS Request Data: %(data)s' % {'data': data})
 
         headers = {"Connection": "keep-alive",
                    "Content-Type": "application/json"}
@@ -70,7 +71,7 @@ class HVSCommon():
             if method:
                 req.get_method = lambda: method
             res = urllib2.urlopen(req).read().decode("utf-8")
-            LOG.debug(_('HVS Response Data: %(res)s') % {'res': res})
+            LOG.debug('HVS Response Data: %(res)s' % {'res': res})
         except Exception as err:
             err_msg = _('Bad response from server: %s') % err
             LOG.error(err_msg)
@@ -220,9 +221,9 @@ class HVSCommon():
         calculates volume size with sectors, which is 512 bytes.
         """
 
-        volume_size = units.GiB / 512  # 1G
+        volume_size = units.Gi / 512  # 1G
         if int(volume['size']) != 0:
-            volume_size = int(volume['size']) * units.GiB / 512
+            volume_size = int(volume['size']) * units.Gi / 512
 
         return volume_size
 
@@ -324,8 +325,8 @@ class HVSCommon():
         snapshot_name = self._encode_name(snapshot['id'])
         volume_name = self._encode_name(snapshot['volume_id'])
 
-        LOG.debug(_('create_snapshot:snapshot name:%(snapshot)s, '
-                    'volume name:%(volume)s.')
+        LOG.debug('create_snapshot:snapshot name:%(snapshot)s, '
+                  'volume name:%(volume)s.'
                   % {'snapshot': snapshot_name,
                      'volume': volume_name})
 
@@ -351,8 +352,8 @@ class HVSCommon():
         snapshot_name = self._encode_name(snapshot['id'])
         volume_name = self._encode_name(snapshot['volume_id'])
 
-        LOG.debug(_('_stop_snapshot:snapshot name:%(snapshot)s, '
-                    'volume name:%(volume)s.')
+        LOG.debug('_stop_snapshot:snapshot name:%(snapshot)s, '
+                  'volume name:%(volume)s.'
                   % {'snapshot': snapshot_name,
                      'volume': volume_name})
 
@@ -471,8 +472,8 @@ class HVSCommon():
         lun_id = self._get_volume_by_name(volume_name)
         view_id = self._find_mapping_view(volume_name)
 
-        LOG.debug(_('_mapping_hostgroup_and_lungroup: lun_group: %(lun_group)s'
-                    'view_id: %(view_id)s')
+        LOG.debug('_mapping_hostgroup_and_lungroup: lun_group: %(lun_group)s'
+                  'view_id: %(view_id)s'
                   % {'lun_group': lungroup_id,
                      'view_id': view_id})
 
@@ -508,8 +509,8 @@ class HVSCommon():
         initiator_name = connector['initiator']
         volume_name = self._encode_name(volume['id'])
 
-        LOG.debug(_('initiator name:%(initiator_name)s, '
-                    'volume name:%(volume)s.')
+        LOG.debug('initiator name:%(initiator_name)s, '
+                  'volume name:%(volume)s.'
                   % {'initiator_name': initiator_name,
                      'volume': volume_name})
 
@@ -524,7 +525,7 @@ class HVSCommon():
         lun_id = self._mapping_hostgroup_and_lungroup(volume_name,
                                                       hostgroup_id, hostid)
         hostlunid = self._find_host_lun_id(hostid, lun_id)
-        LOG.debug(_("host lun id is %s") % hostlunid)
+        LOG.debug("host lun id is %s" % hostlunid)
 
         # Return iSCSI properties.
         properties = {}
@@ -540,8 +541,8 @@ class HVSCommon():
         wwns = connector['wwpns']
         volume_name = self._encode_name(volume['id'])
 
-        LOG.debug(_('initiator name:%(initiator_name)s, '
-                    'volume name:%(volume)s.')
+        LOG.debug('initiator name:%(initiator_name)s, '
+                  'volume name:%(volume)s.'
                   % {'initiator_name': wwns,
                      'volume': volume_name})
 
@@ -550,7 +551,7 @@ class HVSCommon():
                                                              connector['ip'])
 
         free_wwns = self._get_connected_free_wwns()
-        LOG.debug(_("the free wwns %s") % free_wwns)
+        LOG.debug("the free wwns %s" % free_wwns)
         for wwn in wwns:
             if wwn in free_wwns:
                 self._add_fc_port_to_host(hostid, wwn)
@@ -571,7 +572,7 @@ class HVSCommon():
         properties['target_wwn'] = tgt_port_wwns
         properties['target_lun'] = int(host_lun_id)
         properties['volume_id'] = volume['id']
-        LOG.debug(_("the fc server properties is:%s") % properties)
+        LOG.debug("the fc server properties is:%s" % properties)
 
         return {'driver_volume_type': 'fibre_channel',
                 'data': properties}
@@ -871,8 +872,8 @@ class HVSCommon():
         volume_name = self._encode_name(volume['id'])
         host_name = connector['host']
 
-        LOG.debug(_('terminate_connection:volume name: %(volume)s, '
-                    'initiator name: %(ini)s.')
+        LOG.debug('terminate_connection:volume name: %(volume)s, '
+                  'initiator name: %(ini)s.'
                   % {'volume': volume_name,
                      'ini': initiator_name})
 
@@ -967,8 +968,8 @@ class HVSCommon():
                 LOG.error(err_msg)
                 raise exception.CinderException(err_msg)
         else:
-            LOG.debug(_('Use default prefetch fetchtype. '
-                        'Prefetch fetchtype:Intelligent.'))
+            LOG.debug('Use default prefetch fetchtype. '
+                      'Prefetch fetchtype:Intelligent.')
 
         return lunsetinfo
 
@@ -1080,7 +1081,7 @@ class HVSCommon():
 
     def _get_tgt_iqn(self, iscsiip):
         """Get target iSCSI iqn."""
-        LOG.debug(_('_get_tgt_iqn: iSCSI IP is %s.') % iscsiip)
+        LOG.debug('_get_tgt_iqn: iSCSI IP is %s.' % iscsiip)
         ip_info = self._get_iscsi_port_info(iscsiip)
         iqn_prefix = self._get_iscsi_tgt_port()
 
@@ -1098,7 +1099,7 @@ class HVSCommon():
                 iqn_suffix = iqn_suffix[i:]
                 break
         iqn = iqn_prefix + ':' + iqn_suffix + ':' + iscsiip
-        LOG.debug(_('_get_tgt_iqn: iSCSI target iqn is %s') % iqn)
+        LOG.debug('_get_tgt_iqn: iSCSI target iqn is %s' % iqn)
         return iqn
 
     def _get_fc_target_wwpns(self, wwn):
@@ -1121,8 +1122,8 @@ class HVSCommon():
     def _parse_volume_type(self, volume):
         type_id = volume['volume_type_id']
         params = self._get_lun_conf_params()
-        LOG.debug(_('_parse_volume_type: type id: %(type_id)s '
-                    'config parameter is: %(params)s')
+        LOG.debug('_parse_volume_type: type id: %(type_id)s '
+                  'config parameter is: %(params)s'
                   % {'type_id': type_id,
                      'params': params})
 
@@ -1159,7 +1160,7 @@ class HVSCommon():
                                'and make it consistent with the configuration '
                                'file %(conf)s.') % {'key': key, 'conf': conf})
 
-        LOG.debug(_("The config parameters are: %s") % params)
+        LOG.debug("The config parameters are: %s" % params)
         return params
 
     def update_volume_stats(self, refresh=False):
@@ -1290,7 +1291,7 @@ class HVSCommon():
         lun_id = self._get_volume_by_name(name)
         if lun_id:
             url = self.url + "/lun/expand"
-            capacity = int(new_size) * units.GiB / 512
+            capacity = int(new_size) * units.Gi / 512
             data = json.dumps({"TYPE": "11",
                                "ID": lun_id,
                                "CAPACITY": capacity})

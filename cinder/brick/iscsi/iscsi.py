@@ -27,6 +27,7 @@ import time
 from cinder.brick import exception
 from cinder.brick import executor
 from cinder.openstack.common import fileutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils as putils
 
@@ -49,11 +50,11 @@ class TargetAdmin(executor.Executor):
 
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
-        """Create a iSCSI target and logical unit."""
+        """Create an iSCSI target and logical unit."""
         raise NotImplementedError()
 
     def remove_iscsi_target(self, tid, lun, vol_id, vol_name, **kwargs):
-        """Remove a iSCSI target and logical unit."""
+        """Remove an iSCSI target and logical unit."""
         raise NotImplementedError()
 
     def _new_target(self, name, tid, **kwargs):
@@ -83,6 +84,7 @@ class TgtAdm(TargetAdmin):
                 <target %s>
                     backing-store %s
                     lld iscsi
+                    write-cache %s
                 </target>
                   """
     VOLUME_CONF_WITH_CHAP_AUTH = """
@@ -90,6 +92,7 @@ class TgtAdm(TargetAdmin):
                                     backing-store %s
                                     lld iscsi
                                     %s
+                                    write-cache %s
                                 </target>
                                  """
 
@@ -165,11 +168,13 @@ class TgtAdm(TargetAdmin):
         fileutils.ensure_tree(self.volumes_dir)
 
         vol_id = name.split(':')[1]
+        write_cache = kwargs.get('write_cache', 'on')
         if chap_auth is None:
-            volume_conf = self.VOLUME_CONF % (name, path)
+            volume_conf = self.VOLUME_CONF % (name, path, write_cache)
         else:
             volume_conf = self.VOLUME_CONF_WITH_CHAP_AUTH % (name,
-                                                             path, chap_auth)
+                                                             path, chap_auth,
+                                                             write_cache)
 
         LOG.info(_('Creating iscsi_target for: %s') % vol_id)
         volumes_dir = self.volumes_dir
@@ -178,8 +183,8 @@ class TgtAdm(TargetAdmin):
         f = open(volume_path, 'w+')
         f.write(volume_conf)
         f.close()
-        LOG.debug(_('Created volume path %(vp)s,\n'
-                    'content: %(vc)s')
+        LOG.debug('Created volume path %(vp)s,\n'
+                  'content: %(vc)s'
                   % {'vp': volume_path, 'vc': volume_conf})
 
         old_persist_file = None
@@ -284,7 +289,7 @@ class TgtAdm(TargetAdmin):
         # For now work-around by checking if the target was deleted,
         # if it wasn't, try again without the force.
 
-        # This will NOT do any good for the case of mutliple sessions
+        # This will NOT do any good for the case of multiple sessions
         # which the force was aded for but it will however address
         # the cases pointed out in bug:
         #    https://bugs.launchpad.net/cinder/+bug/1304122
@@ -600,6 +605,7 @@ class ISERTgtAdm(TgtAdm):
                 <target %s>
                     driver iser
                     backing-store %s
+                    write_cache %s
                 </target>
                   """
     VOLUME_CONF_WITH_CHAP_AUTH = """
@@ -607,6 +613,7 @@ class ISERTgtAdm(TgtAdm):
                                     driver iser
                                     backing-store %s
                                     %s
+                                    write_cache %s
                                 </target>
                                  """
 

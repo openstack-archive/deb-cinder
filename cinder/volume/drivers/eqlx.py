@@ -25,6 +25,7 @@ from oslo.config import cfg
 
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import utils
@@ -136,7 +137,7 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         while not out.endswith(ending):
             out += chan.recv(102400)
 
-        LOG.debug(_("CLI output\n%s"), out)
+        LOG.debug("CLI output\n%s", out)
         return out.splitlines()
 
     def _get_prefixed_value(self, lines, prefix):
@@ -151,15 +152,15 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         chan = transport.open_session()
         chan.invoke_shell()
 
-        LOG.debug(_("Reading CLI MOTD"))
+        LOG.debug("Reading CLI MOTD")
         self._get_output(chan)
 
         cmd = 'stty columns 255'
-        LOG.debug(_("Setting CLI terminal width: '%s'"), cmd)
+        LOG.debug("Setting CLI terminal width: '%s'", cmd)
         chan.send(cmd + '\r')
         out = self._get_output(chan)
 
-        LOG.debug(_("Sending CLI command: '%s'"), command)
+        LOG.debug("Sending CLI command: '%s'", command)
         chan.send(command + '\r')
         out = self._get_output(chan)
 
@@ -244,7 +245,7 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
     def _update_volume_stats(self):
         """Retrieve stats info from eqlx group."""
 
-        LOG.debug(_("Updating volume stats"))
+        LOG.debug("Updating volume stats")
         data = {}
         backend_name = "eqlx"
         if self.configuration:
@@ -279,10 +280,32 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         except processutils.ProcessExecutionError as err:
             with excutils.save_and_reraise_exception():
                 if err.stdout.find('does not exist.\n') > -1:
-                    LOG.debug(_('Volume %s does not exist, '
-                                'it may have already been deleted'),
+                    LOG.debug('Volume %s does not exist, '
+                              'it may have already been deleted',
                               volume['name'])
                     raise exception.VolumeNotFound(volume_id=volume['id'])
+
+    def _parse_connection(self, connector, out):
+        """Returns the correct connection id for the initiator.
+
+        This parses the cli output from the command
+        'volume select <volumename> access show'
+        and returns the correct connection id.
+        """
+        lines = [line for line in out if line != '']
+        #Every record has 2 lines
+        for i in xrange(0, len(lines), 2):
+            try:
+                int(lines[i][0])
+                #sanity check
+                if len(lines[i + 1].split()) == 1:
+                    check = lines[i].split()[1] + lines[i + 1].strip()
+                    if connector['initiator'] == check:
+                        return lines[i].split()[0]
+            except (IndexError, ValueError):
+                pass  # skip the line that is not a valid access record
+
+        return None
 
     def do_setup(self, context):
         """Disable cli confirmation and tune output format."""
@@ -314,10 +337,22 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
             if self.configuration.san_thin_provision:
                 cmd.append('thin-provision')
             out = self._eql_execute(*cmd)
+            self.add_multihost_access(volume)
             return self._get_volume_data(out)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_('Failed to create volume %s'), volume['name'])
+
+    def add_multihost_access(self, volume):
+        """Add multihost-access to a volume. Needed for live migration."""
+        try:
+            cmd = ['volume', 'select',
+                   volume['name'], 'multihost-access', 'enable']
+            self._eql_execute(*cmd)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_('Failed to add multi-host access for volume %s'),
+                          volume['name'])
 
     def delete_volume(self, volume):
         """Delete a volume."""
@@ -355,6 +390,7 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
                                     snapshot['volume_name'], 'snapshot',
                                     'select', snapshot['name'],
                                     'clone', volume['name'])
+            self.add_multihost_access(volume)
             return self._get_volume_data(out)
         except Exception:
             with excutils.save_and_reraise_exception():
@@ -368,6 +404,7 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
                 volume_name_template % src_vref['id']
             out = self._eql_execute('volume', 'select', src_volume_name,
                                     'clone', volume['name'])
+            self.add_multihost_access(volume)
             return self._get_volume_data(out)
         except Exception:
             with excutils.save_and_reraise_exception():
@@ -408,8 +445,12 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
     def terminate_connection(self, volume, connector, force=False, **kwargs):
         """Remove access restrictions from a volume."""
         try:
-            self._eql_execute('volume', 'select', volume['name'],
-                              'access', 'delete', '1')
+            out = self._eql_execute('volume', 'select', volume['name'],
+                                    'access', 'show')
+            connection_id = self._parse_connection(connector, out)
+            if connection_id != None:
+                self._eql_execute('volume', 'select', volume['name'],
+                                  'access', 'delete', connection_id)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_('Failed to terminate connection to volume %s'),

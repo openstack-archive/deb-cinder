@@ -15,7 +15,6 @@
 #    under the License.
 """
 Drivers for volumes.
-
 """
 
 import time
@@ -26,6 +25,7 @@ from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import excutils
 from cinder.openstack.common import fileutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import utils
@@ -80,7 +80,9 @@ volume_opts = [
                     'for example "-c3" for idle only priority.'),
     cfg.StrOpt('iscsi_helper',
                default='tgtadm',
-               help='iSCSI target user-land tool to use'),
+               help='iSCSI target user-land tool to use. tgtadm is default, '
+                    'use lioadm for LIO iSCSI support, iseradm for the ISER '
+                    'protocol, or fake for testing.'),
     cfg.StrOpt('volumes_dir',
                default='$state_path/volumes',
                help='Volume configuration file storage '
@@ -103,6 +105,20 @@ volume_opts = [
                default='1M',
                help='The default block size used when copying/clearing '
                     'volumes'),
+    cfg.StrOpt('volume_copy_blkio_cgroup_name',
+               default='cinder-volume-copy',
+               help='The blkio cgroup name to be used to limit bandwidth '
+                    'of volume copy'),
+    cfg.IntOpt('volume_copy_bps_limit',
+               default=0,
+               help='The upper limit of bandwidth of volume copy. '
+                    '0 => unlimited'),
+    cfg.StrOpt('iscsi_write_cache',
+               default='on',
+               help='Sets the behavior of the iSCSI target to either '
+                    'perform write-back(on) or write-through(off). '
+                    'This parameter is valid if iscsi_helper is set '
+                    'to tgtadm or iseradm.'),
 ]
 
 # for backward compatibility
@@ -135,7 +151,29 @@ CONF.register_opts(iser_opts)
 
 
 class VolumeDriver(object):
-    """Executes commands relating to Volumes."""
+    """Executes commands relating to Volumes.
+
+       Base Driver for Cinder Volume Control Path,
+       This includes supported/required implementation
+       for API calls.  Also provides *generic* implementation
+       of core features like cloning, copy_image_to_volume etc,
+       this way drivers that inherit from this base class and
+       don't offer their own impl can fall back on a general
+       solution here.
+
+       Key thing to keep in mind with this driver is that it's
+       intended that these drivers ONLY implement Control Path
+       details (create, delete, extend...), while transport or
+       data path related implementation should be a *member object*
+       that we call a connector.  The point here is that for example
+       don't allow the LVM driver to implement iSCSI methods, instead
+       call whatever connector it has configued via conf file
+       (iSCSI{LIO, TGT, IET}, FC, etc).
+
+       In the base class and for example the LVM driver we do this via a has-a
+       relationship and just provide an interface to the specific connector
+       methods.  How you do this in your own driver is of course up to you.
+    """
 
     VERSION = "N/A"
 
@@ -144,27 +182,15 @@ class VolumeDriver(object):
         self.db = kwargs.get('db')
         self.host = kwargs.get('host')
         self.configuration = kwargs.get('configuration', None)
+
         if self.configuration:
             self.configuration.append_config_values(volume_opts)
+
         self.set_execute(execute)
         self._stats = {}
 
         # set True by manager after successful check_for_setup
         self._initialized = False
-
-    def set_execute(self, execute):
-        self._execute = execute
-
-    def set_initialized(self):
-        self._initialized = True
-
-    @property
-    def initialized(self):
-        return self._initialized
-
-    def get_version(self):
-        """Get the current version of this driver."""
-        return self.VERSION
 
     def _is_non_recoverable(self, err, non_recoverable_list):
         for item in non_recoverable_list:
@@ -195,6 +221,56 @@ class VolumeDriver(object):
                 LOG.exception(_("Recovering from a failed execute.  "
                                 "Try number %s"), tries)
                 time.sleep(tries ** 2)
+
+    def _detach_volume(self, context, attach_info, volume, properties,
+                       force=False, remote=False):
+        """Disconnect the volume from the host."""
+        # Use Brick's code to do attach/detach
+        connector = attach_info['connector']
+        connector.disconnect_volume(attach_info['conn']['data'],
+                                    attach_info['device'])
+
+        if remote:
+            # Call remote manager's terminate_connection which includes
+            # driver's terminate_connection and remove export
+            rpcapi = volume_rpcapi.VolumeAPI()
+            rpcapi.terminate_connection(context, volume, properties,
+                                        force=force)
+        else:
+            # Call local driver's terminate_connection and remove export.
+            # NOTE(avishay) This is copied from the manager's code - need to
+            # clean this up in the future.
+            try:
+                self.terminate_connection(volume, properties, force=force)
+            except Exception as err:
+                err_msg = (_('Unable to terminate volume connection: %(err)s')
+                           % {'err': err})
+                LOG.error(err_msg)
+                raise exception.VolumeBackendAPIException(data=err_msg)
+
+            try:
+                LOG.debug(("volume %s: removing export"), volume['id'])
+                self.remove_export(context, volume)
+            except Exception as ex:
+                LOG.exception(_("Error detaching volume %(volume)s, "
+                                "due to remove export failure."),
+                              {"volume": volume['id']})
+                raise exception.RemoveExportException(volume=volume['id'],
+                                                      reason=ex)
+
+    def set_execute(self, execute):
+        self._execute = execute
+
+    def set_initialized(self):
+        self._initialized = True
+
+    @property
+    def initialized(self):
+        return self._initialized
+
+    def get_version(self):
+        """Get the current version of this driver."""
+        return self.VERSION
 
     def check_for_setup_error(self):
         raise NotImplementedError()
@@ -228,54 +304,15 @@ class VolumeDriver(object):
     def local_path(self, volume):
         raise NotImplementedError()
 
-    def ensure_export(self, context, volume):
-        """Synchronously recreates an export for a volume."""
-        raise NotImplementedError()
-
-    def create_export(self, context, volume):
-        """Exports the volume. Can optionally return a Dictionary of changes
-        to the volume object to be persisted.
-        """
-        raise NotImplementedError()
-
-    def remove_export(self, context, volume):
-        """Removes an export for a volume."""
-        raise NotImplementedError()
-
-    def initialize_connection(self, volume, connector):
-        """Allow connection to connector and return connection info."""
-        raise NotImplementedError()
-
-    def terminate_connection(self, volume, connector, **kwargs):
-        """Disallow connection from connector"""
-        raise NotImplementedError()
-
-    def attach_volume(self, context, volume, instance_uuid, host_name,
-                      mountpoint):
-        """Callback for volume attached to instance or host."""
-        pass
-
-    def detach_volume(self, context, volume):
-        """Callback for volume detached."""
-        pass
-
     def get_volume_stats(self, refresh=False):
         """Return the current state of the volume service. If 'refresh' is
            True, run the update first.
         """
         return None
 
-    def do_setup(self, context):
-        """Any initialization the volume driver does while starting."""
-        pass
-
-    def validate_connector(self, connector):
-        """Fail if connector doesn't contain all the data needed by driver."""
-        pass
-
     def copy_volume_data(self, context, src_vol, dest_vol, remote=None):
         """Copy data from src_vol to dest_vol."""
-        LOG.debug(_('copy_data_between_volumes %(src)s -> %(dest)s.')
+        LOG.debug(('copy_data_between_volumes %(src)s -> %(dest)s.')
                   % {'src': src_vol['name'], 'dest': dest_vol['name']})
 
         properties = utils.brick_get_connector_properties()
@@ -332,7 +369,7 @@ class VolumeDriver(object):
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
-        LOG.debug(_('copy_image_to_volume %s.') % volume['name'])
+        LOG.debug(('copy_image_to_volume %s.') % volume['name'])
 
         properties = utils.brick_get_connector_properties()
         attach_info = self._attach_volume(context, volume, properties)
@@ -349,7 +386,7 @@ class VolumeDriver(object):
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
-        LOG.debug(_('copy_volume_to_image %s.') % volume['name'])
+        LOG.debug(('copy_volume_to_image %s.') % volume['name'])
 
         properties = utils.brick_get_connector_properties()
         attach_info = self._attach_volume(context, volume, properties)
@@ -375,7 +412,7 @@ class VolumeDriver(object):
             # clean this up in the future.
             model_update = None
             try:
-                LOG.debug(_("Volume %s: creating export"), volume['id'])
+                LOG.debug(("Volume %s: creating export"), volume['id'])
                 model_update = self.create_export(context, volume)
                 if model_update:
                     volume = self.db.volume_update(context, volume['id'],
@@ -409,11 +446,11 @@ class VolumeDriver(object):
         use_multipath = self.configuration.use_multipath_for_image_xfer
         device_scan_attempts = self.configuration.num_volume_device_scan_tries
         protocol = conn['driver_volume_type']
-        connector = utils.brick_get_connector(protocol,
-                                              use_multipath=use_multipath,
-                                              device_scan_attempts=
-                                              device_scan_attempts,
-                                              conn=conn)
+        connector = utils.brick_get_connector(
+            protocol,
+            use_multipath=use_multipath,
+            device_scan_attempts=device_scan_attempts,
+            conn=conn)
         device = connector.connect_volume(conn['data'])
         host_device = device['path']
 
@@ -425,42 +462,6 @@ class VolumeDriver(object):
                                                         "%(path)s.") %
                                                       {'path': host_device}))
         return {'conn': conn, 'device': device, 'connector': connector}
-
-    def _detach_volume(self, context, attach_info, volume, properties,
-                       force=False, remote=False):
-        """Disconnect the volume from the host."""
-        # Use Brick's code to do attach/detach
-        connector = attach_info['connector']
-        connector.disconnect_volume(attach_info['conn']['data'],
-                                    attach_info['device'])
-
-        if remote:
-            # Call remote manager's terminate_connection which includes
-            # driver's terminate_connection and remove export
-            rpcapi = volume_rpcapi.VolumeAPI()
-            rpcapi.terminate_connection(context, volume, properties,
-                                        force=force)
-        else:
-            # Call local driver's terminate_connection and remove export.
-            # NOTE(avishay) This is copied from the manager's code - need to
-            # clean this up in the future.
-            try:
-                self.terminate_connection(volume, properties, force=force)
-            except Exception as err:
-                err_msg = (_('Unable to terminate volume connection: %(err)s')
-                           % {'err': err})
-                LOG.error(err_msg)
-                raise exception.VolumeBackendAPIException(data=err_msg)
-
-            try:
-                LOG.debug(_("volume %s: removing export"), volume['id'])
-                self.remove_export(context, volume)
-            except Exception as ex:
-                LOG.exception(_("Error detaching volume %(volume)s, "
-                                "due to remove export failure."),
-                              {"volume": volume['id']})
-                raise exception.RemoveExportException(volume=volume['id'],
-                                                      reason=ex)
 
     def clone_image(self, volume, image_location, image_id, image_meta):
         """Create a volume efficiently from an existing image.
@@ -487,7 +488,7 @@ class VolumeDriver(object):
         """Create a new backup from an existing volume."""
         volume = self.db.volume_get(context, backup['volume_id'])
 
-        LOG.debug(_('Creating a new backup for volume %s.') %
+        LOG.debug(('Creating a new backup for volume %s.') %
                   volume['name'])
 
         properties = utils.brick_get_connector_properties()
@@ -504,8 +505,8 @@ class VolumeDriver(object):
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
-        LOG.debug(_('Restoring backup %(backup)s to '
-                    'volume %(volume)s.') %
+        LOG.debug(('Restoring backup %(backup)s to '
+                   'volume %(volume)s.') %
                   {'backup': backup['id'],
                    'volume': volume['name']})
 
@@ -613,6 +614,51 @@ class VolumeDriver(object):
         """
         pass
 
+    def attach_volume(self, context, volume, instance_uuid, host_name,
+                      mountpoint):
+        """Callback for volume attached to instance or host."""
+        pass
+
+    def detach_volume(self, context, volume):
+        """Callback for volume detached."""
+        pass
+
+    def do_setup(self, context):
+        """Any initialization the volume driver does while starting."""
+        pass
+
+    def validate_connector(self, connector):
+        """Fail if connector doesn't contain all the data needed by driver."""
+        pass
+
+    @staticmethod
+    def validate_connector_has_setting(connector, setting):
+        pass
+
+    # #######  Interface methods for DataPath (Connector) ########
+    def ensure_export(self, context, volume):
+        """Synchronously recreates an export for a volume."""
+        raise NotImplementedError()
+
+    def create_export(self, context, volume):
+        """Exports the volume.
+
+        Can optionally return a Dictionary of changes
+        to the volume object to be persisted.
+        """
+        raise NotImplementedError()
+
+    def remove_export(self, context, volume):
+        """Removes an export for a volume."""
+        raise NotImplementedError()
+
+    def initialize_connection(self, volume, connector):
+        """Allow connection to connector and return connection info."""
+        raise NotImplementedError()
+
+    def terminate_connection(self, volume, connector, **kwargs):
+        """Disallow connection from connector"""
+
 
 class ISCSIDriver(VolumeDriver):
     """Executes commands relating to ISCSI volumes.
@@ -634,8 +680,8 @@ class ISCSIDriver(VolumeDriver):
         super(ISCSIDriver, self).__init__(*args, **kwargs)
 
     def _do_iscsi_discovery(self, volume):
-        #TODO(justinsb): Deprecate discovery and use stored info
-        #NOTE(justinsb): Discovery won't work with CHAP-secured targets (?)
+        # TODO(justinsb): Deprecate discovery and use stored info
+        # NOTE(justinsb): Discovery won't work with CHAP-secured targets (?)
         LOG.warn(_("ISCSI provider_location not stored, using discovery"))
 
         volume_name = volume['name']
@@ -651,7 +697,7 @@ class ISCSIDriver(VolumeDriver):
         except processutils.ProcessExecutionError as ex:
             LOG.error(_("ISCSI discovery attempt failed for:%s") %
                       volume['host'].split('@')[0])
-            LOG.debug(_("Error from iscsiadm -m discovery: %s") % ex.stderr)
+            LOG.debug("Error from iscsiadm -m discovery: %s" % ex.stderr)
             return None
 
         for target in out.splitlines():
@@ -702,7 +748,7 @@ class ISCSIDriver(VolumeDriver):
                         (volume['name']))
                 raise exception.InvalidVolume(reason=msg)
 
-            LOG.debug(_("ISCSI Discovery: Found %s") % (location))
+            LOG.debug("ISCSI Discovery: Found %s" % (location))
             properties['target_discovered'] = True
 
         results = location.split(" ")
@@ -820,7 +866,7 @@ class ISCSIDriver(VolumeDriver):
     def _update_volume_stats(self):
         """Retrieve stats info from volume group."""
 
-        LOG.debug(_("Updating volume stats"))
+        LOG.debug("Updating volume stats")
         data = {}
         backend_name = self.configuration.safe_get('volume_backend_name')
         data["volume_backend_name"] = backend_name or 'Generic_iSCSI'
@@ -880,7 +926,7 @@ class FakeISCSIDriver(ISCSIDriver):
     @staticmethod
     def fake_execute(cmd, *_args, **_kwargs):
         """Execute that simply logs the command."""
-        LOG.debug(_("FAKE ISCSI: %s"), cmd)
+        LOG.debug("FAKE ISCSI: %s", cmd)
         return (None, None)
 
     def create_volume_from_snapshot(self, volume, snapshot):
@@ -947,7 +993,7 @@ class ISERDriver(ISCSIDriver):
             self.configuration.iser_target_prefix
         self.configuration.iscsi_ip_address = \
             self.configuration.iser_ip_address
-        self.configuration.iser_port = self.configuration.iser_port
+        self.configuration.iscsi_port = self.configuration.iser_port
 
     def initialize_connection(self, volume, connector):
         """Initializes the connection and returns connection info.
@@ -978,7 +1024,7 @@ class ISERDriver(ISCSIDriver):
     def _update_volume_stats(self):
         """Retrieve stats info from volume group."""
 
-        LOG.debug(_("Updating volume stats"))
+        LOG.debug("Updating volume stats")
         data = {}
         backend_name = self.configuration.safe_get('volume_backend_name')
         data["volume_backend_name"] = backend_name or 'Generic_iSER'
@@ -1017,7 +1063,7 @@ class FakeISERDriver(FakeISCSIDriver):
     @staticmethod
     def fake_execute(cmd, *_args, **_kwargs):
         """Execute that simply logs the command."""
-        LOG.debug(_("FAKE ISER: %s"), cmd)
+        LOG.debug("FAKE ISER: %s", cmd)
         return (None, None)
 
 

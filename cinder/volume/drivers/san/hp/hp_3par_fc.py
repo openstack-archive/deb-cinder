@@ -34,11 +34,13 @@ try:
 except ImportError:
     hpexceptions = None
 
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import utils
 import cinder.volume.driver
 from cinder.volume.drivers.san.hp import hp_3par_common as hpcommon
 from cinder.volume.drivers.san import san
+from cinder.zonemanager import utils as fczm_utils
 
 LOG = logging.getLogger(__name__)
 
@@ -61,10 +63,12 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         2.0.0 - Update hp3parclient API uses 3.0.x
         2.0.2 - Add back-end assisted volume migrate
         2.0.3 - Added initiator-target map for FC Zone Manager
+        2.0.4 - Added support for managing/unmanaging of volumes
+        2.0.5 - Only remove FC Zone on last volume detach
 
     """
 
-    VERSION = "2.0.3"
+    VERSION = "2.0.5"
 
     def __init__(self, *args, **kwargs):
         super(HP3PARFCDriver, self).__init__(*args, **kwargs)
@@ -161,6 +165,7 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         finally:
             self.common.client_logout()
 
+    @fczm_utils.AddFCZone
     @utils.synchronized('3par', external=True)
     def initialize_connection(self, volume, connector):
         """Assigns the volume to a server.
@@ -219,6 +224,7 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         finally:
             self.common.client_logout()
 
+    @fczm_utils.RemoveFCZone
     @utils.synchronized('3par', external=True)
     def terminate_connection(self, volume, connector, **kwargs):
         """Driver entry point to unattach a volume from an instance."""
@@ -228,12 +234,20 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
             self.common.terminate_connection(volume, hostname,
                                              wwn=connector['wwpns'])
 
-            target_wwns, init_targ_map = self._build_initiator_target_map(
-                connector)
-
             info = {'driver_volume_type': 'fibre_channel',
-                    'data': {'target_wwn': target_wwns,
-                             'initiator_target_map': init_targ_map}}
+                    'data': {}}
+
+            try:
+                self.common.client.getHostVLUNs(hostname)
+            except hpexceptions.HTTPNotFound:
+                # No more exports for this host.
+                LOG.info(_("Need to remove FC Zone, building initiator "
+                         "target map"))
+                target_wwns, init_targ_map = self._build_initiator_target_map(
+                    connector)
+
+                info['data'] = {'target_wwn': target_wwns,
+                                'initiator_target_map': init_targ_map}
             return info
 
         finally:
@@ -352,6 +366,32 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         self.common.client_login()
         try:
             self.common.extend_volume(volume, new_size)
+        finally:
+            self.common.client_logout()
+
+    @utils.synchronized('3par', external=True)
+    def manage_existing(self, volume, existing_ref):
+        self.common.client_login()
+        try:
+            return self.common.manage_existing(volume, existing_ref)
+        finally:
+            self.common.client_logout()
+
+    @utils.synchronized('3par', external=True)
+    def manage_existing_get_size(self, volume, existing_ref):
+        self.common.client_login()
+        try:
+            size = self.common.manage_existing_get_size(volume, existing_ref)
+        finally:
+            self.common.client_logout()
+
+        return size
+
+    @utils.synchronized('3par', external=True)
+    def unmanage(self, volume):
+        self.common.client_login()
+        try:
+            self.common.unmanage(volume)
         finally:
             self.common.client_logout()
 

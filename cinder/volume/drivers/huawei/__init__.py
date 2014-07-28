@@ -22,6 +22,7 @@ The product type and the protocol should be specified in config file before.
 from oslo.config import cfg
 
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers.huawei import huawei_dorado
 from cinder.volume.drivers.huawei import huawei_hvs
@@ -62,8 +63,8 @@ class HuaweiVolumeDriver(object):
         conf_file = self.configuration.cinder_huawei_conf_file
         (product, protocol) = self._get_conf_info(conf_file)
 
-        LOG.debug(_('_instantiate_driver: Loading %(protocol)s driver for '
-                    'Huawei OceanStor %(product)s series storage arrays.')
+        LOG.debug('_instantiate_driver: Loading %(protocol)s driver for '
+                  'Huawei OceanStor %(product)s series storage arrays.'
                   % {'protocol': protocol,
                      'product': product})
 

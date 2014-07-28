@@ -21,6 +21,7 @@ from cinder import context
 from cinder.db.sqlalchemy import api
 from cinder import exception
 from cinder.image import image_utils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
 from cinder.volume import utils as volutils
@@ -77,7 +78,10 @@ class BlockDeviceDriver(driver.ISCSIDriver):
     def create_export(self, context, volume):
         """Creates an export for a logical volume."""
         volume_path = self.local_path(volume)
-        data = self.target_helper.create_export(context, volume, volume_path)
+        data = self.target_helper.create_export(context,
+                                                volume,
+                                                volume_path,
+                                                self.configuration)
         return {
             'provider_location': data['location'] + ' ' + volume_path,
             'provider_auth': data['auth'],
@@ -177,7 +181,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
 
     def _get_used_devices(self):
         lst = api.volume_get_all_by_host(context.get_admin_context(),
-                                         self.configuration.host)
+                                         self.host)
         used_devices = set()
         for volume in lst:
             local_path = self.local_path(volume)

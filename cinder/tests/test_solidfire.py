@@ -20,8 +20,8 @@ from cinder import context
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
+from cinder.openstack.common import units
 from cinder import test
-from cinder import units
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.solidfire import SolidFireDriver
 from cinder.volume import qos_specs
@@ -61,10 +61,10 @@ class SolidFireVolumeTestCase(test.TestCase):
             LOG.info('Called Fake GetClusterCapacity...')
             data = {'result':
                     {'clusterCapacity': {'maxProvisionedSpace': 107374182400,
-                     'usedSpace': 1073741824,
-                     'compressionPercent': 100,
-                     'deDuplicationPercent': 100,
-                     'thinProvisioningPercent': 100}}}
+                                         'usedSpace': 1073741824,
+                                         'compressionPercent': 100,
+                                         'deDuplicationPercent': 100,
+                                         'thinProvisioningPercent': 100}}}
             return data
 
         elif method is 'GetClusterInfo' and version == '1.0':
@@ -121,7 +121,7 @@ class SolidFireVolumeTestCase(test.TestCase):
                              'name': test_name,
                              'accountID': 25,
                              'sliceCount': 1,
-                             'totalSize': 1 * units.GiB,
+                             'totalSize': 1 * units.Gi,
                              'enable512e': True,
                              'access': "readWrite",
                              'status': "active",

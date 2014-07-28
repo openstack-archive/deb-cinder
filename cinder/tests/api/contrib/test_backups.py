@@ -28,6 +28,7 @@ import cinder.backup
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import test
@@ -246,6 +247,48 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(res_dict['backups'][2]['size'], 0)
         self.assertEqual(res_dict['backups'][2]['status'], 'creating')
         self.assertEqual(res_dict['backups'][2]['volume_id'], '1')
+
+        db.backup_destroy(context.get_admin_context(), backup_id3)
+        db.backup_destroy(context.get_admin_context(), backup_id2)
+        db.backup_destroy(context.get_admin_context(), backup_id1)
+
+    def test_list_backups_detail_using_filters(self):
+        backup_id1 = self._create_backup(display_name='test2')
+        backup_id2 = self._create_backup(status='available')
+        backup_id3 = self._create_backup(volume_id=4321)
+
+        req = webob.Request.blank('/v2/fake/backups/detail?name=test2')
+        req.method = 'GET'
+        req.headers['Content-Type'] = 'application/json'
+        req.headers['Accept'] = 'application/json'
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+
+        self.assertEqual(len(res_dict['backups']), 1)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res_dict['backups'][0]['id'], backup_id1)
+
+        req = webob.Request.blank('/v2/fake/backups/detail?status=available')
+        req.method = 'GET'
+        req.headers['Content-Type'] = 'application/json'
+        req.headers['Accept'] = 'application/json'
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+
+        self.assertEqual(len(res_dict['backups']), 1)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res_dict['backups'][0]['id'], backup_id2)
+
+        req = webob.Request.blank('/v2/fake/backups/detail?volume_id=4321')
+        req.method = 'GET'
+        req.headers['Content-Type'] = 'application/json'
+        req.headers['Accept'] = 'application/json'
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+
+        self.assertEqual(len(res_dict['backups']), 1)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res_dict['backups'][0]['id'], backup_id3)
 
         db.backup_destroy(context.get_admin_context(), backup_id3)
         db.backup_destroy(context.get_admin_context(), backup_id2)

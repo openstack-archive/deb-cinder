@@ -12,10 +12,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.tests.brick.fake_lvm import FakeBrickLVM
 from cinder.volume import driver
 from cinder.volume.drivers import lvm
+from cinder.zonemanager import utils as fczm_utils
 
 
 LOG = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ class FakeISCSIDriver(lvm.LVMISCSIDriver):
     @staticmethod
     def fake_execute(cmd, *_args, **_kwargs):
         """Execute that simply logs the command."""
-        LOG.debug(_("FAKE ISCSI: %s"), cmd)
+        LOG.debug("FAKE ISCSI: %s", cmd)
         return (None, None)
 
 
@@ -73,8 +75,44 @@ class FakeISERDriver(FakeISCSIDriver):
     @staticmethod
     def fake_execute(cmd, *_args, **_kwargs):
         """Execute that simply logs the command."""
-        LOG.debug(_("FAKE ISER: %s"), cmd)
+        LOG.debug("FAKE ISER: %s", cmd)
         return (None, None)
+
+
+class FakeFibreChannelDriver(driver.FibreChannelDriver):
+
+    @fczm_utils.AddFCZone
+    def initialize_connection(self, volume, connector):
+        return {
+            'driver_volume_type': 'fibre_channel',
+            'data': {
+                'initiator_target_map': {'fake_wwn': ['fake_wwn2']},
+            }}
+
+    @fczm_utils.AddFCZone
+    def no_zone_initialize_connection(self, volume, connector):
+        """This shouldn't call the ZM."""
+        return {
+            'driver_volume_type': 'bogus',
+            'data': {
+                'initiator_target_map': {'fake_wwn': ['fake_wwn2']},
+            }}
+
+    @fczm_utils.RemoveFCZone
+    def terminate_connection(self, volume, connector, **kwargs):
+        return {
+            'driver_volume_type': 'fibre_channel',
+            'data': {
+                'initiator_target_map': {'fake_wwn': ['fake_wwn2']},
+            }}
+
+    @fczm_utils.RemoveFCZone
+    def no_zone_terminate_connection(self, volume, connector, **kwargs):
+        return {
+            'driver_volume_type': 'bogus',
+            'data': {
+                'initiator_target_map': {'fake_wwn': ['fake_wwn2']},
+            }}
 
 
 class LoggingVolumeDriver(driver.VolumeDriver):
@@ -121,12 +159,12 @@ class LoggingVolumeDriver(driver.VolumeDriver):
     @staticmethod
     def log_action(action, parameters):
         """Logs the command."""
-        LOG.debug(_("LoggingVolumeDriver: %s") % (action))
+        LOG.debug("LoggingVolumeDriver: %s" % (action))
         log_dictionary = {}
         if parameters:
             log_dictionary = dict(parameters)
         log_dictionary['action'] = action
-        LOG.debug(_("LoggingVolumeDriver: %s") % (log_dictionary))
+        LOG.debug("LoggingVolumeDriver: %s" % (log_dictionary))
         LoggingVolumeDriver._LOGS.append(log_dictionary)
 
     @staticmethod

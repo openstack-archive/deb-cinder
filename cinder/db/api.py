@@ -42,8 +42,8 @@ these objects be simple dictionaries.
 """
 
 from oslo.config import cfg
-
-from cinder.openstack.common.db import api as db_api
+from oslo.db import concurrency as db_concurrency
+from oslo.db import options as db_options
 
 
 db_opts = [
@@ -68,12 +68,16 @@ db_opts = [
                default='backup-%s',
                help='Template string to be used to generate backup names'), ]
 
+
 CONF = cfg.CONF
 CONF.register_opts(db_opts)
+db_options.set_defaults(CONF)
+CONF.set_default('sqlite_db', 'cinder.sqlite', group='database')
 
 _BACKEND_MAPPING = {'sqlalchemy': 'cinder.db.sqlalchemy.api'}
 
-IMPL = db_api.DBAPI(backend_mapping=_BACKEND_MAPPING)
+
+IMPL = db_concurrency.TpoolDbapiWrapper(CONF, _BACKEND_MAPPING)
 
 
 ###################
@@ -174,10 +178,11 @@ def volume_create(context, values):
     return IMPL.volume_create(context, values)
 
 
-def volume_data_get_for_host(context, host):
+def volume_data_get_for_host(context, host, count_only=False):
     """Get (volume_count, gigabytes) for project."""
     return IMPL.volume_data_get_for_host(context,
-                                         host)
+                                         host,
+                                         count_only)
 
 
 def volume_data_get_for_project(context, project_id):
@@ -722,9 +727,9 @@ def backup_get(context, backup_id):
     return IMPL.backup_get(context, backup_id)
 
 
-def backup_get_all(context):
+def backup_get_all(context, filters=None):
     """Get all backups."""
-    return IMPL.backup_get_all(context)
+    return IMPL.backup_get_all(context, filters=filters)
 
 
 def backup_get_all_by_host(context, host):
@@ -737,9 +742,10 @@ def backup_create(context, values):
     return IMPL.backup_create(context, values)
 
 
-def backup_get_all_by_project(context, project_id):
+def backup_get_all_by_project(context, project_id, filters=None):
     """Get all backups belonging to a project."""
-    return IMPL.backup_get_all_by_project(context, project_id)
+    return IMPL.backup_get_all_by_project(context, project_id,
+                                          filters=filters)
 
 
 def backup_update(context, backup_id, values):

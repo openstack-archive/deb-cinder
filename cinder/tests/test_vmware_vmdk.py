@@ -25,8 +25,8 @@ import mox
 
 from cinder import exception
 from cinder.image import glance
+from cinder.openstack.common import units
 from cinder import test
-from cinder import units
 from cinder.volume import configuration
 from cinder.volume.drivers.vmware import api
 from cinder.volume.drivers.vmware import error_util
@@ -89,8 +89,8 @@ class FakeObject(object):
 
 
 class FakeManagedObjectReference(object):
-    def __init__(self, lis=[]):
-        self.ManagedObjectReference = lis
+    def __init__(self, lis=None):
+        self.ManagedObjectReference = lis or []
 
 
 class FakeDatastoreSummary(object):
@@ -353,9 +353,9 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         volume = FakeObject()
         volume['name'] = 'vol_name'
         backing = FakeMor('VirtualMachine', 'my_back')
-        mux = self._driver._create_backing(volume, host1.obj)
+        mux = self._driver._create_backing(volume, host1.obj, {})
         mux.AndRaise(error_util.VimException('Maintenance mode'))
-        mux = self._driver._create_backing(volume, host2.obj)
+        mux = self._driver._create_backing(volume, host2.obj, {})
         mux.AndReturn(backing)
         m.StubOutWithMock(self._volumeops, 'cancel_retrieval')
         self._volumeops.cancel_retrieval(retrieve_result)
@@ -494,7 +494,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         volumeops.get_dc.assert_called_once_with(rp)
         volumeops.get_vmfolder.assert_called_once_with(mock.sentinel.dc)
         driver._get_storage_profile.assert_called_once_with(volume)
-        size = volume['size'] * units.GiB
+        size = volume['size'] * units.Gi
         driver._select_datastore_summary.assert_called_once_with(size, dss)
 
     def test_get_disk_type(self):
@@ -533,9 +533,10 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         backing = FakeMor('VirtualMachine', 'my_back')
         m.StubOutWithMock(self._volumeops, 'create_backing')
         self._volumeops.create_backing(volume['name'],
-                                       volume['size'] * units.MiB,
+                                       volume['size'] * units.Mi,
                                        mox.IgnoreArg(), folder,
                                        resource_pool, host,
+                                       mox.IgnoreArg(),
                                        mox.IgnoreArg(),
                                        mox.IgnoreArg()).AndReturn(backing)
 
@@ -957,7 +958,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         fake_context = mock.sentinel.context
         fake_image_id = 'image-id'
         fake_image_meta = {'disk_format': 'vmdk',
-                           'size': 2 * units.GiB,
+                           'size': 2 * units.Gi,
                            'properties': {'vmware_disktype': 'preallocated'}}
         image_service = mock.Mock(glance.GlanceImageService)
         fake_size = 3
@@ -1026,10 +1027,13 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
     @mock.patch.object(vmware_images, 'fetch_stream_optimized_image')
     @mock.patch.object(VMDK_DRIVER, '_extend_vmdk_virtual_disk')
     @mock.patch.object(VMDK_DRIVER, '_select_ds_for_volume')
+    @mock.patch.object(VMDK_DRIVER, '_get_storage_profile_id')
     @mock.patch.object(VMDK_DRIVER, 'session')
     @mock.patch.object(VMDK_DRIVER, 'volumeops')
-    def test_copy_image_to_volume_stream_optimized(self, volumeops,
+    def test_copy_image_to_volume_stream_optimized(self,
+                                                   volumeops,
                                                    session,
+                                                   get_profile_id,
                                                    _select_ds_for_volume,
                                                    _extend_virtual_disk,
                                                    fetch_optimized_image):
@@ -1039,24 +1043,27 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         """
         self._test_copy_image_to_volume_stream_optimized(volumeops,
                                                          session,
+                                                         get_profile_id,
                                                          _select_ds_for_volume,
                                                          _extend_virtual_disk,
                                                          fetch_optimized_image)
 
     def _test_copy_image_to_volume_stream_optimized(self, volumeops,
                                                     session,
+                                                    get_profile_id,
                                                     _select_ds_for_volume,
                                                     _extend_virtual_disk,
                                                     fetch_optimized_image):
         fake_context = mock.Mock()
         fake_backing = mock.sentinel.backing
         fake_image_id = 'image-id'
-        size = 5 * units.GiB
-        size_gb = float(size) / units.GiB
+        size = 5 * units.Gi
+        size_gb = float(size) / units.Gi
         fake_volume_size = 1 + size_gb
+        adapter_type = 'ide'
         fake_image_meta = {'disk_format': 'vmdk', 'size': size,
-                           'properties': {'vmware_disktype':
-                                          'streamOptimized'}}
+                           'properties': {'vmware_disktype': 'streamOptimized',
+                                          'vmware_adaptertype': adapter_type}}
         image_service = mock.Mock(glance.GlanceImageService)
         fake_host = mock.sentinel.host
         fake_rp = mock.sentinel.rp
@@ -1074,31 +1081,36 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         timeout = self._config.vmware_image_transfer_timeout_secs
 
         image_service.show.return_value = fake_image_meta
-        volumeops._get_create_spec.return_value = fake_vm_create_spec
+        volumeops.get_create_spec.return_value = fake_vm_create_spec
         volumeops.get_backing.return_value = fake_backing
 
-        # If _select_ds_for_volume raises an exception, _get_create_spec
+        # If _select_ds_for_volume raises an exception, get_create_spec
         # will not be called.
         _select_ds_for_volume.side_effect = error_util.VimException('Error')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self._driver.copy_image_to_volume,
                           fake_context, fake_volume,
                           image_service, fake_image_id)
-        self.assertFalse(volumeops._get_create_spec.called)
+        self.assertFalse(volumeops.get_create_spec.called)
 
         # If the volume size is greater then than the image size,
         # _extend_vmdk_virtual_disk will be called.
         _select_ds_for_volume.side_effect = None
         _select_ds_for_volume.return_value = (fake_host, fake_rp,
                                               fake_folder, fake_summary)
+        profile_id = 'profile-1'
+        get_profile_id.return_value = profile_id
         self._driver.copy_image_to_volume(fake_context, fake_volume,
                                           image_service, fake_image_id)
         image_service.show.assert_called_with(fake_context, fake_image_id)
         _select_ds_for_volume.assert_called_with(fake_volume)
-        volumeops._get_create_spec.assert_called_with(fake_volume['name'],
-                                                      0,
-                                                      fake_disk_type,
-                                                      fake_summary.name)
+        get_profile_id.assert_called_once_with(fake_volume)
+        volumeops.get_create_spec.assert_called_with(fake_volume['name'],
+                                                     0,
+                                                     fake_disk_type,
+                                                     fake_summary.name,
+                                                     profile_id,
+                                                     adapter_type)
         self.assertTrue(fetch_optimized_image.called)
         fetch_optimized_image.assert_called_with(fake_context, timeout,
                                                  image_service,
@@ -1189,7 +1201,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         volume = FakeObject()
         volume['name'] = vol_name
         size_gb = 5
-        size = size_gb * units.GiB
+        size = size_gb * units.Gi
         volume['size'] = size_gb
         volume['project_id'] = project_id
         volume['instance_uuid'] = None
@@ -1851,7 +1863,7 @@ class VMwareVcVmdkDriverTestCase(VMwareEsxVmdkDriverTestCase):
                                                         self.VOLUME_FOLDER)
         driver._get_storage_profile.assert_called_once_with(volume)
         driver._filter_ds_by_profile.assert_called_once_with(dss, profile)
-        size = volume['size'] * units.GiB
+        size = volume['size'] * units.Gi
         driver._select_datastore_summary.assert_called_once_with(size,
                                                                  filtered_dss)
 
@@ -1881,10 +1893,12 @@ class VMwareVcVmdkDriverTestCase(VMwareEsxVmdkDriverTestCase):
     @mock.patch.object(vmware_images, 'fetch_stream_optimized_image')
     @mock.patch.object(VMDK_DRIVER, '_extend_vmdk_virtual_disk')
     @mock.patch.object(VMDK_DRIVER, '_select_ds_for_volume')
+    @mock.patch.object(VMDK_DRIVER, '_get_storage_profile_id')
     @mock.patch.object(VMDK_DRIVER, 'session')
     @mock.patch.object(VMDK_DRIVER, 'volumeops')
     def test_copy_image_to_volume_stream_optimized(self, volumeops,
                                                    session,
+                                                   get_profile_id,
                                                    _select_ds_for_volume,
                                                    _extend_virtual_disk,
                                                    fetch_optimized_image):
@@ -1894,6 +1908,7 @@ class VMwareVcVmdkDriverTestCase(VMwareEsxVmdkDriverTestCase):
         """
         self._test_copy_image_to_volume_stream_optimized(volumeops,
                                                          session,
+                                                         get_profile_id,
                                                          _select_ds_for_volume,
                                                          _extend_virtual_disk,
                                                          fetch_optimized_image)
@@ -1906,3 +1921,37 @@ class VMwareVcVmdkDriverTestCase(VMwareEsxVmdkDriverTestCase):
         """Test extend_volume."""
         self._test_extend_volume(volume_ops, _extend_virtual_disk,
                                  _select_ds_for_volume)
+
+    @mock.patch.object(VMDK_DRIVER, '_get_folder_ds_summary')
+    @mock.patch.object(VMDK_DRIVER, 'volumeops')
+    def test_create_backing_with_params(self, vops, get_folder_ds_summary):
+        resource_pool = mock.sentinel.resource_pool
+        vops.get_dss_rp.return_value = (mock.Mock(), resource_pool)
+        folder = mock.sentinel.folder
+        summary = mock.sentinel.summary
+        get_folder_ds_summary.return_value = (folder, summary)
+
+        volume = {'name': 'vol-1', 'volume_type_id': None, 'size': 1}
+        host = mock.Mock()
+        create_params = {vmdk.CREATE_PARAM_DISK_LESS: True}
+        self._driver._create_backing(volume, host, create_params)
+
+        vops.create_backing_disk_less.assert_called_once_with('vol-1',
+                                                              folder,
+                                                              resource_pool,
+                                                              host,
+                                                              summary.name,
+                                                              None)
+
+        create_params = {vmdk.CREATE_PARAM_ADAPTER_TYPE: 'ide'}
+        self._driver._create_backing(volume, host, create_params)
+
+        vops.create_backing.assert_called_once_with('vol-1',
+                                                    units.Mi,
+                                                    vmdk.THIN_VMDK_TYPE,
+                                                    folder,
+                                                    resource_pool,
+                                                    host,
+                                                    summary.name,
+                                                    None,
+                                                    'ide')

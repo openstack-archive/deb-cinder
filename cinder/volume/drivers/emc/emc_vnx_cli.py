@@ -22,6 +22,7 @@ import time
 from oslo.config import cfg
 
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
 from cinder.openstack.common import processutils
@@ -122,7 +123,7 @@ class EMCVnxCli(object):
     def create_volume(self, volume):
         """Creates a EMC volume."""
 
-        LOG.debug(_('Entering create_volume.'))
+        LOG.debug('Entering create_volume.')
         volumesize = volume['size']
         volumename = volume['name']
 
@@ -134,7 +135,7 @@ class EMCVnxCli(object):
         thinness = self._get_provisioning_by_volume(volume)
 
         # executing CLI command to create volume
-        LOG.debug(_('Create Volume: %(volumename)s')
+        LOG.debug('Create Volume: %(volumename)s'
                   % {'volumename': volumename})
 
         lun_create = ('lun', '-create',
@@ -144,7 +145,7 @@ class EMCVnxCli(object):
                       '-poolName', self.pool_name,
                       '-name', volumename)
         out, rc = self._cli_execute(*lun_create)
-        LOG.debug(_('Create Volume: %(volumename)s  Return code: %(rc)s')
+        LOG.debug('Create Volume: %(volumename)s  Return code: %(rc)s'
                   % {'volumename': volumename,
                      'rc': rc})
         if rc == 4:
@@ -175,7 +176,7 @@ class EMCVnxCli(object):
     def delete_volume(self, volume):
         """Deletes an EMC volume."""
 
-        LOG.debug(_('Entering delete_volume.'))
+        LOG.debug('Entering delete_volume.')
         volumename = volume['name']
         # defining CLI command
         lun_destroy = ('lun', '-destroy',
@@ -184,7 +185,7 @@ class EMCVnxCli(object):
 
         # executing CLI command to delete volume
         out, rc = self._cli_execute(*lun_destroy)
-        LOG.debug(_('Delete Volume: %(volumename)s  Output: %(out)s')
+        LOG.debug('Delete Volume: %(volumename)s  Output: %(out)s'
                   % {'volumename': volumename, 'out': out})
         if rc not in (0, 9):
             msg = (_('Failed to destroy %s'), volumename)
@@ -194,7 +195,7 @@ class EMCVnxCli(object):
     def extend_volume(self, volume, new_size):
         """Extends an EMC volume."""
 
-        LOG.debug(_('Entering extend_volume.'))
+        LOG.debug('Entering extend_volume.')
         volumename = volume['name']
 
         # defining CLI command
@@ -207,13 +208,13 @@ class EMCVnxCli(object):
         # executing CLI command to extend volume
         out, rc = self._cli_execute(*lun_expand)
 
-        LOG.debug(_('Extend Volume: %(volumename)s  Output: %(out)s')
+        LOG.debug('Extend Volume: %(volumename)s  Output: %(out)s'
                   % {'volumename': volumename,
                      'out': out})
         if rc == 97:
             msg = (_('The LUN cannot be expanded or shrunk because '
-                   'it has snapshots. Command to extend the specified '
-                   'volume failed.'))
+                     'it has snapshots. Command to extend the specified '
+                     'volume failed.'))
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
         if rc != 0:
@@ -223,7 +224,7 @@ class EMCVnxCli(object):
 
     def update_volume_status(self):
         """Retrieve status info."""
-        LOG.debug(_("Updating volume status"))
+        LOG.debug("Updating volume status")
 
         poolname = self.pool_name
         pool_list = ('storagepool', '-list',
@@ -248,8 +249,8 @@ class EMCVnxCli(object):
 
         device_id = self._find_lun_id(volumename)
 
-        LOG.debug(_('create_export: Volume: %(volume)s  Device ID: '
-                  '%(device_id)s')
+        LOG.debug('create_export: Volume: %(volume)s  Device ID: '
+                  '%(device_id)s'
                   % {'volume': volumename,
                      'device_id': device_id})
 
@@ -272,7 +273,7 @@ class EMCVnxCli(object):
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
-        LOG.debug(_('Entering create_snapshot.'))
+        LOG.debug('Entering create_snapshot.')
         snapshotname = snapshot['name']
         volumename = snapshot['volume_name']
         LOG.info(_('Create snapshot: %(snapshot)s: volume: %(volume)s')
@@ -289,7 +290,7 @@ class EMCVnxCli(object):
         # executing CLI command to create snapshot
         out, rc = self._cli_execute(*snap_create)
 
-        LOG.debug(_('Create Snapshot: %(snapshotname)s  Unity: %(out)s')
+        LOG.debug('Create Snapshot: %(snapshotname)s  Unity: %(out)s'
                   % {'snapshotname': snapshotname,
                      'out': out})
         if rc != 0:
@@ -299,7 +300,7 @@ class EMCVnxCli(object):
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
-        LOG.debug(_('Entering delete_snapshot.'))
+        LOG.debug('Entering delete_snapshot.')
 
         snapshotname = snapshot['name']
         volumename = snapshot['volume_name']
@@ -315,8 +316,8 @@ class EMCVnxCli(object):
             # executing CLI command
             out, rc = self._cli_execute(*snap_destroy)
 
-            LOG.debug(_('Delete Snapshot: Volume: %(volumename)s  Snapshot: '
-                      '%(snapshotname)s  Output: %(out)s')
+            LOG.debug('Delete Snapshot: Volume: %(volumename)s  Snapshot: '
+                      '%(snapshotname)s  Output: %(out)s'
                       % {'volumename': volumename,
                          'snapshotname': snapshotname,
                          'out': out})
@@ -345,7 +346,7 @@ class EMCVnxCli(object):
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot."""
 
-        LOG.debug(_('Entering create_volume_from_snapshot.'))
+        LOG.debug('Entering create_volume_from_snapshot.')
 
         snapshotname = snapshot['name']
         source_volume_name = snapshot['volume_name']
@@ -369,8 +370,8 @@ class EMCVnxCli(object):
         # executing CLI command
         out, rc = self._cli_execute(*lun_create)
 
-        LOG.debug(_('Create temporary Volume: %(volumename)s  '
-                  'Output : %(out)s')
+        LOG.debug('Create temporary Volume: %(volumename)s  '
+                  'Output : %(out)s'
                   % {'volumename': destvolumename, 'out': out})
 
         if rc != 0:
@@ -385,8 +386,8 @@ class EMCVnxCli(object):
 
         # executing CLI command
         out, rc = self._cli_execute(*smp_create)
-        LOG.debug(_('Create mount point : Volume: %(volumename)s  '
-                  'Source Volume: %(sourcevolumename)s  Output: %(out)s')
+        LOG.debug('Create mount point : Volume: %(volumename)s  '
+                  'Source Volume: %(sourcevolumename)s  Output: %(out)s'
                   % {'volumename': volumename,
                      'sourcevolumename': source_volume_name,
                      'out': out})
@@ -403,8 +404,8 @@ class EMCVnxCli(object):
 
         # executing CLI command
         out, rc = self._cli_execute(*lun_attach)
-        LOG.debug(_('Attaching mount point Volume: %(volumename)s  '
-                  'with  Snapshot: %(snapshotname)s  Output: %(out)s')
+        LOG.debug('Attaching mount point Volume: %(volumename)s  '
+                  'with  Snapshot: %(snapshotname)s  Output: %(out)s'
                   % {'volumename': volumename,
                      'snapshotname': snapshotname,
                      'out': out})
@@ -428,8 +429,8 @@ class EMCVnxCli(object):
         # executing CLI command
         out, rc = self._cli_execute(*migrate_start)
 
-        LOG.debug(_('Migrate Mount Point  Volume: %(volumename)s  '
-                  'Output : %(out)s')
+        LOG.debug('Migrate Mount Point  Volume: %(volumename)s  '
+                  'Output : %(out)s'
                   % {'volumename': volumename,
                      'out': out})
 
@@ -496,13 +497,13 @@ class EMCVnxCli(object):
         out, rc = self._cli_execute(*sg_list)
 
         if rc != 0:
-            LOG.debug(_('creating new storage group %s'), storage_groupname)
+            LOG.debug('creating new storage group %s', storage_groupname)
 
             sg_create = ('storagegroup', '-create',
                          '-gname', storage_groupname)
             out, rc = self._cli_execute(*sg_create)
-            LOG.debug(_('Create new storage group : %(storage_groupname)s, '
-                      'Output: %(out)s')
+            LOG.debug('Create new storage group : %(storage_groupname)s, '
+                      'Output: %(out)s'
                       % {'storage_groupname': storage_groupname,
                          'out': out})
 
@@ -518,8 +519,8 @@ class EMCVnxCli(object):
                             '-o')
 
             out, rc = self._cli_execute(*connect_host)
-            LOG.debug(_('Connect storage group : %(storage_groupname)s ,'
-                        'To Host : %(hostname)s, Output : %(out)s')
+            LOG.debug('Connect storage group : %(storage_groupname)s ,'
+                      'To Host : %(hostname)s, Output : %(out)s'
                       % {'storage_groupname': storage_groupname,
                          'hostname': hostname,
                          'out': out})
@@ -558,7 +559,7 @@ class EMCVnxCli(object):
             for lun in lun_map.iterkeys():
                 if lun == int(allocated_lun_id):
                     host_lun_id = lun_map[lun]
-                    LOG.debug(_('Host Lun Id : %s') % (host_lun_id))
+                    LOG.debug('Host Lun Id : %s' % (host_lun_id))
                     break
 
         # finding the owner SP for the LUN
@@ -567,7 +568,7 @@ class EMCVnxCli(object):
         if rc == 0:
             output = out.split('\n')
             owner_sp = output[2].split('Current Owner:  SP ')[1]
-            LOG.debug(_('Owner SP : %s') % (owner_sp))
+            LOG.debug('Owner SP : %s' % (owner_sp))
 
         device = {
             'hostlunid': host_lun_id,
@@ -601,9 +602,9 @@ class EMCVnxCli(object):
 
                     if len(host_lun_id_list) >= self.max_luns:
                         msg = (_('The storage group has reached the '
-                               'maximum capacity of LUNs. '
-                               'Command to add LUN for volume - %s '
-                               'in storagegroup failed') % (volumename))
+                                 'maximum capacity of LUNs. '
+                                 'Command to add LUN for volume - %s '
+                                 'in storagegroup failed') % (volumename))
                         LOG.error(msg)
                         raise exception.VolumeBackendAPIException(data=msg)
 
@@ -611,10 +612,10 @@ class EMCVnxCli(object):
 
                     if host_lun_id is None:
                         msg = (_('Unable to get new host lun id. Please '
-                               'check if the storage group can accommodate '
-                               'new LUN. '
-                               'Command to add LUN for volume - %s '
-                               'in storagegroup failed') % (volumename))
+                                 'check if the storage group can accommodate '
+                                 'new LUN. '
+                                 'Command to add LUN for volume - %s '
+                                 'in storagegroup failed') % (volumename))
                         LOG.error(msg)
                         raise exception.VolumeBackendAPIException(data=msg)
                 else:
@@ -625,8 +626,8 @@ class EMCVnxCli(object):
                           '-hlu', host_lun_id,
                           '-alu', allocated_lun_id)
                 out, rc = self._cli_execute(*addhlu)
-                LOG.debug(_('Add ALU %(alu)s to SG %(sg)s as %(hlu)s. '
-                          'Output: %(out)s')
+                LOG.debug('Add ALU %(alu)s to SG %(sg)s as %(hlu)s. '
+                          'Output: %(out)s'
                           % {'alu': allocated_lun_id,
                              'sg': storage_groupname,
                              'hlu': host_lun_id,
@@ -655,7 +656,7 @@ class EMCVnxCli(object):
 
         out, rc = self._cli_execute(*removehlu)
 
-        LOG.debug(_('Remove %(hlu)s from SG %(sg)s. Output: %(out)s')
+        LOG.debug('Remove %(hlu)s from SG %(sg)s. Output: %(out)s'
                   % {'hlu': device_number,
                      'sg': storage_groupname,
                      'out': out})
@@ -700,8 +701,8 @@ class EMCVnxCli(object):
                 port_wwn = port_info[2].split('Port WWN:')[1].strip()
                 initiator_address.append(port_wwn)
 
-        LOG.debug(_('WWNs found for SP %(devicesp)s '
-                  'are: %(initiator_address)s')
+        LOG.debug('WWNs found for SP %(devicesp)s '
+                  'are: %(initiator_address)s'
                   % {'devicesp': device_sp,
                      'initiator_address': initiator_address})
 

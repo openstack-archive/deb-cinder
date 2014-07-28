@@ -24,13 +24,13 @@ import hashlib
 import inspect
 import os
 import pyclbr
-import random
 import re
 import shutil
 import stat
 import sys
 import tempfile
 
+from Crypto.Random import random
 from eventlet import pools
 from oslo.config import cfg
 import paramiko
@@ -43,6 +43,7 @@ from xml.sax import saxutils
 
 from cinder.brick.initiator import connector
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
@@ -381,26 +382,24 @@ def generate_password(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
     Believed to be reasonably secure (with a reasonable password length!)
 
     """
-    r = random.SystemRandom()
-
     # NOTE(jerdfelt): Some password policies require at least one character
     # from each group of symbols, so start off with one random character
     # from each symbol group
-    password = [r.choice(s) for s in symbolgroups]
+    password = [random.choice(s) for s in symbolgroups]
     # If length < len(symbolgroups), the leading characters will only
     # be from the first length groups. Try our best to not be predictable
     # by shuffling and then truncating.
-    r.shuffle(password)
+    random.shuffle(password)
     password = password[:length]
     length -= len(password)
 
     # then fill with random characters from all symbol groups
     symbols = ''.join(symbolgroups)
-    password.extend([r.choice(symbols) for _i in xrange(length)])
+    password.extend([random.choice(symbols) for _i in xrange(length)])
 
     # finally shuffle to ensure first x characters aren't from a
     # predictable group
-    r.shuffle(password)
+    random.shuffle(password)
 
     return ''.join(password)
 
@@ -433,7 +432,7 @@ class LazyPluggable(object):
                 fromlist = backend
 
             self.__backend = __import__(name, None, None, fromlist)
-            LOG.debug(_('backend %s'), self.__backend)
+            LOG.debug('backend %s', self.__backend)
         return self.__backend
 
     def __getattr__(self, key):
@@ -708,7 +707,7 @@ def tempdir(**kwargs):
         try:
             shutil.rmtree(tmpdir)
         except OSError as e:
-            LOG.debug(_('Could not remove tmpdir: %s'), e)
+            LOG.debug('Could not remove tmpdir: %s', e)
 
 
 def walk_class_hierarchy(clazz, encountered=None):
@@ -783,6 +782,50 @@ def get_file_gid(path):
     return os.stat(path).st_gid
 
 
+def _get_disk_of_partition(devpath, st=None):
+    """Returns a disk device path from a partition device path, and stat for
+    the device. If devpath is not a partition, devpath is returned as it is.
+    For example, '/dev/sda' is returned for '/dev/sda1', and '/dev/disk1' is
+    for '/dev/disk1p1' ('p' is prepended to the partition number if the disk
+    name ends with numbers).
+    """
+    if st is None:
+        st = os.stat(devpath)
+    diskpath = re.sub('(?:(?<=\d)p)?\d+$', '', devpath)
+    if diskpath != devpath:
+        try:
+            st = os.stat(diskpath)
+            if stat.S_ISBLK(st.st_mode):
+                return (diskpath, st)
+        except OSError:
+            pass
+    # devpath is not a partition
+    return (devpath, st)
+
+
+def get_blkdev_major_minor(path, lookup_for_file=True):
+    """Get the device's "major:minor" number of a block device to control
+    I/O ratelimit of the specified path.
+    If lookup_for_file is True and the path is a regular file, lookup a disk
+    device which the file lies on and returns the result for the device.
+    """
+    st = os.stat(path)
+    if stat.S_ISBLK(st.st_mode):
+        path, st = _get_disk_of_partition(path, st)
+        return '%d:%d' % (os.major(st.st_rdev), os.minor(st.st_rdev))
+    elif stat.S_ISCHR(st.st_mode):
+        # No I/O ratelimit control is provided for character devices
+        return None
+    elif lookup_for_file:
+        # lookup the mounted disk which the file lies on
+        out, _err = execute('df', path)
+        devpath = out.split("\n")[1].split()[0]
+        return get_blkdev_major_minor(devpath, False)
+    else:
+        msg = _("Unable to get a block device for file \'%s\'") % path
+        raise exception.Error(msg)
+
+
 def check_string_length(value, name, min_length=0, max_length=None):
     """Check the length of specified string
     :param value: the value of the string
@@ -807,36 +850,25 @@ def check_string_length(value, name, min_length=0, max_length=None):
 _visible_admin_metadata_keys = ['readonly', 'attached_mode']
 
 
-def add_visible_admin_metadata(context, volume, volume_api):
+def add_visible_admin_metadata(volume):
     """Add user-visible admin metadata to regular metadata.
 
     Extracts the admin metadata keys that are to be made visible to
     non-administrators, and adds them to the regular metadata structure for the
     passed-in volume.
     """
-    if context is None:
-        return
-
     visible_admin_meta = {}
 
-    if context.is_admin:
-        volume_tmp = volume
-    else:
-        try:
-            volume_tmp = volume_api.get(context.elevated(), volume['id'])
-        except Exception:
-            return
-
-    if volume_tmp.get('volume_admin_metadata'):
-        for item in volume_tmp['volume_admin_metadata']:
+    if volume.get('volume_admin_metadata'):
+        for item in volume['volume_admin_metadata']:
             if item['key'] in _visible_admin_metadata_keys:
                 visible_admin_meta[item['key']] = item['value']
     # avoid circular ref when volume is a Volume instance
-    elif (volume_tmp.get('admin_metadata') and
-            isinstance(volume_tmp.get('admin_metadata'), dict)):
+    elif (volume.get('admin_metadata') and
+            isinstance(volume.get('admin_metadata'), dict)):
         for key in _visible_admin_metadata_keys:
-            if key in volume_tmp['admin_metadata'].keys():
-                visible_admin_meta[key] = volume_tmp['admin_metadata'][key]
+            if key in volume['admin_metadata'].keys():
+                visible_admin_meta[key] = volume['admin_metadata'][key]
 
     if not visible_admin_meta:
         return
@@ -857,3 +889,21 @@ def add_visible_admin_metadata(context, volume, volume_api):
         volume['metadata'].update(visible_admin_meta)
     else:
         volume['metadata'] = visible_admin_meta
+
+
+def remove_invalid_filter_options(context, filters,
+                                  allowed_search_options):
+    """Remove search options that are not valid
+    for non-admin API/context.
+    """
+    if context.is_admin:
+        # Allow all options
+        return
+    # Otherwise, strip out all unknown options
+    unknown_options = [opt for opt in filters
+                       if opt not in allowed_search_options]
+    bad_options = ", ".join(unknown_options)
+    log_msg = "Removing options '%s' from query." % bad_options
+    LOG.debug(log_msg)
+    for opt in unknown_options:
+        del filters[opt]

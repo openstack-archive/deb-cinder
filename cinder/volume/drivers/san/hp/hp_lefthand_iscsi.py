@@ -32,6 +32,7 @@ hplefthand_password for credentials to talk to the REST service on the
 LeftHand array.
 """
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.driver import VolumeDriver
@@ -48,13 +49,16 @@ class HPLeftHandISCSIDriver(VolumeDriver):
         1.0.0 - Initial driver
         1.0.1 - Added support for retype
         1.0.2 - Added support for volume migrate
+        1.0.3 - Fix for no handler for logger during tests
     """
 
-    VERSION = "1.0.2"
+    VERSION = "1.0.3"
 
     def __init__(self, *args, **kwargs):
         super(HPLeftHandISCSIDriver, self).__init__(*args, **kwargs)
-        self.proxy = self._create_proxy(*args, **kwargs)
+        self.proxy = None
+        self.args = args
+        self.kwargs = kwargs
 
     def _create_proxy(self, *args, **kwargs):
         try:
@@ -70,6 +74,7 @@ class HPLeftHandISCSIDriver(VolumeDriver):
 
     @utils.synchronized('lefthand', external=True)
     def do_setup(self, context):
+        self.proxy = self._create_proxy(*self.args, **self.kwargs)
         self.proxy.do_setup(context)
 
         LOG.info(_("HPLeftHand driver %(driver_ver)s, proxy %(proxy_ver)s") % {

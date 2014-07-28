@@ -94,12 +94,12 @@ class TestWSGIServer(test.TestCase):
             return False
 
     def test_no_app(self):
-        server = cinder.wsgi.Server("test_app", None)
+        server = cinder.wsgi.Server("test_app", None,
+                                    host="127.0.0.1", port=0)
         self.assertEqual("test_app", server.name)
 
     def test_start_random_port(self):
         server = cinder.wsgi.Server("test_random_port", None, host="127.0.0.1")
-        self.assertEqual(0, server.port)
         server.start()
         self.assertNotEqual(0, server.port)
         server.stop()
@@ -128,7 +128,8 @@ class TestWSGIServer(test.TestCase):
             start_response('200 OK', [('Content-Type', 'text/plain')])
             return [greetings]
 
-        server = cinder.wsgi.Server("test_app", hello_world)
+        server = cinder.wsgi.Server("test_app", hello_world,
+                                    host="127.0.0.1", port=0)
         server.start()
 
         response = urllib2.urlopen('http://127.0.0.1:%d/' % server.port)
@@ -148,7 +149,9 @@ class TestWSGIServer(test.TestCase):
         def hello_world(req):
             return greetings
 
-        server = cinder.wsgi.Server("test_app", hello_world)
+        server = cinder.wsgi.Server("test_app", hello_world,
+                                    host="127.0.0.1", port=0)
+
         server.start()
 
         response = urllib2.urlopen('https://127.0.0.1:%d/' % server.port)
@@ -181,6 +184,19 @@ class TestWSGIServer(test.TestCase):
 
         server.stop()
 
+    def test_reset_pool_size_to_default(self):
+        server = cinder.wsgi.Server("test_resize", None, host="127.0.0.1")
+        server.start()
+
+        # Stopping the server, which in turn sets pool size to 0
+        server.stop()
+        self.assertEqual(server._pool.size, 0)
+
+        # Resetting pool size to default
+        server.reset()
+        server.start()
+        self.assertEqual(server._pool.size, 1000)
+
 
 class ExceptionTest(test.TestCase):
 
@@ -190,7 +206,8 @@ class ExceptionTest(test.TestCase):
         # also we don't want to install the _() system-wide and
         # potentially break other test cases, so we do it here for this
         # test suite only.
-        gettextutils.install('', lazy=True)
+        gettextutils.install('')
+        gettextutils.enable_lazy()
         from cinder.api.middleware import fault
         return fault.FaultWrapper(inner_app)
 

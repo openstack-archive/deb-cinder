@@ -20,6 +20,7 @@
 import copy
 import uuid
 
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import local
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
@@ -59,9 +60,6 @@ class RequestContext(object):
         :param kwargs: Extra arguments that might be present, but we ignore
             because they possibly came in from older rpc messages.
         """
-        if kwargs:
-            LOG.warn(_('Arguments dropped when creating context: %s') %
-                     str(kwargs))
 
         self.user_id = user_id
         self.project_id = project_id
@@ -89,7 +87,6 @@ class RequestContext(object):
         self.quota_class = quota_class
         if overwrite or not hasattr(local.store, 'context'):
             self.update_store()
-        self.quota_committed = False
 
         if service_catalog:
             # Only include required parts of service_catalog

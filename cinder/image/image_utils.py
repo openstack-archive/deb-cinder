@@ -32,26 +32,27 @@ from oslo.config import cfg
 
 from cinder import exception
 from cinder.openstack.common import fileutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import imageutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
-from cinder import units
+from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume import utils as volume_utils
 
 LOG = logging.getLogger(__name__)
 
 image_helper_opt = [cfg.StrOpt('image_conversion_dir',
-                    default='$state_path/conversion',
-                    help='Directory used for temporary storage '
-                         'during image conversion'), ]
+                               default='$state_path/conversion',
+                               help='Directory used for temporary storage '
+                                    'during image conversion'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(image_helper_opt)
 
 
 def qemu_img_info(path):
-    """Return a object containing the parsed output from qemu-img info."""
+    """Return an object containing the parsed output from qemu-img info."""
     cmd = ('env', 'LC_ALL=C', 'qemu-img', 'info', path)
     if os.name == 'nt':
         cmd = cmd[2:]
@@ -59,9 +60,13 @@ def qemu_img_info(path):
     return imageutils.QemuImgInfo(out)
 
 
-def convert_image(source, dest, out_format):
+def convert_image(source, dest, out_format, bps_limit=None):
     """Convert image to other format."""
     cmd = ('qemu-img', 'convert', '-O', out_format, source, dest)
+    cgcmd = volume_utils.setup_blkio_cgroup(source, dest, bps_limit)
+    if cgcmd:
+        cmd = tuple(cgcmd) + cmd
+        cmd += ('-t', 'none')  # required to enable ratelimit by blkio cgroup
     utils.execute(*cmd, run_as_root=True)
 
 
@@ -175,14 +180,14 @@ def fetch_to_volume_format(context, image_service,
             # qemu-img is not installed but we do have a RAW image.  As a
             # result we only need to copy the image to the destination and then
             # return.
-            LOG.debug(_('Copying image from %(tmp)s to volume %(dest)s - '
-                        'size: %(size)s') % {'tmp': tmp, 'dest': dest,
-                                             'size': image_meta['size']})
+            LOG.debug('Copying image from %(tmp)s to volume %(dest)s - '
+                      'size: %(size)s' % {'tmp': tmp, 'dest': dest,
+                                          'size': image_meta['size']})
             volume_utils.copy_volume(tmp, dest, image_meta['size'], blocksize)
             return
 
         data = qemu_img_info(tmp)
-        virt_size = data.virtual_size / units.GiB
+        virt_size = data.virtual_size / units.Gi
 
         # NOTE(xqueralt): If the image virtual size doesn't fit in the
         # requested volume there is no point on resizing it because it will
@@ -215,7 +220,8 @@ def fetch_to_volume_format(context, image_service,
         # malicious.
         LOG.debug("%s was %s, converting to %s " % (image_id, fmt,
                                                     volume_format))
-        convert_image(tmp, dest, volume_format)
+        convert_image(tmp, dest, volume_format,
+                      bps_limit=CONF.volume_copy_bps_limit)
 
         data = qemu_img_info(dest)
         if data.file_format != volume_format:
@@ -234,7 +240,7 @@ def upload_volume(context, image_service, image_meta, volume_path,
         LOG.debug("%s was %s, no need to convert to %s" %
                   (image_id, volume_format, image_meta['disk_format']))
         if os.name == 'nt' or os.access(volume_path, os.R_OK):
-            with fileutils.file_open(volume_path) as image_file:
+            with fileutils.file_open(volume_path, 'rb') as image_file:
                 image_service.update(context, image_id, {}, image_file)
         else:
             with utils.temporary_chown(volume_path):
@@ -251,7 +257,8 @@ def upload_volume(context, image_service, image_meta, volume_path,
     with fileutils.remove_path_on_error(tmp):
         LOG.debug("%s was %s, converting to %s" %
                   (image_id, volume_format, image_meta['disk_format']))
-        convert_image(volume_path, tmp, image_meta['disk_format'])
+        convert_image(volume_path, tmp, image_meta['disk_format'],
+                      bps_limit=CONF.volume_copy_bps_limit)
 
         data = qemu_img_info(tmp)
         if data.file_format != image_meta['disk_format']:
@@ -260,7 +267,7 @@ def upload_volume(context, image_service, image_meta, volume_path,
                 reason=_("Converted to %(f1)s, but format is now %(f2)s") %
                 {'f1': image_meta['disk_format'], 'f2': data.file_format})
 
-        with fileutils.file_open(tmp) as image_file:
+        with fileutils.file_open(tmp, 'rb') as image_file:
             image_service.update(context, image_id, {}, image_file)
         fileutils.delete_if_exists(tmp)
 
@@ -309,8 +316,8 @@ def coalesce_vhd(vhd_path):
         'vhd-util', 'coalesce', '-n', vhd_path)
 
 
-def create_temporary_file():
-    fd, tmp = tempfile.mkstemp(dir=CONF.image_conversion_dir)
+def create_temporary_file(*args, **kwargs):
+    fd, tmp = tempfile.mkstemp(dir=CONF.image_conversion_dir, *args, **kwargs)
     os.close(fd)
     return tmp
 
@@ -320,9 +327,9 @@ def rename_file(src, dst):
 
 
 @contextlib.contextmanager
-def temporary_file():
+def temporary_file(*args, **kwargs):
     try:
-        tmp = create_temporary_file()
+        tmp = create_temporary_file(*args, **kwargs)
         yield tmp
     finally:
         fileutils.delete_if_exists(tmp)

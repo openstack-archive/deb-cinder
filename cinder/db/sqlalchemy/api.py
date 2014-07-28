@@ -20,10 +20,14 @@
 
 
 import sys
+import threading
 import uuid
 import warnings
 
 from oslo.config import cfg
+from oslo.db import exception as db_exc
+from oslo.db import options
+from oslo.db.sqlalchemy import session as db_session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, joinedload_all
@@ -34,8 +38,7 @@ from sqlalchemy.sql import func
 from cinder.common import sqlalchemyutils
 from cinder.db.sqlalchemy import models
 from cinder import exception
-from cinder.openstack.common.db import exception as db_exc
-from cinder.openstack.common.db.sqlalchemy import session as db_session
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
@@ -44,11 +47,32 @@ from cinder.openstack.common import uuidutils
 CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
-db_session.set_defaults(sql_connection='sqlite:///$state_path/$sqlite_db',
-                        sqlite_db='cinder.sqlite')
+options.set_defaults(CONF, connection='sqlite:///$state_path/cinder.sqlite')
 
-get_engine = db_session.get_engine
-get_session = db_session.get_session
+_LOCK = threading.Lock()
+_FACADE = None
+
+
+def _create_facade_lazily():
+    global _LOCK
+    with _LOCK:
+        global _FACADE
+        if _FACADE is None:
+            _FACADE = db_session.EngineFacade(
+                CONF.database.connection,
+                **dict(CONF.database.iteritems())
+            )
+        return _FACADE
+
+
+def get_engine():
+    facade = _create_facade_lazily()
+    return facade.get_engine()
+
+
+def get_session(**kwargs):
+    facade = _create_facade_lazily()
+    return facade.get_session(**kwargs)
 
 _DEFAULT_QUOTA_NAME = 'default'
 
@@ -361,8 +385,11 @@ def service_create(context, values):
     service_ref.update(values)
     if not CONF.enable_new_services:
         service_ref.disabled = True
-    service_ref.save()
-    return service_ref
+
+    session = get_session()
+    with session.begin():
+        service_ref.save(session)
+        return service_ref
 
 
 @require_admin_context
@@ -371,7 +398,6 @@ def service_update(context, service_id, values):
     with session.begin():
         service_ref = _service_get(context, service_id, session=session)
         service_ref.update(values)
-        service_ref.save(session=session)
 
 
 ###################
@@ -422,11 +448,13 @@ def iscsi_target_create_safe(context, values):
 
     for (key, value) in values.iteritems():
         iscsi_target_ref[key] = value
-    try:
-        iscsi_target_ref.save()
-        return iscsi_target_ref
-    except IntegrityError:
-        return None
+    session = get_session()
+    with session.begin():
+        try:
+            iscsi_target_ref.save(session)
+            return iscsi_target_ref
+        except IntegrityError:
+            return None
 
 
 ###################
@@ -472,8 +500,11 @@ def quota_create(context, project_id, resource, limit):
     quota_ref.project_id = project_id
     quota_ref.resource = resource
     quota_ref.hard_limit = limit
-    quota_ref.save()
-    return quota_ref
+
+    session = get_session()
+    with session.begin():
+        quota_ref.save(session)
+        return quota_ref
 
 
 @require_admin_context
@@ -482,7 +513,6 @@ def quota_update(context, project_id, resource, limit):
     with session.begin():
         quota_ref = _quota_get(context, project_id, resource, session=session)
         quota_ref.hard_limit = limit
-        quota_ref.save(session=session)
 
 
 @require_admin_context
@@ -548,8 +578,11 @@ def quota_class_create(context, class_name, resource, limit):
     quota_class_ref.class_name = class_name
     quota_class_ref.resource = resource
     quota_class_ref.hard_limit = limit
-    quota_class_ref.save()
-    return quota_class_ref
+
+    session = get_session()
+    with session.begin():
+        quota_class_ref.save(session)
+        return quota_class_ref
 
 
 @require_admin_context
@@ -559,7 +592,6 @@ def quota_class_update(context, class_name, resource, limit):
         quota_class_ref = _quota_class_get(context, class_name, resource,
                                            session=session)
         quota_class_ref.hard_limit = limit
-        quota_class_ref.save(session=session)
 
 
 @require_admin_context
@@ -792,10 +824,6 @@ def quota_reserve(context, resources, quotas, deltas, expire,
                 if delta > 0:
                     usages[resource].reserved += delta
 
-        # Apply updates to the usages table
-        for usage_ref in usages.values():
-            usage_ref.save(session=session)
-
     if unders:
         LOG.warning(_("Change will make usage less than 0 for the following "
                       "resources: %s") % unders)
@@ -834,9 +862,6 @@ def reservation_commit(context, reservations, project_id=None):
 
             reservation.delete(session=session)
 
-        for usage in usages.values():
-            usage.save(session=session)
-
 
 @require_context
 def reservation_rollback(context, reservations, project_id=None):
@@ -850,9 +875,6 @@ def reservation_rollback(context, reservations, project_id=None):
                 usage.reserved -= reservation.delta
 
             reservation.delete(session=session)
-
-        for usage in usages.values():
-            usage.save(session=session)
 
 
 @require_admin_context
@@ -941,7 +963,6 @@ def volume_attached(context, volume_id, instance_uuid, host_name, mountpoint):
         volume_ref['attach_status'] = 'attached'
         volume_ref['instance_uuid'] = instance_uuid
         volume_ref['attached_host'] = host_name
-        volume_ref.save(session=session)
         return volume_ref
 
 
@@ -963,22 +984,29 @@ def volume_create(context, values):
 
     session = get_session()
     with session.begin():
-        volume_ref.save(session=session)
+        session.add(volume_ref)
 
-        return _volume_get(context, values['id'], session=session)
+    return _volume_get(context, values['id'], session=session)
 
 
 @require_admin_context
-def volume_data_get_for_host(context, host):
-    result = model_query(context,
-                         func.count(models.Volume.id),
-                         func.sum(models.Volume.size),
-                         read_deleted="no").\
-        filter_by(host=host).\
-        first()
-
-    # NOTE(vish): convert None to 0
-    return (result[0] or 0, result[1] or 0)
+def volume_data_get_for_host(context, host, count_only=False):
+    if count_only:
+        result = model_query(context,
+                             func.count(models.Volume.id),
+                             read_deleted="no").\
+            filter_by(host=host).\
+            first()
+        return result[0] or 0
+    else:
+        result = model_query(context,
+                             func.count(models.Volume.id),
+                             func.sum(models.Volume.size),
+                             read_deleted="no").\
+            filter_by(host=host).\
+            first()
+        # NOTE(vish): convert None to 0
+        return (result[0] or 0, result[1] or 0)
 
 
 @require_admin_context
@@ -1074,7 +1102,6 @@ def volume_detached(context, volume_id):
         volume_ref['instance_uuid'] = None
         volume_ref['attached_host'] = None
         volume_ref['attach_time'] = None
-        volume_ref.save(session=session)
 
 
 @require_context
@@ -1310,7 +1337,7 @@ def volume_update(context, volume_id, values):
 
         volume_ref = _volume_get(context, volume_id, session=session)
         volume_ref.update(values)
-        volume_ref.save(session=session)
+
         return volume_ref
 
 
@@ -1499,14 +1526,14 @@ def volume_admin_metadata_update(context, volume_id, metadata, delete):
 def snapshot_create(context, values):
     values['snapshot_metadata'] = _metadata_refs(values.get('metadata'),
                                                  models.SnapshotMetadata)
-    snapshot_ref = models.Snapshot()
     if not values.get('id'):
         values['id'] = str(uuid.uuid4())
-    snapshot_ref.update(values)
 
     session = get_session()
     with session.begin():
-        snapshot_ref.save(session=session)
+        snapshot_ref = models.Snapshot()
+        snapshot_ref.update(values)
+        session.add(snapshot_ref)
 
         return _snapshot_get(context, values['id'], session=session)
 
@@ -1620,7 +1647,6 @@ def snapshot_update(context, snapshot_id, values):
     with session.begin():
         snapshot_ref = _snapshot_get(context, snapshot_id, session=session)
         snapshot_ref.update(values)
-        snapshot_ref.save(session=session)
 
 ####################
 
@@ -1741,7 +1767,7 @@ def volume_type_create(context, values):
                                                    models.VolumeTypeExtraSpecs)
             volume_type_ref = models.VolumeTypes()
             volume_type_ref.update(values)
-            volume_type_ref.save(session=session)
+            session.add(volume_type_ref)
         except Exception as e:
             raise db_exc.DBError(e)
         return volume_type_ref
@@ -2035,7 +2061,7 @@ def qos_specs_create(context, values):
             # Insert a root entry for QoS specs
             specs_root = models.QualityOfServiceSpecs()
             root = dict(id=specs_id)
-            # 'QoS_Specs_Name' is a internal reserved key to store
+            # 'QoS_Specs_Name' is an internal reserved key to store
             # the name of QoS specs
             root['key'] = 'QoS_Specs_Name'
             root['value'] = values['name']
@@ -2256,7 +2282,7 @@ def _qos_specs_get_item(context, qos_specs_id, key, session=None):
 
 @require_admin_context
 def qos_specs_update(context, qos_specs_id, specs):
-    """Make updates to a existing qos specs.
+    """Make updates to an existing qos specs.
 
     Perform add, update or delete key/values to a qos specs.
     """
@@ -2318,7 +2344,7 @@ def volume_type_encryption_create(context, volume_type_id, values):
             values['volume_type_id'] = volume_type_id
 
         encryption.update(values)
-        encryption.save(session=session)
+        session.add(encryption)
 
         return encryption
 
@@ -2335,7 +2361,6 @@ def volume_type_encryption_update(context, volume_type_id, values):
                                                          volume_type_id)
 
         encryption.update(values)
-        encryption.save(session=session)
 
         return encryption
 
@@ -2372,14 +2397,12 @@ def volume_encryption_metadata_get(context, volume_id, session=None):
 
 @require_context
 def _volume_glance_metadata_get_all(context, session=None):
-    rows = model_query(context,
-                       models.VolumeGlanceMetadata,
-                       project_only=True,
-                       session=session).\
-        filter_by(deleted=False).\
-        all()
-
-    return rows
+    query = model_query(context,
+                        models.VolumeGlanceMetadata,
+                        session=session)
+    if is_user_context(context):
+        query = query.filter(models.Volume.project_id == context.project_id)
+    return query.all()
 
 
 @require_context
@@ -2458,7 +2481,7 @@ def volume_glance_metadata_create(context, volume_id, key, value):
         vol_glance_metadata.key = key
         vol_glance_metadata.value = str(value)
 
-        vol_glance_metadata.save(session=session)
+        session.add(vol_glance_metadata)
 
     return
 
@@ -2567,9 +2590,20 @@ def backup_get(context, backup_id):
     return result
 
 
+def _backup_get_all(context, filters=None):
+    session = get_session()
+    with session.begin():
+        # Generate the query
+        query = model_query(context, models.Backup)
+        if filters:
+            query = query.filter_by(**filters)
+
+        return query.all()
+
+
 @require_admin_context
-def backup_get_all(context):
-    return model_query(context, models.Backup).all()
+def backup_get_all(context, filters=None):
+    return _backup_get_all(context, filters)
 
 
 @require_admin_context
@@ -2578,11 +2612,17 @@ def backup_get_all_by_host(context, host):
 
 
 @require_context
-def backup_get_all_by_project(context, project_id):
-    authorize_project_context(context, project_id)
+def backup_get_all_by_project(context, project_id, filters=None):
 
-    return model_query(context, models.Backup).\
-        filter_by(project_id=project_id).all()
+    authorize_project_context(context, project_id)
+    if not filters:
+        filters = {}
+    else:
+        filters = filters.copy()
+
+    filters['project_id'] = project_id
+
+    return _backup_get_all(context, filters)
 
 
 @require_context
@@ -2591,8 +2631,11 @@ def backup_create(context, values):
     if not values.get('id'):
         values['id'] = str(uuid.uuid4())
     backup.update(values)
-    backup.save()
-    return backup
+
+    session = get_session()
+    with session.begin():
+        backup.save(session)
+        return backup
 
 
 @require_context
@@ -2608,7 +2651,7 @@ def backup_update(context, backup_id, values):
                 _("No backup with id %s") % backup_id)
 
         backup.update(values)
-        backup.save(session=session)
+
     return backup
 
 
@@ -2681,7 +2724,6 @@ def transfer_get_all_by_project(context, project_id):
 
 @require_context
 def transfer_create(context, values):
-    transfer = models.Transfer()
     if not values.get('id'):
         values['id'] = str(uuid.uuid4())
     session = get_session()
@@ -2694,10 +2736,11 @@ def transfer_create(context, values):
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
         volume_ref['status'] = 'awaiting-transfer'
+        transfer = models.Transfer()
         transfer.update(values)
-        transfer.save(session=session)
+        session.add(transfer)
         volume_ref.update(volume_ref)
-        volume_ref.save(session=session)
+
     return transfer
 
 
@@ -2749,7 +2792,7 @@ def transfer_accept(context, transfer_id, user_id, project_id):
         volume_ref['project_id'] = project_id
         volume_ref['updated_at'] = literal_column('updated_at')
         volume_ref.update(volume_ref)
-        volume_ref.save(session=session)
+
         session.query(models.Transfer).\
             filter_by(id=transfer_ref['id']).\
             update({'deleted': True,

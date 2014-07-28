@@ -23,6 +23,7 @@ from oslo.config import cfg
 
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.scheduler import filters
 from cinder.openstack.common.scheduler import weights
@@ -263,13 +264,13 @@ class HostManager(object):
     def update_service_capabilities(self, service_name, host, capabilities):
         """Update the per-service capabilities based on this notification."""
         if service_name != 'volume':
-            LOG.debug(_('Ignoring %(service_name)s service update '
-                        'from %(host)s'),
+            LOG.debug('Ignoring %(service_name)s service update '
+                      'from %(host)s',
                       {'service_name': service_name, 'host': host})
             return
 
-        LOG.debug(_("Received %(service_name)s service update from "
-                    "%(host)s.") %
+        LOG.debug("Received %(service_name)s service update from "
+                  "%(host)s." %
                   {'service_name': service_name, 'host': host})
 
         # Copy the capabilities, so we don't modify the original dict

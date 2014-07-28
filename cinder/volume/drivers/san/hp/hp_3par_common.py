@@ -37,6 +37,7 @@ array.
 import ast
 import base64
 import json
+import math
 import pprint
 import re
 import uuid
@@ -52,9 +53,10 @@ from oslo.config import cfg
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
-from cinder import units
+from cinder.openstack.common import units
 from cinder.volume import qos_specs
 from cinder.volume import volume_types
 
@@ -129,10 +131,12 @@ class HP3PARCommon(object):
         2.0.10 - Fixed an issue with 3PAR vlun location bug #1315542
         2.0.11 - Remove hp3parclient requirement from unit tests #1315195
         2.0.12 - Volume detach hangs when host is in a host set bug #1317134
+        2.0.13 - Added support for managing/unmanaging of volumes
+        2.0.14 - Modified manage volume to use standard 'source-name' element.
 
     """
 
-    VERSION = "2.0.12"
+    VERSION = "2.0.14"
 
     stats = {}
 
@@ -260,18 +264,132 @@ class HP3PARCommon(object):
         volume_name = self._get_3par_vol_name(volume['id'])
         old_size = volume['size']
         growth_size = int(new_size) - old_size
-        LOG.debug(_("Extending Volume %(vol)s from %(old)s to %(new)s, "
-                    " by %(diff)s GB.") %
+        LOG.debug("Extending Volume %(vol)s from %(old)s to %(new)s, "
+                  " by %(diff)s GB." %
                   {'vol': volume_name, 'old': old_size, 'new': new_size,
                    'diff': growth_size})
-        growth_size_mib = growth_size * units.KiB
+        growth_size_mib = growth_size * units.Ki
         self._extend_volume(volume, volume_name, growth_size_mib)
+
+    def manage_existing(self, volume, existing_ref):
+        """Manage an existing 3PAR volume.
+
+        existing_ref is a dictionary of the form:
+        {'source-name': <name of the virtual volume>}
+        """
+        # Check for the existence of the virtual volume.
+        try:
+            vol = self.client.getVolume(existing_ref['source-name'])
+        except hpexceptions.HTTPNotFound:
+            err = (_("Virtual volume '%s' doesn't exist on array.") %
+                   existing_ref['source-name'])
+            LOG.error(err)
+            raise exception.InvalidInput(reason=err)
+
+        new_comment = {}
+
+        # Use the display name from the existing volume if no new name
+        # was chosen by the user.
+        if volume['display_name']:
+            display_name = volume['display_name']
+            new_comment['display_name'] = volume['display_name']
+        elif 'comment' in vol:
+            display_name = self._get_3par_vol_comment_value(vol['comment'],
+                                                            'display_name')
+            if display_name:
+                new_comment['display_name'] = display_name
+        else:
+            display_name = None
+
+        # Generate the new volume information based off of the new ID.
+        new_vol_name = self._get_3par_vol_name(volume['id'])
+        name = 'volume-' + volume['id']
+
+        new_comment['volume_id'] = volume['id']
+        new_comment['name'] = name
+        new_comment['type'] = 'OpenStack'
+
+        # Create new comments for the existing volume depending on
+        # whether the user's volume type choice.
+        # TODO(Anthony) when retype is available handle retyping of
+        # a volume.
+        if volume['volume_type']:
+            try:
+                settings = self.get_volume_settings_from_type(volume)
+            except Exception:
+                reason = (_("Volume type ID '%s' is invalid.") %
+                          volume['volume_type_id'])
+                raise exception.ManageExistingVolumeTypeMismatch(reason=reason)
+
+            volume_type = self._get_volume_type(volume['volume_type_id'])
+
+            new_comment['volume_type_name'] = volume_type['name']
+            new_comment['volume_type_id'] = volume['volume_type_id']
+            new_comment['qos'] = settings['qos']
+
+        # Update the existing volume with the new name and comments.
+        self.client.modifyVolume(existing_ref['source-name'],
+                                 {'newName': new_vol_name,
+                                  'comment': json.dumps(new_comment)})
+
+        LOG.info(_("Virtual volume '%(ref)s' renamed to '%(new)s'.") %
+                 {'ref': existing_ref['source-name'], 'new': new_vol_name})
+        LOG.info(_("Virtual volume %(disp)s '%(new)s' is now being managed.") %
+                 {'disp': display_name, 'new': new_vol_name})
+
+        # Return display name to update the name displayed in the GUI.
+        return {'display_name': display_name}
+
+    def manage_existing_get_size(self, volume, existing_ref):
+        """Return size of volume to be managed by manage_existing.
+
+        existing_ref is a dictionary of the form:
+        {'source-name': <name of the virtual volume>}
+        """
+        # Check that a valid reference was provided.
+        if 'source-name' not in existing_ref:
+            reason = _("Reference must contain source-name element.")
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref,
+                reason=reason)
+
+        # Make sure the reference is not in use.
+        if re.match('osv-*|oss-*|vvs-*', existing_ref['source-name']):
+            reason = _("Reference must be for an unmanaged virtual volume.")
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref,
+                reason=reason)
+
+        # Check for the existence of the virtual volume.
+        try:
+            vol = self.client.getVolume(existing_ref['source-name'])
+        except hpexceptions.HTTPNotFound:
+            err = (_("Virtual volume '%s' doesn't exist on array.") %
+                   existing_ref['source-name'])
+            LOG.error(err)
+            raise exception.InvalidInput(reason=err)
+
+        return int(math.ceil(float(vol['sizeMiB']) / units.Ki))
+
+    def unmanage(self, volume):
+        """Removes the specified volume from Cinder management."""
+        # Rename the volume's name to unm-* format so that it can be
+        # easily found later.
+        vol_name = self._get_3par_vol_name(volume['id'])
+        new_vol_name = self._get_3par_unm_name(volume['id'])
+        self.client.modifyVolume(vol_name, {'newName': new_vol_name})
+
+        LOG.info(_("Virtual volume %(disp)s '%(vol)s' is no longer managed. "
+                   "Volume renamed to '%(new)s'.") %
+                 {'disp': volume['display_name'],
+                  'vol': vol_name,
+                  'new': new_vol_name})
 
     def _extend_volume(self, volume, volume_name, growth_size_mib,
                        _convert_to_base=False):
         try:
             if _convert_to_base:
-                LOG.debug(_("Converting to base volume prior to growing."))
+                LOG.debug("Converting to base volume prior to growing.")
                 self._convert_to_base_volume(volume)
             self.client.growVolume(volume_name, growth_size_mib)
         except Exception as ex:
@@ -319,6 +437,10 @@ class HP3PARCommon(object):
     def _get_3par_vvs_name(self, volume_id):
         vvs_name = self._encode_name(volume_id)
         return "vvs-%s" % vvs_name
+
+    def _get_3par_unm_name(self, volume_id):
+        unm_name = self._encode_name(volume_id)
+        return "unm-%s" % unm_name
 
     def _encode_name(self, name):
         uuid_str = name.replace("-", "")
@@ -637,13 +759,13 @@ class HP3PARCommon(object):
             if min_io is None:
                 qosRule['ioMinGoal'] = int(max_io)
         if min_bw:
-            qosRule['bwMinGoalKB'] = int(min_bw) * units.KiB
+            qosRule['bwMinGoalKB'] = int(min_bw) * units.Ki
             if max_bw is None:
-                qosRule['bwMaxLimitKB'] = int(min_bw) * units.KiB
+                qosRule['bwMaxLimitKB'] = int(min_bw) * units.Ki
         if max_bw:
-            qosRule['bwMaxLimitKB'] = int(max_bw) * units.KiB
+            qosRule['bwMaxLimitKB'] = int(max_bw) * units.Ki
             if min_bw is None:
-                qosRule['bwMinGoalKB'] = int(max_bw) * units.KiB
+                qosRule['bwMinGoalKB'] = int(max_bw) * units.Ki
         if latency:
             qosRule['latencyGoal'] = int(latency)
         if priority:
@@ -842,7 +964,7 @@ class HP3PARCommon(object):
     def _copy_volume(self, src_name, dest_name, cpg, snap_cpg=None,
                      tpvv=True):
         # Virtual volume sets are not supported with the -online option
-        LOG.debug(_('Creating clone of a volume %(src)s to %(dest)s.') %
+        LOG.debug('Creating clone of a volume %(src)s to %(dest)s.' %
                   {'src': src_name, 'dest': dest_name})
 
         optional = {'tpvv': tpvv, 'online': True}
@@ -899,7 +1021,7 @@ class HP3PARCommon(object):
             except hpexceptions.HTTPBadRequest as ex:
                 if ex.get_code() == 29:
                     if self.client.isOnlinePhysicalCopy(volume_name):
-                        LOG.debug(_("Found an online copy for %(volume)s")
+                        LOG.debug("Found an online copy for %(volume)s"
                                   % {'volume': volume_name})
                         # the volume is in process of being cloned.
                         # stopOnlinePhysicalCopy will also delete
@@ -999,11 +1121,11 @@ class HP3PARCommon(object):
             growth_size = volume['size'] - snapshot['volume_size']
             if growth_size > 0:
                 try:
-                    LOG.debug(_('Converting to base volume type: %s.') %
+                    LOG.debug('Converting to base volume type: %s.' %
                               volume['id'])
                     self._convert_to_base_volume(volume)
-                    growth_size_mib = growth_size * units.GiB / units.MiB
-                    LOG.debug(_('Growing volume: %(id)s by %(size)s GiB.') %
+                    growth_size_mib = growth_size * units.Gi / units.Mi
+                    LOG.debug('Growing volume: %(id)s by %(size)s GiB.' %
                               {'id': volume['id'], 'size': growth_size})
                     self.client.growVolume(volume_name, growth_size_mib)
                 except Exception as ex:
@@ -1135,19 +1257,19 @@ class HP3PARCommon(object):
                      host['host'] is its name, and host['capabilities'] is a
                      dictionary of its reported capabilities.
         :returns (False, None) if the driver does not support migration,
-                 (True, None) if sucessful
+                 (True, None) if successful
 
         """
 
         dbg = {'id': volume['id'], 'host': host['host']}
-        LOG.debug(_('enter: migrate_volume: id=%(id)s, host=%(host)s.') % dbg)
+        LOG.debug('enter: migrate_volume: id=%(id)s, host=%(host)s.' % dbg)
 
         false_ret = (False, None)
 
         # Make sure volume is not attached
         if volume['status'] != 'available':
-            LOG.debug(_('Volume is attached: migrate_volume: '
-                        'id=%(id)s, host=%(host)s.') % dbg)
+            LOG.debug('Volume is attached: migrate_volume: '
+                      'id=%(id)s, host=%(host)s.' % dbg)
             return false_ret
 
         if 'location_info' not in host['capabilities']:
@@ -1162,30 +1284,30 @@ class HP3PARCommon(object):
         sys_info = self.client.getStorageSystemInfo()
         if not (dest_type == 'HP3PARDriver' and
                 dest_id == sys_info['serialNumber']):
-            LOG.debug(_('Dest does not match: migrate_volume: '
-                        'id=%(id)s, host=%(host)s.') % dbg)
+            LOG.debug('Dest does not match: migrate_volume: '
+                      'id=%(id)s, host=%(host)s.' % dbg)
             return false_ret
 
         type_info = self.get_volume_settings_from_type(volume)
 
         if dest_cpg == type_info['cpg']:
-            LOG.debug(_('CPGs are the same: migrate_volume: '
-                        'id=%(id)s, host=%(host)s.') % dbg)
+            LOG.debug('CPGs are the same: migrate_volume: '
+                      'id=%(id)s, host=%(host)s.' % dbg)
             return false_ret
 
         # Check to make sure CPGs are in the same domain
         src_domain = self.get_domain(type_info['cpg'])
         dst_domain = self.get_domain(dest_cpg)
         if src_domain != dst_domain:
-            LOG.debug(_('CPGs in different domains: migrate_volume: '
-                        'id=%(id)s, host=%(host)s.') % dbg)
+            LOG.debug('CPGs in different domains: migrate_volume: '
+                      'id=%(id)s, host=%(host)s.' % dbg)
             return false_ret
 
         self._convert_to_base_volume(volume, new_cpg=dest_cpg)
 
         # TODO(Ramy) When volume retype is available,
         # use that to change the type
-        LOG.debug(_('leave: migrate_volume: id=%(id)s, host=%(host)s.') % dbg)
+        LOG.debug('leave: migrate_volume: id=%(id)s, host=%(host)s.' % dbg)
         return (True, None)
 
     def _convert_to_base_volume(self, volume, new_cpg=None):
@@ -1205,8 +1327,8 @@ class HP3PARCommon(object):
             task_id = self._copy_volume(volume_name, temp_vol_name,
                                         cpg, cpg, type_info['tpvv'])
 
-            LOG.debug(_('Copy volume scheduled: convert_to_base_volume: '
-                        'id=%s.') % volume['id'])
+            LOG.debug('Copy volume scheduled: convert_to_base_volume: '
+                      'id=%s.' % volume['id'])
 
             # Wait for the physical copy task to complete
             def _wait_for_task(task_id):
@@ -1229,19 +1351,19 @@ class HP3PARCommon(object):
                         'id=%(id)s, status=%(status)s.') % dbg
                 raise exception.CinderException(msg)
             else:
-                LOG.debug(_('Copy volume completed: convert_to_base_volume: '
-                            'id=%s.') % volume['id'])
+                LOG.debug('Copy volume completed: convert_to_base_volume: '
+                          'id=%s.' % volume['id'])
 
             comment = self._get_3par_vol_comment(volume_name)
             if comment:
                 self.client.modifyVolume(temp_vol_name, {'comment': comment})
-            LOG.debug(_('Volume rename completed: convert_to_base_volume: '
-                        'id=%s.') % volume['id'])
+            LOG.debug('Volume rename completed: convert_to_base_volume: '
+                      'id=%s.' % volume['id'])
 
             # Delete source volume after the copy is complete
             self.client.deleteVolume(volume_name)
-            LOG.debug(_('Delete src volume completed: convert_to_base_volume: '
-                        'id=%s.') % volume['id'])
+            LOG.debug('Delete src volume completed: convert_to_base_volume: '
+                      'id=%s.' % volume['id'])
 
             # Rename the new volume to the original name
             self.client.modifyVolume(temp_vol_name, {'newName': volume_name})

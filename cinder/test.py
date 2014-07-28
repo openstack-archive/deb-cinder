@@ -37,8 +37,9 @@ from testtools import matchers
 
 from cinder.common import config  # noqa Need to register global_opts
 from cinder.db import migration
-from cinder.openstack.common.db.sqlalchemy import session
+from cinder.db.sqlalchemy import api as sqla_api
 from cinder.openstack.common import log as oslo_logging
+from cinder.openstack.common import strutils
 from cinder.openstack.common import timeutils
 from cinder import rpc
 from cinder import service
@@ -64,13 +65,13 @@ class TestingException(Exception):
 
 class Database(fixtures.Fixture):
 
-    def __init__(self, db_session, db_migrate, sql_connection,
+    def __init__(self, db_api, db_migrate, sql_connection,
                  sqlite_db, sqlite_clean_db):
         self.sql_connection = sql_connection
         self.sqlite_db = sqlite_db
         self.sqlite_clean_db = sqlite_clean_db
 
-        self.engine = db_session.get_engine()
+        self.engine = db_api.get_engine()
         self.engine.dispose()
         conn = self.engine.connect()
         if sql_connection == "sqlite://":
@@ -121,17 +122,23 @@ class TestCase(testtools.TestCase):
         self.useFixture(fixtures.NestedTempfile())
         self.useFixture(fixtures.TempHomeDir())
 
-        if (os.environ.get('OS_STDOUT_CAPTURE') == 'True' or
-                os.environ.get('OS_STDOUT_CAPTURE') == '1'):
+        environ_enabled = (lambda var_name:
+                           strutils.bool_from_string(os.environ.get(var_name)))
+        if environ_enabled('OS_STDOUT_CAPTURE'):
             stdout = self.useFixture(fixtures.StringStream('stdout')).stream
             self.useFixture(fixtures.MonkeyPatch('sys.stdout', stdout))
-        if (os.environ.get('OS_STDERR_CAPTURE') == 'True' or
-                os.environ.get('OS_STDERR_CAPTURE') == '1'):
+        if environ_enabled('OS_STDERR_CAPTURE'):
             stderr = self.useFixture(fixtures.StringStream('stderr')).stream
             self.useFixture(fixtures.MonkeyPatch('sys.stderr', stderr))
-
-        self.log_fixture = self.useFixture(fixtures.FakeLogger(
-            level=logging.DEBUG))
+        if environ_enabled('OS_LOG_CAPTURE'):
+            log_format = '%(levelname)s [%(name)s] %(message)s'
+            if environ_enabled('OS_DEBUG'):
+                level = logging.DEBUG
+            else:
+                level = logging.INFO
+            self.useFixture(fixtures.LoggerFixture(nuke_handlers=False,
+                                                   format=log_format,
+                                                   level=level))
 
         rpc.add_extra_exmods("cinder.tests")
         self.addCleanup(rpc.clear_extra_exmods)
@@ -152,15 +159,13 @@ class TestCase(testtools.TestCase):
         self.start = timeutils.utcnow()
 
         CONF.set_default('connection', 'sqlite://', 'database')
-        CONF.set_default('sqlite_synchronous', False)
-
-        self.log_fixture = self.useFixture(fixtures.FakeLogger())
+        CONF.set_default('sqlite_synchronous', False, 'database')
 
         global _DB_CACHE
         if not _DB_CACHE:
-            _DB_CACHE = Database(session, migration,
+            _DB_CACHE = Database(sqla_api, migration,
                                  sql_connection=CONF.database.connection,
-                                 sqlite_db=CONF.sqlite_db,
+                                 sqlite_db=CONF.database.sqlite_db,
                                  sqlite_clean_db=CONF.sqlite_clean_db)
         self.useFixture(_DB_CACHE)
 
@@ -263,7 +268,7 @@ class TestCase(testtools.TestCase):
                 error = abs(float(d1value) - float(d2value))
                 within_tolerance = error <= tolerance
             except (ValueError, TypeError):
-                # If both values aren't convertable to float, just ignore
+                # If both values aren't convertible to float, just ignore
                 # ValueError if arg is a str, TypeError if it's something else
                 # (like None)
                 within_tolerance = False

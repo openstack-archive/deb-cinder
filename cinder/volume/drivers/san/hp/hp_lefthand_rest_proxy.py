@@ -17,8 +17,9 @@
 
 from cinder import context
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder import units
+from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume.driver import ISCSIDriver
 from cinder.volume import volume_types
@@ -168,7 +169,7 @@ class HPLeftHandRESTProxy(ISCSIDriver):
 
             volume_info = self.client.createVolume(
                 volume['name'], self.cluster_id,
-                volume['size'] * units.GiB,
+                volume['size'] * units.Gi,
                 optional)
 
             return self._update_provider(volume_info)
@@ -191,7 +192,7 @@ class HPLeftHandRESTProxy(ISCSIDriver):
             volume_info = self.client.getVolumeByName(volume['name'])
 
             # convert GB to bytes
-            options = {'size': int(new_size) * units.GiB}
+            options = {'size': int(new_size) * units.Gi}
             self.client.modifyVolume(volume_info['id'], options)
         except Exception as ex:
             raise exception.VolumeBackendAPIException(ex)
@@ -249,8 +250,8 @@ class HPLeftHandRESTProxy(ISCSIDriver):
         free_capacity = cluster_info['spaceAvailable']
 
         # convert to GB
-        data['total_capacity_gb'] = int(total_capacity) / units.GiB
-        data['free_capacity_gb'] = int(free_capacity) / units.GiB
+        data['total_capacity_gb'] = int(total_capacity) / units.Gi
+        data['free_capacity_gb'] = int(free_capacity) / units.Gi
 
         self.device_stats = data
 
@@ -403,11 +404,11 @@ class HPLeftHandRESTProxy(ISCSIDriver):
                      host['host'] is its name, and host['capabilities'] is a
                      dictionary of its reported capabilities.
         """
-        LOG.debug(_('enter: retype: id=%(id)s, new_type=%(new_type)s,'
-                    'diff=%(diff)s, host=%(host)s') % {'id': volume['id'],
-                                                       'new_type': new_type,
-                                                       'diff': diff,
-                                                       'host': host})
+        LOG.debug('enter: retype: id=%(id)s, new_type=%(new_type)s,'
+                  'diff=%(diff)s, host=%(host)s' % {'id': volume['id'],
+                                                    'new_type': new_type,
+                                                    'diff': diff,
+                                                    'host': host})
         try:
             volume_info = self.client.getVolumeByName(volume['name'])
         except hpexceptions.HTTPNotFound:
@@ -420,7 +421,7 @@ class HPLeftHandRESTProxy(ISCSIDriver):
                 new_extra_specs,
                 extra_specs_key_map.keys())
 
-            LOG.debug(_('LH specs=%(specs)s') % {'specs': lh_extra_specs})
+            LOG.debug('LH specs=%(specs)s' % {'specs': lh_extra_specs})
 
             # only set the ones that have changed
             changed_extra_specs = {}
@@ -461,11 +462,11 @@ class HPLeftHandRESTProxy(ISCSIDriver):
                      host['host'] is its name, and host['capabilities'] is a
                      dictionary of its reported capabilities.
         """
-        LOG.debug(_('enter: migrate_volume: id=%(id)s, host=%(host)s, '
-                    'cluster=%(cluster)s') % {
-                        'id': volume['id'],
-                        'host': host,
-                        'cluster': self.configuration.hplefthand_clustername})
+        LOG.debug('enter: migrate_volume: id=%(id)s, host=%(host)s, '
+                  'cluster=%(cluster)s' % {
+                      'id': volume['id'],
+                      'host': host,
+                      'cluster': self.configuration.hplefthand_clustername})
 
         false_ret = (False, None)
         if 'location_info' not in host['capabilities']:
@@ -476,7 +477,7 @@ class HPLeftHandRESTProxy(ISCSIDriver):
         try:
             # get the cluster info, if it exists and compare
             cluster_info = self.client.getClusterByName(cluster)
-            LOG.debug(_('Clister info: %s') % cluster_info)
+            LOG.debug('Clister info: %s' % cluster_info)
             virtual_ips = cluster_info['virtualIPAddresses']
 
             if driver != self.__class__.__name__:
@@ -498,7 +499,7 @@ class HPLeftHandRESTProxy(ISCSIDriver):
 
         try:
             volume_info = self.client.getVolumeByName(volume['name'])
-            LOG.debug(_('Volume info: %s') % volume_info)
+            LOG.debug('Volume info: %s' % volume_info)
 
             # can't migrate if server is attached
             if volume_info['iscsiSessions'] is not None:
@@ -511,7 +512,7 @@ class HPLeftHandRESTProxy(ISCSIDriver):
             snap_info = self.client.getVolume(
                 volume_info['id'],
                 'fields=snapshots,snapshots[resource[members[name]]]')
-            LOG.debug(_('Snapshot info: %s') % snap_info)
+            LOG.debug('Snapshot info: %s' % snap_info)
             if snap_info['snapshots']['resource'] is not None:
                 LOG.info(_("Cannot provide backend assisted migration "
                            "for volume: %s because the volume has "

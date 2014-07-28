@@ -24,6 +24,7 @@ from cinder import db
 from cinder.db.sqlalchemy import api as db_api
 from cinder.db.sqlalchemy import models
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.tests import conf_fixture
@@ -217,7 +218,7 @@ class VolumeTypeTestCase(test.TestCase):
                                                               'k2': 'v2',
                                                               'k3': 'v3'})
         type_ref = volume_types.create(self.ctxt, "type1", {"key2": "val2",
-                                                  "key3": "val3"})
+                                                            "key3": "val3"})
         res = volume_types.get_volume_type_qos_specs(type_ref['id'])
         self.assertIsNone(res['qos_specs'])
         qos_specs.associate_qos_with_type(self.ctxt,

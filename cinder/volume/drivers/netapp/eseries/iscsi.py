@@ -24,8 +24,9 @@ from oslo.config import cfg
 
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder import units
+from cinder.openstack.common import units
 from cinder import utils as cinder_utils
 from cinder.volume import driver
 from cinder.volume.drivers.netapp.eseries import client
@@ -223,7 +224,7 @@ class Driver(driver.ISCSIDriver):
             self._objects['volumes']['ref_vol'].pop(vol_id, True)
             self._objects['volumes']['label_ref'].pop(label)
         else:
-            LOG.debug(_("Volume %s not cached."), label)
+            LOG.debug("Volume %s not cached.", label)
 
     def _del_snapshot_frm_cache(self, obj_name):
         """Deletes snapshot group from cache."""
@@ -232,7 +233,7 @@ class Driver(driver.ISCSIDriver):
             self._objects['snapshots']['ref_snap'].pop(snap_id, True)
             self._objects['snapshots']['label_ref'].pop(obj_name)
         else:
-            LOG.debug(_("Snapshot %s not cached."), obj_name)
+            LOG.debug("Snapshot %s not cached.", obj_name)
 
     def _del_vol_mapping_frm_cache(self, mapping):
         """Deletes volume mapping under cached volume."""
@@ -242,7 +243,7 @@ class Driver(driver.ISCSIDriver):
         try:
             mappings.remove(mapping)
         except ValueError:
-            LOG.debug(_("Mapping with id %s already removed."),
+            LOG.debug("Mapping with id %s already removed.",
                       mapping['lunMappingRef'])
 
     def _get_volume(self, uid):
@@ -306,7 +307,7 @@ class Driver(driver.ISCSIDriver):
 
     def _get_sorted_avl_storage_pools(self, size_gb):
         """Returns storage pools sorted on available capacity."""
-        size = size_gb * units.GiB
+        size = size_gb * units.Gi
         pools = self._client.list_storage_pools()
         sorted_pools = sorted(pools, key=lambda x:
                               (int(x.get('totalRaidedSpace', 0))
@@ -347,10 +348,10 @@ class Driver(driver.ISCSIDriver):
     def _create_snapshot_volume(self, snapshot_id):
         """Creates snapshot volume for given group with snapshot_id."""
         group = self._get_cached_snapshot_grp(snapshot_id)
-        LOG.debug(_("Creating snap vol for group %s"), group['label'])
+        LOG.debug("Creating snap vol for group %s", group['label'])
         image = self._get_cached_snap_grp_image(snapshot_id)
         label = utils.convert_uuid_to_es_fmt(uuid.uuid4())
-        capacity = int(image['pitCapacity']) / units.GiB
+        capacity = int(image['pitCapacity']) / units.Gi
         storage_pools = self._get_sorted_avl_storage_pools(capacity)
         s_id = storage_pools[0]['volumeGroupRef']
         return self._client.create_snapshot_volume(image['pitRef'], label,
@@ -423,7 +424,7 @@ class Driver(driver.ISCSIDriver):
         snap_grp, snap_image = None, None
         snapshot_name = utils.convert_uuid_to_es_fmt(snapshot['id'])
         vol = self._get_volume(snapshot['volume_id'])
-        vol_size_gb = int(vol['totalSizeInBytes']) / units.GiB
+        vol_size_gb = int(vol['totalSizeInBytes']) / units.Gi
         pools = self._get_sorted_avl_storage_pools(vol_size_gb)
         try:
             snap_grp = self._client.create_snapshot_group(
@@ -622,7 +623,7 @@ class Driver(driver.ISCSIDriver):
 
     def _update_volume_stats(self):
         """Update volume statistics."""
-        LOG.debug(_("Updating volume stats."))
+        LOG.debug("Updating volume stats.")
         self._stats = self._stats or {}
         netapp_backend = 'NetApp_ESeries'
         backend_name = self.configuration.safe_get('volume_backend_name')
@@ -646,8 +647,8 @@ class Driver(driver.ISCSIDriver):
             if pool['volumeGroupRef'] in self._objects['disk_pool_refs']:
                 tot_bytes = tot_bytes + int(pool.get('totalRaidedSpace', 0))
                 used_bytes = used_bytes + int(pool.get('usedSpace', 0))
-        self._stats['free_capacity_gb'] = (tot_bytes - used_bytes) / units.GiB
-        self._stats['total_capacity_gb'] = tot_bytes / units.GiB
+        self._stats['free_capacity_gb'] = (tot_bytes - used_bytes) / units.Gi
+        self._stats['total_capacity_gb'] = tot_bytes / units.Gi
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""
@@ -686,7 +687,7 @@ class Driver(driver.ISCSIDriver):
                     try:
                         self._delete_volume(label)
                     except exception.NetAppDriverException:
-                        LOG.debug(_("Error deleting vol with label %s."),
+                        LOG.debug("Error deleting vol with label %s.",
                                   label)
         finally:
             utils.set_safe_attr(self, 'clean_job_running', False)

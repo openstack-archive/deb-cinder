@@ -23,9 +23,10 @@ operations on the SAN.
 from lxml import etree
 
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
-from cinder import units
+from cinder.openstack.common import units
 from cinder.volume.drivers.san.san import SanISCSIDriver
 
 
@@ -105,7 +106,7 @@ class HPLeftHandCLIQProxy(SanISCSIDriver):
         cliq_args['output'] = 'XML'
         (out, _err) = self._cliq_run(verb, cliq_args, check_cliq_result)
 
-        LOG.debug(_("CLIQ command returned %s"), out)
+        LOG.debug("CLIQ command returned %s", out)
 
         result_xml = etree.fromstring(out.encode('utf8'))
         if check_cliq_result:
@@ -202,7 +203,7 @@ class HPLeftHandCLIQProxy(SanISCSIDriver):
             for k, v in status_node.attrib.items():
                 volume_attributes["permission." + k] = v
 
-        LOG.debug(_("Volume info: %(volume_name)s => %(volume_attributes)s") %
+        LOG.debug("Volume info: %(volume_name)s => %(volume_attributes)s" %
                   {'volume_name': volume_name,
                    'volume_attributes': volume_attributes})
         return volume_attributes
@@ -258,7 +259,7 @@ class HPLeftHandCLIQProxy(SanISCSIDriver):
             for k, v in status_node.attrib.items():
                 snapshot_attributes["permission." + k] = v
 
-        LOG.debug(_("Snapshot info: %(name)s => %(attributes)s") %
+        LOG.debug("Snapshot info: %(name)s => %(attributes)s" %
                   {'name': snapshot_name, 'attributes': snapshot_attributes})
         return snapshot_attributes
 
@@ -438,7 +439,7 @@ class HPLeftHandCLIQProxy(SanISCSIDriver):
         cluster_node = result_xml.find("response/cluster")
         total_capacity = cluster_node.attrib.get("spaceTotal")
         free_capacity = cluster_node.attrib.get("unprovisionedSpace")
-        GB = units.GiB
+        GB = units.Gi
 
         data['total_capacity_gb'] = int(total_capacity) / GB
         data['free_capacity_gb'] = int(free_capacity) / GB

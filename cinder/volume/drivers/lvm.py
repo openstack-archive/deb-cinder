@@ -29,9 +29,10 @@ from cinder.brick.local_dev import lvm as lvm
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
-from cinder import units
+from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume import utils as volutils
@@ -44,8 +45,8 @@ volume_opts = [
                help='Name for the VG that will contain exported volumes'),
     cfg.IntOpt('lvm_mirrors',
                default=0,
-               help='If set, create lvms with multiple mirrors. Note that '
-                    'this requires lvm_mirrors + 2 pvs with available space'),
+               help='If >0, create LVs with multiple mirrors. Note that '
+                    'this requires lvm_mirrors + 2 PVs with available space'),
     cfg.StrOpt('lvm_type',
                default='default',
                help='Type of LVM volumes to deploy; (default or thin)'),
@@ -163,7 +164,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         # clear_volume expects sizes in MiB, we store integer GiB
         # be sure to convert before passing in
-        vol_sz_in_meg = size_in_g * units.KiB
+        vol_sz_in_meg = size_in_g * units.Ki
 
         volutils.clear_volume(
             vol_sz_in_meg, dev_path,
@@ -206,11 +207,11 @@ class LVMVolumeDriver(driver.VolumeDriver):
         # ThinLVM snapshot LVs.
         self.vg.activate_lv(snapshot['name'], is_snapshot=True)
 
-       # copy_volume expects sizes in MiB, we store integer GiB
-       # be sure to convert before passing in
+        # copy_volume expects sizes in MiB, we store integer GiB
+        # be sure to convert before passing in
         volutils.copy_volume(self.local_path(snapshot),
                              self.local_path(volume),
-                             snapshot['volume_size'] * units.KiB,
+                             snapshot['volume_size'] * units.Ki,
                              self.configuration.volume_dd_blocksize,
                              execute=self._execute)
 
@@ -291,20 +292,21 @@ class LVMVolumeDriver(driver.VolumeDriver):
                          'id': temp_id}
 
         self.create_snapshot(temp_snapshot)
-        self._create_volume(volume['name'],
-                            self._sizestr(volume['size']),
-                            self.configuration.lvm_type,
-                            mirror_count)
 
-        self.vg.activate_lv(temp_snapshot['name'], is_snapshot=True)
-
-       # copy_volume expects sizes in MiB, we store integer GiB
-       # be sure to convert before passing in
+        # copy_volume expects sizes in MiB, we store integer GiB
+        # be sure to convert before passing in
         try:
+            self._create_volume(volume['name'],
+                                self._sizestr(volume['size']),
+                                self.configuration.lvm_type,
+                                mirror_count)
+
+            self.vg.activate_lv(temp_snapshot['name'], is_snapshot=True)
+
             volutils.copy_volume(
                 self.local_path(temp_snapshot),
                 self.local_path(volume),
-                src_vref['size'] * units.KiB,
+                src_vref['size'] * units.Ki,
                 self.configuration.volume_dd_blocksize,
                 execute=self._execute)
         finally:
@@ -342,7 +344,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
     def _update_volume_stats(self):
         """Retrieve stats info from volume group."""
 
-        LOG.debug(_("Updating volume stats"))
+        LOG.debug("Updating volume stats")
         if self.vg is None:
             LOG.warning(_('Unable to update stats on non-initialized '
                           'Volume Group: %s'), self.configuration.volume_group)
@@ -393,7 +395,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         Renames the LV to match the expected name for the volume.
         Error checking done by manage_existing_get_size is not repeated.
         """
-        lv_name = existing_ref['lv_name']
+        lv_name = existing_ref['source-name']
         self.vg.get_volume(lv_name)
 
         # Attempt to rename the LV to match the OpenStack internal name.
@@ -411,15 +413,15 @@ class LVMVolumeDriver(driver.VolumeDriver):
         """Return size of an existing LV for manage_existing.
 
         existing_ref is a dictionary of the form:
-        {'lv_name': <name of LV>}
+        {'source-name': <name of LV>}
         """
 
         # Check that the reference is valid
-        if 'lv_name' not in existing_ref:
-            reason = _('Reference must contain lv_name element.')
+        if 'source-name' not in existing_ref:
+            reason = _('Reference must contain source-name element.')
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref, reason=reason)
-        lv_name = existing_ref['lv_name']
+        lv_name = existing_ref['source-name']
         lv = self.vg.get_volume(lv_name)
 
         # Raise an exception if we didn't find a suitable LV.
@@ -488,6 +490,7 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
             try:
                 # NOTE(jdg): For TgtAdm case iscsi_name is all we need
                 # should clean this all up at some point in the future
+
                 tid = self.target_helper.create_iscsi_target(
                     iscsi_name,
                     iscsi_target,
@@ -514,9 +517,12 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
                                       volume_name)
         # NOTE(jdg): For TgtAdm case iscsi_name is the ONLY param we need
         # should clean this all up at some point in the future
-        model_update = self.target_helper.ensure_export(context, volume,
-                                                        iscsi_name,
-                                                        volume_path)
+        model_update = self.target_helper.ensure_export(
+            context, volume,
+            iscsi_name,
+            volume_path,
+            self.configuration.volume_group,
+            self.configuration)
         if model_update:
             self.db.volume_update(context, volume['id'], model_update)
 
@@ -530,7 +536,10 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
 
         volume_path = "/dev/%s/%s" % (vg, volume['name'])
 
-        data = self.target_helper.create_export(context, volume, volume_path)
+        data = self.target_helper.create_export(context,
+                                                volume,
+                                                volume_path,
+                                                self.configuration)
         return {
             'provider_location': data['location'],
             'provider_auth': data['auth'],
@@ -567,9 +576,9 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
             try:
                 (vg for vg in vg_list if vg['name'] == dest_vg).next()
             except StopIteration:
-                message = ("Destination Volume Group %s does not exist" %
+                message = (_("Destination Volume Group %s does not exist") %
                            dest_vg)
-                LOG.error(_('%s'), message)
+                LOG.error(message)
                 return false_ret
 
             helper = utils.get_root_helper()

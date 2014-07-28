@@ -23,6 +23,7 @@ Weighing Functions.
 from oslo.config import cfg
 
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.scheduler import driver
 from cinder.scheduler import scheduler_options
@@ -65,7 +66,7 @@ class FilterScheduler(driver.Scheduler):
                                       filter_properties)
 
         if not weighed_host:
-            raise exception.NoValidHost(reason="")
+            raise exception.NoValidHost(reason="No weighed hosts available")
 
         host = weighed_host.obj.host
         volume_id = request_spec['volume_id']
@@ -99,9 +100,10 @@ class FilterScheduler(driver.Scheduler):
                % {'id': request_spec['volume_id'], 'host': host})
         raise exception.NoValidHost(reason=msg)
 
-    def find_retype_host(self, context, request_spec, filter_properties={},
+    def find_retype_host(self, context, request_spec, filter_properties=None,
                          migration_policy='never'):
         """Find a host that can accept the volume with its new type."""
+        filter_properties = filter_properties or {}
         current_host = request_spec['volume_properties']['host']
 
         # The volume already exists on this host, and so we shouldn't check if
@@ -176,7 +178,7 @@ class FilterScheduler(driver.Scheduler):
                     'volume_id': volume_id,
                     'last_host': last_host,
                     'exc': exc,
-                }
+        }
         LOG.error(msg)
 
     def _populate_retry(self, filter_properties, properties):
@@ -208,7 +210,7 @@ class FilterScheduler(driver.Scheduler):
                     "volume %(volume_id)s") % {
                         'max_attempts': max_attempts,
                         'volume_id': volume_id,
-                    }
+            }
             raise exception.NoValidHost(reason=msg)
 
     def _get_weighted_candidates(self, context, request_spec,
@@ -256,7 +258,7 @@ class FilterScheduler(driver.Scheduler):
         if not hosts:
             return []
 
-        LOG.debug(_("Filtered %s") % hosts)
+        LOG.debug("Filtered %s" % hosts)
         # weighted_host = WeightedHost() ... the best
         # host for the job.
         weighed_hosts = self.host_manager.get_weighed_hosts(hosts,
@@ -267,13 +269,16 @@ class FilterScheduler(driver.Scheduler):
         weighed_hosts = self._get_weighted_candidates(context, request_spec,
                                                       filter_properties)
         if not weighed_hosts:
+            LOG.warning(_('No weighed hosts found for volume '
+                          'with properties: %s'),
+                        filter_properties['request_spec']['volume_type'])
             return None
         return self._choose_top_host(weighed_hosts, request_spec)
 
     def _choose_top_host(self, weighed_hosts, request_spec):
         top_host = weighed_hosts[0]
         host_state = top_host.obj
-        LOG.debug(_("Choosing %s") % host_state.host)
+        LOG.debug("Choosing %s" % host_state.host)
         volume_properties = request_spec['volume_properties']
         host_state.consume_from_volume(volume_properties)
         return top_host

@@ -18,6 +18,7 @@
 
 import math
 
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common.scheduler import filters
 
@@ -55,8 +56,8 @@ class CapacityFilter(filters.BaseHostFilter):
         free = math.floor(free_space * (1 - reserved))
         if free < volume_size:
             LOG.warning(_("Insufficient free space for volume creation "
-                        "(requested / avail): "
-                        "%(requested)s/%(available)s")
+                          "(requested / avail): "
+                          "%(requested)s/%(available)s")
                         % {'requested': volume_size,
                            'available': free})
 

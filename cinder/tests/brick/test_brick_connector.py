@@ -19,6 +19,7 @@ import time
 from cinder.brick import exception
 from cinder.brick.initiator import connector
 from cinder.brick.initiator import host_driver
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
 from cinder.openstack.common import processutils as putils
@@ -473,7 +474,8 @@ class AoEConnectorTestCase(ConnectorTestCase):
                        'FixedIntervalLoopingCall',
                        FakeFixedIntervalLoopingCall)
 
-    def _mock_path_exists(self, aoe_path, mock_values=[]):
+    def _mock_path_exists(self, aoe_path, mock_values=None):
+        mock_values = mock_values or []
         self.mox.StubOutWithMock(os.path, 'exists')
         for value in mock_values:
             os.path.exists(aoe_path).AndReturn(value)

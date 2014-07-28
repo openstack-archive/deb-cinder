@@ -21,6 +21,7 @@ import paramiko
 
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.zonemanager.drivers.brocade import brcd_fabric_opts as fabric_opts
@@ -51,8 +52,8 @@ class BrcdFCSanLookupService(FCSanLookupService):
         """Configuration specific to SAN context values."""
         config = self.configuration
 
-        fabric_names = config.fc_fabric_names.split(',')
-        LOG.debug(_('Fabric Names: %s'), fabric_names)
+        fabric_names = [x.strip() for x in config.fc_fabric_names.split(',')]
+        LOG.debug('Fabric Names: %s', fabric_names)
 
         # There can be more than one SAN in the network and we need to
         # get credentials for each for SAN context lookup later.
@@ -105,8 +106,8 @@ class BrcdFCSanLookupService(FCSanLookupService):
                 err=_("Missing Fibre Channel SAN configuration "
                       "param - fc_fabric_names"))
 
-        fabrics = fabric_names.split(',')
-        LOG.debug(_("FC Fabric List: %s"), fabrics)
+        fabrics = [x.strip() for x in fabric_names.split(',')]
+        LOG.debug("FC Fabric List: %s", fabrics)
         if fabrics:
             for t in target_wwn_list:
                 formatted_target_list.append(self.get_formatted_wwn(t))
@@ -124,16 +125,13 @@ class BrcdFCSanLookupService(FCSanLookupService):
                     'fc_fabric_password')
                 fabric_port = self.fabric_configs[fabric_name].safe_get(
                     'fc_fabric_port')
-                fabric_principal_wwn = \
-                    self.fabric_configs[fabric_name].safe_get(
-                        'principal_switch_wwn')
 
                 # Get name server data from fabric and find the targets
                 # logged in
                 nsinfo = ''
                 try:
-                    LOG.debug(_("Getting name server data for "
-                                "fabric %s"), fabric_ip)
+                    LOG.debug("Getting name server data for "
+                              "fabric %s", fabric_ip)
                     self.client.connect(
                         fabric_ip, fabric_port, fabric_user, fabric_pwd)
                     nsinfo = self.get_nameserver_info()
@@ -148,25 +146,25 @@ class BrcdFCSanLookupService(FCSanLookupService):
                     LOG.error(msg)
                     raise exception.FCSanLookupServiceException(message=msg)
                 finally:
-                    self.close_connection()
-                LOG.debug(_("Lookup service:nsinfo-%s"), nsinfo)
-                LOG.debug(_("Lookup service:initiator list from "
-                            "caller-%s"), formatted_initiator_list)
-                LOG.debug(_("Lookup service:target list from "
-                            "caller-%s"), formatted_target_list)
+                    self.client.close()
+                LOG.debug("Lookup service:nsinfo-%s", nsinfo)
+                LOG.debug("Lookup service:initiator list from "
+                          "caller-%s", formatted_initiator_list)
+                LOG.debug("Lookup service:target list from "
+                          "caller-%s", formatted_target_list)
                 visible_targets = filter(lambda x: x in formatted_target_list,
                                          nsinfo)
                 visible_initiators = filter(lambda x: x in
                                             formatted_initiator_list, nsinfo)
 
                 if visible_targets:
-                    LOG.debug(_("Filtered targets is: %s"), visible_targets)
+                    LOG.debug("Filtered targets is: %s", visible_targets)
                     # getting rid of the : before returning
                     for idx, elem in enumerate(visible_targets):
                         elem = str(elem).replace(':', '')
                         visible_targets[idx] = elem
                 else:
-                    LOG.debug(_("No targets are in the nameserver for SAN %s"),
+                    LOG.debug("No targets are in the nameserver for SAN %s",
                               fabric_name)
 
                 if visible_initiators:
@@ -175,15 +173,15 @@ class BrcdFCSanLookupService(FCSanLookupService):
                         elem = str(elem).replace(':', '')
                         visible_initiators[idx] = elem
                 else:
-                    LOG.debug(_("No initiators are in the nameserver "
-                                "for SAN %s"), fabric_name)
+                    LOG.debug("No initiators are in the nameserver "
+                              "for SAN %s", fabric_name)
 
                 fabric_map = {
                     'initiator_port_wwn_list': visible_initiators,
                     'target_port_wwn_list': visible_targets
                 }
-                device_map[fabric_principal_wwn] = fabric_map
-        LOG.debug(_("Device map for SAN context: %s"), device_map)
+                device_map[fabric_name] = fabric_map
+        LOG.debug("Device map for SAN context: %s", device_map)
         return device_map
 
     def get_nameserver_info(self):
@@ -208,13 +206,8 @@ class BrcdFCSanLookupService(FCSanLookupService):
                 LOG.error(_("Failed collecting nscamshow"))
         if cli_output:
             nsinfo_list.extend(self._parse_ns_output(cli_output))
-        LOG.debug(_("Connector returning nsinfo-%s"), nsinfo_list)
+        LOG.debug("Connector returning nsinfo-%s", nsinfo_list)
         return nsinfo_list
-
-    def close_connection(self):
-        """This will close the client connection."""
-        self.client.close()
-        self.client = None
 
     def _get_switch_data(self, cmd):
         stdin, stdout, stderr = None, None, None

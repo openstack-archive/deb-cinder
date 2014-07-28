@@ -20,6 +20,7 @@ Supports call to multiple storage systems of different families and protocols.
 """
 
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
@@ -38,17 +39,19 @@ netapp_unified_plugin_registry =\
          'iscsi':
          'cinder.volume.drivers.netapp.iscsi.NetAppDirectCmodeISCSIDriver',
          'nfs': 'cinder.volume.drivers.netapp.nfs.NetAppDirectCmodeNfsDriver'
-     }, 'ontap_7mode':
-        {
-            'iscsi':
-            'cinder.volume.drivers.netapp.iscsi.NetAppDirect7modeISCSIDriver',
-            'nfs':
-            'cinder.volume.drivers.netapp.nfs.NetAppDirect7modeNfsDriver'
-        }, 'eseries':
-        {
-            'iscsi':
-            'cinder.volume.drivers.netapp.eseries.iscsi.Driver'
-        },
+     },
+     'ontap_7mode':
+     {
+         'iscsi':
+         'cinder.volume.drivers.netapp.iscsi.NetAppDirect7modeISCSIDriver',
+         'nfs':
+         'cinder.volume.drivers.netapp.nfs.NetAppDirect7modeNfsDriver'
+     },
+     'eseries':
+     {
+         'iscsi':
+         'cinder.volume.drivers.netapp.eseries.iscsi.Driver'
+     },
      }
 
 #NOTE(singn): Holds family:protocol information.

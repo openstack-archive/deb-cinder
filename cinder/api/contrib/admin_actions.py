@@ -19,6 +19,7 @@ from cinder.api import extensions
 from cinder.api.openstack import wsgi
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import strutils
 from cinder import rpc
@@ -35,13 +36,11 @@ class AdminController(wsgi.Controller):
 
     # FIXME(clayg): this will be hard to keep up-to-date
     # Concrete classes can expand or over-ride
-    valid_status = set([
-        'creating',
-        'available',
-        'deleting',
-        'error',
-        'error_deleting',
-    ])
+    valid_status = set(['creating',
+                        'available',
+                        'deleting',
+                        'error',
+                        'error_deleting', ])
 
     def __init__(self, *args, **kwargs):
         super(AdminController, self).__init__(*args, **kwargs)
@@ -61,11 +60,12 @@ class AdminController(wsgi.Controller):
     def validate_update(self, body):
         update = {}
         try:
-            update['status'] = body['status']
+            update['status'] = body['status'].lower()
         except (TypeError, KeyError):
-            raise exc.HTTPBadRequest("Must specify 'status'")
+            raise exc.HTTPBadRequest(explanation=_("Must specify 'status'"))
         if update['status'] not in self.valid_status:
-            raise exc.HTTPBadRequest("Must specify a valid status")
+            raise exc.HTTPBadRequest(
+                explanation=_("Must specify a valid status"))
         return update
 
     def authorize(self, context, action_name):
@@ -91,7 +91,7 @@ class AdminController(wsgi.Controller):
         try:
             self._update(context, id, update)
         except exception.NotFound as e:
-            raise exc.HTTPNotFound(e)
+            raise exc.HTTPNotFound(explanation=e.msg)
 
         notifier.info(context, self.collection + '.reset_status.end',
                       notifier_info)
@@ -115,8 +115,20 @@ class VolumeAdminController(AdminController):
     """AdminController for Volumes."""
 
     collection = 'volumes'
+
+    # FIXME(jdg): We're appending additional valid status
+    # entries to the set we declare in the parent class
+    # this doesn't make a ton of sense, we should probably
+    # look at the structure of this whole process again
+    # Perhaps we don't even want any definitions in the abstract
+    # parent class?
     valid_status = AdminController.valid_status.union(
         set(['attaching', 'in-use', 'detaching']))
+
+    valid_attach_status = set(['detached', 'attached', ])
+    valid_migration_status = set(['migrating', 'error',
+                                  'completing', 'none',
+                                  'starting', ])
 
     def _update(self, *args, **kwargs):
         db.volume_update(*args, **kwargs)
@@ -128,11 +140,36 @@ class VolumeAdminController(AdminController):
         return self.volume_api.delete(*args, **kwargs)
 
     def validate_update(self, body):
-        update = super(VolumeAdminController, self).validate_update(body)
-        if 'attach_status' in body:
-            if body['attach_status'] not in ('detached', 'attached'):
-                raise exc.HTTPBadRequest("Must specify a valid attach_status")
-            update['attach_status'] = body['attach_status']
+        update = {}
+        status = body.get('status', None)
+        attach_status = body.get('attach_status', None)
+        migration_status = body.get('migration_status', None)
+
+        valid = False
+        if status:
+            valid = True
+            update = super(VolumeAdminController, self).validate_update(body)
+
+        if attach_status:
+            valid = True
+            update['attach_status'] = attach_status.lower()
+            if update['attach_status'] not in self.valid_attach_status:
+                raise exc.HTTPBadRequest(
+                    explanation=_("Must specify a valid attach status"))
+
+        if migration_status:
+            valid = True
+            update['migration_status'] = migration_status.lower()
+            if update['migration_status'] not in self.valid_migration_status:
+                raise exc.HTTPBadRequest(
+                    explanation=_("Must specify a valid migration status"))
+            if update['migration_status'] == 'none':
+                update['migration_status'] = None
+
+        if not valid:
+            raise exc.HTTPBadRequest(
+                explanation=_("Must specify 'status', 'attach_status' "
+                              "or 'migration_status' for update."))
         return update
 
     @wsgi.action('os-force_detach')
@@ -162,16 +199,18 @@ class VolumeAdminController(AdminController):
         try:
             host = params['host']
         except KeyError:
-            raise exc.HTTPBadRequest("Must specify 'host'")
+            raise exc.HTTPBadRequest(explanation=_("Must specify 'host'"))
         force_host_copy = params.get('force_host_copy', False)
         if isinstance(force_host_copy, basestring):
             try:
                 force_host_copy = strutils.bool_from_string(force_host_copy,
                                                             strict=True)
             except ValueError:
-                raise exc.HTTPBadRequest("Bad value for 'force_host_copy'")
+                raise exc.HTTPBadRequest(
+                    explanation=_("Bad value for 'force_host_copy'"))
         elif not isinstance(force_host_copy, bool):
-            raise exc.HTTPBadRequest("'force_host_copy' not string or bool")
+            raise exc.HTTPBadRequest(
+                explanation=_("'force_host_copy' not string or bool"))
         self.volume_api.migrate_volume(context, volume, host, force_host_copy)
         return webob.Response(status_int=202)
 
@@ -188,7 +227,8 @@ class VolumeAdminController(AdminController):
         try:
             new_volume_id = params['new_volume']
         except KeyError:
-            raise exc.HTTPBadRequest("Must specify 'new_volume'")
+            raise exc.HTTPBadRequest(
+                explanation=_("Must specify 'new_volume'"))
         try:
             new_volume = self._get(context, new_volume_id)
         except exception.NotFound:

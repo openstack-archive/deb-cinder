@@ -26,6 +26,7 @@ import urllib2
 
 import six.moves.urllib.parse as urlparse
 
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers.vmware import error_util
 from cinder.volume.drivers.vmware import vim_util
@@ -169,8 +170,8 @@ class VMwareHTTPWriteFile(VMwareHTTPFile):
         try:
             self.conn.getresponse()
         except Exception as excep:
-            LOG.debug(_("Exception during HTTP connection close in "
-                        "VMwareHTTPWrite. Exception is %s.") % excep)
+            LOG.debug("Exception during HTTP connection close in "
+                      "VMwareHTTPWrite. Exception is %s." % excep)
         super(VMwareHTTPWriteFile, self).close()
 
 
@@ -229,7 +230,7 @@ class VMwareHTTPWriteVmdk(VMwareHTTPFile):
     def write(self, data):
         """Write to the file."""
         self._progress += len(data)
-        LOG.debug(_("Written %s bytes to vmdk.") % self._progress)
+        LOG.debug("Written %s bytes to vmdk." % self._progress)
         self.file_handle.send(data)
 
     def update_progress(self):
@@ -240,7 +241,7 @@ class VMwareHTTPWriteVmdk(VMwareHTTPFile):
         """
         percent = int(float(self._progress) / self._vmdk_size * 100)
         try:
-            LOG.debug(_("Updating progress to %s percent.") % percent)
+            LOG.debug("Updating progress to %s percent." % percent)
             self._session.invoke_api(self._session.vim,
                                      'HttpNfcLeaseProgress',
                                      self._lease, percent=percent)
@@ -256,9 +257,9 @@ class VMwareHTTPWriteVmdk(VMwareHTTPFile):
         if state == 'ready':
             self._session.invoke_api(self._session.vim, 'HttpNfcLeaseComplete',
                                      self._lease)
-            LOG.debug(_("Lease released."))
+            LOG.debug("Lease released.")
         else:
-            LOG.debug(_("Lease is already in state: %s.") % state)
+            LOG.debug("Lease is already in state: %s." % state)
         super(VMwareHTTPWriteVmdk, self).close()
 
 
@@ -304,9 +305,10 @@ class VMwareHTTPReadVmdk(VMwareHTTPFile):
 
     def read(self, chunk_size):
         """Read a chunk from file."""
-        self._progress += READ_CHUNKSIZE
-        LOG.debug(_("Read %s bytes from vmdk.") % self._progress)
-        return self.file_handle.read(READ_CHUNKSIZE)
+        data = self.file_handle.read(READ_CHUNKSIZE)
+        self._progress += len(data)
+        LOG.debug("Read %s bytes from vmdk." % self._progress)
+        return data
 
     def update_progress(self):
         """Updates progress to lease.
@@ -316,7 +318,7 @@ class VMwareHTTPReadVmdk(VMwareHTTPFile):
         """
         percent = int(float(self._progress) / self._vmdk_size * 100)
         try:
-            LOG.debug(_("Updating progress to %s percent.") % percent)
+            LOG.debug("Updating progress to %s percent." % percent)
             self._session.invoke_api(self._session.vim,
                                      'HttpNfcLeaseProgress',
                                      self._lease, percent=percent)
@@ -332,7 +334,7 @@ class VMwareHTTPReadVmdk(VMwareHTTPFile):
         if state == 'ready':
             self._session.invoke_api(self._session.vim, 'HttpNfcLeaseComplete',
                                      self._lease)
-            LOG.debug(_("Lease released."))
+            LOG.debug("Lease released.")
         else:
-            LOG.debug(_("Lease is already in state: %s.") % state)
+            LOG.debug("Lease is already in state: %s." % state)
         super(VMwareHTTPReadVmdk, self).close()

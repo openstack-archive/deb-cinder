@@ -17,6 +17,7 @@ from taskflow.patterns import linear_flow
 
 from cinder import exception
 from cinder import flow_utils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.volume.flows.api import create_volume as create_api
 from cinder.volume.flows import common as flow_common
@@ -102,7 +103,8 @@ def get_flow(context, db, driver, host, volume_id, ref):
     create_what = {
         'context': context,
         'volume_id': volume_id,
-        'manage_existing_ref': ref
+        'manage_existing_ref': ref,
+        'optional_args': {'is_quota_committed': False}
     }
 
     volume_flow.add(create_mgr.ExtractVolumeRefTask(db, host),

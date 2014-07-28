@@ -33,6 +33,7 @@ from oslo.config import cfg
 
 from cinder.backup.driver import BackupDriver
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder import utils
@@ -308,7 +309,7 @@ class TSMBackupDriver(BackupDriver):
         """Perform the actual restore operation.
 
         :param backup_path: the path the backup was created from, this
-        identifes the backup to tsm
+        identifies the backup to tsm
         :param restore_path: volume path to restore into
         :param vol_id: volume id
         :param backup_mode: mode used to create the backup ('image' or 'file')
@@ -324,8 +325,8 @@ class TSMBackupDriver(BackupDriver):
             restore_cmd.append('-replace=yes')  # suppress prompt
 
         restore_cmd.extend(['-quiet',
-                           '-password=%s' % self.tsm_password,
-                           backup_path])
+                            '-password=%s' % self.tsm_password,
+                            backup_path])
 
         if restore_path != backup_path:
             restore_cmd.append(restore_path)
@@ -367,8 +368,8 @@ class TSMBackupDriver(BackupDriver):
         volume_id = backup['volume_id']
         volume_path, backup_mode = _get_volume_realpath(volume_file,
                                                         volume_id)
-        LOG.debug(_('Starting backup of volume: %(volume_id)s to TSM,'
-                    ' volume path: %(volume_path)s, mode: %(mode)s.')
+        LOG.debug('Starting backup of volume: %(volume_id)s to TSM,'
+                  ' volume path: %(volume_path)s, mode: %(mode)s.'
                   % {'volume_id': volume_id,
                      'volume_path': volume_path,
                      'mode': backup_mode})
@@ -412,7 +413,7 @@ class TSMBackupDriver(BackupDriver):
         finally:
             _cleanup_device_hardlink(backup_path, volume_path, volume_id)
 
-        LOG.debug(_('Backup %s finished.') % backup_id)
+        LOG.debug('Backup %s finished.' % backup_id)
 
     def restore(self, backup, volume_id, volume_file):
         """Restore the given volume backup from TSM server.
@@ -428,10 +429,10 @@ class TSMBackupDriver(BackupDriver):
         # backup_path is the path that was originally backed up.
         backup_path, backup_mode = _get_backup_metadata(backup, 'restore')
 
-        LOG.debug(_('Starting restore of backup from TSM '
-                    'to volume %(volume_id)s, '
-                    'backup: %(backup_id)s, '
-                    'mode: %(mode)s.') %
+        LOG.debug('Starting restore of backup from TSM '
+                  'to volume %(volume_id)s, '
+                  'backup: %(backup_id)s, '
+                  'mode: %(mode)s.' %
                   {'volume_id': volume_id,
                    'backup_id': backup_id,
                    'mode': backup_mode})
@@ -473,7 +474,7 @@ class TSMBackupDriver(BackupDriver):
         finally:
             _cleanup_device_hardlink(restore_path, volume_path, volume_id)
 
-        LOG.debug(_('Restore %(backup_id)s to %(volume_id)s finished.')
+        LOG.debug('Restore %(backup_id)s to %(volume_id)s finished.'
                   % {'backup_id': backup_id,
                      'volume_id': volume_id})
 
@@ -488,7 +489,7 @@ class TSMBackupDriver(BackupDriver):
         delete_path, backup_mode = _get_backup_metadata(backup, 'restore')
         volume_id = backup['volume_id']
 
-        LOG.debug(_('Delete started for backup: %(backup)s, mode: %(mode)s.'),
+        LOG.debug('Delete started for backup: %(backup)s, mode: %(mode)s.',
                   {'backup': backup['id'],
                    'mode': backup_mode})
 
@@ -534,7 +535,7 @@ class TSMBackupDriver(BackupDriver):
                       'err': err})
             LOG.error(err)
 
-        LOG.debug(_('Delete %s finished.') % backup['id'])
+        LOG.debug('Delete %s finished.' % backup['id'])
 
 
 def get_backup_driver(context):

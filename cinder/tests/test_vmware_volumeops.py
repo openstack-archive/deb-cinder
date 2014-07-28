@@ -19,8 +19,8 @@ Test suite for VMware VMDK driver volumeops module.
 
 import mock
 
+from cinder.openstack.common import units
 from cinder import test
-from cinder import units
 from cinder.volume.drivers.vmware import error_util
 from cinder.volume.drivers.vmware import vim_util
 from cinder.volume.drivers.vmware import volumeops
@@ -161,32 +161,24 @@ class VolumeOpsTestCase(test.TestCase):
         mount_info.accessMode = "readWrite"
         mount_info.mounted = True
         mount_info.accessible = True
-        datastore = mock.sentinel.datastore
-        self.assertTrue(self.vops._is_usable(datastore, mount_info))
+        self.assertTrue(self.vops._is_usable(mount_info))
 
         del mount_info.mounted
-        self.assertTrue(self.vops._is_usable(datastore, mount_info))
+        self.assertTrue(self.vops._is_usable(mount_info))
 
         mount_info.accessMode = "readonly"
-        self.assertFalse(self.vops._is_usable(datastore, mount_info))
+        self.assertFalse(self.vops._is_usable(mount_info))
 
         mount_info.accessMode = "readWrite"
         mount_info.mounted = False
-        self.assertFalse(self.vops._is_usable(datastore, mount_info))
+        self.assertFalse(self.vops._is_usable(mount_info))
 
         mount_info.mounted = True
         mount_info.accessible = False
-        self.assertFalse(self.vops._is_usable(datastore, mount_info))
+        self.assertFalse(self.vops._is_usable(mount_info))
 
-        with mock.patch.object(self.vops, 'get_summary') as get_summary:
-            del mount_info.accessible
-            summary = mock.Mock(spec=object)
-            summary.accessible = True
-            get_summary.return_value = summary
-            self.assertTrue(self.vops._is_usable(datastore, mount_info))
-
-            summary.accessible = False
-            self.assertFalse(self.vops._is_usable(datastore, mount_info))
+        del mount_info.accessible
+        self.assertFalse(self.vops._is_usable(mount_info))
 
     def _create_host_mounts(self, access_mode, host, set_accessible=True,
                             is_accessible=True, mounted=True):
@@ -218,94 +210,118 @@ class VolumeOpsTestCase(test.TestCase):
         return host_mounts
 
     def test_get_connected_hosts(self):
-        datastore = mock.sentinel.datastore
-        host = mock.Mock(spec=object)
-        host.value = mock.sentinel.host
-        host_mounts = self._create_host_mounts("readWrite", host)
-        self.session.invoke_api.return_value = host_mounts
+        with mock.patch.object(self.vops, 'get_summary') as get_summary:
+            datastore = mock.sentinel.datastore
+            summary = mock.Mock(spec=object)
+            get_summary.return_value = summary
 
-        hosts = self.vops.get_connected_hosts(datastore)
-        self.assertEqual([mock.sentinel.host], hosts)
-        self.session.invoke_api.assert_called_once_with(vim_util,
-                                                        'get_object_property',
-                                                        self.session.vim,
-                                                        datastore,
-                                                        'host')
+            summary.accessible = False
+            hosts = self.vops.get_connected_hosts(datastore)
+            self.assertEqual([], hosts)
+
+            summary.accessible = True
+            host = mock.Mock(spec=object)
+            host.value = mock.sentinel.host
+            host_mounts = self._create_host_mounts("readWrite", host)
+            self.session.invoke_api.return_value = host_mounts
+            hosts = self.vops.get_connected_hosts(datastore)
+            self.assertEqual([mock.sentinel.host], hosts)
+            self.session.invoke_api.assert_called_once_with(
+                vim_util,
+                'get_object_property',
+                self.session.vim,
+                datastore,
+                'host')
+
+            del host_mounts.DatastoreHostMount
+            hosts = self.vops.get_connected_hosts(datastore)
+            self.assertEqual([], hosts)
 
     def test_is_valid(self):
-        datastore = mock.sentinel.datastore
-        host = mock.Mock(spec=object)
-        host.value = mock.sentinel.host
-
-        def _is_valid(host_mounts, is_valid):
-            self.session.invoke_api.return_value = host_mounts
-            result = self.vops._is_valid(datastore, host)
-            self.assertEqual(is_valid, result)
-            self.session.invoke_api.assert_called_with(vim_util,
-                                                       'get_object_property',
-                                                       self.session.vim,
-                                                       datastore,
-                                                       'host')
-        # Test with accessible attr
-        _is_valid(self._create_host_mounts("readWrite", host), True)
-
-        # Test without accessible attr, and use summary instead
         with mock.patch.object(self.vops, 'get_summary') as get_summary:
             summary = mock.Mock(spec=object)
+            get_summary.return_value = summary
+
+            datastore = mock.sentinel.datastore
+            host = mock.Mock(spec=object)
+            host.value = mock.sentinel.host
+
+            def _is_valid(host_mounts, is_valid):
+                self.session.invoke_api.return_value = host_mounts
+                result = self.vops._is_valid(datastore, host)
+                self.assertEqual(is_valid, result)
+                self.session.invoke_api.assert_called_with(
+                    vim_util,
+                    'get_object_property',
+                    self.session.vim,
+                    datastore,
+                    'host')
+
+            # Test positive cases
+            summary.maintenanceMode = 'normal'
             summary.accessible = True
-            get_summary.return_value = summary
-            _is_valid(self._create_host_mounts("readWrite", host, False),
-                      True)
+            _is_valid(self._create_host_mounts("readWrite", host), True)
 
-        # Test negative cases for is_valid
-        _is_valid(self._create_host_mounts("Inaccessible", host), False)
-        _is_valid(self._create_host_mounts("readWrite", host, True, False),
-                  False)
-        _is_valid(self._create_host_mounts("readWrite", host, True, True,
-                                           False), False)
-        with mock.patch.object(self.vops, 'get_summary') as get_summary:
-            summary = mock.Mock(spec=object)
+            # Test negative cases
+            _is_valid(self._create_host_mounts("Inaccessible", host), False)
+            _is_valid(self._create_host_mounts("readWrite", host, True, False),
+                      False)
+            _is_valid(self._create_host_mounts("readWrite", host, True, True,
+                                               False), False)
+
             summary.accessible = False
-            get_summary.return_value = summary
             _is_valid(self._create_host_mounts("readWrite", host, False),
                       False)
 
-    def test_get_dss_rp(self):
-        # build out props to be returned by 1st invoke_api call
-        datastore_prop = mock.Mock(spec=object)
-        datastore_prop.name = 'datastore'
-        datastore_prop.val = mock.Mock(spec=object)
-        datastore_prop.val.ManagedObjectReference = [mock.sentinel.ds1,
-                                                     mock.sentinel.ds2]
-        compute_resource_prop = mock.Mock(spec=object)
-        compute_resource_prop.name = 'parent'
-        compute_resource_prop.val = mock.sentinel.compute_resource
-        elem = mock.Mock(spec=object)
-        elem.propSet = [datastore_prop, compute_resource_prop]
-        props = [elem]
-        # build out host_mounts to be returned by 2nd invoke_api call
-        host = mock.Mock(spec=object)
-        host.value = mock.sentinel.host
-        host_mounts = self._create_host_mounts("readWrite", host)
-        # build out resource_pool to be returned by 3rd invoke_api call
-        resource_pool = mock.sentinel.resource_pool
-        # set return values for each call of invoke_api
-        self.session.invoke_api.side_effect = [props,
-                                               host_mounts,
-                                               host_mounts,
-                                               resource_pool]
-        # invoke function and verify results
-        (dss_actual, rp_actual) = self.vops.get_dss_rp(host)
-        self.assertEqual([mock.sentinel.ds1, mock.sentinel.ds2], dss_actual)
-        self.assertEqual(resource_pool, rp_actual)
+            summary.accessible = True
+            summary.maintenanceMode = 'inMaintenance'
+            _is_valid(self._create_host_mounts("readWrite", host), False)
 
-        # invoke function with no valid datastore and verify exception raised
-        host_mounts = self._create_host_mounts("inaccessible", host)
-        self.session.invoke_api.side_effect = [props,
-                                               host_mounts,
-                                               host_mounts,
-                                               resource_pool]
-        self.assertRaises(error_util.VimException, self.vops.get_dss_rp, host)
+    def test_get_dss_rp(self):
+        with mock.patch.object(self.vops, 'get_summary') as get_summary:
+            summary = mock.Mock(spec=object)
+            summary.accessible = True
+            summary.maintenanceModel = 'normal'
+            get_summary.return_value = summary
+
+            # build out props to be returned by 1st invoke_api call
+            datastore_prop = mock.Mock(spec=object)
+            datastore_prop.name = 'datastore'
+            datastore_prop.val = mock.Mock(spec=object)
+            datastore_prop.val.ManagedObjectReference = [mock.sentinel.ds1,
+                                                         mock.sentinel.ds2]
+            compute_resource_prop = mock.Mock(spec=object)
+            compute_resource_prop.name = 'parent'
+            compute_resource_prop.val = mock.sentinel.compute_resource
+            elem = mock.Mock(spec=object)
+            elem.propSet = [datastore_prop, compute_resource_prop]
+            props = [elem]
+            # build out host_mounts to be returned by 2nd invoke_api call
+            host = mock.Mock(spec=object)
+            host.value = mock.sentinel.host
+            host_mounts = self._create_host_mounts("readWrite", host)
+            # build out resource_pool to be returned by 3rd invoke_api call
+            resource_pool = mock.sentinel.resource_pool
+            # set return values for each call of invoke_api
+            self.session.invoke_api.side_effect = [props,
+                                                   host_mounts,
+                                                   host_mounts,
+                                                   resource_pool]
+            # invoke function and verify results
+            (dss_actual, rp_actual) = self.vops.get_dss_rp(host)
+            self.assertEqual([mock.sentinel.ds1, mock.sentinel.ds2],
+                             dss_actual)
+            self.assertEqual(resource_pool, rp_actual)
+
+            # invoke function with no valid datastore
+            summary.maintenanceMode = 'inMaintenance'
+            self.session.invoke_api.side_effect = [props,
+                                                   host_mounts,
+                                                   host_mounts,
+                                                   resource_pool]
+            self.assertRaises(error_util.VimException,
+                              self.vops.get_dss_rp,
+                              host)
 
     def test_get_parent(self):
         # Not recursive
@@ -402,28 +418,60 @@ class VolumeOpsTestCase(test.TestCase):
         self.assertEqual(expected_invoke_api,
                          self.session.invoke_api.mock_calls)
 
-    def test_get_create_spec(self):
+    def test_create_specs_for_ide_disk_add(self):
         factory = self.session.vim.client.factory
         factory.create.return_value = mock.Mock(spec=object)
-        name = mock.sentinel.name
+
         size_kb = 0.5
         disk_type = 'thin'
-        ds_name = mock.sentinel.ds_name
-        ret = self.vops._get_create_spec(name, size_kb, disk_type, ds_name)
-        self.assertEqual(name, ret.name)
-        self.assertEqual('[%s]' % ds_name, ret.files.vmPathName)
-        self.assertEqual(1, ret.deviceChange[1].device.capacityInKB)
-        expected = [mock.call.create('ns0:VirtualLsiLogicController'),
+        adapter_type = 'ide'
+        ret = self.vops._create_specs_for_disk_add(size_kb, disk_type,
+                                                   adapter_type)
+        self.assertFalse(hasattr(ret[0].device, 'sharedBus'))
+        self.assertEqual(1, ret[1].device.capacityInKB)
+        expected = [mock.call.create('ns0:VirtualIDEController'),
                     mock.call.create('ns0:VirtualDeviceConfigSpec'),
                     mock.call.create('ns0:VirtualDisk'),
                     mock.call.create('ns0:VirtualDiskFlatVer2BackingInfo'),
+                    mock.call.create('ns0:VirtualDeviceConfigSpec')]
+        factory.create.assert_has_calls(expected, any_order=True)
+
+    def test_create_specs_for_scsi_disk_add(self):
+        factory = self.session.vim.client.factory
+        factory.create.return_value = mock.Mock(spec=object)
+
+        size_kb = 2
+        disk_type = 'thin'
+        adapter_type = 'lsiLogicsas'
+        ret = self.vops._create_specs_for_disk_add(size_kb, disk_type,
+                                                   adapter_type)
+        self.assertEqual('noSharing', ret[0].device.sharedBus)
+        self.assertEqual(size_kb, ret[1].device.capacityInKB)
+        expected = [mock.call.create('ns0:VirtualLsiLogicSASController'),
                     mock.call.create('ns0:VirtualDeviceConfigSpec'),
-                    mock.call.create('ns0:VirtualMachineFileInfo'),
-                    mock.call.create('ns0:VirtualMachineConfigSpec')]
+                    mock.call.create('ns0:VirtualDisk'),
+                    mock.call.create('ns0:VirtualDiskFlatVer2BackingInfo'),
+                    mock.call.create('ns0:VirtualDeviceConfigSpec')]
+        factory.create.assert_has_calls(expected, any_order=True)
+
+    def test_get_create_spec_disk_less(self):
+        factory = self.session.vim.client.factory
+        factory.create.return_value = mock.Mock(spec=object)
+        name = mock.sentinel.name
+        ds_name = mock.sentinel.ds_name
+        profile_id = mock.sentinel.profile_id
+        ret = self.vops._get_create_spec_disk_less(name, ds_name, profile_id)
+        self.assertEqual(name, ret.name)
+        self.assertEqual('[%s]' % ds_name, ret.files.vmPathName)
+        self.assertEqual("vmx-08", ret.version)
+        self.assertEqual(profile_id, ret.vmProfile[0].profileId)
+        expected = [mock.call.create('ns0:VirtualMachineFileInfo'),
+                    mock.call.create('ns0:VirtualMachineConfigSpec'),
+                    mock.call.create('ns0:VirtualMachineDefinedProfileSpec')]
         factory.create.assert_has_calls(expected, any_order=True)
 
     @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
-                '_get_create_spec')
+                'get_create_spec')
     def test_create_backing(self, get_create_spec):
         create_spec = mock.sentinel.create_spec
         get_create_spec.return_value = create_spec
@@ -435,15 +483,49 @@ class VolumeOpsTestCase(test.TestCase):
         name = 'backing_name'
         size_kb = mock.sentinel.size_kb
         disk_type = mock.sentinel.disk_type
+        adapter_type = mock.sentinel.adapter_type
         folder = mock.sentinel.folder
         resource_pool = mock.sentinel.resource_pool
         host = mock.sentinel.host
         ds_name = mock.sentinel.ds_name
+        profile_id = mock.sentinel.profile_id
         ret = self.vops.create_backing(name, size_kb, disk_type, folder,
-                                       resource_pool, host, ds_name)
+                                       resource_pool, host, ds_name,
+                                       profile_id, adapter_type)
         self.assertEqual(mock.sentinel.result, ret)
         get_create_spec.assert_called_once_with(name, size_kb, disk_type,
-                                                ds_name, None)
+                                                ds_name, profile_id,
+                                                adapter_type)
+        self.session.invoke_api.assert_called_once_with(self.session.vim,
+                                                        'CreateVM_Task',
+                                                        folder,
+                                                        config=create_spec,
+                                                        pool=resource_pool,
+                                                        host=host)
+        self.session.wait_for_task.assert_called_once_with(task)
+
+    @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
+                '_get_create_spec_disk_less')
+    def test_create_backing_disk_less(self, get_create_spec_disk_less):
+        create_spec = mock.sentinel.create_spec
+        get_create_spec_disk_less.return_value = create_spec
+        task = mock.sentinel.task
+        self.session.invoke_api.return_value = task
+        task_info = mock.Mock(spec=object)
+        task_info.result = mock.sentinel.result
+        self.session.wait_for_task.return_value = task_info
+        name = 'backing_name'
+        folder = mock.sentinel.folder
+        resource_pool = mock.sentinel.resource_pool
+        host = mock.sentinel.host
+        ds_name = mock.sentinel.ds_name
+        profile_id = mock.sentinel.profile_id
+        ret = self.vops.create_backing_disk_less(name, folder, resource_pool,
+                                                 host, ds_name, profile_id)
+
+        self.assertEqual(mock.sentinel.result, ret)
+        get_create_spec_disk_less.assert_called_once_with(name, ds_name,
+                                                          profile_id)
         self.session.invoke_api.assert_called_once_with(self.session.vim,
                                                         'CreateVM_Task',
                                                         folder,
@@ -800,7 +882,7 @@ class VolumeOpsTestCase(test.TestCase):
         invoke_api.return_value = task
         disk_mgr = self.session.vim.service_content.virtualDiskManager
         fake_size = 5
-        fake_size_in_kb = fake_size * units.MiB
+        fake_size_in_kb = fake_size * units.Mi
         fake_name = 'fake_volume_0000000001'
         fake_dc = mock.sentinel.datacenter
         self.vops.extend_virtual_disk(fake_size,
@@ -813,3 +895,34 @@ class VolumeOpsTestCase(test.TestCase):
                                            newCapacityKb=fake_size_in_kb,
                                            eagerZero=False)
         self.session.wait_for_task.assert_called_once_with(task)
+
+
+class ControllerTypeTest(test.TestCase):
+    """Unit tests for ControllerType."""
+
+    def test_get_controller_type(self):
+        self.assertEqual(volumeops.ControllerType.LSI_LOGIC,
+                         volumeops.ControllerType.get_controller_type(
+                             'lsiLogic'))
+        self.assertEqual(volumeops.ControllerType.BUS_LOGIC,
+                         volumeops.ControllerType.get_controller_type(
+                             'busLogic'))
+        self.assertEqual(volumeops.ControllerType.LSI_LOGIC_SAS,
+                         volumeops.ControllerType.get_controller_type(
+                             'lsiLogicsas'))
+        self.assertEqual(volumeops.ControllerType.IDE,
+                         volumeops.ControllerType.get_controller_type(
+                             'ide'))
+        self.assertRaises(error_util.InvalidAdapterTypeException,
+                          volumeops.ControllerType.get_controller_type,
+                          'invalid_type')
+
+    def test_is_scsi_controller(self):
+        self.assertTrue(volumeops.ControllerType.is_scsi_controller(
+            volumeops.ControllerType.LSI_LOGIC))
+        self.assertTrue(volumeops.ControllerType.is_scsi_controller(
+            volumeops.ControllerType.BUS_LOGIC))
+        self.assertTrue(volumeops.ControllerType.is_scsi_controller(
+            volumeops.ControllerType.LSI_LOGIC_SAS))
+        self.assertFalse(volumeops.ControllerType.is_scsi_controller(
+            volumeops.ControllerType.IDE))

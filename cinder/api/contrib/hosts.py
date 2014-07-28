@@ -25,6 +25,7 @@ from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import utils
@@ -222,10 +223,10 @@ class HostController(wsgi.Controller):
         snap_count_total = 0
         snap_sum_total = 0
         resources = [{'resource': {'host': host, 'project': '(total)',
-                      'volume_count': str(count),
-                      'total_volume_gb': str(sum),
-                      'snapshot_count': str(snap_count_total),
-                      'total_snapshot_gb': str(snap_sum_total)}}]
+                                   'volume_count': str(count),
+                                   'total_volume_gb': str(sum),
+                                   'snapshot_count': str(snap_count_total),
+                                   'total_snapshot_gb': str(snap_sum_total)}}]
 
         project_ids = [v['project_id'] for v in volume_refs]
         project_ids = list(set(project_ids))

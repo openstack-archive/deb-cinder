@@ -24,6 +24,7 @@ from oslo.config import cfg
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
@@ -746,7 +747,7 @@ class QuotaEngine(object):
                                             expire=expire,
                                             project_id=project_id)
 
-        LOG.debug(_("Created reservations %s") % reservations)
+        LOG.debug("Created reservations %s" % reservations)
 
         return reservations
 

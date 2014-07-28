@@ -27,6 +27,7 @@ from oslo.config import cfg
 from cinder.db import base
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import quota
 from cinder.volume import api as volume_api
@@ -68,7 +69,8 @@ class API(base.Base):
             LOG.error(msg)
         self.db.transfer_destroy(context, transfer_id)
 
-    def get_all(self, context, filters={}):
+    def get_all(self, context, filters=None):
+        filters = filters or {}
         volume_api.check_policy(context, 'get_all_transfers')
         if context.is_admin and 'all_tenants' in filters:
             transfers = self.db.transfer_get_all(context)

@@ -20,6 +20,7 @@ from cinder.api.openstack import wsgi
 from cinder.api.v2.views import volumes as volume_views
 from cinder.api.v2 import volumes
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import uuidutils
 from cinder import utils
@@ -90,6 +91,7 @@ class VolumeManageController(wsgi.Controller):
                                volume.
             availability_zone  The availability zone to associate with the new
                                volume.
+            bootable           If set to True, marks the volume as bootable.
         """
         context = req.environ['cinder.context']
         authorize(context)
@@ -133,7 +135,7 @@ class VolumeManageController(wsgi.Controller):
         kwargs['description'] = volume.get('description', None)
         kwargs['metadata'] = volume.get('metadata', None)
         kwargs['availability_zone'] = volume.get('availability_zone', None)
-
+        kwargs['bootable'] = volume.get('bootable', False)
         try:
             new_volume = self.volume_api.manage_existing(context,
                                                          volume['host'],
@@ -144,7 +146,7 @@ class VolumeManageController(wsgi.Controller):
             raise exc.HTTPNotFound(explanation=msg)
 
         new_volume = dict(new_volume.iteritems())
-        utils.add_visible_admin_metadata(context, new_volume, self.volume_api)
+        utils.add_visible_admin_metadata(new_volume)
 
         return self._view_builder.detail(req, new_volume)
 

@@ -18,11 +18,12 @@ from taskflow.utils import misc
 
 from cinder import exception
 from cinder import flow_utils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
+from cinder.openstack.common import units
 from cinder import policy
 from cinder import quota
-from cinder import units
 from cinder import utils
 from cinder.volume.flows import common
 from cinder.volume import volume_types
@@ -31,7 +32,7 @@ LOG = logging.getLogger(__name__)
 
 ACTION = 'volume:create'
 CONF = cfg.CONF
-GB = units.GiB
+GB = units.Gi
 QUOTAS = quota.QUOTAS
 
 # Only in these 'sources' status can we attempt to create a volume from a
@@ -59,13 +60,11 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
                             'source_volid', 'volume_type', 'volume_type_id',
                             'encryption_key_id'])
 
-    def __init__(self, image_service, az_check_functor=None, **kwargs):
+    def __init__(self, image_service, availability_zones, **kwargs):
         super(ExtractVolumeRequestTask, self).__init__(addons=[ACTION],
                                                        **kwargs)
         self.image_service = image_service
-        self.az_check_functor = az_check_functor
-        if not self.az_check_functor:
-            self.az_check_functor = lambda az: True
+        self.availability_zones = availability_zones
 
     @staticmethod
     def _extract_snapshot(snapshot):
@@ -256,7 +255,7 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
             else:
                 # For backwards compatibility use the storage_availability_zone
                 availability_zone = CONF.storage_availability_zone
-        if not self.az_check_functor(availability_zone):
+        if availability_zone not in self.availability_zones:
             msg = _("Availability zone '%s' is invalid") % (availability_zone)
             LOG.warn(msg)
             raise exception.InvalidInput(reason=msg)
@@ -408,7 +407,7 @@ class EntryCreateTask(flow_utils.CinderTask):
         self.db = db
         self.provides.update()
 
-    def execute(self, context, **kwargs):
+    def execute(self, context, optional_args, **kwargs):
         """Creates a database entry for the given inputs and returns details.
 
         Accesses the database and creates a new entry for the to be created
@@ -449,11 +448,12 @@ class EntryCreateTask(flow_utils.CinderTask):
             'volume': volume,
         }
 
-    def revert(self, context, result, **kwargs):
+    def revert(self, context, result, optional_args, **kwargs):
         # We never produced a result and therefore can't destroy anything.
         if isinstance(result, misc.Failure):
             return
-        if context.quota_committed:
+
+        if optional_args['is_quota_committed']:
             # Committed quota doesn't rollback as the volume has already been
             # created at this point, and the quota has already been absorbed.
             return
@@ -488,7 +488,7 @@ class QuotaReserveTask(flow_utils.CinderTask):
     def __init__(self):
         super(QuotaReserveTask, self).__init__(addons=[ACTION])
 
-    def execute(self, context, size, volume_type_id):
+    def execute(self, context, size, volume_type_id, optional_args):
         try:
             reserve_opts = {'volumes': 1, 'gigabytes': size}
             QUOTAS.add_volume_type_opts(context, reserve_opts, volume_type_id)
@@ -533,11 +533,12 @@ class QuotaReserveTask(flow_utils.CinderTask):
                 # If nothing was reraised, ensure we reraise the initial error
                 raise
 
-    def revert(self, context, result, **kwargs):
+    def revert(self, context, result, optional_args, **kwargs):
         # We never produced a result and therefore can't destroy anything.
         if isinstance(result, misc.Failure):
             return
-        if context.quota_committed:
+
+        if optional_args['is_quota_committed']:
             # The reservations have already been committed and can not be
             # rolled back at this point.
             return
@@ -571,9 +572,11 @@ class QuotaCommitTask(flow_utils.CinderTask):
     def __init__(self):
         super(QuotaCommitTask, self).__init__(addons=[ACTION])
 
-    def execute(self, context, reservations, volume_properties):
+    def execute(self, context, reservations, volume_properties,
+                optional_args):
         QUOTAS.commit(context, reservations)
-        context.quota_committed = True
+        # updating is_quota_committed attribute of optional_args dictionary
+        optional_args['is_quota_committed'] = True
         return {'volume_properties': volume_properties}
 
     def revert(self, context, result, **kwargs):
@@ -688,9 +691,8 @@ class VolumeCastTask(flow_utils.CinderTask):
         LOG.error(_('Unexpected build error:'), exc_info=exc_info)
 
 
-def get_flow(scheduler_rpcapi, volume_rpcapi, db,
-             image_service,
-             az_check_functor,
+def get_flow(scheduler_rpcapi, volume_rpcapi, db_api,
+             image_service_api, availability_zones,
              create_what):
     """Constructs and returns the api entrypoint flow.
 
@@ -708,18 +710,18 @@ def get_flow(scheduler_rpcapi, volume_rpcapi, db,
     api_flow = linear_flow.Flow(flow_name)
 
     api_flow.add(ExtractVolumeRequestTask(
-        image_service,
-        az_check_functor,
+        image_service_api,
+        availability_zones,
         rebind={'size': 'raw_size',
                 'availability_zone': 'raw_availability_zone',
                 'volume_type': 'raw_volume_type'}))
     api_flow.add(QuotaReserveTask(),
-                 EntryCreateTask(db),
+                 EntryCreateTask(db_api),
                  QuotaCommitTask())
 
     # This will cast it out to either the scheduler or volume manager via
     # the rpc apis provided.
-    api_flow.add(VolumeCastTask(scheduler_rpcapi, volume_rpcapi, db))
+    api_flow.add(VolumeCastTask(scheduler_rpcapi, volume_rpcapi, db_api))
 
     # Now load (but do not run) the flow using the provided initial data.
     return taskflow.engines.load(api_flow, store=create_what)

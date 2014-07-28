@@ -24,8 +24,10 @@ import os
 from oslo.config import cfg
 
 from cinder.image import image_utils
+from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
+from cinder.volume.drivers.windows import utilsfactory
 from cinder.volume.drivers.windows import windows_utils
 
 LOG = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ class WindowsDriver(driver.ISCSIDriver):
         Validate the flags we care about
         """
         self.utils = windows_utils.WindowsUtils()
+        self.vhdutils = utilsfactory.get_vhdutils()
 
     def check_for_setup_error(self):
         """Check that the driver is working and can communicate."""
@@ -96,12 +99,8 @@ class WindowsDriver(driver.ISCSIDriver):
 
         self.utils.create_volume(vhd_path, vol_name, vol_size)
 
-    def local_path(self, volume):
-        base_vhd_folder = self.configuration.windows_iscsi_lun_path
-        if not os.path.exists(base_vhd_folder):
-            LOG.debug(_('Creating folder %s '), base_vhd_folder)
-            os.makedirs(base_vhd_folder)
-        return os.path.join(base_vhd_folder, str(volume['name']) + ".vhd")
+    def local_path(self, volume, format=None):
+        return self.utils.local_path(volume, format)
 
     def delete_volume(self, volume):
         """Driver entry point for destroying existing volumes."""
@@ -121,8 +120,7 @@ class WindowsDriver(driver.ISCSIDriver):
     def create_volume_from_snapshot(self, volume, snapshot):
         """Driver entry point for exporting snapshots as volumes."""
         snapshot_name = snapshot['name']
-        vol_name = volume['name']
-        self.utils.create_volume_from_snapshot(vol_name, snapshot_name)
+        self.utils.create_volume_from_snapshot(volume, snapshot_name)
 
     def delete_snapshot(self, snapshot):
         """Driver entry point for deleting a snapshot."""
@@ -165,21 +163,46 @@ class WindowsDriver(driver.ISCSIDriver):
         self.utils.remove_iscsi_target(target_name)
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
-        """Fetch the image from image_service and write it to the volume."""
+        """Fetch the image from image_service and create a volume using it."""
         # Convert to VHD and file back to VHD
-        image_utils.fetch_to_vhd(context, image_service, image_id,
-                                 self.local_path(volume),
-                                 self.configuration.volume_dd_blocksize)
+        vhd_type = self.utils.get_supported_vhd_type()
+        if (CONF.image_conversion_dir and not
+                os.path.exists(CONF.image_conversion_dir)):
+            os.makedirs(CONF.image_conversion_dir)
+        with image_utils.temporary_file(suffix='.vhd') as tmp:
+            volume_path = self.local_path(volume)
+            image_utils.fetch_to_vhd(context, image_service, image_id, tmp,
+                                     self.configuration.volume_dd_blocksize)
+            # The vhd must be disabled and deleted before being replaced with
+            # the desired image.
+            self.utils.change_disk_status(volume['name'], False)
+            os.unlink(volume_path)
+            self.vhdutils.convert_vhd(tmp, volume_path,
+                                      vhd_type)
+            self.vhdutils.resize_vhd(volume_path,
+                                     volume['size'] << 30)
+            self.utils.change_disk_status(volume['name'], True)
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
-
-        # Copy the volume to the image conversion dir
+        disk_format = self.utils.get_supported_format()
         temp_vhd_path = os.path.join(self.configuration.image_conversion_dir,
-                                     str(image_meta['id']) + ".vhd")
-        self.utils.copy_vhd_disk(self.local_path(volume), temp_vhd_path)
-        image_utils.upload_volume(context, image_service, image_meta,
-                                  temp_vhd_path, 'vpc')
+                                     str(image_meta['id']) + '.' + disk_format)
+        upload_image = temp_vhd_path
+
+        try:
+            self.utils.copy_vhd_disk(self.local_path(volume), temp_vhd_path)
+            # qemu-img does not yet fully support vhdx format, so we'll first
+            # convert the image to vhd before attempting upload
+            if disk_format == 'vhdx':
+                upload_image = upload_image[:-1]
+                self.vhdutils.convert_vhd(temp_vhd_path, upload_image)
+
+            image_utils.upload_volume(context, image_service, image_meta,
+                                      upload_image, 'vpc')
+        finally:
+            fileutils.delete_if_exists(temp_vhd_path)
+            fileutils.delete_if_exists(upload_image)
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
@@ -202,7 +225,7 @@ class WindowsDriver(driver.ISCSIDriver):
     def _update_volume_stats(self):
         """Retrieve stats info for Windows device."""
 
-        LOG.debug(_("Updating volume stats"))
+        LOG.debug("Updating volume stats")
         data = {}
         backend_name = self.__class__.__name__
         if self.configuration:
@@ -220,7 +243,7 @@ class WindowsDriver(driver.ISCSIDriver):
     def extend_volume(self, volume, new_size):
         """Extend an Existing Volume."""
         old_size = volume['size']
-        LOG.debug(_("Extend volume from %(old_size)s GB to %(new_size)s GB."),
+        LOG.debug("Extend volume from %(old_size)s GB to %(new_size)s GB.",
                   {'old_size': old_size, 'new_size': new_size})
         additional_size = (new_size - old_size) * 1024
         self.utils.extend(volume['name'], additional_size)

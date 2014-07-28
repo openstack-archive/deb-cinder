@@ -16,14 +16,24 @@
 Utility class for Windows Storage Server 2012 volume related operations.
 """
 
+import ctypes
 import os
+import time
+
+from oslo.config import cfg
 
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
+from cinder.volume.drivers.windows import constants
 
 # Check needed for unit testing on Unix
 if os.name == 'nt':
     import wmi
+
+    from ctypes import wintypes
+
+CONF = cfg.CONF
 
 LOG = logging.getLogger(__name__)
 
@@ -130,16 +140,33 @@ class WindowsUtils(object):
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
 
-    def create_volume(self, vhd_path, vol_name, vol_size):
+    def create_volume(self, vhd_path, vol_name, vol_size=None):
         """Creates a volume."""
         try:
             cl = self._conn_wmi.__getattr__("WT_Disk")
+            if vol_size:
+                size_mb = vol_size * 1024
+            else:
+                size_mb = None
             cl.NewWTDisk(DevicePath=vhd_path,
                          Description=vol_name,
-                         SizeInMB=vol_size * 1024)
+                         SizeInMB=size_mb)
         except wmi.x_wmi as exc:
             err_msg = (_(
                 'create_volume: error when creating the volume name: '
+                '%(vol_name)s . WMI exception: '
+                '%(wmi_exc)s') % {'vol_name': vol_name, 'wmi_exc': exc})
+            LOG.error(err_msg)
+            raise exception.VolumeBackendAPIException(data=err_msg)
+
+    def change_disk_status(self, vol_name, enabled):
+        try:
+            cl = self._conn_wmi.WT_Disk(Description=vol_name)[0]
+            cl.Enabled = enabled
+            cl.put()
+        except wmi.x_wmi as exc:
+            err_msg = (_(
+                'Error changing disk status: '
                 '%(vol_name)s . WMI exception: '
                 '%(wmi_exc)s') % {'vol_name': vol_name, 'wmi_exc': exc})
             LOG.error(err_msg)
@@ -150,8 +177,8 @@ class WindowsUtils(object):
         try:
             disk = self._conn_wmi.WT_Disk(Description=vol_name)
             if not disk:
-                LOG.debug(_('Skipping deleting disk %s as it does not '
-                            'exist.') % vol_name)
+                LOG.debug('Skipping deleting disk %s as it does not '
+                          'exist.' % vol_name)
                 return
             wt_disk = disk[0]
             wt_disk.Delete_()
@@ -188,14 +215,24 @@ class WindowsUtils(object):
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
 
-    def create_volume_from_snapshot(self, vol_name, snap_name):
+    def create_volume_from_snapshot(self, volume, snap_name):
         """Driver entry point for exporting snapshots as volumes."""
         try:
+            vol_name = volume['name']
+            vol_path = self.local_path(volume)
+
             wt_snapshot = self._conn_wmi.WT_Snapshot(Description=snap_name)[0]
             disk_id = wt_snapshot.Export()[0]
+            # This export is read-only, so it needs to be copied
+            # to another disk.
             wt_disk = self._conn_wmi.WT_Disk(WTD=disk_id)[0]
-            wt_disk.Description = vol_name
+            wt_disk.Description = '%s-temp' % vol_name
             wt_disk.put()
+            src_path = wt_disk.DevicePath
+
+            self.copy(src_path, vol_path)
+            self.create_volume(vol_path, vol_name)
+            wt_disk.Delete_()
         except wmi.x_wmi as exc:
             err_msg = (_(
                 'create_volume_from_snapshot: error when creating the volume '
@@ -242,8 +279,8 @@ class WindowsUtils(object):
         try:
             host = self._conn_wmi.WT_Host(HostName=target_name)
             if not host:
-                LOG.debug(_('Skipping removing target %s as it does not '
-                            'exist.') % target_name)
+                LOG.debug('Skipping removing target %s as it does not '
+                          'exist.' % target_name)
                 return
             wt_host = host[0]
             wt_host.RemoveAllWTDisks()
@@ -305,3 +342,96 @@ class WindowsUtils(object):
                                                   'wmi_exc': exc})
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
+
+    def local_path(self, volume, format=None):
+        base_vhd_folder = CONF.windows_iscsi_lun_path
+        if not os.path.exists(base_vhd_folder):
+            LOG.debug('Creating folder: %s' % base_vhd_folder)
+            os.makedirs(base_vhd_folder)
+        if not format:
+            format = self.get_supported_format()
+        return os.path.join(base_vhd_folder, str(volume['name']) + "." +
+                            format)
+
+    def check_min_windows_version(self, major, minor, build=0):
+        version_str = self.get_windows_version()
+        return map(int, version_str.split('.')) >= [major, minor, build]
+
+    def get_windows_version(self):
+        return self._conn_cimv2.Win32_OperatingSystem()[0].Version
+
+    def get_supported_format(self):
+        if self.check_min_windows_version(6, 3):
+            return 'vhdx'
+        else:
+            return 'vhd'
+
+    def get_supported_vhd_type(self):
+        if self.check_min_windows_version(6, 3):
+            return constants.VHD_TYPE_DYNAMIC
+        else:
+            return constants.VHD_TYPE_FIXED
+
+    def check_ret_val(self, ret_val, job_path, success_values=[0]):
+        if ret_val == constants.WMI_JOB_STATUS_STARTED:
+            return self._wait_for_job(job_path)
+        elif ret_val not in success_values:
+            raise exception.VolumeBackendAPIException(
+                _('Operation failed with return value: %s') % ret_val)
+
+    def copy(self, src, dest):
+        # With large files this is 2x-3x faster than shutil.copy(src, dest),
+        # especially with UNC targets.
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CopyFileW.restype = wintypes.BOOL
+
+        retcode = kernel32.CopyFileW(ctypes.c_wchar_p(src),
+                                     ctypes.c_wchar_p(dest),
+                                     wintypes.BOOL(True))
+        if not retcode:
+            raise IOError(_('The file copy from %(src)s to %(dest)s failed.')
+                          % {'src': src, 'dest': dest})
+
+    def _wait_for_job(self, job_path):
+        """Poll WMI job state and wait for completion."""
+        job = self._get_wmi_obj(job_path)
+
+        while job.JobState == constants.WMI_JOB_STATE_RUNNING:
+            time.sleep(0.1)
+            job = self._get_wmi_obj(job_path)
+        if job.JobState != constants.WMI_JOB_STATE_COMPLETED:
+            job_state = job.JobState
+            if job.path().Class == "Msvm_ConcreteJob":
+                err_sum_desc = job.ErrorSummaryDescription
+                err_desc = job.ErrorDescription
+                err_code = job.ErrorCode
+                raise exception.VolumeBackendAPIException(
+                    _("WMI job failed with status "
+                      "%(job_state)d. Error details: "
+                      "%(err_sum_desc)s - %(err_desc)s - "
+                      "Error code: %(err_code)d") %
+                    {'job_state': job_state,
+                     'err_sum_desc': err_sum_desc,
+                     'err_desc': err_desc,
+                     'err_code': err_code})
+            else:
+                (error, ret_val) = job.GetError()
+                if not ret_val and error:
+                    raise exception.VolumeBackendAPIException(
+                        _("WMI job failed with status %(job_state)d. "
+                          "Job path: %(job_path)s Error details: "
+                          "%(error)s") % {'job_state': job_state,
+                                          'error': error,
+                                          'job_path': job_path})
+                else:
+                    raise exception.VolumeBackendAPIException(
+                        _("WMI job failed with status %d. No error "
+                          "description available") % job_state)
+        desc = job.Description
+        elap = job.ElapsedTime
+        LOG.debug("WMI job succeeded: %(desc)s, Elapsed=%(elap)s" %
+                  {'desc': desc, 'elap': elap})
+        return job
+
+    def _get_wmi_obj(self, path):
+        return wmi.WMI(moniker=path.replace('\\', '/'))

@@ -28,6 +28,7 @@ import uuid
 
 from cinder import context
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import utils
@@ -122,7 +123,7 @@ def provide_ems(requester, server, stats, netapp_backend,
             else:
                 na_server.set_vfiler(None)
             na_server.invoke_successfully(ems, True)
-            LOG.debug(_("ems executed successfully."))
+            LOG.debug("ems executed successfully.")
         except NaApiError as e:
             LOG.warn(_("Failed to invoke ems. Message : %s") % e)
         finally:
@@ -266,12 +267,13 @@ def get_volume_extra_specs(volume):
     return specs
 
 
-def check_apis_on_cluster(na_server, api_list=[]):
+def check_apis_on_cluster(na_server, api_list=None):
     """Checks api availability and permissions on cluster.
 
     Checks api availability and permissions for executing user.
     Returns a list of failed apis.
     """
+    api_list = api_list or []
     failed_apis = []
     if api_list:
         api_version = na_server.get_api_version()

@@ -20,6 +20,7 @@ from cinder.api import extensions
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import strutils
 from cinder import utils
@@ -100,9 +101,9 @@ class VolumeActionsController(wsgi.Controller):
             msg = _("Invalid request to attach volume to an "
                     "instance %(instance_uuid)s and a "
                     "host %(host_name)s simultaneously") % {
-                        'instance_uuid': instance_uuid,
-                        'host_name': host_name,
-                    }
+                'instance_uuid': instance_uuid,
+                'host_name': host_name,
+            }
             raise webob.exc.HTTPBadRequest(explanation=msg)
         elif instance_uuid is None and host_name is None:
             msg = _("Invalid request to attach volume to an invalid target")
@@ -188,14 +189,15 @@ class VolumeActionsController(wsgi.Controller):
         try:
             connector = body['os-initialize_connection']['connector']
         except KeyError:
-            raise webob.exc.HTTPBadRequest("Must specify 'connector'")
+            raise webob.exc.HTTPBadRequest(
+                explanation=_("Must specify 'connector'"))
         try:
             info = self.volume_api.initialize_connection(context,
                                                          volume,
                                                          connector)
         except exception.VolumeBackendAPIException as error:
             msg = _("Unable to fetch connection information from backend.")
-            raise webob.exc.HTTPInternalServerError(msg)
+            raise webob.exc.HTTPInternalServerError(explanation=msg)
 
         return {'connection_info': info}
 
@@ -210,7 +212,8 @@ class VolumeActionsController(wsgi.Controller):
         try:
             connector = body['os-terminate_connection']['connector']
         except KeyError:
-            raise webob.exc.HTTPBadRequest("Must specify 'connector'")
+            raise webob.exc.HTTPBadRequest(
+                explanation=_("Must specify 'connector'"))
         try:
             self.volume_api.terminate_connection(context, volume, connector)
         except exception.VolumeBackendAPIException as error:

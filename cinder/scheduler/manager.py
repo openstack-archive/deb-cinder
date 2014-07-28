@@ -25,8 +25,10 @@ from oslo import messaging
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder import flow_utils
 from cinder import manager
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder import quota
@@ -101,7 +103,9 @@ class SchedulerManager(manager.Manager):
             LOG.exception(_("Failed to create scheduler manager volume flow"))
             raise exception.CinderException(
                 _("Failed to create scheduler manager volume flow"))
-        flow_engine.run()
+
+        with flow_utils.DynamicLogListener(flow_engine, logger=LOG):
+            flow_engine.run()
 
     def request_service_capabilities(self, context):
         volume_rpcapi.VolumeAPI().publish_service_capabilities(context)

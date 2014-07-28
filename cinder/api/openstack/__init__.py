@@ -21,6 +21,7 @@ WSGI middleware for OpenStack API controllers.
 import routes
 
 from cinder.api.openstack import wsgi
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import wsgi as base_wsgi
 
@@ -34,6 +35,15 @@ class APIMapper(routes.Mapper):
             result = self._match("", environ)
             return result[0], result[1]
         return routes.Mapper.routematch(self, url, environ)
+
+    def connect(self, *args, **kwargs):
+        # NOTE(inhye): Default the format part of a route to only accept json
+        #             and xml so it doesn't eat all characters after a '.'
+        #             in the url.
+        kwargs.setdefault('requirements', {})
+        if not kwargs['requirements'].get('format'):
+            kwargs['requirements']['format'] = 'json|xml'
+        return routes.Mapper.connect(self, *args, **kwargs)
 
 
 class ProjectMapper(APIMapper):
@@ -77,7 +87,7 @@ class APIRouter(base_wsgi.Router):
 
     def _setup_ext_routes(self, mapper, ext_mgr):
         for resource in ext_mgr.get_resources():
-            LOG.debug(_('Extended resource: %s'),
+            LOG.debug('Extended resource: %s',
                       resource.collection)
 
             wsgi_resource = wsgi.Resource(resource.controller)
@@ -107,8 +117,8 @@ class APIRouter(base_wsgi.Router):
                              'collection': collection})
                 continue
 
-            LOG.debug(_('Extension %(ext_name)s extending resource: '
-                        '%(collection)s'),
+            LOG.debug('Extension %(ext_name)s extending resource: '
+                      '%(collection)s',
                       {'ext_name': extension.extension.name,
                        'collection': collection})
 

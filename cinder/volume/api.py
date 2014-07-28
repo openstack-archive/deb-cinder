@@ -20,6 +20,7 @@ Handles all requests relating to volumes.
 
 
 import collections
+import datetime
 import functools
 
 from oslo.config import cfg
@@ -27,9 +28,11 @@ from oslo.config import cfg
 from cinder import context
 from cinder.db import base
 from cinder import exception
+from cinder import flow_utils
 from cinder.image import glance
 from cinder import keymgr
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
@@ -53,10 +56,18 @@ volume_same_az_opt = cfg.BoolOpt('cloned_volume_same_az',
                                  default=True,
                                  help='Ensure that the new volumes are the '
                                       'same AZ as snapshot or source volume')
+az_cache_time_opt = cfg.IntOpt('az_cache_duration',
+                               default=3600,
+                               help='Cache volume availability zones in '
+                                    'memory for the provided duration in '
+                                    'seconds')
 
 CONF = cfg.CONF
 CONF.register_opt(volume_host_opt)
 CONF.register_opt(volume_same_az_opt)
+CONF.register_opt(az_cache_time_opt)
+
+CONF.import_opt('glance_core_properties', 'cinder.image.glance')
 CONF.import_opt('storage_availability_zone', 'cinder.volume.manager')
 
 LOG = logging.getLogger(__name__)
@@ -95,40 +106,47 @@ class API(base.Base):
                               glance.get_default_image_service())
         self.scheduler_rpcapi = scheduler_rpcapi.SchedulerAPI()
         self.volume_rpcapi = volume_rpcapi.VolumeAPI()
-        self.availability_zone_names = ()
+        self.availability_zones = []
+        self.availability_zones_last_fetched = None
         self.key_manager = keymgr.API()
         super(API, self).__init__(db_driver)
 
-    def _valid_availability_zone(self, availability_zone):
-        #NOTE(bcwaldon): This approach to caching fails to handle the case
-        # that an availability zone is disabled/removed.
-        if availability_zone in self.availability_zone_names:
-            return True
-        if CONF.storage_availability_zone == availability_zone:
-            return True
-
-        azs = self.list_availability_zones()
-        self.availability_zone_names = [az['name'] for az in azs]
-        return availability_zone in self.availability_zone_names
-
-    def list_availability_zones(self):
+    def list_availability_zones(self, enable_cache=False):
         """Describe the known availability zones
 
         :retval list of dicts, each with a 'name' and 'available' key
         """
-        topic = CONF.volume_topic
-        ctxt = context.get_admin_context()
-        services = self.db.service_get_all_by_topic(ctxt, topic)
-        az_data = [(s['availability_zone'], s['disabled']) for s in services]
-
-        disabled_map = {}
-        for (az_name, disabled) in az_data:
-            tracked_disabled = disabled_map.get(az_name, True)
-            disabled_map[az_name] = tracked_disabled and disabled
-
-        azs = [{'name': name, 'available': not disabled}
-               for (name, disabled) in disabled_map.items()]
-
+        refresh_cache = False
+        if enable_cache:
+            if self.availability_zones_last_fetched is None:
+                refresh_cache = True
+            else:
+                cache_age = timeutils.delta_seconds(
+                    self.availability_zones_last_fetched,
+                    timeutils.utcnow())
+                if cache_age >= CONF.az_cache_duration:
+                    refresh_cache = True
+        if refresh_cache or not enable_cache:
+            topic = CONF.volume_topic
+            ctxt = context.get_admin_context()
+            services = self.db.service_get_all_by_topic(ctxt, topic)
+            az_data = [(s['availability_zone'], s['disabled'])
+                       for s in services]
+            disabled_map = {}
+            for (az_name, disabled) in az_data:
+                tracked_disabled = disabled_map.get(az_name, True)
+                disabled_map[az_name] = tracked_disabled and disabled
+            azs = [{'name': name, 'available': not disabled}
+                   for (name, disabled) in disabled_map.items()]
+            if refresh_cache:
+                now = timeutils.utcnow()
+                self.availability_zones = azs
+                self.availability_zones_last_fetched = now
+                LOG.debug("Availability zone cache updated, next update will"
+                          " occur around %s", now + datetime.timedelta(
+                              seconds=CONF.az_cache_duration))
+        else:
+            azs = self.availability_zones
         return tuple(azs)
 
     def create(self, context, size, name, description, snapshot=None,
@@ -150,13 +168,13 @@ class API(base.Base):
                         "You should omit the argument.")
                 raise exception.InvalidInput(reason=msg)
 
-        def check_volume_az_zone(availability_zone):
-            try:
-                return self._valid_availability_zone(availability_zone)
-            except exception.CinderException:
-                LOG.exception(_("Unable to query if %s is in the "
-                                "availability zone set"), availability_zone)
-                return False
+        # Determine the valid availability zones that the volume could be
+        # created in (a task in the flow will/can use this information to
+        # ensure that the availability zone requested is valid).
+        raw_zones = self.list_availability_zones(enable_cache=True)
+        availability_zones = set([az['name'] for az in raw_zones])
+        if CONF.storage_availability_zone:
+            availability_zones.add(CONF.storage_availability_zone)
 
         create_what = {
             'context': context,
@@ -172,23 +190,26 @@ class API(base.Base):
             'scheduler_hints': scheduler_hints,
             'key_manager': self.key_manager,
             'backup_source_volume': backup_source_volume,
+            'optional_args': {'is_quota_committed': False}
         }
-
         try:
             flow_engine = create_volume.get_flow(self.scheduler_rpcapi,
                                                  self.volume_rpcapi,
                                                  self.db,
                                                  self.image_service,
-                                                 check_volume_az_zone,
+                                                 availability_zones,
                                                  create_what)
         except Exception:
             LOG.exception(_("Failed to create api volume flow"))
             raise exception.CinderException(
                 _("Failed to create api volume flow"))
 
-        flow_engine.run()
-        volume = flow_engine.storage.fetch('volume')
-        return volume
+        # Attaching this listener will capture all of the notifications that
+        # taskflow sends out and redirect them to a more useful log for
+        # cinders debugging (or error reporting) usage.
+        with flow_utils.DynamicLogListener(flow_engine, logger=LOG):
+            flow_engine.run()
+            return flow_engine.storage.fetch('volume')
 
     @wrap_check_policy
     def delete(self, context, volume, force=False, unmanage_only=False):
@@ -260,14 +281,16 @@ class API(base.Base):
     def update(self, context, volume, fields):
         self.db.volume_update(context, volume['id'], fields)
 
-    def get(self, context, volume_id):
+    def get(self, context, volume_id, viewable_admin_meta=False):
+        if viewable_admin_meta:
+            context = context.elevated()
         rv = self.db.volume_get(context, volume_id)
         volume = dict(rv.iteritems())
         check_policy(context, 'get', volume)
         return volume
 
     def get_all(self, context, marker=None, limit=None, sort_key='created_at',
-                sort_dir='desc', filters=None):
+                sort_dir='desc', filters=None, viewable_admin_meta=False):
         check_policy(context, 'get_all')
         if filters == None:
             filters = {}
@@ -290,7 +313,7 @@ class API(base.Base):
             filters['no_migration_targets'] = True
 
         if filters:
-            LOG.debug(_("Searching by: %s") % str(filters))
+            LOG.debug("Searching by: %s" % str(filters))
 
         if (context.is_admin and 'all_tenants' in filters):
             # Need to remove all_tenants to pass the filtering below.
@@ -298,6 +321,8 @@ class API(base.Base):
             volumes = self.db.volume_get_all(context, marker, limit, sort_key,
                                              sort_dir, filters=filters)
         else:
+            if viewable_admin_meta:
+                context = context.elevated()
             volumes = self.db.volume_get_all_by_project(context,
                                                         context.project_id,
                                                         marker, limit,
@@ -330,7 +355,7 @@ class API(base.Base):
                 context, context.project_id)
 
         if search_opts:
-            LOG.debug(_("Searching by: %s") % search_opts)
+            LOG.debug("Searching by: %s" % search_opts)
 
             results = []
             not_found = object()
@@ -342,23 +367,6 @@ class API(base.Base):
                     results.append(snapshot)
             snapshots = results
         return snapshots
-
-    @wrap_check_policy
-    def check_attach(self, volume):
-        # TODO(vish): abstract status checking?
-        if volume['status'] != "available":
-            msg = _("status must be available")
-            raise exception.InvalidVolume(reason=msg)
-        if volume['attach_status'] == "attached":
-            msg = _("already attached")
-            raise exception.InvalidVolume(reason=msg)
-
-    @wrap_check_policy
-    def check_detach(self, volume):
-        # TODO(vish): abstract status checking?
-        if volume['status'] != "in-use":
-            msg = _("status must be in-use to detach")
-            raise exception.InvalidVolume(reason=msg)
 
     @wrap_check_policy
     def reserve_volume(self, context, volume):
@@ -385,10 +393,10 @@ class API(base.Base):
         if volume['migration_status']:
             return
 
-        if (volume['status'] != 'in-use' and
+        if (volume['status'] != 'in-use' or
                 volume['attach_status'] != 'attached'):
             msg = (_("Unable to detach volume. Volume status must be 'in-use' "
-                     "and attached_status must be 'attached' to detach. "
+                     "and attach_status must be 'attached' to detach. "
                      "Currently: status: '%(status)s', "
                      "attach_status: '%(attach_status)s'") %
                    {'status': volume['status'],
@@ -722,6 +730,25 @@ class API(base.Base):
     def copy_volume_to_image(self, context, volume, metadata, force):
         """Create a new image from the specified volume."""
         self._check_volume_availability(volume, force)
+        glance_core_properties = CONF.glance_core_properties
+        if glance_core_properties:
+            try:
+                volume_image_metadata = self.get_volume_image_metadata(context,
+                                                                       volume)
+                custom_property_set = (set(volume_image_metadata).difference
+                                       (set(glance_core_properties)))
+                if custom_property_set:
+                    metadata.update(dict(properties=dict((custom_property,
+                                                          volume_image_metadata
+                                                          [custom_property])
+                                    for custom_property
+                                    in custom_property_set)))
+            except exception.GlanceMetadataNotFound:
+                # If volume is not created from image, No glance metadata
+                # would be available for that volume in
+                # volume glance metadata table
+
+                pass
 
         recv_metadata = self.image_service.create(context, metadata)
         self.update(context, volume, {'status': 'uploading'})
@@ -967,7 +994,7 @@ class API(base.Base):
 
     def manage_existing(self, context, host, ref, name=None, description=None,
                         volume_type=None, metadata=None,
-                        availability_zone=None):
+                        availability_zone=None, bootable=False):
         if availability_zone is None:
             elevated = context.elevated()
             try:
@@ -991,7 +1018,8 @@ class API(base.Base):
             'host': host,
             'availability_zone': availability_zone,
             'volume_type_id': volume_type_id,
-            'metadata': metadata
+            'metadata': metadata,
+            'bootable': bootable
         }
 
         # Call the scheduler to ensure that the host exists and that it can

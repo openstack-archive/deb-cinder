@@ -34,6 +34,7 @@ from oslo.config import cfg
 
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
@@ -61,12 +62,14 @@ class BrcdFCZoneDriver(FCZoneDriver):
 
     Version history:
         1.0 - Initial Brocade FC zone driver
+        1.1 - Implements performance enhancements
     """
 
-    VERSION = "1.0"
+    VERSION = "1.1"
 
     def __init__(self, **kwargs):
         super(BrcdFCZoneDriver, self).__init__(**kwargs)
+        self.sb_conn_map = {}
         self.configuration = kwargs.get('configuration', None)
         if self.configuration:
             self.configuration.append_config_values(brcd_opts)
@@ -98,7 +101,9 @@ class BrcdFCZoneDriver(FCZoneDriver):
             if len(base_san_opts) > 0:
                 CONF.register_opts(base_san_opts)
                 self.configuration.append_config_values(base_san_opts)
-            fabric_names = self.configuration.fc_fabric_names.split(',')
+
+            fc_fabric_names = self.configuration.fc_fabric_names
+            fabric_names = [x.strip() for x in fc_fabric_names.split(',')]
 
             # There can be more than one SAN in the network and we need to
             # get credentials for each SAN.
@@ -128,13 +133,9 @@ class BrcdFCZoneDriver(FCZoneDriver):
         :param fabric: Fabric name from cinder.conf file
         :param initiator_target_map: Mapping of initiator to list of targets
         """
-        LOG.debug(_("Add connection for Fabric:%s"), fabric)
+        LOG.debug("Add connection for Fabric:%s", fabric)
         LOG.info(_("BrcdFCZoneDriver - Add connection "
                    "for I-T map: %s"), initiator_target_map)
-        fabric_ip = self.fabric_configs[fabric].safe_get('fc_fabric_address')
-        fabric_user = self.fabric_configs[fabric].safe_get('fc_fabric_user')
-        fabric_pwd = self.fabric_configs[fabric].safe_get('fc_fabric_password')
-        fabric_port = self.fabric_configs[fabric].safe_get('fc_fabric_port')
         zoning_policy = self.configuration.zoning_policy
         zoning_policy_fab = self.fabric_configs[fabric].safe_get(
             'zoning_policy')
@@ -142,29 +143,9 @@ class BrcdFCZoneDriver(FCZoneDriver):
             zoning_policy = zoning_policy_fab
 
         LOG.info(_("Zoning policy for Fabric %s"), zoning_policy)
-        cli_client = None
-        try:
-            cli_client = importutils.import_object(
-                self.configuration.brcd_sb_connector,
-                ipaddress=fabric_ip,
-                username=fabric_user,
-                password=fabric_pwd,
-                port=fabric_port)
-            if not cli_client.is_supported_firmware():
-                msg = _("Unsupported firmware on switch %s. Make sure "
-                        "switch is running firmware v6.4 or higher"
-                        ) % fabric_ip
-                LOG.error(msg)
-                raise exception.FCZoneDriverException(msg)
-        except exception.BrocadeZoningCliException as brocade_ex:
-            raise exception.FCZoneDriverException(brocade_ex)
-        except Exception as e:
-            LOG.error(e)
-            msg = _("Failed to add zoning configuration %s") % e
-            raise exception.FCZoneDriverException(msg)
+        cli_client = self._get_cli_client(fabric)
+        cfgmap_from_fabric = self._get_active_zone_set(cli_client)
 
-        cfgmap_from_fabric = self.get_active_zone_set(
-            fabric_ip, fabric_user, fabric_pwd, fabric_port)
         zone_names = []
         if cfgmap_from_fabric.get('zones'):
             zone_names = cfgmap_from_fabric['zones'].keys()
@@ -216,7 +197,8 @@ class BrcdFCZoneDriver(FCZoneDriver):
             if len(zone_map) > 0:
                 try:
                     cli_client.add_zones(
-                        zone_map, self.configuration.zone_activate)
+                        zone_map, self.configuration.zone_activate,
+                        cfgmap_from_fabric)
                     cli_client.cleanup()
                 except exception.BrocadeZoningCliException as brocade_ex:
                     raise exception.FCZoneDriverException(brocade_ex)
@@ -224,7 +206,7 @@ class BrcdFCZoneDriver(FCZoneDriver):
                     LOG.error(e)
                     msg = _("Failed to add zoning configuration %s") % e
                     raise exception.FCZoneDriverException(msg)
-            LOG.debug(_("Zones added successfully: %s"), zone_map)
+            LOG.debug("Zones added successfully: %s", zone_map)
 
     @lockutils.synchronized('brcd', 'fcfabric-', True)
     def delete_connection(self, fabric, initiator_target_map):
@@ -237,13 +219,9 @@ class BrcdFCZoneDriver(FCZoneDriver):
         :param fabric: Fabric name from cinder.conf file
         :param initiator_target_map: Mapping of initiator to list of targets
         """
-        LOG.debug(_("Delete connection for fabric:%s"), fabric)
+        LOG.debug("Delete connection for fabric:%s", fabric)
         LOG.info(_("BrcdFCZoneDriver - Delete connection for I-T map: %s"),
                  initiator_target_map)
-        fabric_ip = self.fabric_configs[fabric].safe_get('fc_fabric_address')
-        fabric_user = self.fabric_configs[fabric].safe_get('fc_fabric_user')
-        fabric_pwd = self.fabric_configs[fabric].safe_get('fc_fabric_password')
-        fabric_port = self.fabric_configs[fabric].safe_get('fc_fabric_port')
         zoning_policy = self.configuration.zoning_policy
         zoning_policy_fab = self.fabric_configs[fabric].safe_get(
             'zoning_policy')
@@ -251,29 +229,9 @@ class BrcdFCZoneDriver(FCZoneDriver):
             zoning_policy = zoning_policy_fab
 
         LOG.info(_("Zoning policy for fabric %s"), zoning_policy)
-        conn = None
-        try:
-            conn = importutils.import_object(
-                self.configuration.brcd_sb_connector,
-                ipaddress=fabric_ip,
-                username=fabric_user,
-                password=fabric_pwd,
-                port=fabric_port)
-            if not conn.is_supported_firmware():
-                msg = _("Unsupported firmware on switch %s. Make sure "
-                        "switch is running firmware v6.4 or higher"
-                        ) % fabric_ip
-                LOG.error(msg)
-                raise exception.FCZoneDriverException(msg)
-        except exception.BrocadeZoningCliException as brocade_ex:
-            raise exception.FCZoneDriverException(brocade_ex)
-        except Exception as e:
-            LOG.error(e)
-            msg = _("Failed to delete zoning configuration %s") % e
-            raise exception.FCZoneDriverException(msg)
+        conn = self._get_cli_client(fabric)
+        cfgmap_from_fabric = self._get_active_zone_set(conn)
 
-        cfgmap_from_fabric = self.get_active_zone_set(
-            fabric_ip, fabric_user, fabric_pwd, fabric_port)
         zone_names = []
         if cfgmap_from_fabric.get('zones'):
             zone_names = cfgmap_from_fabric['zones'].keys()
@@ -281,7 +239,7 @@ class BrcdFCZoneDriver(FCZoneDriver):
         # Based on zoning policy, get zone member list and push changes to
         # fabric. This operation could result in an update for zone config
         # with new member list or deleting zones from active cfg.
-        LOG.debug(_("zone config from Fabric: %s"), cfgmap_from_fabric)
+        LOG.debug("zone config from Fabric: %s", cfgmap_from_fabric)
         for initiator_key in initiator_target_map.keys():
             initiator = initiator_key.lower()
             formatted_initiator = self.get_formatted_wwn(initiator)
@@ -296,11 +254,11 @@ class BrcdFCZoneDriver(FCZoneDriver):
                         self.configuration.zone_name_prefix
                         + initiator.replace(':', '')
                         + target.replace(':', ''))
-                    LOG.debug(_("Zone name to del: %s"), zone_name)
+                    LOG.debug("Zone name to del: %s", zone_name)
                     if len(zone_names) > 0 and (zone_name in zone_names):
                         # delete zone.
-                        LOG.debug(("Added zone to delete to "
-                                   "list: %s"), zone_name)
+                        LOG.debug("Added zone to delete to "
+                                  "list: %s", zone_name)
                         zones_to_delete.append(zone_name)
 
             elif zoning_policy == 'initiator':
@@ -322,27 +280,28 @@ class BrcdFCZoneDriver(FCZoneDriver):
                     # filtered list and if it is non-empty, add initiator
                     # to it and update zone if filtered list is empty, we
                     # remove that zone.
-                    LOG.debug(_("Zone delete - I mode: "
-                                "filtered targets:%s"), filtered_members)
+                    LOG.debug("Zone delete - I mode: "
+                              "filtered targets:%s", filtered_members)
                     if filtered_members:
                         filtered_members.append(formatted_initiator)
-                        LOG.debug(_("Filtered zone members to "
-                                    "update: %s"), filtered_members)
+                        LOG.debug("Filtered zone members to "
+                                  "update: %s", filtered_members)
                         zone_map[zone_name] = filtered_members
-                        LOG.debug(_("Filtered zone Map to "
-                                    "update: %s"), zone_map)
+                        LOG.debug("Filtered zone Map to "
+                                  "update: %s", zone_map)
                     else:
                         zones_to_delete.append(zone_name)
             else:
                 LOG.info(_("Zoning Policy: %s, not "
                            "recognized"), zoning_policy)
-            LOG.debug(_("Final Zone map to update: %s"), zone_map)
-            LOG.debug(_("Final Zone list to delete: %s"), zones_to_delete)
+            LOG.debug("Final Zone map to update: %s", zone_map)
+            LOG.debug("Final Zone list to delete: %s", zones_to_delete)
             try:
                 # Update zone membership.
                 if zone_map:
                     conn.add_zones(
-                        zone_map, self.configuration.zone_activate)
+                        zone_map, self.configuration.zone_activate,
+                        cfgmap_from_fabric)
                 # Delete zones ~sk.
                 if zones_to_delete:
                     zone_name_string = ''
@@ -357,7 +316,8 @@ class BrcdFCZoneDriver(FCZoneDriver):
                                 zone_name_string, ';', zones_to_delete[i])
 
                     conn.delete_zones(
-                        zone_name_string, self.configuration.zone_activate)
+                        zone_name_string, self.configuration.zone_activate,
+                        cfgmap_from_fabric)
                 conn.cleanup()
             except Exception as e:
                 LOG.error(e)
@@ -373,52 +333,32 @@ class BrcdFCZoneDriver(FCZoneDriver):
         # TODO(Santhosh Kolathur): consider refactoring to use lookup service.
         formatted_target_list = []
         fabric_map = {}
-        fabrics = self.configuration.fc_fabric_names.split(',')
-        LOG.debug(_("Fabric List: %s"), fabrics)
-        LOG.debug(_("Target wwn List: %s"), target_wwn_list)
+        fc_fabric_names = self.configuration.fc_fabric_names
+        fabrics = [x.strip() for x in fc_fabric_names.split(',')]
+        LOG.debug("Fabric List: %s", fabrics)
+        LOG.debug("Target wwn List: %s", target_wwn_list)
         if len(fabrics) > 0:
             for t in target_wwn_list:
                 formatted_target_list.append(self.get_formatted_wwn(t.lower()))
-            LOG.debug(_("Formatted Target wwn List:"
-                        " %s"), formatted_target_list)
+            LOG.debug("Formatted Target wwn List:"
+                      " %s", formatted_target_list)
             for fabric_name in fabrics:
-                fabric_ip = self.fabric_configs[fabric_name].safe_get(
-                    'fc_fabric_address')
-                fabric_user = self.fabric_configs[fabric_name].safe_get(
-                    'fc_fabric_user')
-                fabric_pwd = self.fabric_configs[fabric_name].safe_get(
-                    'fc_fabric_password')
-                fabric_port = self.fabric_configs[fabric_name].safe_get(
-                    'fc_fabric_port')
-                conn = None
-                try:
-                    conn = importutils.import_object(
-                        self.configuration.brcd_sb_connector,
-                        ipaddress=fabric_ip,
-                        username=fabric_user,
-                        password=fabric_pwd,
-                        port=fabric_port)
-                    if not conn.is_supported_firmware():
-                        msg = _("Unsupported firmware on switch %s. Make sure "
-                                "switch is running firmware v6.4 or higher"
-                                ) % fabric_ip
-                        LOG.error(msg)
-                        raise exception.FCZoneDriverException(msg)
-                except exception.BrocadeZoningCliException as brocade_ex:
-                    raise exception.FCZoneDriverException(brocade_ex)
-                except Exception as e:
-                    LOG.error(e)
-                    msg = _("Failed to get SAN context %s") % e
-                    raise exception.FCZoneDriverException(msg)
+                conn = self._get_cli_client(fabric_name)
 
                 # Get name server data from fabric and get the targets
                 # logged in.
                 nsinfo = None
                 try:
                     nsinfo = conn.get_nameserver_info()
-                    LOG.debug(_("name server info from fabric:%s"), nsinfo)
+                    LOG.debug("name server info from fabric:%s", nsinfo)
                     conn.cleanup()
                 except exception.BrocadeZoningCliException as ex:
+                    if not conn.is_supported_firmware():
+                        msg = _("Unsupported firmware on switch %s. Make sure "
+                                "switch is running firmware v6.4 or higher"
+                                ) % conn.switch_ip
+                        LOG.error(msg)
+                        raise exception.FCZoneDriverException(msg)
                     with excutils.save_and_reraise_exception():
                         LOG.error(_("Error getting name server "
                                     "info: %s"), ex)
@@ -439,36 +379,48 @@ class BrcdFCZoneDriver(FCZoneDriver):
                             visible_targets[idx]).replace(':', '')
                     fabric_map[fabric_name] = visible_targets
                 else:
-                    LOG.debug(_("No targets are in the nameserver for SAN %s"),
+                    LOG.debug("No targets are in the nameserver for SAN %s",
                               fabric_name)
-        LOG.debug(_("Return SAN context output:%s"), fabric_map)
+        LOG.debug("Return SAN context output:%s", fabric_map)
         return fabric_map
 
-    def get_active_zone_set(self, fabric_ip,
-                            fabric_user, fabric_pwd, fabric_port):
-        """Gets active zone config from fabric."""
-        cfgmap = {}
-        conn = None
+    def _get_active_zone_set(self, conn):
+        cfgmap = None
         try:
-            LOG.debug(_("Southbound connector:"
-                        " %s"), self.configuration.brcd_sb_connector)
-            conn = importutils.import_object(
-                self.configuration.brcd_sb_connector,
-                ipaddress=fabric_ip, username=fabric_user,
-                password=fabric_pwd, port=fabric_port)
+            cfgmap = conn.get_active_zone_set()
+        except exception.BrocadeZoningCliException:
             if not conn.is_supported_firmware():
                 msg = _("Unsupported firmware on switch %s. Make sure "
                         "switch is running firmware v6.4 or higher"
-                        ) % fabric_ip
+                        ) % conn.switch_ip
                 LOG.error(msg)
                 raise exception.FCZoneDriverException(msg)
-            cfgmap = conn.get_active_zone_set()
-            conn.cleanup()
-        except exception.BrocadeZoningCliException as brocade_ex:
-            raise exception.FCZoneDriverException(brocade_ex)
         except Exception as e:
-            msg = (_("Failed to access active zoning configuration:%s") % e)
-            LOG.error(msg)
+            LOG.error(e)
+            msg = _("Failed to retrieve active zoning configuration %s") % e
             raise exception.FCZoneDriverException(msg)
-        LOG.debug(_("Active zone set from fabric: %s"), cfgmap)
+        LOG.debug("Active zone set from fabric: %s", cfgmap)
         return cfgmap
+
+    def _get_cli_client(self, fabric):
+        fabric_ip = self.fabric_configs[fabric].safe_get('fc_fabric_address')
+        fabric_user = self.fabric_configs[fabric].safe_get('fc_fabric_user')
+        fabric_pwd = self.fabric_configs[fabric].safe_get('fc_fabric_password')
+        fabric_port = self.fabric_configs[fabric].safe_get('fc_fabric_port')
+        cli_client = None
+        try:
+            cli_client = self.sb_conn_map.get(fabric_ip)
+            if not cli_client:
+                LOG.debug("CLI client not found, creating for %s", fabric_ip)
+                cli_client = importutils.import_object(
+                    self.configuration.brcd_sb_connector,
+                    ipaddress=fabric_ip,
+                    username=fabric_user,
+                    password=fabric_pwd,
+                    port=fabric_port)
+                self.sb_conn_map[fabric_ip] = cli_client
+        except Exception as e:
+            LOG.error(e)
+            msg = _("Failed to create sb connector for %s") % fabric_ip
+            raise exception.FCZoneDriverException(msg)
+        return cli_client

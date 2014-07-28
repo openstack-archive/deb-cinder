@@ -20,9 +20,9 @@ from webob import exc
 
 from cinder.api import common
 from cinder.api.openstack import wsgi
-from cinder.api.v1 import volumes
 from cinder.api import xmlutil
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import strutils
 from cinder import utils
@@ -93,7 +93,7 @@ class SnapshotsTemplate(xmlutil.TemplateBuilder):
 
 
 class SnapshotsController(wsgi.Controller):
-    """The Volumes API controller for the OpenStack API."""
+    """The Snapshots API controller for the OpenStack API."""
 
     def __init__(self, ext_mgr=None):
         self.volume_api = volume.API()
@@ -146,8 +146,8 @@ class SnapshotsController(wsgi.Controller):
 
         #filter out invalid option
         allowed_search_options = ('status', 'volume_id', 'display_name')
-        volumes.remove_invalid_options(context, search_opts,
-                                       allowed_search_options)
+        utils.remove_invalid_filter_options(context, search_opts,
+                                            allowed_search_options)
 
         snapshots = self.volume_api.get_all_snapshots(context,
                                                       search_opts=search_opts)

@@ -23,12 +23,14 @@
 
 import hashlib
 import os
+import re
 
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
-from cinder import units
+from cinder.openstack.common import units
 from cinder.volume.drivers import nexenta
 from cinder.volume.drivers.nexenta import jsonrpc
 from cinder.volume.drivers.nexenta import options
@@ -111,7 +113,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
 
         vol, dataset = self._get_share_datasets(nfs_share)
         folder = '%s/%s' % (dataset, volume['name'])
-        LOG.debug(_('Creating folder on Nexenta Store %s'), folder)
+        LOG.debug('Creating folder on Nexenta Store %s', folder)
         nms.folder.create_with_props(
             vol, folder,
             {'compression': self.configuration.nexenta_volume_compression}
@@ -277,14 +279,10 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         :param path: path to new file
         :param size: size of file
         """
-        block_size_mb = 1
-        block_count = size * units.GiB / (block_size_mb * units.MiB)
-
         nms.appliance.execute(
-            'dd if=/dev/zero of=%(path)s bs=%(bs)dM count=0 seek=%(count)d' % {
+            'truncate --size %(size)dG %(path)s' % {
                 'path': path,
-                'bs': block_size_mb,
-                'count': block_count
+                'size': size
             }
         )
 
@@ -297,7 +295,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         :param size: size of file
         """
         block_size_mb = 1
-        block_count = size * units.GiB / (block_size_mb * units.MiB)
+        block_count = size * units.Gi / (block_size_mb * units.Mi)
 
         LOG.info(_('Creating regular file: %s.'
                    'This may take some time.') % path)
@@ -362,7 +360,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             'recursive': 'true',
             'anonymous_rw': 'true',
         }
-        LOG.debug(_('Sharing folder %s on Nexenta Store'), folder)
+        LOG.debug('Sharing folder %s on Nexenta Store', folder)
         nms.netstorsvc.share_folder('svc:/network/nfs/server:default', path,
                                     share_opts)
 
@@ -381,16 +379,21 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             if share.startswith('#'):
                 continue
 
-            share_info = share.split(' ', 2)
+            share_info = re.split(r'\s+', share, 2)
 
             share_address = share_info[0].strip().decode('unicode_escape')
             nms_url = share_info[1].strip()
             share_opts = share_info[2].strip() if len(share_info) > 2 else None
 
+            if not re.match(r'.+:/.+', share_address):
+                LOG.warn("Share %s ignored due to invalid format.  Must be of "
+                         "form address:/export." % share_address)
+                continue
+
             self.shares[share_address] = share_opts
             self.share2nms[share_address] = self._get_nms_for_url(nms_url)
 
-        LOG.debug(_('Shares loaded: %s') % self.shares)
+        LOG.debug('Shares loaded: %s' % self.shares)
 
     def _get_capacity_info(self, nfs_share):
         """Calculate available space on the NFS share.

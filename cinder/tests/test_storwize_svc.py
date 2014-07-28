@@ -21,16 +21,18 @@ Tests for the IBM Storwize family and SVC volume driver.
 import mock
 import random
 import re
+import time
 
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import excutils
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
+from cinder.openstack.common import units
 from cinder import test
 from cinder.tests import utils as testutils
-from cinder import units
 from cinder import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.ibm import storwize_svc
@@ -505,8 +507,8 @@ port_speed!N/A
         for host_info in host_infos:
             for wwpn in host_info['wwpns']:
                 rows.append([wwpn, '123456', host_info['id'], 'nodeN',
-                            'AABBCCDDEEFF0011', '1', '0123ABC', 'active',
-                            host_info['host_name'], '', 'host'])
+                             'AABBCCDDEEFF0011', '1', '0123ABC', 'active',
+                             host_info['host_name'], '', 'host'])
 
         if self._next_cmd_error['lsfabric'] == 'header_mismatch':
             rows[0].pop(0)
@@ -626,7 +628,7 @@ port_speed!N/A
             return self._errors['CMMVC5753E']
 
         curr_size = int(self._volumes_list[vol_name]['capacity'])
-        addition = size * units.GiB
+        addition = size * units.Gi
         self._volumes_list[vol_name]['capacity'] = str(curr_size + addition)
         return ('', '')
 
@@ -664,13 +666,13 @@ port_speed!N/A
                 else:
                     cap = vol['capacity']
                 rows.append([str(vol['id']), vol['name'], vol['IO_group_id'],
-                            vol['IO_group_name'], 'online', '0',
-                            self._flags['storwize_svc_volpool_name'],
-                            cap, 'striped',
-                            fcmap_info['fc_id'], fcmap_info['fc_name'],
-                            '', '', vol['uid'],
-                            fcmap_info['fc_map_count'], '1', 'empty',
-                            '1', 'no'])
+                             vol['IO_group_name'], 'online', '0',
+                             self._flags['storwize_svc_volpool_name'],
+                             cap, 'striped',
+                             fcmap_info['fc_id'], fcmap_info['fc_name'],
+                             '', '', vol['uid'],
+                             fcmap_info['fc_map_count'], '1', 'empty',
+                             '1', 'no'])
 
         if 'obj' not in kwargs:
             return self._print_info_cmd(rows=rows, **kwargs)
@@ -1191,10 +1193,10 @@ port_speed!N/A
                     to_delete.append(k)
                 else:
                     rows.append([v['id'], v['name'], source['id'],
-                                source['name'], target['id'], target['name'],
-                                '', '', v['status'], v['progress'],
-                                v['copyrate'], '100', 'off', '', '', 'no', '',
-                                'no'])
+                                 source['name'], target['id'], target['name'],
+                                 '', '', v['status'], v['progress'],
+                                 v['copyrate'], '100', 'off', '', '', 'no', '',
+                                 'no'])
 
         for d in to_delete:
             del self._fcmappings_list[d]
@@ -1438,24 +1440,25 @@ class StorwizeSVCFakeDriver(storwize_svc.StorwizeSVCDriver):
 
     def _run_ssh(self, cmd, check_exit_code=True, attempts=1):
         try:
-            LOG.debug(_('Run CLI command: %s') % cmd)
+            LOG.debug('Run CLI command: %s' % cmd)
             utils.check_ssh_injection(cmd)
             ret = self.fake_storage.execute_command(cmd, check_exit_code)
             (stdout, stderr) = ret
-            LOG.debug(_('CLI output:\n stdout: %(stdout)s\n stderr: '
-                        '%(stderr)s') % {'stdout': stdout, 'stderr': stderr})
+            LOG.debug('CLI output:\n stdout: %(stdout)s\n stderr: '
+                      '%(stderr)s' % {'stdout': stdout, 'stderr': stderr})
 
         except processutils.ProcessExecutionError as e:
             with excutils.save_and_reraise_exception():
-                LOG.debug(_('CLI Exception output:\n stdout: %(out)s\n '
-                            'stderr: %(err)s') % {'out': e.stdout,
-                                                  'err': e.stderr})
+                LOG.debug('CLI Exception output:\n stdout: %(out)s\n '
+                          'stderr: %(err)s' % {'out': e.stdout,
+                                               'err': e.stderr})
 
         return ret
 
 
 class StorwizeSVCDriverTestCase(test.TestCase):
-    def setUp(self):
+    @mock.patch.object(time, 'sleep')
+    def setUp(self, mock_sleep):
         super(StorwizeSVCDriverTestCase, self).setUp()
         self.USESIM = True
         if self.USESIM:
@@ -1503,14 +1506,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.driver.db = self.db
         self.driver.do_setup(None)
         self.driver.check_for_setup_error()
-        self.sleeppatch = mock.patch('eventlet.greenthread.sleep')
-        self.sleeppatch.start()
         self.driver._helpers.check_fcmapping_interval = 0
-
-    def tearDown(self):
-        if self.USESIM:
-            self.sleeppatch.stop()
-        super(StorwizeSVCDriverTestCase, self).tearDown()
 
     def _set_flag(self, flag, value):
         group = self.driver.configuration.config_group
@@ -1764,7 +1760,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
 
         # Make sure volume attributes are as they should be
         attributes = self.driver._helpers.get_vdisk_attributes(volume['name'])
-        attr_size = float(attributes['capacity']) / units.GiB  # bytes to GB
+        attr_size = float(attributes['capacity']) / units.Gi  # bytes to GB
         self.assertEqual(attr_size, float(volume['size']))
         pool = self.driver.configuration.local_conf.storwize_svc_volpool_name
         self.assertEqual(attributes['mdisk_grp_name'], pool)
@@ -2229,7 +2225,8 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         volume = self._create_volume()
         self.driver.extend_volume(volume, '13')
         attrs = self.driver._helpers.get_vdisk_attributes(volume['name'])
-        vol_size = int(attrs['capacity']) / units.GiB
+        vol_size = int(attrs['capacity']) / units.Gi
+
         self.assertAlmostEqual(vol_size, 13)
 
         snap = self._generate_vol_info(volume['name'], volume['id'])
@@ -2613,7 +2610,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
     def test_manage_existing_bad_uid(self):
         """Error when the specified UUID does not exist."""
         volume = self._generate_vol_info(None, None)
-        ref = {'vdisk_UID': 'bad_uid'}
+        ref = {'source-id': 'bad_uid'}
         self.assertRaises(exception.ManageExistingInvalidReference,
                           self.driver.manage_existing_get_size, volume, ref)
         pass
@@ -2636,7 +2633,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         new_volume = self._generate_vol_info(None, None)
 
         # Submit the request to manage it.
-        ref = {'vdisk_UID': uid}
+        ref = {'source-id': uid}
         size = self.driver.manage_existing_get_size(new_volume, ref)
         self.assertEqual(size, 10)
         self.driver.manage_existing(new_volume, ref)
@@ -2666,7 +2663,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         # Descriptor of the Cinder volume that we want to own the vdisk
         # refrerenced by uid.
         volume = self._generate_vol_info(None, None)
-        ref = {'vdisk_UID': uid}
+        ref = {'source-id': uid}
 
         # Attempt to manage this disk, and except an exception beause the
         # volume is already mapped.
@@ -2697,7 +2694,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
 
         # Submit the request to manage it, specifying that it is OK to
         # manage a volume that is already attached.
-        ref = {'vdisk_UID': uid, 'manage_if_in_use': True}
+        ref = {'source-id': uid, 'manage_if_in_use': True}
         size = self.driver.manage_existing_get_size(new_volume, ref)
         self.assertEqual(size, 10)
         self.driver.manage_existing(new_volume, ref)

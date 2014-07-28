@@ -28,9 +28,11 @@ from oslo import messaging
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
+from cinder.openstack.common import processutils
 from cinder.openstack.common import service
 from cinder import rpc
 from cinder import version
@@ -57,7 +59,10 @@ service_opts = [
                help='IP address on which OpenStack Volume API listens'),
     cfg.IntOpt('osapi_volume_listen_port',
                default=8776,
-               help='Port on which OpenStack Volume API listens'), ]
+               help='Port on which OpenStack Volume API listens'),
+    cfg.IntOpt('osapi_volume_workers',
+               help='Number of workers for OpenStack Volume API service. '
+                    'The default is equal to the number of CPUs available.'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(service_opts)
@@ -109,7 +114,7 @@ class Service(service.Service):
         except exception.NotFound:
             self._create_service_ref(ctxt)
 
-        LOG.debug(_("Creating RPC server for service %s") % self.topic)
+        LOG.debug("Creating RPC server for service %s" % self.topic)
 
         target = messaging.Target(topic=self.topic, server=self.host)
         endpoints = [self.manager]
@@ -248,8 +253,8 @@ class Service(service.Service):
             try:
                 service_ref = db.service_get(ctxt, self.service_id)
             except exception.NotFound:
-                LOG.debug(_('The service database object disappeared, '
-                            'Recreating it.'))
+                LOG.debug('The service database object disappeared, '
+                          'Recreating it.')
                 self._create_service_ref(ctxt)
                 service_ref = db.service_get(ctxt, self.service_id)
 
@@ -289,13 +294,14 @@ class WSGIService(object):
         self.app = self.loader.load_app(name)
         self.host = getattr(CONF, '%s_listen' % name, "0.0.0.0")
         self.port = getattr(CONF, '%s_listen_port' % name, 0)
-        self.workers = getattr(CONF, '%s_workers' % name, None)
+        self.workers = getattr(CONF, '%s_workers' % name,
+                               processutils.get_worker_count())
         if self.workers < 1:
             LOG.warn(_("Value of config option %(name)s_workers must be "
                        "integer greater than 1.  Input value ignored.") %
                      {'name': name})
             # Reset workers to default
-            self.workers = None
+            self.workers = processutils.get_worker_count()
         self.server = wsgi.Server(name,
                                   self.app,
                                   host=self.host,
@@ -352,6 +358,14 @@ class WSGIService(object):
         """
         self.server.wait()
 
+    def reset(self):
+        """Reset server greenpool size to default.
+
+        :returns: None
+
+        """
+        self.server.reset()
+
 
 def process_launcher():
     return service.ProcessLauncher()
@@ -372,7 +386,7 @@ def serve(server, workers=None):
 
 
 def wait():
-    LOG.debug(_('Full set of CONF:'))
+    LOG.debug('Full set of CONF:')
     for flag in CONF:
         flag_get = CONF.get(flag, None)
         # hide flag contents from log if contains a password
@@ -380,7 +394,7 @@ def wait():
         if ("_password" in flag or "_key" in flag or
                 (flag == "sql_connection" and
                     ("mysql:" in flag_get or "postgresql:" in flag_get))):
-            LOG.debug(_('%s : FLAG SET ') % flag)
+            LOG.debug('%s : FLAG SET ' % flag)
         else:
             LOG.debug('%(flag)s : %(flag_get)s' %
                       {'flag': flag, 'flag_get': flag_get})

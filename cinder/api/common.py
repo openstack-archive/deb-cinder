@@ -23,6 +23,7 @@ import webob
 
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder import utils
 
@@ -186,7 +187,7 @@ def remove_version_from_href(href):
     new_path = '/'.join(url_parts)
 
     if new_path == parsed_url.path:
-        msg = _('href %s does not contain version') % href
+        msg = 'href %s does not contain version' % href
         LOG.debug(msg)
         raise ValueError(msg)
 

@@ -21,11 +21,12 @@ from oslo.config import cfg
 
 from cinder.brick.local_dev import lvm as brick_lvm
 from cinder import exception
+from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder.openstack.common import strutils
+from cinder.openstack.common import units
 from cinder import rpc
-from cinder import units
 from cinder import utils
 
 
@@ -103,6 +104,53 @@ def notify_about_snapshot_usage(context, snapshot, event_suffix,
                                             usage_info)
 
 
+def setup_blkio_cgroup(srcpath, dstpath, bps_limit, execute=utils.execute):
+    if not bps_limit:
+        return None
+
+    try:
+        srcdev = utils.get_blkdev_major_minor(srcpath)
+    except exception.Error as e:
+        msg = (_('Failed to get device number for read throttling: %(error)s')
+               % {'error': e})
+        LOG.error(msg)
+        srcdev = None
+
+    try:
+        dstdev = utils.get_blkdev_major_minor(dstpath)
+    except exception.Error as e:
+        msg = (_('Failed to get device number for write throttling: %(error)s')
+               % {'error': e})
+        LOG.error(msg)
+        dstdev = None
+
+    if not srcdev and not dstdev:
+        return None
+
+    group_name = CONF.volume_copy_blkio_cgroup_name
+    try:
+        execute('cgcreate', '-g', 'blkio:%s' % group_name, run_as_root=True)
+    except processutils.ProcessExecutionError:
+        LOG.warn(_('Failed to create blkio cgroup'))
+        return None
+
+    try:
+        if srcdev:
+            execute('cgset', '-r', 'blkio.throttle.read_bps_device=%s %d'
+                    % (srcdev, bps_limit), group_name, run_as_root=True)
+        if dstdev:
+            execute('cgset', '-r', 'blkio.throttle.write_bps_device=%s %d'
+                    % (dstdev, bps_limit), group_name, run_as_root=True)
+    except processutils.ProcessExecutionError:
+        msg = (_('Failed to setup blkio cgroup to throttle the devices: '
+                 '\'%(src)s\',\'%(dst)s\'')
+               % {'src': srcdev, 'dst': dstdev})
+        LOG.warn(msg)
+        return None
+
+    return ['cgexec', '-g', 'blkio:%s' % group_name]
+
+
 def _calculate_count(size_in_m, blocksize):
 
     # Check if volume_dd_blocksize is valid
@@ -123,7 +171,7 @@ def _calculate_count(size_in_m, blocksize):
         blocksize = CONF.volume_dd_blocksize
         bs = strutils.string_to_bytes('%sB' % blocksize)
 
-    count = math.ceil(size_in_m * units.MiB / bs)
+    count = math.ceil(size_in_m * units.Mi / bs)
 
     return blocksize, int(count)
 
@@ -155,6 +203,10 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
 
     if ionice is not None:
         cmd = ['ionice', ionice] + cmd
+
+    cgcmd = setup_blkio_cgroup(srcstr, deststr, CONF.volume_copy_bps_limit)
+    if cgcmd:
+        cmd = cgcmd + cmd
 
     # Perform the copy
     execute(*cmd, run_as_root=True)
