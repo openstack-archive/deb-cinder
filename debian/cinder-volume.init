@@ -20,7 +20,7 @@ DESC="OpenStack Cinder Volume"
 NAME=cinder-volume
 DAEMON=/usr/bin/cinder-volume
 DAEMON_ARGS="--config-file=/etc/cinder/cinder.conf"
-PIDFILE=/var/run/$NAME.pid
+PIDFILE=/var/run/cinder/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CINDER_USER=cinder
 LOCK_DIR=/var/lock/cinder/
@@ -28,8 +28,8 @@ LOCK_DIR=/var/lock/cinder/
 # Exit if the package is not installed
 [ -x $DAEMON ] || exit 0
 
-mkdir -p ${LOCK_DIR}
-chown ${CINDER_USER} ${LOCK_DIR}
+mkdir -p ${LOCK_DIR} /var/run/cinder
+chown ${CINDER_USER} ${LOCK_DIR} /var/run/cinder
 
 . /lib/lsb/init-functions
 
