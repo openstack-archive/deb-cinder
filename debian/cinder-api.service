@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenStack Cinder Api
+Documentation=http://docs.openstack.org/
+After=postgresql.service mysql.service keystone.service rabbitmq-server.service ntp.service network.service
+
+[Service]
+User=cinder
+Group=cinder
+ExecStart=/etc/init.d/cinder-api systemd-start
+ExecStop=/etc/init.d/cinder-api systemd-stop
+PIDFile=/var/run/cinder/cinder-api.pid
+Restart=on-failure
+Type=forking
+
+[Install]
+WantedBy=multi-user.target
+
