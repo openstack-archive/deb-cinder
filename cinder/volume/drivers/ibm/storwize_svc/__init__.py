@@ -409,9 +409,21 @@ class StorwizeSVCDriver(san.SanDriver):
                     LOG.error(msg)
                     raise exception.VolumeBackendAPIException(data=msg)
                 if not vol_opts['multipath']:
-                    if preferred_node_entry['WWPN'] in conn_wwpns:
-                        properties['target_wwn'] = preferred_node_entry['WWPN']
+                    # preferred_node_entry can have a list of WWPNs while only
+                    # one WWPN may be available on the storage host.  Here we
+                    # walk through the nodes until we find one that works,
+                    # default to the first WWPN otherwise.
+                    for WWPN in preferred_node_entry['WWPN']:
+                        if WWPN in conn_wwpns:
+                            properties['target_wwn'] = WWPN
+                            break
                     else:
+                        LOG.warning(_('Unable to find a preferred node match '
+                                    'for node %(node)s in the list of '
+                                    'available WWPNs on %(host)s. '
+                                    'Using first available.') %
+                                    {'node': preferred_node,
+                                     'host': host_name})
                         properties['target_wwn'] = conn_wwpns[0]
                 else:
                     properties['target_wwn'] = conn_wwpns
@@ -459,6 +471,16 @@ class StorwizeSVCDriver(san.SanDriver):
 
         vol_name = volume['name']
         if 'host' in connector:
+            # maybe two hosts on the storage, one is for FC and the other for
+            # iSCSI, so get host according to protocol
+            vol_opts = self._get_vdisk_params(volume['volume_type_id'])
+            connector = connector.copy()
+            if vol_opts['protocol'] == 'FC':
+                connector.pop('initiator', None)
+            elif vol_opts['protocol'] == 'iSCSI':
+                connector.pop('wwnns', None)
+                connector.pop('wwpns', None)
+
             host_name = self._helpers.get_host_from_connector(connector)
             if host_name is None:
                 msg = (_('terminate_connection: Failed to get host name from'
