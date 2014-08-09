@@ -1,10 +1,10 @@
 cinder (2014.1.2-1) unstable; urgency=medium
 
+  [ gustavo panizzo ]
   * New upstream release. 
-  * Added dependency on python-argparse.
   * Bumped python-keystoneclient dependency to 0.7.0.
 
- -- gustavo panizzo <gfa@zumbi.com.ar>  Fri, 08 Aug 2014 17:28:43 -0300
+ -- Thomas Goirand <zigo@debian.org>  Sat, 09 Aug 2014 23:42:01 +0800
 
 cinder (2014.1.1-3) unstable; urgency=high
 
