@@ -14,7 +14,6 @@ Build-Depends: debhelper (>= 8.0.0),
                python-sphinx
 Build-Depends-Indep: python-amqplib,
                      python-anyjson (>= 0.3.3),
-                     python-argparse,
                      python-babel (>= 1.3),
                      python-coverage (>= 3.6),
                      python-daemon,
@@ -69,7 +68,6 @@ Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: python-amqplib,
          python-anyjson (>= 0.3.3),
-         python-argparse,
          python-babel (>= 1.3),
          python-daemon,
          python-eventlet (>= 0.13.0),
