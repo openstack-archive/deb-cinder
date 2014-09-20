@@ -1,4 +1,3 @@
-
 # Copyright 2010-2011 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -36,10 +35,7 @@ import testtools
 import cinder.db.migration as migration
 import cinder.db.sqlalchemy.migrate_repo
 from cinder.db.sqlalchemy.migration import versioning_api as migration_api
-from cinder.openstack.common import log as logging
 from cinder import test
-
-LOG = logging.getLogger('cinder.tests.test_migrations')
 
 
 def _get_connect_string(backend,
@@ -79,7 +75,6 @@ def _is_backend_avail(backend,
     except Exception:
         # intentionally catch all to handle exceptions even if we don't
         # have any backend code loaded.
-        LOG.exception("Backend %s is not available", backend)
         return False
     else:
         connection.close()
@@ -126,7 +121,6 @@ class TestMigrations(test.TestCase):
 
         # Load test databases from the config file. Only do this
         # once. No need to re-run this on each test...
-        LOG.debug('config_path is %s' % TestMigrations.CONFIG_FILE_PATH)
         if not self.test_databases:
             if os.path.exists(TestMigrations.CONFIG_FILE_PATH):
                 cp = ConfigParser.RawConfigParser()
@@ -171,8 +165,7 @@ class TestMigrations(test.TestCase):
         def execute_cmd(cmd=None):
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, shell=True)
-            output = proc.communicate()[0]
-            LOG.debug(output)
+            proc.communicate()[0]
             self.assertEqual(0, proc.returncode)
 
         for key, engine in self.engines.items():
@@ -328,8 +321,6 @@ class TestMigrations(test.TestCase):
         migration_api.upgrade(engine, TestMigrations.REPOSITORY,
                               migration.db_initial_version() + 1)
 
-        LOG.debug('latest version is %s' % TestMigrations.REPOSITORY.latest)
-
         for version in xrange(migration.db_initial_version() + 2,
                               TestMigrations.REPOSITORY.latest + 1):
             # upgrade -> downgrade -> upgrade
@@ -387,8 +378,6 @@ class TestMigrations(test.TestCase):
                 if check:
                     check(engine, data)
         except Exception:
-            LOG.error("Failed to migrate to version %s on engine %s" %
-                      (version, engine))
             raise
 
     # migration 004 - change volume types to UUID
@@ -1071,3 +1060,69 @@ class TestMigrations(test.TestCase):
                                         metadata,
                                         autoload=True)
             self.assertNotIn('disabled_reason', services.c)
+
+    def test_migration_023(self):
+        """Test that adding reservations index works correctly."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.db_initial_version())
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 22)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 23)
+            reservations = sqlalchemy.Table('reservations',
+                                            metadata,
+                                            autoload=True)
+            index_columns = []
+            for idx in reservations.indexes:
+                if idx.name == 'reservations_deleted_expire_idx':
+                    index_columns = idx.columns.keys()
+                    break
+
+            self.assertEqual(sorted(['deleted', 'expire']),
+                             sorted(index_columns))
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 22)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            reservations = sqlalchemy.Table('reservations',
+                                            metadata,
+                                            autoload=True)
+            index_names = [idx.name for idx in reservations.indexes]
+            self.assertNotIn('reservations_deleted_expire_idx', index_names)
+
+    def test_migration_024(self):
+        """Test adding replication columns to volume table."""
+        for (key, engine) in self.engines.items():
+            migration_api.version_control(engine,
+                                          TestMigrations.REPOSITORY,
+                                          migration.db_initial_version())
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 23)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 24)
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertIsInstance(volumes.c.replication_status.type,
+                                  sqlalchemy.types.VARCHAR)
+            self.assertIsInstance(volumes.c.replication_extended_status.type,
+                                  sqlalchemy.types.VARCHAR)
+            self.assertIsInstance(volumes.c.replication_driver_data.type,
+                                  sqlalchemy.types.VARCHAR)
+
+            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 23)
+            metadata = sqlalchemy.schema.MetaData()
+            metadata.bind = engine
+
+            volumes = sqlalchemy.Table('volumes',
+                                       metadata,
+                                       autoload=True)
+            self.assertNotIn('replication_status', volumes.c)
+            self.assertNotIn('replication_extended_status', volumes.c)
+            self.assertNotIn('replication_driver_data', volumes.c)

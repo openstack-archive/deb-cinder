@@ -20,7 +20,7 @@ Supports call to multiple storage systems of different families and protocols.
 """
 
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
@@ -143,8 +143,8 @@ class NetAppDriverFactory(object):
     def check_netapp_driver(location):
         """Checks if the driver requested is a netapp driver."""
         if location.find(".netapp.") == -1:
-                raise exception.InvalidInput(
-                    reason=_("Only loading netapp drivers supported."))
+            raise exception.InvalidInput(
+                reason=_("Only loading netapp drivers supported."))
 
 
 class Deprecated(driver.VolumeDriver):

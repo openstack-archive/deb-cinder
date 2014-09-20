@@ -18,7 +18,7 @@ Exception classes and SOAP response error checking module.
 """
 
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 
 NOT_AUTHENTICATED = 'NotAuthenticated'
 
@@ -73,3 +73,13 @@ class VMwaredriverConfigurationException(VMwareDriverException):
 class InvalidAdapterTypeException(VMwareDriverException):
     """Thrown when the disk adapter type is invalid."""
     message = _("Invalid disk adapter type: %(invalid_type)s.")
+
+
+class InvalidDiskTypeException(VMwareDriverException):
+    """Thrown when the disk type is invalid."""
+    message = _("Invalid disk type: %(disk_type)s.")
+
+
+class ImageTransferException(VMwareDriverException):
+    """Thrown when there is an error during image transfer."""
+    message = _("Error occurred during image transfer.")

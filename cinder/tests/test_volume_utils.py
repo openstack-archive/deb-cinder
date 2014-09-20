@@ -15,10 +15,10 @@
 
 """Tests For miscellaneous util methods used with volume."""
 
-import mock
 import os
 import re
 
+import mock
 from oslo.config import cfg
 
 from cinder import context
@@ -246,3 +246,96 @@ class BlkioCgroupTestCase(test.TestCase):
                                               execute=fake_utils_execute)
         self.assertEqual(['cgexec', '-g',
                           'blkio:' + CONF.volume_copy_blkio_cgroup_name], cmd)
+
+
+class VolumeUtilsTestCase(test.TestCase):
+    def test_generate_password(self):
+        password = volume_utils.generate_password()
+        self.assertTrue([c for c in password if c in '0123456789'])
+        self.assertTrue([c for c in password
+                         if c in 'abcdefghijklmnopqrstuvwxyz'])
+        self.assertTrue([c for c in password
+                         if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'])
+
+    def test_extract_host(self):
+        host = 'Host'
+        # default level is 'backend'
+        self.assertEqual(
+            volume_utils.extract_host(host), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'host'), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'backend'), 'Host')
+        # default_pool_name doesn't work for level other than 'pool'
+        self.assertEqual(
+            volume_utils.extract_host(host, 'host', True), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'host', False), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'backend', True), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'backend', False), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool'), None)
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool', True), '_pool0')
+
+        host = 'Host@Backend'
+        self.assertEqual(
+            volume_utils.extract_host(host), 'Host@Backend')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'host'), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'backend'), 'Host@Backend')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool'), None)
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool', True), '_pool0')
+
+        host = 'Host@Backend#Pool'
+        self.assertEqual(
+            volume_utils.extract_host(host), 'Host@Backend')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'host'), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'backend'), 'Host@Backend')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool'), 'Pool')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool', True), 'Pool')
+
+        host = 'Host#Pool'
+        self.assertEqual(
+            volume_utils.extract_host(host), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'host'), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'backend'), 'Host')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool'), 'Pool')
+        self.assertEqual(
+            volume_utils.extract_host(host, 'pool', True), 'Pool')
+
+    def test_append_host(self):
+        host = 'Host'
+        pool = 'Pool'
+        expected = 'Host#Pool'
+        self.assertEqual(expected,
+                         volume_utils.append_host(host, pool))
+
+        pool = None
+        expected = 'Host'
+        self.assertEqual(expected,
+                         volume_utils.append_host(host, pool))
+
+        host = None
+        pool = 'pool'
+        expected = None
+        self.assertEqual(expected,
+                         volume_utils.append_host(host, pool))
+
+        host = None
+        pool = None
+        expected = None
+        self.assertEqual(expected,
+                         volume_utils.append_host(host, pool))

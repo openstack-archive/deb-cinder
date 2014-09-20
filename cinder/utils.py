@@ -29,21 +29,18 @@ import shutil
 import stat
 import sys
 import tempfile
-
-from Crypto.Random import random
-from eventlet import pools
-from oslo.config import cfg
-import paramiko
-import six
 from xml.dom import minidom
 from xml.parsers import expat
 from xml import sax
 from xml.sax import expatreader
 from xml.sax import saxutils
 
+from oslo.config import cfg
+import six
+
 from cinder.brick.initiator import connector
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import lockutils
 from cinder.openstack.common import log as logging
@@ -132,7 +129,7 @@ def check_exclusive_options(**kwargs):
 
 def execute(*cmd, **kwargs):
     """Convenience wrapper around oslo's execute() method."""
-    if 'run_as_root' in kwargs and not 'root_helper' in kwargs:
+    if 'run_as_root' in kwargs and 'root_helper' not in kwargs:
         kwargs['root_helper'] = get_root_helper()
     return processutils.execute(*cmd, **kwargs)
 
@@ -179,111 +176,9 @@ def create_channel(client, width, height):
     return channel
 
 
-class SSHPool(pools.Pool):
-    """A simple eventlet pool to hold ssh connections."""
-
-    def __init__(self, ip, port, conn_timeout, login, password=None,
-                 privatekey=None, *args, **kwargs):
-        self.ip = ip
-        self.port = port
-        self.login = login
-        self.password = password
-        self.conn_timeout = conn_timeout if conn_timeout else None
-        self.privatekey = privatekey
-        if 'missing_key_policy' in kwargs.keys():
-            self.missing_key_policy = kwargs.pop('missing_key_policy')
-        else:
-            self.missing_key_policy = paramiko.AutoAddPolicy()
-        if 'hosts_key_file' in kwargs.keys():
-            self.hosts_key_file = kwargs.pop('hosts_key_file')
-        else:
-            self.hosts_key_file = None
-        super(SSHPool, self).__init__(*args, **kwargs)
-
-    def create(self):
-        try:
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(self.missing_key_policy)
-            if not self.hosts_key_file:
-                ssh.load_system_host_keys()
-            else:
-                ssh.load_host_keys(self.hosts_key_file)
-            if self.password:
-                ssh.connect(self.ip,
-                            port=self.port,
-                            username=self.login,
-                            password=self.password,
-                            timeout=self.conn_timeout)
-            elif self.privatekey:
-                pkfile = os.path.expanduser(self.privatekey)
-                privatekey = paramiko.RSAKey.from_private_key_file(pkfile)
-                ssh.connect(self.ip,
-                            port=self.port,
-                            username=self.login,
-                            pkey=privatekey,
-                            timeout=self.conn_timeout)
-            else:
-                msg = _("Specify a password or private_key")
-                raise exception.CinderException(msg)
-
-            # Paramiko by default sets the socket timeout to 0.1 seconds,
-            # ignoring what we set through the sshclient. This doesn't help for
-            # keeping long lived connections. Hence we have to bypass it, by
-            # overriding it after the transport is initialized. We are setting
-            # the sockettimeout to None and setting a keepalive packet so that,
-            # the server will keep the connection open. All that does is send
-            # a keepalive packet every ssh_conn_timeout seconds.
-            if self.conn_timeout:
-                transport = ssh.get_transport()
-                transport.sock.settimeout(None)
-                transport.set_keepalive(self.conn_timeout)
-            return ssh
-        except Exception as e:
-            msg = _("Error connecting via ssh: %s") % e
-            LOG.error(msg)
-            raise paramiko.SSHException(msg)
-
-    def get(self):
-        """Return an item from the pool, when one is available.
-
-        This may cause the calling greenthread to block. Check if a
-        connection is active before returning it.
-
-        For dead connections create and return a new connection.
-        """
-        conn = super(SSHPool, self).get()
-        if conn:
-            if conn.get_transport().is_active():
-                return conn
-            else:
-                conn.close()
-        return self.create()
-
-    def remove(self, ssh):
-        """Close an ssh client and remove it from free_items."""
-        ssh.close()
-        ssh = None
-        if ssh in self.free_items:
-            self.free_items.pop(ssh)
-        if self.current_size > 0:
-            self.current_size -= 1
-
-
 def cinderdir():
     import cinder
     return os.path.abspath(cinder.__file__).split('cinder/__init__.py')[0]
-
-
-# Default symbols to use for passwords. Avoids visually confusing characters.
-# ~6 bits per symbol
-DEFAULT_PASSWORD_SYMBOLS = ('23456789',  # Removed: 0,1
-                            'ABCDEFGHJKLMNPQRSTUVWXYZ',   # Removed: I, O
-                            'abcdefghijkmnopqrstuvwxyz')  # Removed: l
-
-
-# ~5 bits per symbol
-EASIER_PASSWORD_SYMBOLS = ('23456789',  # Removed: 0, 1
-                           'ABCDEFGHJKLMNPQRSTUVWXYZ')  # Removed: I, O
 
 
 def last_completed_audit_period(unit=None):
@@ -371,42 +266,6 @@ def last_completed_audit_period(unit=None):
         begin = end - datetime.timedelta(hours=1)
 
     return (begin, end)
-
-
-def generate_password(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
-    """Generate a random password from the supplied symbol groups.
-
-    At least one symbol from each group will be included. Unpredictable
-    results if length is less than the number of symbol groups.
-
-    Believed to be reasonably secure (with a reasonable password length!)
-
-    """
-    # NOTE(jerdfelt): Some password policies require at least one character
-    # from each group of symbols, so start off with one random character
-    # from each symbol group
-    password = [random.choice(s) for s in symbolgroups]
-    # If length < len(symbolgroups), the leading characters will only
-    # be from the first length groups. Try our best to not be predictable
-    # by shuffling and then truncating.
-    random.shuffle(password)
-    password = password[:length]
-    length -= len(password)
-
-    # then fill with random characters from all symbol groups
-    symbols = ''.join(symbolgroups)
-    password.extend([random.choice(symbols) for _i in xrange(length)])
-
-    # finally shuffle to ensure first x characters aren't from a
-    # predictable group
-    random.shuffle(password)
-
-    return ''.join(password)
-
-
-def generate_username(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
-    # Use the same implementation as the password generation.
-    return generate_password(length, symbolgroups)
 
 
 class LazyPluggable(object):
@@ -634,26 +493,6 @@ def sanitize_hostname(hostname):
     return hostname
 
 
-def read_cached_file(filename, cache_info, reload_func=None):
-    """Read from a file if it has been modified.
-
-    :param cache_info: dictionary to hold opaque cache.
-    :param reload_func: optional function to be called with data when
-                        file is reloaded due to a modification.
-
-    :returns: data from file
-
-    """
-    mtime = os.path.getmtime(filename)
-    if not cache_info or mtime != cache_info.get('mtime'):
-        with open(filename) as fap:
-            cache_info['data'] = fap.read()
-        cache_info['mtime'] = mtime
-        if reload_func:
-            reload_func(cache_info['data'])
-    return cache_info['data']
-
-
 def hash_file(file_like_object):
     """Generate a hash for the contents of a file."""
     checksum = hashlib.sha1()
@@ -820,6 +659,9 @@ def get_blkdev_major_minor(path, lookup_for_file=True):
         # lookup the mounted disk which the file lies on
         out, _err = execute('df', path)
         devpath = out.split("\n")[1].split()[0]
+        if devpath[0] is not '/':
+            # the file is on a network file system
+            return None
         return get_blkdev_major_minor(devpath, False)
     else:
         msg = _("Unable to get a block device for file \'%s\'") % path

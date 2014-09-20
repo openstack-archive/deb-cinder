@@ -26,9 +26,9 @@ import uuid
 import six.moves.urllib.parse as urlparse
 
 from cinder import exception
+from cinder.i18n import _
 from cinder.image import image_utils
 from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder.openstack.common import units
@@ -272,13 +272,13 @@ class NetAppNFSDriver(nfs.NfsDriver):
     def _spawn_clean_cache_job(self):
         """Spawns a clean task if not running."""
         if getattr(self, 'cleaning', None):
-                LOG.debug('Image cache cleaning in progress. Returning... ')
-                return
+            LOG.debug('Image cache cleaning in progress. Returning... ')
+            return
         else:
-                #set cleaning to True
-                self.cleaning = True
-                t = Timer(0, self._clean_image_cache)
-                t.start()
+            #set cleaning to True
+            self.cleaning = True
+            t = Timer(0, self._clean_image_cache)
+            t.start()
 
     def _clean_image_cache(self):
         """Clean the image cache files in cache of space crunch."""
@@ -352,9 +352,9 @@ class NetAppNFSDriver(nfs.NfsDriver):
                             return True
                         return False
                     if _do_delete():
-                            bytes_to_free = bytes_to_free - int(f[1])
-                            if bytes_to_free <= 0:
-                                return
+                        bytes_to_free = bytes_to_free - int(f[1])
+                        if bytes_to_free <= 0:
+                            return
 
     def _delete_file(self, path):
         """Delete file from disk and return result as boolean."""

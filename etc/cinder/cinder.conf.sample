@@ -198,19 +198,8 @@
 # Options defined in cinder.exception
 #
 
-# make exception message format errors fatal (boolean value)
+# Make exception message format errors fatal. (boolean value)
 #fatal_exception_format_errors=false
-
-
-#
-# Options defined in cinder.policy
-#
-
-# JSON file representing policy (string value)
-#policy_file=policy.json
-
-# Rule checked when requested rule is not found (string value)
-#policy_default_rule=default
 
 
 #
@@ -224,9 +213,20 @@
 # value)
 #quota_snapshots=10
 
+# Number of consistencygroups allowed per project (integer
+# value)
+#quota_consistencygroups=10
+
 # Total amount of storage, in gigabytes, allowed for volumes
 # and snapshots per project (integer value)
 #quota_gigabytes=1000
+
+# Number of volume backups allowed per project (integer value)
+#quota_backups=10
+
+# Total amount of storage, in gigabytes, allowed for backups
+# per project (integer value)
+#quota_backup_gigabytes=1000
 
 # Number of seconds until a reservation expires (integer
 # value)
@@ -404,10 +404,24 @@
 #
 
 # The URL of the Swift endpoint (string value)
-#backup_swift_url=http://localhost:8080/v1/AUTH_
+#backup_swift_url=<None>
+
+# Info to match when looking for swift in the service catalog.
+# Format is: separated values of the form:
+# <service_type>:<service_name>:<endpoint_type> - Only used if
+# backup_swift_url is unset (string value)
+#swift_catalog_info=object-store:swift:publicURL
 
 # Swift authentication mechanism (string value)
 #backup_swift_auth=per_user
+
+# Swift authentication version. Specify "1" for auth 1.0, or
+# "2" for auth 2.0 (string value)
+#backup_swift_auth_version=1
+
+# Swift tenant/account name. Required when connecting to an
+# auth 2.0 system (string value)
+#backup_swift_tenant=<None>
 
 # Swift user name (string value)
 #backup_swift_user=<None>
@@ -601,6 +615,14 @@
 # value)
 #transfer_api_class=cinder.transfer.api.API
 
+# The full class name of the volume replication API class
+# (string value)
+#replication_api_class=cinder.replication.api.API
+
+# The full class name of the consistencygroup API class
+# (string value)
+#consistencygroup_api_class=cinder.consistencygroup.api.API
+
 
 #
 # Options defined in cinder.compute
@@ -758,7 +780,7 @@
 #logging_exception_prefix=%(asctime)s.%(msecs)03d %(process)d TRACE %(name)s %(instance)s
 
 # List of logger=LEVEL pairs. (list value)
-#default_log_levels=amqp=WARN,amqplib=WARN,boto=WARN,qpid=WARN,sqlalchemy=WARN,suds=INFO,oslo.messaging=INFO,iso8601=WARN,requests.packages.urllib3.connectionpool=WARN
+#default_log_levels=amqp=WARN,amqplib=WARN,boto=WARN,qpid=WARN,sqlalchemy=WARN,suds=INFO,oslo.messaging=INFO,iso8601=WARN,requests.packages.urllib3.connectionpool=WARN,urllib3.connectionpool=WARN,websocket=WARN,keystonemiddleware=WARN,routes.middleware=WARN
 
 # Enables or disables publication of error events. (boolean
 # value)
@@ -827,6 +849,18 @@
 # Some periodic tasks can be run in a separate process. Should
 # we run them here? (boolean value)
 #run_external_periodic_tasks=true
+
+
+#
+# Options defined in cinder.openstack.common.policy
+#
+
+# The JSON file that defines policies. (string value)
+#policy_file=policy.json
+
+# Default rule. Enforced when a requested rule is not found.
+# (string value)
+#policy_default_rule=default
 
 
 #
@@ -1081,10 +1115,10 @@
 
 
 #
-# Options defined in cinder.volume.drivers.emc.emc_smis_common
+# Options defined in cinder.volume.drivers.emc.emc_vmax_common
 #
 
-# The configuration file for the Cinder EMC driver (string
+# use this file for cinder emc plugin config data (string
 # value)
 #cinder_emc_config_file=/etc/cinder/cinder_emc_config.xml
 
@@ -1093,19 +1127,45 @@
 # Options defined in cinder.volume.drivers.emc.emc_vnx_cli
 #
 
-# Naviseccli Path (string value)
+# VNX authentication scope type. (string value)
+#storage_vnx_authentication_type=global
+
+# Directory path that contains the VNX security file. Make
+# sure the security file is generated first. (string value)
+#storage_vnx_security_file_dir=<None>
+
+# Naviseccli Path. (string value)
 #naviseccli_path=
 
-# ISCSI pool name (string value)
+# Storage pool name. (string value)
 #storage_vnx_pool_name=<None>
 
-# Default Time Out For CLI operations in minutes (integer
-# value)
-#default_timeout=20
+# VNX secondary SP IP Address. (string value)
+#san_secondary_ip=<None>
 
-# Default max number of LUNs in a storage group (integer
-# value)
-#max_luns_per_storage_group=256
+# Default timeout for CLI operations in minutes. For example,
+# LUN migration is a typical long running operation, which
+# depends on the LUN size and the load of the array. An upper
+# bound in the specific deployment can be set to avoid
+# unnecessary long wait. By default, it is 365 days long.
+# (integer value)
+#default_timeout=525600
+
+# Default max number of LUNs in a storage group. By default,
+# the value is 255. (integer value)
+#max_luns_per_storage_group=255
+
+# To destroy storage group when the last LUN is removed from
+# it. By default, the value is False. (boolean value)
+#destroy_empty_storage_group=false
+
+# Mapping between hostname and its iSCSI initiator IP
+# addresses. (string value)
+#iscsi_initiators=
+
+# Automatically register initiators. By default, the value is
+# False. (boolean value)
+#initiator_auto_registration=false
 
 
 #
@@ -1133,6 +1193,31 @@
 
 # Pool in which volumes will be created (string value)
 #eqlx_pool=default
+
+
+#
+# Options defined in cinder.volume.drivers.fujitsu_eternus_dx_common
+#
+
+# The configuration file for the Cinder SMI-S driver (string
+# value)
+#cinder_smis_config_file=/etc/cinder/cinder_fujitsu_eternus_dx.xml
+
+
+#
+# Options defined in cinder.volume.drivers.fusionio.ioControl
+#
+
+# amount of time wait for iSCSI target to come online (integer
+# value)
+#fusionio_iocontrol_targetdelay=5
+
+# number of retries for GET operations (integer value)
+#fusionio_iocontrol_retry=3
+
+# verify the array certificate on each transaction (boolean
+# value)
+#fusionio_iocontrol_verify_cert=true
 
 
 #
@@ -1170,7 +1255,7 @@
 # Options defined in cinder.volume.drivers.hds.iscsi
 #
 
-# configuration file for HDS iSCSI cinder plugin (string
+# Configuration file for HDS iSCSI cinder plugin (string
 # value)
 #hds_hnas_iscsi_config_file=/opt/hds/hnas/cinder_iscsi_conf.xml
 
@@ -1179,8 +1264,93 @@
 # Options defined in cinder.volume.drivers.hds.nfs
 #
 
-# configuration file for HDS NFS cinder plugin (string value)
+# Configuration file for HDS NFS cinder plugin (string value)
 #hds_hnas_nfs_config_file=/opt/hds/hnas/cinder_nfs_conf.xml
+
+
+#
+# Options defined in cinder.volume.drivers.hitachi.hbsd_common
+#
+
+# Serial number of storage system (string value)
+#hitachi_serial_number=<None>
+
+# Name of an array unit (string value)
+#hitachi_unit_name=<None>
+
+# Pool ID of storage system (integer value)
+#hitachi_pool_id=<None>
+
+# Thin pool ID of storage system (integer value)
+#hitachi_thin_pool_id=<None>
+
+# Range of logical device of storage system (string value)
+#hitachi_ldev_range=<None>
+
+# Default copy method of storage system (string value)
+#hitachi_default_copy_method=FULL
+
+# Copy speed of storage system (integer value)
+#hitachi_copy_speed=3
+
+# Interval to check copy (integer value)
+#hitachi_copy_check_interval=3
+
+# Interval to check copy asynchronously (integer value)
+#hitachi_async_copy_check_interval=10
+
+# Control port names for HostGroup or iSCSI Target (string
+# value)
+#hitachi_target_ports=<None>
+
+# Range of group number (string value)
+#hitachi_group_range=<None>
+
+# Request for creating HostGroup or iSCSI Target (boolean
+# value)
+#hitachi_group_request=false
+
+
+#
+# Options defined in cinder.volume.drivers.hitachi.hbsd_fc
+#
+
+# Request for FC Zone creating HostGroup (boolean value)
+#hitachi_zoning_request=false
+
+
+#
+# Options defined in cinder.volume.drivers.hitachi.hbsd_horcm
+#
+
+# Instance numbers for HORCM (string value)
+#hitachi_horcm_numbers=200,201
+
+# Username of storage system for HORCM (string value)
+#hitachi_horcm_user=<None>
+
+# Password of storage system for HORCM (string value)
+#hitachi_horcm_password=<None>
+
+# Add to HORCM configuration (boolean value)
+#hitachi_horcm_add_conf=true
+
+
+#
+# Options defined in cinder.volume.drivers.hitachi.hbsd_iscsi
+#
+
+# Add CHAP user (boolean value)
+#hitachi_add_chap_user=false
+
+# iSCSI authentication method (string value)
+#hitachi_auth_method=<None>
+
+# iSCSI authentication username (string value)
+#hitachi_auth_user=HBSD-CHAP-user
+
+# iSCSI authentication password (string value)
+#hitachi_auth_password=HBSD-CHAP-password
 
 
 #
@@ -1235,6 +1405,33 @@
 
 
 #
+# Options defined in cinder.volume.drivers.ibm.ibmnas
+#
+
+# IP address or Hostname of NAS system. (string value)
+#nas_ip=
+
+# User name to connect to NAS system. (string value)
+#nas_login=admin
+
+# Password to connect to NAS system. (string value)
+#nas_password=
+
+# SSH port to use to connect to NAS system. (integer value)
+#nas_ssh_port=22
+
+# Filename of private key to use for SSH authentication.
+# (string value)
+#nas_private_key=
+
+# IBMNAS platform type to be used as backend storage; valid
+# values are - v7ku : for using IBM Storwize V7000 Unified,
+# sonas : for using IBM Scale Out NAS, gpfs-nas : for using
+# NFS based IBM GPFS deployments. (string value)
+#ibmnas_platform_type=v7ku
+
+
+#
 # Options defined in cinder.volume.drivers.ibm.storwize_svc
 #
 
@@ -1285,6 +1482,20 @@
 
 # Allows vdisk to multi host mapping (boolean value)
 #storwize_svc_multihostmap_enabled=true
+
+# Indicate whether svc driver is compatible for NPIV setup. If
+# it is compatible, it will allow no wwpns being returned on
+# get_conn_fc_wwpns during initialize_connection (boolean
+# value)
+#storwize_svc_npiv_compatibility_mode=false
+
+# Allow tenants to specify QOS on create (boolean value)
+#storwize_svc_allow_tenant_qos=false
+
+# If operating in stretched cluster mode, specify the name of
+# the pool in which mirrored copies are stored.Example:
+# "pool2" (string value)
+#storwize_svc_stretched_cluster_partner=<None>
 
 
 #
@@ -1526,22 +1737,6 @@
 # Options defined in cinder.volume.drivers.nfs
 #
 
-# IP address or Hostname of NAS system. (string value)
-#nas_ip=
-
-# User name to connect to NAS system. (string value)
-#nas_login=admin
-
-# Password to connect to NAS system. (string value)
-#nas_password=
-
-# SSH port to use to connect to NAS system. (integer value)
-#nas_ssh_port=22
-
-# Filename of private key to use for SSH authentication.
-# (string value)
-#nas_private_key=
-
 # File with the list of available nfs shares (string value)
 #nfs_shares_config=/etc/cinder/nfs_shares
 
@@ -1578,6 +1773,26 @@
 
 # Nimble Subnet Label (string value)
 #nimble_subnet_label=*
+
+
+#
+# Options defined in cinder.volume.drivers.prophetstor.options
+#
+
+# DPL pool uuid in which DPL volumes are stored. (string
+# value)
+#dpl_pool=
+
+# DPL port number. (integer value)
+#dpl_port=8357
+
+
+#
+# Options defined in cinder.volume.drivers.pure
+#
+
+# REST API authorization token. (string value)
+#pure_api_token=<None>
 
 
 #
@@ -1623,6 +1838,27 @@
 
 
 #
+# Options defined in cinder.volume.drivers.remotefs
+#
+
+# IP address or Hostname of NAS system. (string value)
+#nas_ip=
+
+# User name to connect to NAS system. (string value)
+#nas_login=admin
+
+# Password to connect to NAS system. (string value)
+#nas_password=
+
+# SSH port to use to connect to NAS system. (integer value)
+#nas_ssh_port=22
+
+# Filename of private key to use for SSH authentication.
+# (string value)
+#nas_private_key=
+
+
+#
 # Options defined in cinder.volume.drivers.san.hp.hp_3par_common
 #
 
@@ -1656,6 +1892,10 @@
 
 # List of target iSCSI addresses to use. (list value)
 #hp3par_iscsi_ips=
+
+# Enable CHAP authentication for iSCSI connections. (boolean
+# value)
+#hp3par_iscsi_chap_enabled=false
 
 
 #
@@ -1802,8 +2042,8 @@
 #vmware_api_retry_count=10
 
 # The interval (in seconds) for polling remote tasks invoked
-# on VMware ESX/VC server. (integer value)
-#vmware_task_poll_interval=5
+# on VMware ESX/VC server. (floating point value)
+#vmware_task_poll_interval=0.5
 
 # Name for the folder in the VC datacenter that will contain
 # cinder volumes. (string value)
@@ -1898,6 +2138,61 @@
 
 
 #
+# Options defined in cinder.volume.drivers.zfssa.zfssaiscsi
+#
+
+# Storage pool name. (string value)
+#zfssa_pool=<None>
+
+# Project name. (string value)
+#zfssa_project=<None>
+
+# Block size: 512, 1k, 2k, 4k, 8k, 16k, 32k, 64k, 128k.
+# (string value)
+#zfssa_lun_volblocksize=8k
+
+# Flag to enable sparse (thin-provisioned): True, False.
+# (boolean value)
+#zfssa_lun_sparse=false
+
+# Data compression-off, lzjb, gzip-2, gzip, gzip-9. (string
+# value)
+#zfssa_lun_compression=
+
+# Synchronous write bias-latency, throughput. (string value)
+#zfssa_lun_logbias=
+
+# iSCSI initiator group. (string value)
+#zfssa_initiator_group=
+
+# iSCSI initiator IQNs. (comma separated) (string value)
+#zfssa_initiator=
+
+# iSCSI initiator CHAP user. (string value)
+#zfssa_initiator_user=
+
+# iSCSI initiator CHAP password. (string value)
+#zfssa_initiator_password=
+
+# iSCSI target group name. (string value)
+#zfssa_target_group=tgt-grp
+
+# iSCSI target CHAP user. (string value)
+#zfssa_target_user=
+
+# iSCSI target CHAP password. (string value)
+#zfssa_target_password=
+
+# iSCSI target portal (Data-IP:Port, w.x.y.z:3260). (string
+# value)
+#zfssa_target_portal=<None>
+
+# Network interfaces of iSCSI targets. (comma separated)
+# (string value)
+#zfssa_target_interfaces=<None>
+
+
+#
 # Options defined in cinder.volume.manager
 #
 
@@ -1949,6 +2244,37 @@
 
 # Principal switch WWN of the fabric (string value)
 #principal_switch_wwn=<None>
+
+
+[CISCO_FABRIC_EXAMPLE]
+
+#
+# Options defined in cinder.zonemanager.drivers.cisco.cisco_fabric_opts
+#
+
+# Management IP of fabric (string value)
+#cisco_fc_fabric_address=
+
+# Fabric user ID (string value)
+#cisco_fc_fabric_user=
+
+# Password for user (string value)
+#cisco_fc_fabric_password=
+
+# Connecting port (integer value)
+#cisco_fc_fabric_port=22
+
+# overridden zoning policy (string value)
+#cisco_zoning_policy=initiator-target
+
+# overridden zoning activation state (boolean value)
+#cisco_zone_activate=true
+
+# overridden zone name prefix (string value)
+#cisco_zone_name_prefix=<None>
+
+# VSAN of the Fabric (string value)
+#cisco_zoning_vsan=<None>
 
 
 [database]
@@ -2079,6 +2405,14 @@
 
 
 #
+# Options defined in cinder.zonemanager.drivers.cisco.cisco_fc_zone_driver
+#
+
+# Southbound connector for zoning operation (string value)
+#cisco_sb_connector=cinder.zonemanager.drivers.cisco.cisco_fc_zone_client_cli.CiscoFCZoneClientCLI
+
+
+#
 # Options defined in cinder.zonemanager.fc_zone_manager
 #
 
@@ -2118,10 +2452,21 @@
 #fixed_key=<None>
 
 
+#
+# Options defined in cinder.keymgr.key_mgr
+#
+
+# Authentication url for encryption service. (string value)
+#encryption_auth_url=http://localhost:5000/v2.0
+
+# Url for encryption service. (string value)
+#encryption_api_url=http://localhost:9311/v1
+
+
 [keystone_authtoken]
 
 #
-# Options defined in keystoneclient.middleware.auth_token
+# Options defined in keystonemiddleware.auth_token
 #
 
 # Prefix to prepend at the beginning of the path. Deprecated,
@@ -2282,6 +2627,19 @@
 # Matchmaker ring file (JSON). (string value)
 # Deprecated group/name - [DEFAULT]/matchmaker_ringfile
 #ringfile=/etc/oslo/matchmaker_ring.json
+
+
+[profiler]
+
+#
+# Options defined in cinder.service
+#
+
+# If False fully disable profiling feature. (boolean value)
+#profiler_enabled=false
+
+# If False doesn't trace SQL requests. (boolean value)
+#trace_sqlalchemy=false
 
 
 [ssl]

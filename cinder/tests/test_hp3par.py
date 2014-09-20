@@ -17,12 +17,13 @@
 
 import mock
 
+import ast
+
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import units
 from cinder import test
-
 from cinder.tests import fake_hp_3par_client as hp3parclient
 from cinder.volume.drivers.san.hp import hp_3par_fc as hpfcdriver
 from cinder.volume.drivers.san.hp import hp_3par_iscsi as hpdriver
@@ -42,8 +43,21 @@ HP3PAR_SAN_SSH_PORT = 999
 HP3PAR_SAN_SSH_CON_TIMEOUT = 44
 HP3PAR_SAN_SSH_PRIVATE = 'foobar'
 
+CHAP_USER_KEY = "HPQ-cinder-CHAP-name"
+CHAP_PASS_KEY = "HPQ-cinder-CHAP-secret"
+
 
 class HP3PARBaseDriver(object):
+
+    class CommentMatcher(object):
+        def __init__(self, f, expect):
+            self.assertEqual = f
+            self.expect = expect
+
+        def __eq__(self, actual):
+            actual_as_dict = dict(ast.literal_eval(actual))
+            self.assertEqual(self.expect, actual_as_dict)
+            return True
 
     VOLUME_ID = 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'
     CLONE_ID = 'd03338a9-9115-48a3-8dfc-000000000000'
@@ -158,17 +172,175 @@ class HP3PARBaseDriver(object):
          'state': 1,
          'uuid': '29c214aa-62b9-41c8-b198-543f6cf24edf'}]
 
+    TASK_DONE = 1
+    TASK_ACTIVE = 2
+    STATUS_DONE = {'status': 1}
+    STATUS_ACTIVE = {'status': 2}
+
     mock_client_conf = {
         'PORT_MODE_TARGET': 2,
         'PORT_STATE_READY': 4,
         'PORT_PROTO_ISCSI': 2,
         'PORT_PROTO_FC': 1,
-        'TASK_DONE': 1,
+        'TASK_DONE': TASK_DONE,
+        'TASK_ACTIVE': TASK_ACTIVE,
         'HOST_EDIT_ADD': 1,
+        'CHAP_INITIATOR': 1,
+        'CHAP_TARGET': 2,
         'getPorts.return_value': {
             'members': FAKE_FC_PORTS + [FAKE_ISCSI_PORT]
         }
     }
+
+    RETYPE_VVS_NAME = "yourvvs"
+
+    RETYPE_HOST = {
+        u'host': u'mark-stack1@3parfc',
+        u'capabilities': {
+            'QoS_support': True,
+            u'location_info': u'HP3PARDriver:1234567:MARK_TEST_CPG',
+            u'timestamp': u'2014-06-04T19:03:32.485540',
+            u'allocated_capacity_gb': 0,
+            u'volume_backend_name': u'3parfc',
+            u'free_capacity_gb': u'infinite',
+            u'driver_version': u'2.0.3',
+            u'total_capacity_gb': u'infinite',
+            u'reserved_percentage': 0,
+            u'vendor_name': u'Hewlett-Packard',
+            u'storage_protocol': u'FC'
+        }
+    }
+
+    RETYPE_HOST_NOT3PAR = {
+        u'host': u'mark-stack1@3parfc',
+        u'capabilities': {
+            u'location_info': u'XXXDriverXXX:1610771:MARK_TEST_CPG',
+        }
+    }
+
+    RETYPE_QOS_SPECS = {'maxIOPS': '1000', 'maxBWS': '50',
+                        'minIOPS': '100', 'minBWS': '25',
+                        'latency': '25', 'priority': 'high'}
+
+    RETYPE_VOLUME_TYPE_ID = "FakeVolId"
+
+    RETYPE_VOLUME_TYPE_0 = {
+        'name': 'red',
+        'id': RETYPE_VOLUME_TYPE_ID,
+        'extra_specs': {
+            'cpg': HP3PAR_CPG,
+            'snap_cpg': HP3PAR_CPG_SNAP,
+            'vvs': RETYPE_VVS_NAME,
+            'qos': RETYPE_QOS_SPECS,
+            'tpvv': True,
+            'volume_type': volume_type
+        }
+    }
+
+    RETYPE_VOLUME_TYPE_1 = {
+        'name': 'white',
+        'id': RETYPE_VOLUME_TYPE_ID,
+        'extra_specs': {
+            'cpg': HP3PAR_CPG,
+            'snap_cpg': HP3PAR_CPG_SNAP,
+            'vvs': VVS_NAME,
+            'qos': QOS,
+            'tpvv': True,
+            'volume_type': volume_type
+        }
+    }
+
+    RETYPE_VOLUME_TYPE_2 = {
+        'name': 'blue',
+        'id': RETYPE_VOLUME_TYPE_ID,
+        'extra_specs': {
+            'cpg': HP3PAR_CPG,
+            'snap_cpg': HP3PAR_CPG_SNAP,
+            'vvs': RETYPE_VVS_NAME,
+            'qos': RETYPE_QOS_SPECS,
+            'tpvv': True,
+            'volume_type': volume_type
+        }
+    }
+
+    RETYPE_VOLUME_TYPE_BAD_PERSONA = {
+        'name': 'bad_persona',
+        'id': 'any_id',
+        'extra_specs': {
+            'hp3par:persona': '99 - invalid'
+        }
+    }
+
+    RETYPE_VOLUME_TYPE_BAD_CPG = {
+        'name': 'bad_cpg',
+        'id': 'any_id',
+        'extra_specs': {
+            'cpg': 'bogus',
+            'snap_cpg': 'bogus',
+            'hp3par:persona': '1 - Generic'
+        }
+    }
+
+    MANAGE_VOLUME_INFO = {
+        'userCPG': 'testUserCpg0',
+        'snapCPG': 'testSnapCpg0',
+        'provisioningType': 1,
+        'comment': "{'display_name': 'Foo Volume'}"
+    }
+
+    RETYPE_TEST_COMMENT = "{'retype_test': 'test comment'}"
+
+    RETYPE_VOLUME_INFO_0 = {
+        'name': VOLUME_NAME,
+        'id': VOLUME_ID,
+        'display_name': 'Retype Vol0',
+        'size': 1,
+        'host': RETYPE_HOST,
+        'userCPG': 'testUserCpg0',
+        'snapCPG': 'testSnapCpg0',
+        'provisioningType': 1,
+        'comment': RETYPE_TEST_COMMENT
+    }
+
+    RETYPE_TEST_COMMENT_1 = "{'retype_test': 'test comment 1'}"
+
+    RETYPE_VOLUME_INFO_1 = {
+        'name': VOLUME_NAME,
+        'id': VOLUME_ID,
+        'display_name': 'Retype Vol1',
+        'size': 1,
+        'host': RETYPE_HOST,
+        'userCPG': HP3PAR_CPG,
+        'snapCPG': HP3PAR_CPG_SNAP,
+        'provisioningType': 1,
+        'comment': RETYPE_TEST_COMMENT
+    }
+
+    # Test for when we don't get a snapCPG.
+    RETYPE_VOLUME_INFO_NO_SNAP = {
+        'name': VOLUME_NAME,
+        'id': VOLUME_ID,
+        'display_name': 'Retype Vol2',
+        'size': 1,
+        'host': RETYPE_HOST,
+        'userCPG': 'testUserCpg2',
+        'provisioningType': 1,
+        'comment': '{}'
+    }
+
+    RETYPE_CONF = {
+        'TASK_ACTIVE': TASK_ACTIVE,
+        'TASK_DONE': TASK_DONE,
+        'getTask.return_value': STATUS_DONE,
+        'getStorageSystemInfo.return_value': {'serialNumber': '1234567'},
+        'getVolume.return_value': RETYPE_VOLUME_INFO_0,
+        'modifyVolume.return_value': ("anyResponse", {'taskid': 1})
+    }
+
+    # 3PAR retype currently doesn't use the diff.  Existing code and fresh info
+    # from the array work better for the most part.  Some use of the diff was
+    # intentionally removed to make _retype more usable for other use cases.
+    RETYPE_DIFF = None
 
     def setup_configuration(self):
         configuration = mock.Mock()
@@ -189,6 +361,7 @@ class HP3PARBaseDriver(object):
         configuration.hp3par_snapshot_expiration = ""
         configuration.hp3par_snapshot_retention = ""
         configuration.hp3par_iscsi_ips = []
+        configuration.hp3par_iscsi_chap_enabled = False
         return configuration
 
     @mock.patch(
@@ -211,6 +384,29 @@ class HP3PARBaseDriver(object):
         self.driver = driver(configuration=conf)
         self.driver.do_setup(None)
         return _m_client
+
+    def test_task_waiter(self):
+
+        task_statuses = [self.STATUS_ACTIVE, self.STATUS_ACTIVE]
+
+        def side_effect(*args):
+            return task_statuses and task_statuses.pop(0) or self.STATUS_DONE
+
+        conf = {'getTask.side_effect': side_effect}
+        mock_client = self.setup_driver(mock_conf=conf)
+
+        task_id = 1234
+        interval = .001
+        waiter = self.driver.common.TaskWaiter(mock_client, task_id, interval)
+        status = waiter.wait_for_task()
+
+        expected = [
+            mock.call.getTask(task_id),
+            mock.call.getTask(task_id),
+            mock.call.getTask(task_id)
+        ]
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(status, self.STATUS_DONE)
 
     def test_create_volume(self):
 
@@ -269,6 +465,324 @@ class HP3PARBaseDriver(object):
                     'snapCPG': HP3PAR_CPG_SNAP}),
             mock.call.logout()]
 
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_not_3par(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        self.assertRaises(exception.InvalidHost,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_1,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST_NOT3PAR)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_volume_not_found(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+        mock_client.getVolume.side_effect = hpexceptions.HTTPNotFound
+
+        self.assertRaises(hpexceptions.HTTPNotFound,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_1,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_snap_cpg_check(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+        mock_client.getVolume.return_value = self.RETYPE_VOLUME_INFO_NO_SNAP
+
+        self.assertRaises(exception.InvalidVolume,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_NO_SNAP,
+                          self.RETYPE_VOLUME_TYPE_1,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.getStorageSystemInfo(),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_specs_error_reverts_snap_cpg(self, _mock_volume_types):
+        _mock_volume_types.side_effect = [
+            self.RETYPE_VOLUME_TYPE_1, self.RETYPE_VOLUME_TYPE_0]
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+        mock_client.getVolume.return_value = self.RETYPE_VOLUME_INFO_0
+
+        # Fail the QOS setting to test the revert of the snap CPG rename.
+        mock_client.addVolumeToVolumeSet.side_effect = \
+            hpexceptions.HTTPForbidden
+
+        self.assertRaises(hpexceptions.HTTPForbidden,
+                          self.driver.retype,
+                          self.ctxt,
+                          {'id': self.VOLUME_ID},
+                          self.RETYPE_VOLUME_TYPE_0,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        old_settings = {
+            'snapCPG': self.RETYPE_VOLUME_INFO_0['snapCPG'],
+            'comment': self.RETYPE_VOLUME_INFO_0['comment']}
+        new_settings = {
+            'snapCPG': self.RETYPE_VOLUME_TYPE_1['extra_specs']['snap_cpg'],
+            'comment': mock.ANY}
+
+        expected = [
+            mock.call.modifyVolume(self.VOLUME_3PAR_NAME, new_settings)
+        ]
+        mock_client.assert_has_calls(expected)
+        expected = [
+            mock.call.modifyVolume(self.VOLUME_3PAR_NAME, old_settings),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_revert_comment(self, _mock_volume_types):
+        _mock_volume_types.side_effect = [
+            self.RETYPE_VOLUME_TYPE_2, self.RETYPE_VOLUME_TYPE_1]
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+        mock_client.getVolume.return_value = self.RETYPE_VOLUME_INFO_1
+
+        # Fail the QOS setting to test the revert of the snap CPG rename.
+        mock_client.deleteVolumeSet.side_effect = hpexceptions.HTTPForbidden
+
+        self.assertRaises(hpexceptions.HTTPForbidden,
+                          self.driver.retype,
+                          self.ctxt,
+                          {'id': self.VOLUME_ID},
+                          self.RETYPE_VOLUME_TYPE_2,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        original = {
+            'snapCPG': self.RETYPE_VOLUME_INFO_1['snapCPG'],
+            'comment': self.RETYPE_VOLUME_INFO_1['comment']}
+
+        expected = [
+            mock.call.modifyVolume('osv-0DM4qZEVSKON-DXN-NwVpw', original),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_different_array(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        mock_client.getStorageSystemInfo.return_value = {
+            'serialNumber': 'XXXXXXX'}
+
+        self.assertRaises(exception.InvalidHost,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_1,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.getStorageSystemInfo(),
+            mock.call.logout()]
+
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_across_cpg_domains(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        mock_client.getCPG.side_effect = [
+            {'domain': 'domain1'},
+            {'domain': 'domain2'},
+        ]
+
+        self.assertRaises(exception.Invalid3PARDomain,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_1,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.getStorageSystemInfo(),
+            mock.call.getCPG(self.RETYPE_VOLUME_INFO_0['userCPG']),
+            mock.call.getCPG(self.RETYPE_VOLUME_TYPE_1['extra_specs']['cpg']),
+            mock.call.logout()
+        ]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_across_snap_cpg_domains(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        mock_client.getCPG.side_effect = [
+            {'domain': 'cpg_domain'},
+            {'domain': 'cpg_domain'},
+            {'domain': 'snap_cpg_domain_1'},
+            {'domain': 'snap_cpg_domain_2'},
+        ]
+
+        self.assertRaises(exception.Invalid3PARDomain,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_1,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.getStorageSystemInfo(),
+            mock.call.getCPG(self.RETYPE_VOLUME_INFO_0['userCPG']),
+            mock.call.getCPG(self.RETYPE_VOLUME_TYPE_1['extra_specs']['cpg']),
+            mock.call.getCPG(self.RETYPE_VOLUME_INFO_0['snapCPG']),
+            mock.call.getCPG(
+                self.RETYPE_VOLUME_TYPE_1['extra_specs']['snap_cpg']),
+            mock.call.logout()
+        ]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_to_bad_persona(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_BAD_PERSONA
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        self.assertRaises(exception.InvalidInput,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_BAD_PERSONA,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.logout()
+        ]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_to_bad_cpg(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_BAD_CPG
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+        mock_client.getCPG.side_effect = hpexceptions.HTTPNotFound
+
+        self.assertRaises(exception.InvalidInput,
+                          self.driver.retype,
+                          self.ctxt,
+                          self.RETYPE_VOLUME_INFO_0,
+                          self.RETYPE_VOLUME_TYPE_BAD_CPG,
+                          self.RETYPE_DIFF,
+                          self.RETYPE_HOST)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getCPG(
+                self.RETYPE_VOLUME_TYPE_BAD_CPG['extra_specs']['cpg']),
+            mock.call.logout()
+        ]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_tune(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        qos_ref = qos_specs.create(self.ctxt, 'qos-specs-1', self.QOS)
+        type_ref = volume_types.create(self.ctxt,
+                                       "type1", {"qos:maxIOPS": "100",
+                                                 "qos:maxBWS": "50",
+                                                 "qos:minIOPS": "10",
+                                                 "qos:minBWS": "20",
+                                                 "qos:latency": "5",
+                                                 "qos:priority": "high"})
+        qos_specs.associate_qos_with_type(self.ctxt,
+                                          qos_ref['id'],
+                                          type_ref['id'])
+
+        type_ref = volume_types.get_volume_type(self.ctxt, type_ref['id'])
+
+        volume = {'id': HP3PARBaseDriver.CLONE_ID}
+
+        self.driver.retype(self.ctxt, volume, type_ref, None, self.RETYPE_HOST)
+
+        expected = [
+            mock.call.modifyVolume('osv-0DM4qZEVSKON-AAAAAAAAA',
+                                   {'comment': mock.ANY,
+                                    'snapCPG': 'OpenStackCPGSnap'}),
+            mock.call.deleteVolumeSet('vvs-0DM4qZEVSKON-AAAAAAAAA'),
+            mock.call.addVolumeToVolumeSet('myvvs',
+                                           'osv-0DM4qZEVSKON-AAAAAAAAA'),
+            mock.call.modifyVolume('osv-0DM4qZEVSKON-AAAAAAAAA',
+                                   {'action': 6,
+                                    'userCPG': 'OpenStackCPG',
+                                    'conversionOperation': 1,
+                                    'tuneOperation': 1}),
+            mock.call.getTask(1),
+            mock.call.logout()
+        ]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_retype_qos_spec(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
+        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
+
+        cpg = "any_cpg"
+        snap_cpg = "any_cpg"
+        self.driver.common._retype(self.volume,
+                                   HP3PARBaseDriver.VOLUME_3PAR_NAME,
+                                   "old_type", "old_type_id",
+                                   HP3PARBaseDriver.RETYPE_HOST,
+                                   None, cpg, cpg, snap_cpg, snap_cpg,
+                                   True, True, None, None,
+                                   self.QOS_SPECS, self.RETYPE_QOS_SPECS,
+                                   "{}")
+
+        expected = [
+            mock.call.createVolumeSet('vvs-0DM4qZEVSKON-DXN-NwVpw', None),
+            mock.call.createQoSRules(
+                'vvs-0DM4qZEVSKON-DXN-NwVpw',
+                {'ioMinGoal': 100, 'ioMaxLimit': 1000,
+                 'bwMinGoalKB': 25600, 'bwMaxLimitKB': 51200,
+                 'priority': 3,
+                 'latencyGoal': 25}
+            ),
+            mock.call.addVolumeToVolumeSet(
+                'vvs-0DM4qZEVSKON-DXN-NwVpw', 'osv-0DM4qZEVSKON-DXN-NwVpw')]
         mock_client.assert_has_calls(expected)
 
     def test_delete_volume(self):
@@ -714,6 +1228,10 @@ class HP3PARBaseDriver(object):
                 None,
                 self.FAKE_HOST),
             mock.call.deleteHost(self.FAKE_HOST),
+            mock.call.removeVolumeMetaData(
+                self.VOLUME_3PAR_NAME, CHAP_USER_KEY),
+            mock.call.removeVolumeMetaData(
+                self.VOLUME_3PAR_NAME, CHAP_PASS_KEY),
             mock.call.logout()]
 
         mock_client.assert_has_calls(expected)
@@ -944,68 +1462,148 @@ class HP3PARBaseDriver(object):
 
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_manage_existing(self, _mock_volume_types):
+        _mock_volume_types.return_value = self.volume_type
         mock_client = self.setup_driver()
 
-        _mock_volume_types.return_value = {
-            'name': 'gold',
-            'extra_specs': {
-                'cpg': HP3PAR_CPG,
-                'snap_cpg': HP3PAR_CPG_SNAP,
-                'vvs_name': self.VVS_NAME,
-                'qos': self.QOS,
-                'tpvv': True,
-                'volume_type': self.volume_type}}
-        comment = (
-            '{"display_name": "Foo Volume"}')
-        new_comment = (
-            '{"volume_type_name": "gold",'
-            ' "display_name": "Foo Volume",'
-            ' "name": "volume-007dbfce-7579-40bc-8f90-a20b3902283e",'
-            ' "volume_type_id": "acfa9fa4-54a0-4340-a3d8-bfcf19aea65e",'
-            ' "volume_id": "007dbfce-7579-40bc-8f90-a20b3902283e",'
-            ' "qos": {},'
-            ' "type": "OpenStack"}')
+        new_comment = {"display_name": "Foo Volume",
+                       "name": "volume-007dbfce-7579-40bc-8f90-a20b3902283e",
+                       "volume_id": "007dbfce-7579-40bc-8f90-a20b3902283e",
+                       "type": "OpenStack"}
+
         volume = {'display_name': None,
                   'volume_type': 'gold',
                   'volume_type_id': 'acfa9fa4-54a0-4340-a3d8-bfcf19aea65e',
                   'id': '007dbfce-7579-40bc-8f90-a20b3902283e'}
 
-        mock_client.getVolume.return_value = {'comment': comment}
+        mock_client.getVolume.return_value = self.MANAGE_VOLUME_INFO
+        mock_client.modifyVolume.return_value = ("anyResponse", {'taskid': 1})
+        mock_client.getTask.return_value = self.STATUS_DONE
 
         unm_matcher = self.driver.common._get_3par_unm_name(self.volume['id'])
         osv_matcher = self.driver.common._get_3par_vol_name(volume['id'])
+        vvs_matcher = self.driver.common._get_3par_vvs_name(volume['id'])
         existing_ref = {'source-name': unm_matcher}
 
         obj = self.driver.manage_existing(volume, existing_ref)
 
         expected_obj = {'display_name': 'Foo Volume'}
-        expected = [
+
+        expected_manage = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
             mock.call.getVolume(existing_ref['source-name']),
             mock.call.modifyVolume(existing_ref['source-name'],
                                    {'newName': osv_matcher,
-                                    'comment': new_comment}),
+                                    'comment': self.CommentMatcher(
+                                        self.assertEqual, new_comment)}),
+        ]
+
+        retype_comment_qos = {
+            "display_name": "Foo Volume",
+            "volume_type_name": self.volume_type['name'],
+            "volume_type_id": self.volume_type['id'],
+            "qos": {
+                'maxIOPS': '1000',
+                'maxBWS': '50',
+                'minIOPS': '100',
+                'minBWS': '25',
+                'latency': '25',
+                'priority': 'low'
+            }
+        }
+
+        expected_retype_modify = [
+            mock.call.modifyVolume(osv_matcher,
+                                   {'comment': self.CommentMatcher(
+                                       self.assertEqual, retype_comment_qos),
+                                    'snapCPG': 'OpenStackCPGSnap'}),
+            mock.call.deleteVolumeSet(vvs_matcher),
+        ]
+
+        expected_retype_specs = [
+            mock.call.createVolumeSet(vvs_matcher, None),
+            mock.call.createQoSRules(
+                vvs_matcher,
+                {'ioMinGoal': 100, 'ioMaxLimit': 1000,
+                 'bwMinGoalKB': 25600, 'priority': 1, 'latencyGoal': 25,
+                 'bwMaxLimitKB': 51200}),
+            mock.call.addVolumeToVolumeSet(vvs_matcher, osv_matcher),
+            mock.call.modifyVolume(osv_matcher,
+                                   {'action': 6, 'userCPG': 'OpenStackCPG',
+                                    'conversionOperation': 1,
+                                    'tuneOperation': 1}),
+            mock.call.getTask(1),
             mock.call.logout()
         ]
 
-        mock_client.assert_has_calls(expected)
+        mock_client.assert_has_calls(expected_manage)
+        mock_client.assert_has_calls(expected_retype_modify)
+        mock_client.assert_has_calls(expected_retype_specs)
         self.assertEqual(expected_obj, obj)
 
-        volume['display_name'] = 'Test Volume'
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_manage_existing_vvs(self, _mock_volume_types):
+        test_volume_type = self.RETYPE_VOLUME_TYPE_2
+        vvs = test_volume_type['extra_specs']['vvs']
+        _mock_volume_types.return_value = test_volume_type
+        mock_client = self.setup_driver()
+
+        mock_client.getVolume.return_value = self.MANAGE_VOLUME_INFO
+        mock_client.modifyVolume.return_value = ("anyResponse", {'taskid': 1})
+        mock_client.getTask.return_value = self.STATUS_DONE
+
+        id = '007abcde-7579-40bc-8f90-a20b3902283e'
+        new_comment = {"display_name": "Test Volume",
+                       "name": ("volume-%s" % id),
+                       "volume_id": id,
+                       "type": "OpenStack"}
+
+        volume = {'display_name': 'Test Volume',
+                  'volume_type': 'gold',
+                  'volume_type_id': 'acfa9fa4-54a0-4340-a3d8-bfcf19aea65e',
+                  'id': id}
+
+        unm_matcher = self.driver.common._get_3par_unm_name(self.volume['id'])
+        osv_matcher = self.driver.common._get_3par_vol_name(volume['id'])
+        vvs_matcher = self.driver.common._get_3par_vvs_name(volume['id'])
+
+        existing_ref = {'source-name': unm_matcher}
 
         obj = self.driver.manage_existing(volume, existing_ref)
 
         expected_obj = {'display_name': 'Test Volume'}
-        expected = [
+        expected_manage = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
             mock.call.getVolume(existing_ref['source-name']),
             mock.call.modifyVolume(existing_ref['source-name'],
                                    {'newName': osv_matcher,
-                                    'comment': new_comment}),
+                                    'comment': self.CommentMatcher(
+                                        self.assertEqual, new_comment)})
+        ]
+
+        retype_comment_vvs = {
+            "display_name": "Foo Volume",
+            "volume_type_name": test_volume_type['name'],
+            "volume_type_id": test_volume_type['id'],
+            "vvs": vvs
+        }
+
+        expected_retype = [
+            mock.call.modifyVolume(osv_matcher,
+                                   {'comment': self.CommentMatcher(
+                                       self.assertEqual, retype_comment_vvs),
+                                    'snapCPG': 'OpenStackCPGSnap'}),
+            mock.call.deleteVolumeSet(vvs_matcher),
+            mock.call.addVolumeToVolumeSet(vvs, osv_matcher),
+            mock.call.modifyVolume(osv_matcher,
+                                   {'action': 6, 'userCPG': 'OpenStackCPG',
+                                    'conversionOperation': 1,
+                                    'tuneOperation': 1}),
+            mock.call.getTask(1),
             mock.call.logout()
         ]
 
-        mock_client.assert_has_calls(expected)
+        mock_client.assert_has_calls(expected_manage)
+        mock_client.assert_has_calls(expected_retype)
         self.assertEqual(expected_obj, obj)
 
     def test_manage_existing_no_volume_type(self):
@@ -1020,6 +1618,7 @@ class HP3PARBaseDriver(object):
             ' "volume_id": "007dbfce-7579-40bc-8f90-a20b3902283e"}')
         volume = {'display_name': None,
                   'volume_type': None,
+                  'volume_type_id': None,
                   'id': '007dbfce-7579-40bc-8f90-a20b3902283e'}
 
         mock_client.getVolume.return_value = {'comment': comment}
@@ -1126,6 +1725,59 @@ class HP3PARBaseDriver(object):
         expected = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
             mock.call.getVolume(existing_ref['source-name']),
+            mock.call.logout()
+        ]
+
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_manage_existing_retype_exception(self, _mock_volume_types):
+        mock_client = self.setup_driver()
+        _mock_volume_types.return_value = {
+            'name': 'gold',
+            'id': 'gold-id',
+            'extra_specs': {
+                'cpg': HP3PAR_CPG,
+                'snap_cpg': HP3PAR_CPG_SNAP,
+                'vvs_name': self.VVS_NAME,
+                'qos': self.QOS,
+                'tpvv': True,
+                'volume_type': self.volume_type}}
+
+        volume = {'display_name': None,
+                  'volume_type': 'gold',
+                  'volume_type_id': 'bcfa9fa4-54a0-4340-a3d8-bfcf19aea65e',
+                  'id': '007dbfce-7579-40bc-8f90-a20b3902283e'}
+
+        mock_client.getVolume.return_value = self.MANAGE_VOLUME_INFO
+        mock_client.modifyVolume.return_value = ("anyResponse", {'taskid': 1})
+        mock_client.getTask.return_value = self.STATUS_DONE
+        mock_client.getCPG.side_effect = [
+            {'domain': 'domain1'},
+            {'domain': 'domain2'}
+        ]
+
+        unm_matcher = self.driver.common._get_3par_unm_name(self.volume['id'])
+        osv_matcher = self.driver.common._get_3par_vol_name(volume['id'])
+
+        existing_ref = {'source-name': unm_matcher}
+
+        self.assertRaises(exception.Invalid3PARDomain,
+                          self.driver.manage_existing,
+                          volume=volume,
+                          existing_ref=existing_ref)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(unm_matcher),
+            mock.call.modifyVolume(
+                unm_matcher, {'newName': osv_matcher, 'comment': mock.ANY}),
+            mock.call.getVolume(osv_matcher),
+            mock.call.getCPG('testUserCpg0'),
+            mock.call.getCPG('OpenStackCPG'),
+            mock.call.modifyVolume(
+                osv_matcher, {'newName': unm_matcher,
+                              'comment': self.MANAGE_VOLUME_INFO['comment']}),
             mock.call.logout()
         ]
 
@@ -1302,21 +1954,162 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
             mock.call.getHost(self.FAKE_HOST),
             mock.ANY,
             mock.call.getHost(self.FAKE_HOST),
+            mock.call.getPorts(),
             mock.call.createVLUN(
                 self.VOLUME_3PAR_NAME,
                 auto=True,
                 hostname=self.FAKE_HOST),
             mock.call.getHostVLUNs(self.FAKE_HOST),
-            mock.call.getPorts(),
             mock.call.logout()]
 
         mock_client.assert_has_calls(expected)
 
         self.assertDictMatch(result, self.properties)
 
+    @mock.patch('cinder.zonemanager.utils.create_lookup_service')
+    def test_initialize_connection_with_lookup_single_nsp(self, mock_lookup):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        class fake_lookup_object:
+            def get_device_mapping_from_network(self, connector, target_wwns):
+                fake_map = {
+                    'FAB_1': {
+                        'target_port_wwn_list': ['0987654321234'],
+                        'initiator_port_wwn_list': ['123456789012345']
+                    }
+                }
+                return fake_map
+        mock_lookup.return_value = fake_lookup_object()
+        mock_client = self.setup_driver()
+        mock_client.getVolume.return_value = {'userCPG': HP3PAR_CPG}
+        mock_client.getCPG.return_value = {}
+        mock_client.getHost.side_effect = [
+            hpexceptions.HTTPNotFound('fake'),
+            {'name': self.FAKE_HOST,
+                'FCPaths': [{'driverVersion': None,
+                             'firmwareVersion': None,
+                             'hostSpeed': 0,
+                             'model': None,
+                             'portPos': {'cardPort': 1, 'node': 1,
+                                         'slot': 2},
+                             'vendor': None,
+                             'wwn': self.wwn[0]}]}]
+        mock_client.findHost.return_value = self.FAKE_HOST
+        mock_client.getHostVLUNs.return_value = [
+            {'active': True,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': 90, 'type': 0}]
+        location = ("%(volume_name)s,%(lun_id)s,%(host)s,%(nsp)s" %
+                    {'volume_name': self.VOLUME_3PAR_NAME,
+                     'lun_id': 90,
+                     'host': self.FAKE_HOST,
+                     'nsp': 'something'})
+        mock_client.createVLUN.return_value = location
+
+        connector = {'ip': '10.0.0.2',
+                     'initiator': 'iqn.1993-08.org.debian:01:222',
+                     'wwpns': [self.wwn[0]],
+                     'wwnns': ["223456789012345"],
+                     'host': self.FAKE_HOST}
+
+        expected_properties = {
+            'driver_volume_type': 'fibre_channel',
+            'data': {
+                'target_lun': 90,
+                'target_wwn': ['0987654321234'],
+                'target_discovered': True,
+                'initiator_target_map': {'123456789012345':
+                                         ['0987654321234']
+                                         }}}
+
+        result = self.driver.initialize_connection(self.volume, connector)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume(self.VOLUME_3PAR_NAME),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.getHost(self.FAKE_HOST),
+            mock.ANY,
+            mock.call.getHost(self.FAKE_HOST),
+            mock.call.getPorts(),
+            mock.call.getPorts(),
+            mock.call.createVLUN(
+                self.VOLUME_3PAR_NAME,
+                auto=True,
+                hostname=self.FAKE_HOST,
+                portPos={'node': 7, 'slot': 1, 'cardPort': 1}),
+            mock.call.getHostVLUNs(self.FAKE_HOST),
+            mock.call.logout()]
+
+        mock_client.assert_has_calls(expected)
+
+        self.assertDictMatch(result, expected_properties)
+
     def test_terminate_connection(self):
         # setup_mock_client drive with default configuration
         # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+
+        effects = [
+            [{'active': True, 'volumeName': self.VOLUME_3PAR_NAME,
+              'lun': None, 'type': 0}],
+            hpexceptions.HTTPNotFound]
+
+        mock_client.getHostVLUNs.side_effect = effects
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getHostVLUNs(self.FAKE_HOST),
+            mock.call.deleteVLUN(
+                self.VOLUME_3PAR_NAME,
+                None,
+                self.FAKE_HOST),
+            mock.call.deleteHost(self.FAKE_HOST),
+            mock.call.getHostVLUNs(self.FAKE_HOST),
+            mock.call.getPorts(),
+            mock.call.logout()]
+
+        conn_info = self.driver.terminate_connection(self.volume,
+                                                     self.connector)
+        mock_client.assert_has_calls(expected)
+        self.assertIn('data', conn_info)
+        self.assertIn('initiator_target_map', conn_info['data'])
+        mock_client.reset_mock()
+
+        mock_client.getHostVLUNs.side_effect = effects
+
+        # mock some deleteHost exceptions that are handled
+        delete_with_vlun = hpexceptions.HTTPConflict(
+            error={'message': "has exported VLUN"})
+        delete_with_hostset = hpexceptions.HTTPConflict(
+            error={'message': "host is a member of a set"})
+        mock_client.deleteHost = mock.Mock(
+            side_effect=[delete_with_vlun, delete_with_hostset])
+
+        conn_info = self.driver.terminate_connection(self.volume,
+                                                     self.connector)
+        mock_client.assert_has_calls(expected)
+        mock_client.reset_mock()
+        mock_client.getHostVLUNs.side_effect = effects
+
+        conn_info = self.driver.terminate_connection(self.volume,
+                                                     self.connector)
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch('cinder.zonemanager.utils.create_lookup_service')
+    def test_terminate_connection_with_lookup(self, mock_lookup):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        class fake_lookup_object:
+            def get_device_mapping_from_network(self, connector, target_wwns):
+                fake_map = {
+                    'FAB_1': {
+                        'target_port_wwn_list': ['0987654321234'],
+                        'initiator_port_wwn_list': ['123456789012345']
+                    }
+                }
+                return fake_map
+        mock_lookup.return_value = fake_lookup_object()
         mock_client = self.setup_driver()
 
         effects = [
@@ -1731,7 +2524,8 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
         mock_client.findHost.return_value = None
         mock_client.getVLUN.return_value = {'lun': self.TARGET_LUN}
 
-        host = self.driver._create_host(self.volume, self.connector)
+        host, auth_username, auth_password = self.driver._create_host(
+            self.volume, self.connector)
         expected = [
             mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
             mock.call.getCPG(HP3PAR_CPG),
@@ -1746,6 +2540,67 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
         mock_client.assert_has_calls(expected)
 
         self.assertEqual(host['name'], self.FAKE_HOST)
+        self.assertEqual(auth_username, None)
+        self.assertEqual(auth_password, None)
+
+    def test_create_host_chap_enabled(self):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        mock_client.getVolume.return_value = {'userCPG': HP3PAR_CPG}
+        mock_client.getCPG.return_value = {}
+        mock_client.getHost.side_effect = [
+            hpexceptions.HTTPNotFound('fake'),
+            {'name': self.FAKE_HOST}]
+        mock_client.findHost.return_value = None
+        mock_client.getVLUN.return_value = {'lun': self.TARGET_LUN}
+
+        expected_mod_request = {
+            'chapOperation': mock_client.HOST_EDIT_ADD,
+            'chapOperationMode': mock_client.CHAP_INITIATOR,
+            'chapName': 'test-user',
+            'chapSecret': 'test-pass'
+        }
+
+        def get_side_effect(*args):
+            data = {'value': None}
+            if args[1] == CHAP_USER_KEY:
+                data['value'] = 'test-user'
+            elif args[1] == CHAP_PASS_KEY:
+                data['value'] = 'test-pass'
+            return data
+
+        mock_client.getVolumeMetaData.side_effect = get_side_effect
+
+        host, auth_username, auth_password = self.driver._create_host(
+            self.volume, self.connector)
+        expected = [
+            mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.getHost(self.FAKE_HOST),
+            mock.call.findHost(iqn='iqn.1993-08.org.debian:01:222'),
+            mock.call.createHost(
+                self.FAKE_HOST,
+                optional={'domain': None, 'persona': 1},
+                iscsiNames=['iqn.1993-08.org.debian:01:222']),
+            mock.call.modifyHost(
+                'fakehost',
+                expected_mod_request),
+            mock.call.getHost(self.FAKE_HOST)
+        ]
+
+        mock_client.assert_has_calls(expected)
+
+        self.assertEqual(host['name'], self.FAKE_HOST)
+        self.assertEqual(auth_username, 'test-user')
+        self.assertEqual(auth_password, 'test-pass')
 
     def test_create_invalid_host(self):
         # setup_mock_client drive with default configuration
@@ -1758,7 +2613,8 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
             {'name': 'fakehost.foo'}]
         mock_client.findHost.return_value = 'fakehost.foo'
 
-        host = self.driver._create_host(self.volume, self.connector)
+        host, auth_username, auth_password = self.driver._create_host(
+            self.volume, self.connector)
 
         expected = [
             mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
@@ -1770,6 +2626,63 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
         mock_client.assert_has_calls(expected)
 
         self.assertEqual(host['name'], 'fakehost.foo')
+        self.assertEqual(auth_username, None)
+        self.assertEqual(auth_password, None)
+
+    def test_create_invalid_host_chap_enabled(self):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        mock_client.getVolume.return_value = {'userCPG': HP3PAR_CPG}
+        mock_client.getCPG.return_value = {}
+        mock_client.getHost.side_effect = [
+            hpexceptions.HTTPNotFound('Host not found.'),
+            {'name': 'fakehost.foo'}]
+        mock_client.findHost.return_value = 'fakehost.foo'
+
+        def get_side_effect(*args):
+            data = {'value': None}
+            if args[1] == CHAP_USER_KEY:
+                data['value'] = 'test-user'
+            elif args[1] == CHAP_PASS_KEY:
+                data['value'] = 'test-pass'
+            return data
+
+        mock_client.getVolumeMetaData.side_effect = get_side_effect
+
+        expected_mod_request = {
+            'chapOperation': mock_client.HOST_EDIT_ADD,
+            'chapOperationMode': mock_client.CHAP_INITIATOR,
+            'chapName': 'test-user',
+            'chapSecret': 'test-pass'
+        }
+
+        host, auth_username, auth_password = self.driver._create_host(
+            self.volume, self.connector)
+
+        expected = [
+            mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.getHost(self.FAKE_HOST),
+            mock.call.findHost(iqn='iqn.1993-08.org.debian:01:222'),
+            mock.call.modifyHost(
+                'fakehost.foo',
+                expected_mod_request),
+            mock.call.getHost('fakehost.foo')
+        ]
+
+        mock_client.assert_has_calls(expected)
+
+        self.assertEqual(host['name'], 'fakehost.foo')
+        self.assertEqual(auth_username, 'test-user')
+        self.assertEqual(auth_password, 'test-pass')
 
     def test_create_modify_host(self):
         # setup_mock_client drive with default configuration
@@ -1783,7 +2696,8 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
              'FCPaths': [{'wwn': '123456789012345'},
                          {'wwn': '123456789054321'}]}]
 
-        host = self.driver._create_host(self.volume, self.connector)
+        host, auth_username, auth_password = self.driver._create_host(
+            self.volume, self.connector)
 
         expected = [
             mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
@@ -1798,6 +2712,68 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
         mock_client.assert_has_calls(expected)
 
         self.assertEqual(host['name'], self.FAKE_HOST)
+        self.assertEqual(auth_username, None)
+        self.assertEqual(auth_password, None)
+        self.assertEqual(len(host['FCPaths']), 2)
+
+    def test_create_modify_host_chap_enabled(self):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        mock_client.getVolume.return_value = {'userCPG': HP3PAR_CPG}
+        mock_client.getCPG.return_value = {}
+        mock_client.getHost.side_effect = [
+            {'name': self.FAKE_HOST, 'FCPaths': []},
+            {'name': self.FAKE_HOST,
+             'FCPaths': [{'wwn': '123456789012345'},
+                         {'wwn': '123456789054321'}]}]
+
+        def get_side_effect(*args):
+            data = {'value': None}
+            if args[1] == CHAP_USER_KEY:
+                data['value'] = 'test-user'
+            elif args[1] == CHAP_PASS_KEY:
+                data['value'] = 'test-pass'
+            return data
+
+        mock_client.getVolumeMetaData.side_effect = get_side_effect
+
+        expected_mod_request = {
+            'chapOperation': mock_client.HOST_EDIT_ADD,
+            'chapOperationMode': mock_client.CHAP_INITIATOR,
+            'chapName': 'test-user',
+            'chapSecret': 'test-pass'
+        }
+
+        host, auth_username, auth_password = self.driver._create_host(
+            self.volume, self.connector)
+
+        expected = [
+            mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.getHost(self.FAKE_HOST),
+            mock.call.modifyHost(
+                self.FAKE_HOST,
+                {'pathOperation': 1,
+                    'iSCSINames': ['iqn.1993-08.org.debian:01:222']}),
+            mock.call.modifyHost(
+                self.FAKE_HOST,
+                expected_mod_request
+            ),
+            mock.call.getHost(self.FAKE_HOST)]
+
+        mock_client.assert_has_calls(expected)
+
+        self.assertEqual(host['name'], self.FAKE_HOST)
+        self.assertEqual(auth_username, 'test-user')
+        self.assertEqual(auth_password, 'test-pass')
         self.assertEqual(len(host['FCPaths']), 2)
 
     def test_get_least_used_nsp_for_host_single(self):
@@ -1966,6 +2942,310 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
         nsp = self.driver._get_least_used_nsp(vluns['members'],
                                               ['1:1:1', '1:2:1'])
         self.assertEqual(nsp, '1:1:1')
+
+    def test_set_3par_chaps(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+
+        expected = []
+        self.driver._set_3par_chaps(
+            'test-host', 'test-vol', 'test-host', 'pass')
+        mock_client.assert_has_calls(expected)
+
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        expected_mod_request = {
+            'chapOperation': mock_client.HOST_EDIT_ADD,
+            'chapOperationMode': mock_client.CHAP_INITIATOR,
+            'chapName': 'test-host',
+            'chapSecret': 'fake'
+        }
+
+        expected = [
+            mock.call.modifyHost('test-host', expected_mod_request)
+        ]
+        self.driver._set_3par_chaps(
+            'test-host', 'test-vol', 'test-host', 'fake')
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch('cinder.volume.utils.generate_password')
+    def test_do_export(self, mock_utils):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+        mock_utils.return_value = 'random-pass'
+        mock_client.getHostVLUNs.return_value = [
+            {'active': True,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0,
+             'remoteName': 'iqn.1993-08.org.debian:01:222'}
+        ]
+        mock_client.getHost.return_value = {
+            'name': 'osv-0DM4qZEVSKON-DXN-NwVpw',
+            'initiatorChapEnabled': True
+        }
+        mock_client.getVolumeMetaData.return_value = {
+            'value': 'random-pass'
+        }
+
+        expected = []
+        expected_model = {'provider_auth': None}
+        model = self.driver._do_export(volume)
+
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(expected_model, model)
+
+        mock_client.reset_mock()
+
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+        mock_utils.return_value = 'random-pass'
+        mock_client.getHostVLUNs.return_value = [
+            {'active': True,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0,
+             'remoteName': 'iqn.1993-08.org.debian:01:222'}
+        ]
+        mock_client.getHost.return_value = {
+            'name': 'osv-0DM4qZEVSKON-DXN-NwVpw',
+            'initiatorChapEnabled': True
+        }
+        mock_client.getVolumeMetaData.return_value = {
+            'value': 'random-pass'
+        }
+
+        expected = [
+            mock.call.getHostVLUNs('test-host'),
+            mock.call.getHost('test-host'),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY, 'test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY, 'random-pass')
+        ]
+        expected_model = {'provider_auth': 'CHAP test-host random-pass'}
+
+        model = self.driver._do_export(volume)
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(expected_model, model)
+
+    @mock.patch('cinder.volume.utils.generate_password')
+    def test_do_export_host_not_found(self, mock_utils):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+        mock_utils.return_value = "random-pass"
+        mock_client.getHostVLUNs.side_effect = hpexceptions.HTTPNotFound(
+            'fake')
+
+        mock_client.getVolumeMetaData.return_value = {
+            'value': 'random-pass'
+        }
+
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+
+        expected = [
+            mock.call.getHostVLUNs('test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY, 'test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY, 'random-pass')
+        ]
+        expected_model = {'provider_auth': 'CHAP test-host random-pass'}
+
+        model = self.driver._do_export(volume)
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(expected_model, model)
+
+    @mock.patch('cinder.volume.utils.generate_password')
+    def test_do_export_host_chap_disabled(self, mock_utils):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+        mock_utils.return_value = 'random-pass'
+        mock_client.getHostVLUNs.return_value = [
+            {'active': True,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0,
+             'remoteName': 'iqn.1993-08.org.debian:01:222'}
+        ]
+        mock_client.getHost.return_value = {
+            'name': 'fake-host',
+            'initiatorChapEnabled': False
+        }
+        mock_client.getVolumeMetaData.return_value = {
+            'value': 'random-pass'
+        }
+
+        mock_client.reset_mock()
+
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+
+        expected = [
+            mock.call.getHostVLUNs('test-host'),
+            mock.call.getHost('test-host'),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY, 'test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY, 'random-pass')
+        ]
+        expected_model = {'provider_auth': 'CHAP test-host random-pass'}
+
+        model = self.driver._do_export(volume)
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(expected_model, model)
+
+    @mock.patch('cinder.volume.utils.generate_password')
+    def test_do_export_no_active_vluns(self, mock_utils):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hp3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+        mock_utils.return_value = "random-pass"
+        mock_client.getHostVLUNs.return_value = [
+            {'active': False,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0,
+             'remoteName': 'iqn.1993-08.org.debian:01:222'}
+        ]
+        mock_client.getHost.return_value = {
+            'name': 'fake-host',
+            'initiatorChapEnabled': True
+        }
+        mock_client.getVolumeMetaData.return_value = {
+            'value': 'random-pass'
+        }
+
+        expected = [
+            mock.call.getHostVLUNs('test-host'),
+            mock.call.getHost('test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY, 'test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY, 'random-pass')
+        ]
+        expected_model = {'provider_auth': 'CHAP test-host random-pass'}
+
+        model = self.driver._do_export(volume)
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(model, expected_model)
+
+    def test_ensure_export(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+
+        mock_client.getAllVolumeMetaData.return_value = {
+            'total': 0,
+            'members': []
+        }
+
+        model = self.driver.ensure_export(None, volume)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.getAllVolumeMetaData('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.logout()
+        ]
+
+        expected_model = {'provider_auth': None}
+
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(model, expected_model)
+
+        mock_client.getAllVolumeMetaData.return_value = {
+            'total': 2,
+            'members': [
+                {
+                    'creationTimeSec': 1406074222,
+                    'value': 'fake-host',
+                    'key': CHAP_USER_KEY,
+                    'creationTime8601': '2014-07-22T17:10:22-07:00'
+                },
+                {
+                    'creationTimeSec': 1406074222,
+                    'value': 'random-pass',
+                    'key': CHAP_PASS_KEY,
+                    'creationTime8601': '2014-07-22T17:10:22-07:00'
+                }
+            ]
+        }
+
+        model = self.driver.ensure_export(None, volume)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.getAllVolumeMetaData('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.logout()
+        ]
+
+        expected_model = {'provider_auth': "CHAP fake-host random-pass"}
+
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(model, expected_model)
+
+    def test_ensure_export_missing_volume(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': 'd03338a9-9115-48a3-8dfc-35cdfcdc15a7'}
+
+        mock_client.getVolume.side_effect = hpexceptions.HTTPNotFound(
+            'fake')
+
+        model = self.driver.ensure_export(None, volume)
+
+        expected = [
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+            mock.call.logout()
+        ]
+
+        expected_model = None
+
+        mock_client.assert_has_calls(expected)
+        self.assertEqual(model, expected_model)
+
 
 VLUNS5_RET = ({'members':
                [{'portPos': {'node': 0, 'slot': 8, 'cardPort': 2},

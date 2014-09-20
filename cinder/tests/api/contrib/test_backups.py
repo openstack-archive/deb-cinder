@@ -18,9 +18,9 @@ Tests for Backup code.
 """
 
 import json
-import mock
 from xml.dom import minidom
 
+import mock
 import webob
 
 # needed for stubs to work
@@ -28,7 +28,7 @@ import cinder.backup
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import test

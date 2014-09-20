@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 2014.2.dev145.gde4ae8b\n"
+"Project-Id-Version: cinder 2014.2.dev97.g057d9fe\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-07-04 06:02+0000\n"
+"POT-Creation-Date: 2014-08-09 06:08+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -27,28 +27,5 @@ msgstr ""
 
 #: cinder/openstack/common/network_utils.py:160
 msgid "tcp_keepknt not available on your system"
-msgstr ""
-
-#: cinder/openstack/common/db/sqlalchemy/session.py:506
-#, python-format
-msgid "Database server has gone away: %s"
-msgstr ""
-
-#: cinder/openstack/common/db/sqlalchemy/session.py:559
-msgid "Unable to detect effective SQL mode"
-msgstr ""
-
-#: cinder/openstack/common/db/sqlalchemy/session.py:567
-#, python-format
-msgid "MySQL SQL mode is '%s', consider enabling TRADITIONAL or STRICT_ALL_TABLES"
-msgstr ""
-
-#: cinder/openstack/common/db/sqlalchemy/session.py:673
-#, python-format
-msgid "SQL connection failed. %s attempts left."
-msgstr ""
-
-#: cinder/openstack/common/db/sqlalchemy/utils.py:97
-msgid "Id not in sort_keys; is sort_keys unique?"
 msgstr ""
 

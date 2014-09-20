@@ -18,15 +18,16 @@
 Tests for the IBM Storwize family and SVC volume driver.
 """
 
-import mock
 import random
 import re
 import time
 
+import mock
+
 from cinder import context
 from cinder import exception
+from cinder.i18n import _
 from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
@@ -213,6 +214,7 @@ class StorwizeSVCManagementSimulator:
             'vdisk',
             'warning',
             'wwpn',
+            'primary'
         ]
         no_or_one_param_args = [
             'autoexpand',
@@ -1340,7 +1342,8 @@ port_speed!N/A
         vol = self._volumes_list[vol_name]
         kwargs.pop('obj')
 
-        params = ['name', 'warning', 'udid', 'autoexpand', 'easytier']
+        params = ['name', 'warning', 'udid',
+                  'autoexpand', 'easytier', 'primary']
         for key, value in kwargs.iteritems():
             if key == 'easytier':
                 vol['easy_tier'] = value
@@ -1352,6 +1355,20 @@ port_speed!N/A
                 vol['name'] = value
                 del self._volumes_list[vol_name]
                 self._volumes_list[value] = vol
+            if key == 'primary':
+                if value == '0':
+                    self._volumes_list[vol_name]['copies']['0']['primary']\
+                        = 'yes'
+                    self._volumes_list[vol_name]['copies']['1']['primary']\
+                        = 'no'
+                elif value == '1':
+                    self._volumes_list[vol_name]['copies']['0']['primary']\
+                        = 'no'
+                    self._volumes_list[vol_name]['copies']['1']['primary']\
+                        = 'yes'
+                else:
+                    err = self._errors['CMMVC6353E'][1] % {'VALUE': key}
+                    return ('', err)
             if key in params:
                 vol[key] = value
             else:
@@ -1386,6 +1403,31 @@ port_speed!N/A
         if 'obj' not in kwargs:
             return self._errors['CMMVC5701E']
         return ('', '')
+
+    # list vdisk sync process
+    def _cmd_lsvdisksyncprogress(self, **kwargs):
+        if 'obj' not in kwargs:
+            return self._errors['CMMVC5804E']
+        name = kwargs['obj']
+        copy_id = kwargs.get('copy', None)
+        vol = self._volumes_list[name]
+        rows = []
+        rows.append(['vdisk_id', 'vdisk_name', 'copy_id', 'progress',
+                     'estimated_completion_time'])
+        copy_found = False
+        for copy in vol['copies'].itervalues():
+            if not copy_id or copy_id == copy['id']:
+                copy_found = True
+                row = [vol['id'], name, copy['id']]
+                if copy['sync'] == 'yes':
+                    row.extend(['100', ''])
+                else:
+                    row.extend(['50', '140210115226'])
+                    copy['sync'] = 'yes'
+                rows.append(row)
+        if not copy_found:
+            return self._errors['CMMVC5804E']
+        return self._print_info_cmd(rows=rows, **kwargs)
 
     def _add_host_to_list(self, connector):
         host_info = {}
@@ -1482,6 +1524,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.sim = StorwizeSVCManagementSimulator('openstack')
 
             self.driver.set_fake_storage(self.sim)
+            self.ctxt = context.get_admin_context()
         else:
             self.driver = storwize_svc.StorwizeSVCDriver(
                 configuration=conf.Configuration(None))
@@ -1644,6 +1687,44 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         volume_types.destroy(ctxt, type_ref['id'])
         return attrs
 
+    def _get_default_opts(self):
+        opt = {'rsize': 2,
+               'warning': 0,
+               'autoexpand': True,
+               'grainsize': 256,
+               'compression': False,
+               'easytier': True,
+               'protocol': 'iSCSI',
+               'multipath': False,
+               'iogrp': 0,
+               'qos': None}
+        return opt
+
+    @mock.patch.object(helpers.StorwizeHelpers, 'add_vdisk_qos')
+    @mock.patch.object(storwize_svc.StorwizeSVCDriver, '_get_vdisk_params')
+    def test_storwize_svc_create_volume_with_qos(self, get_vdisk_params,
+                                                 add_vdisk_qos):
+        vol = testutils.create_volume(self.ctxt)
+        fake_opts = self._get_default_opts()
+        # If the qos is empty, chvdisk should not be called
+        # for create_volume.
+        get_vdisk_params.return_value = fake_opts
+        self.driver.create_volume(vol)
+        self._assert_vol_exists(vol['name'], True)
+        self.assertFalse(add_vdisk_qos.called)
+        self.driver.delete_volume(vol)
+
+        # If the qos is not empty, chvdisk should be called
+        # for create_volume.
+        fake_opts['qos'] = {'rate': 5000}
+        get_vdisk_params.return_value = fake_opts
+        self.driver.create_volume(vol)
+        self._assert_vol_exists(vol['name'], True)
+        add_vdisk_qos.assert_called_once_with(vol['name'], fake_opts['qos'])
+
+        self.driver.delete_volume(vol)
+        self._assert_vol_exists(vol['name'], False)
+
     def test_storwize_svc_snapshots(self):
         vol1 = self._create_volume()
         snap1 = self._generate_vol_info(vol1['name'], vol1['id'])
@@ -1712,7 +1793,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
 
         # Try to create where source size != target size
         vol2['size'] += 1
-        self.assertRaises(exception.VolumeDriverException,
+        self.assertRaises(exception.InvalidInput,
                           self.driver.create_volume_from_snapshot,
                           vol2, snap1)
         self._assert_vol_exists(vol2['name'], False)
@@ -1726,7 +1807,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
 
         # Try to clone where source size != target size
         vol3['size'] += 1
-        self.assertRaises(exception.VolumeDriverException,
+        self.assertRaises(exception.InvalidInput,
                           self.driver.create_cloned_volume,
                           vol3, vol2)
         self._assert_vol_exists(vol3['name'], False)
@@ -1736,6 +1817,71 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.sim.error_injection('lsfcmap', 'speed_up')
         self.driver.create_cloned_volume(vol3, vol2)
         self._assert_vol_exists(vol3['name'], True)
+
+        # Delete in the 'opposite' order to make sure it works
+        self.driver.delete_volume(vol3)
+        self._assert_vol_exists(vol3['name'], False)
+        self.driver.delete_volume(vol2)
+        self._assert_vol_exists(vol2['name'], False)
+        self.driver.delete_snapshot(snap1)
+        self._assert_vol_exists(snap1['name'], False)
+        self.driver.delete_volume(vol1)
+        self._assert_vol_exists(vol1['name'], False)
+
+    @mock.patch.object(helpers.StorwizeHelpers, 'add_vdisk_qos')
+    def test_storwize_svc_create_volfromsnap_clone_with_qos(self,
+                                                            add_vdisk_qos):
+        vol1 = self._create_volume()
+        snap1 = self._generate_vol_info(vol1['name'], vol1['id'])
+        self.driver.create_snapshot(snap1)
+        vol2 = self._generate_vol_info(None, None)
+        vol3 = self._generate_vol_info(None, None)
+        fake_opts = self._get_default_opts()
+
+        # Succeed
+        if self.USESIM:
+            self.sim.error_injection('lsfcmap', 'speed_up')
+
+        # If the qos is empty, chvdisk should not be called
+        # for create_volume_from_snapshot.
+        with mock.patch.object(storwize_svc.StorwizeSVCDriver,
+                               '_get_vdisk_params') as get_vdisk_params:
+            get_vdisk_params.return_value = fake_opts
+            self.driver.create_volume_from_snapshot(vol2, snap1)
+            self._assert_vol_exists(vol2['name'], True)
+            self.assertFalse(add_vdisk_qos.called)
+            self.driver.delete_volume(vol2)
+
+            # If the qos is not empty, chvdisk should be called
+            # for create_volume_from_snapshot.
+            fake_opts['qos'] = {'rate': 5000}
+            get_vdisk_params.return_value = fake_opts
+            self.driver.create_volume_from_snapshot(vol2, snap1)
+            self._assert_vol_exists(vol2['name'], True)
+            add_vdisk_qos.assert_called_once_with(vol2['name'],
+                                                  fake_opts['qos'])
+
+            if self.USESIM:
+                self.sim.error_injection('lsfcmap', 'speed_up')
+
+            # If the qos is empty, chvdisk should not be called
+            # for create_volume_from_snapshot.
+            add_vdisk_qos.reset_mock()
+            fake_opts['qos'] = None
+            get_vdisk_params.return_value = fake_opts
+            self.driver.create_cloned_volume(vol3, vol2)
+            self._assert_vol_exists(vol3['name'], True)
+            self.assertFalse(add_vdisk_qos.called)
+            self.driver.delete_volume(vol3)
+
+            # If the qos is not empty, chvdisk should be called
+            # for create_volume_from_snapshot.
+            fake_opts['qos'] = {'rate': 5000}
+            get_vdisk_params.return_value = fake_opts
+            self.driver.create_cloned_volume(vol3, vol2)
+            self._assert_vol_exists(vol3['name'], True)
+            add_vdisk_qos.assert_called_once_with(vol3['name'],
+                                                  fake_opts['qos'])
 
         # Delete in the 'opposite' order to make sure it works
         self.driver.delete_volume(vol3)
@@ -1979,7 +2125,35 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                                       self.driver.initialize_connection,
                                       volume2, self._connector)
 
+                # with storwize_svc_npiv_compatibility_mode set to True,
+                # lsfabric can return [] and initilize_connection will still
+                # complete successfully
+
+                with mock.patch.object(helpers.StorwizeHelpers,
+                                       'get_conn_fc_wwpns') as conn_fc_wwpns:
+                    conn_fc_wwpns.return_value = []
+                    self._set_flag('storwize_svc_npiv_compatibility_mode',
+                                   True)
+                    expected_fc_npiv = {
+                        'driver_volume_type': 'fibre_channel',
+                        'data': {'target_lun': 1,
+                                 'target_wwn': '500507680220C744',
+                                 'target_discovered': False}}
+                    ret = self.driver.initialize_connection(volume2,
+                                                            self._connector)
+                    self.assertEqual(
+                        ret['driver_volume_type'],
+                        expected_fc_npiv['driver_volume_type'])
+                    for k, v in expected_fc_npiv['data'].iteritems():
+                        self.assertEqual(ret['data'][k], v)
+                    self._set_flag('storwize_svc_npiv_compatibility_mode',
+                                   False)
+
             self.driver.terminate_connection(volume1, self._connector)
+            # for npiv compatibility test case, we need to terminate connection
+            # to the 2nd volume
+            if protocol == 'FC' and self.USESIM:
+                self.driver.terminate_connection(volume2, self._connector)
             if self.USESIM:
                 ret = self.driver._helpers.get_host_from_connector(
                     self._connector)
@@ -2268,7 +2442,8 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.driver.migrate_volume(ctxt, volume, host)
         self._delete_volume(volume)
 
-    def test_storwize_svc_retype_no_copy(self):
+    @mock.patch.object(helpers.StorwizeHelpers, 'add_vdisk_qos')
+    def test_storwize_svc_retype_no_copy(self, add_vdisk_qos):
         self.driver.do_setup(None)
         loc = ('StorwizeSVCDriver:' + self.driver._state['system_id'] +
                ':openstack')
@@ -2298,6 +2473,27 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.assertEqual('5', attrs['warning'], 'Volume retype failed')
         self.assertEqual('off', attrs['autoexpand'], 'Volume retype failed')
         self.driver.delete_volume(volume)
+
+        fake_opts = self._get_default_opts()
+        self.driver.create_volume(volume)
+        with mock.patch.object(storwize_svc.StorwizeSVCDriver,
+                               '_get_vdisk_params') as get_vdisk_params:
+            # If qos is empty, chvdisk will not be called for retype.
+            get_vdisk_params.return_value = fake_opts
+            self.driver.retype(ctxt, volume, new_type, diff, host)
+            self.assertFalse(add_vdisk_qos.called)
+            self.driver.delete_volume(volume)
+
+        self.driver.create_volume(volume)
+        add_vdisk_qos.reset_mock()
+        with mock.patch.object(storwize_svc.StorwizeSVCDriver,
+                               '_get_vdisk_params') as get_vdisk_params:
+            # If qos is not empty, chvdisk will be called for retype.
+            fake_opts['qos'] = {'rate': 5000}
+            get_vdisk_params.return_value = fake_opts
+            self.driver.retype(ctxt, volume, new_type, diff, host)
+            add_vdisk_qos.assert_called_with(volume['name'], fake_opts['qos'])
+            self.driver.delete_volume(volume)
 
     def test_storwize_svc_retype_only_change_iogrp(self):
         self.driver.do_setup(None)
@@ -2329,7 +2525,8 @@ class StorwizeSVCDriverTestCase(test.TestCase):
                          'failed')
         self.driver.delete_volume(volume)
 
-    def test_storwize_svc_retype_need_copy(self):
+    @mock.patch.object(helpers.StorwizeHelpers, 'add_vdisk_qos')
+    def test_storwize_svc_retype_need_copy(self, add_vdisk_qos):
         self.driver.do_setup(None)
         loc = ('StorwizeSVCDriver:' + self.driver._state['system_id'] +
                ':openstack')
@@ -2359,6 +2556,27 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.assertEqual('1', attrs['IO_group_id'], 'Volume retype '
                          'failed')
         self.driver.delete_volume(volume)
+
+        fake_opts = self._get_default_opts()
+        self.driver.create_volume(volume)
+        with mock.patch.object(storwize_svc.StorwizeSVCDriver,
+                               '_get_vdisk_params') as get_vdisk_params:
+            # If qos is empty, chvdisk will not be called for retype.
+            get_vdisk_params.return_value = fake_opts
+            self.driver.retype(ctxt, volume, new_type, diff, host)
+            self.assertFalse(add_vdisk_qos.called)
+            self.driver.delete_volume(volume)
+
+        add_vdisk_qos.reset_mock()
+        self.driver.create_volume(volume)
+        with mock.patch.object(storwize_svc.StorwizeSVCDriver,
+                               '_get_vdisk_params') as get_vdisk_params:
+            # If qos is not empty, chvdisk will be called for retype.
+            fake_opts['qos'] = {'rate': 5000}
+            get_vdisk_params.return_value = fake_opts
+            self.driver.retype(ctxt, volume, new_type, diff, host)
+            add_vdisk_qos.assert_called_with(volume['name'], fake_opts['qos'])
+            self.driver.delete_volume(volume)
 
     def test_set_storage_code_level_success(self):
         res = self.driver._helpers.get_system_info()
@@ -2393,6 +2611,19 @@ class StorwizeSVCDriverTestCase(test.TestCase):
             self.assertIn(volume['id'], self.driver._vdiskcopyops)
             self.driver.delete_volume(volume)
             self.assertNotIn(volume['id'], self.driver._vdiskcopyops)
+
+    def test_storwize_get_host_with_fc_connection(self):
+        # Create a FC host
+        del self._connector['initiator']
+        helper = self.driver._helpers
+        host_name = helper.create_host(self._connector)
+
+        # Remove the first wwpn from connector, and then try get host
+        wwpns = self._connector['wwpns']
+        wwpns.remove(wwpns[0])
+        host_name = helper.get_host_from_connector(self._connector)
+
+        self.assertIsNotNone(host_name)
 
     def test_storwize_initiator_multiple_preferred_nodes_matching(self):
 
@@ -2565,6 +2796,195 @@ class StorwizeSVCDriverTestCase(test.TestCase):
 
         self.assertEqual(term_data, term_ret)
 
+    def test_storwize_create_volume_with_strech_cluster_replication(self):
+        # Set replication flag, set pool openstack2 for secondary volume.
+        self._set_flag('storwize_svc_stretched_cluster_partner', 'openstack2')
+
+        # Create a type for repliation.
+        volume = self._generate_vol_info(None, None)
+        volume_type = self._create_replication_volume_type(True)
+        volume['volume_type_id'] = volume_type['id']
+
+        self.driver.do_setup(self.ctxt)
+
+        model_update = self.driver.create_volume(volume)
+        self.assertEqual('copying', model_update['replication_status'])
+
+        volume['replication_status'] = 'copying'
+        volume['replication_extended_status'] = None
+
+        model_update = self.driver.get_replication_status(self.ctxt, volume)
+        self.assertEqual('copying', model_update['replication_status'])
+
+        # Check the volume copy created on pool opentack2.
+        attrs = self.driver._helpers.get_vdisk_attributes(volume['name'])
+        self.assertIn('openstack2', attrs['mdisk_grp_name'])
+
+        primary_status = attrs['primary']
+
+        self.driver.promote_replica(self.ctxt, volume)
+        # After promote_replica, primary copy should be swiched.
+        attrs = self.driver._helpers.get_vdisk_attributes(volume['name'])
+        self.assertEqual(primary_status[0], attrs['primary'][1])
+        self.assertEqual(primary_status[1], attrs['primary'][0])
+
+        self.driver.delete_volume(volume)
+        attrs = self.driver._helpers.get_vdisk_attributes(volume['name'])
+        self.assertIsNone(attrs)
+
+    def test_storwize_create_cloned_volume_with_strech_cluster_replica(self):
+        # Set replication flag, set pool openstack2 for secondary volume.
+        self._set_flag('storwize_svc_stretched_cluster_partner', 'openstack2')
+        self.driver.do_setup(self.ctxt)
+
+        # Create a source volume.
+        src_volume = self._generate_vol_info(None, None)
+        self.driver.create_volume(src_volume)
+
+        # Create a type for repliation.
+        volume = self._generate_vol_info(None, None)
+        volume_type = self._create_replication_volume_type(True)
+        volume['volume_type_id'] = volume_type['id']
+
+        # Create a cloned volume from source volume.
+        model_update = self.driver.create_cloned_volume(volume, src_volume)
+        self.assertEqual('copying', model_update['replication_status'])
+
+        # Check the replication volume created on pool openstack2.
+        attrs = self.driver._helpers.get_vdisk_attributes(volume['name'])
+        self.assertIn('openstack2', attrs['mdisk_grp_name'])
+
+    def test_storwize_create_snapshot_volume_with_strech_cluster_replica(self):
+        # Set replication flag, set pool openstack2 for secondary volume.
+        self._set_flag('storwize_svc_stretched_cluster_partner', 'openstack2')
+        self.driver.do_setup(self.ctxt)
+
+        vol1 = self._create_volume()
+        snap = self._generate_vol_info(vol1['name'], vol1['id'])
+        self.driver.create_snapshot(snap)
+        vol2 = self._generate_vol_info(None, None)
+
+        # Create a type for repliation.
+        vol2 = self._generate_vol_info(None, None)
+        volume_type = self._create_replication_volume_type(True)
+        vol2['volume_type_id'] = volume_type['id']
+
+        model_update = self.driver.create_volume_from_snapshot(vol2, snap)
+        self._assert_vol_exists(vol2['name'], True)
+        self.assertEqual('copying', model_update['replication_status'])
+        # Check the replication volume created on pool openstack2.
+        attrs = self.driver._helpers.get_vdisk_attributes(vol2['name'])
+        self.assertIn('openstack2', attrs['mdisk_grp_name'])
+
+    def test_storwize_retype_with_strech_cluster_replication(self):
+        self._set_flag('storwize_svc_stretched_cluster_partner', 'openstack2')
+        self.driver.do_setup(self.ctxt)
+        self.driver.do_setup(None)
+        loc = ('StorwizeSVCDriver:' + self.driver._state['system_id'] +
+               ':openstack')
+        cap = {'location_info': loc, 'extent_size': '128'}
+        self.driver._stats = {'location_info': loc}
+        host = {'host': 'foo', 'capabilities': cap}
+        ctxt = context.get_admin_context()
+
+        disable_type = self._create_replication_volume_type(False)
+        enable_type = self._create_replication_volume_type(True)
+
+        diff, equal = volume_types.volume_types_diff(ctxt,
+                                                     disable_type['id'],
+                                                     enable_type['id'])
+
+        volume = self._generate_vol_info(None, None)
+        volume['host'] = host
+        volume['volume_type_id'] = disable_type['id']
+        volume['volume_type'] = disable_type
+        volume['replication_status'] = None
+        volume['replication_extended_status'] = None
+
+        # Create volume which is not volume replication
+        self.driver.create_volume(volume)
+        # volume should be DB object in this parameter
+        model_update = self.driver.get_replication_status(self.ctxt, volume)
+        self.assertIs('error', model_update['replication_status'])
+        # Enable replica
+        self.driver.retype(ctxt, volume, enable_type, diff, host)
+
+        model_update = self.driver.get_replication_status(self.ctxt, volume)
+        self.assertIs('copying', model_update['replication_status'])
+        self.driver.delete_volume(volume)
+
+    def test_storwize_initiator_target_map_npiv(self):
+        # Create two volumes to be used in mappings
+        ctxt = context.get_admin_context()
+        self._set_flag('storwize_svc_npiv_compatibility_mode', True)
+
+        # Generate us a test volume
+        volume = self._generate_vol_info(None, None)
+        self.driver.create_volume(volume)
+
+        # FIbre Channel volume type
+        vol_type = volume_types.create(ctxt, 'FC', {'protocol': 'FC'})
+
+        volume['volume_type_id'] = vol_type['id']
+
+        # Make sure that the volumes have been created
+        self._assert_vol_exists(volume['name'], True)
+
+        wwpns = ['ff00000000000000', 'ff00000000000001']
+        connector = {'host': 'storwize-svc-test', 'wwpns': wwpns}
+
+        # Initialise the connection
+        with mock.patch.object(helpers.StorwizeHelpers,
+                               'get_conn_fc_wwpns') as conn_fc_wwpns:
+            conn_fc_wwpns.return_value = []
+            init_ret = self.driver.initialize_connection(volume, connector)
+
+        # Check that the initiator_target_map is as expected
+        init_data = {'driver_volume_type': 'fibre_channel',
+                     'data': {'initiator_target_map':
+                              {'ff00000000000000': ['500507680220C744',
+                                                    '500507680210C744',
+                                                    '500507680220C745',
+                                                    '500507680230C745'],
+                               'ff00000000000001': ['500507680220C744',
+                                                    '500507680210C744',
+                                                    '500507680220C745',
+                                                    '500507680230C745']},
+                              'target_discovered': False,
+                              'target_lun': 0,
+                              'target_wwn': '500507680220C744',
+                              'volume_id': volume['id']
+                              }
+                     }
+
+        self.assertEqual(init_data, init_ret)
+
+        # Terminate connection
+        term_ret = self.driver.terminate_connection(volume, connector)
+        # Check that the initiator_target_map is as expected
+        term_data = {'driver_volume_type': 'fibre_channel',
+                     'data': {'initiator_target_map':
+                              {'ff00000000000000': ['AABBCCDDEEFF0011'],
+                               'ff00000000000001': ['AABBCCDDEEFF0011']}
+                              }
+                     }
+
+        self.assertEqual(term_data, term_ret)
+
+    def _create_replication_volume_type(self, enable):
+        # Generate a volume type for volume repliation.
+        if enable:
+            spec = {'capabilities:replication': '<is> True'}
+            type_ref = volume_types.create(self.ctxt, "replication_1", spec)
+        else:
+            spec = {'capabilities:replication': '<is> False'}
+            type_ref = volume_types.create(self.ctxt, "replication_2", spec)
+
+        replication_type = volume_types.get_volume_type(self.ctxt,
+                                                        type_ref['id'])
+
+        return replication_type
+
     def _get_vdisk_uid(self, vdisk_name):
         """Return vdisk_UID for given vdisk.
 
@@ -2629,7 +3049,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         volume, uid = self._create_volume_and_return_uid('manage_test')
 
         # Descriptor of the Cinder volume that we want to own the vdisk
-        # refrerenced by uid.
+        # referenced by uid.
         new_volume = self._generate_vol_info(None, None)
 
         # Submit the request to manage it.
@@ -2661,7 +3081,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.driver.initialize_connection(volume, conn)
 
         # Descriptor of the Cinder volume that we want to own the vdisk
-        # refrerenced by uid.
+        # referenced by uid.
         volume = self._generate_vol_info(None, None)
         ref = {'source-id': uid}
 
@@ -2674,7 +3094,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         """Tests managing a mapped volume with override.
 
         This test case attempts to manage an existing volume by UID, when it
-        it already mapped to a host, but the ref specifies that this is OK.
+        already mapped to a host, but the ref specifies that this is OK.
         We verify that the backend volume was renamed to have the name of the
         Cinder volume that we asked for it to be associated with.
         """
@@ -2689,7 +3109,7 @@ class StorwizeSVCDriverTestCase(test.TestCase):
         self.driver.initialize_connection(volume, conn)
 
         # Descriptor of the Cinder volume that we want to own the vdisk
-        # refrerenced by uid.
+        # referenced by uid.
         new_volume = self._generate_vol_info(None, None)
 
         # Submit the request to manage it, specifying that it is OK to
@@ -2791,3 +3211,6 @@ class StorwizeHelpersTestCase(test.TestCase):
         with mock.patch.object(ssh.StorwizeSSH, 'lslicense') as lslicense:
             lslicense.return_value = fake_license
             self.assertTrue(self.helpers.compression_enabled())
+
+    def test_get_vdisk_params(self):
+        pass

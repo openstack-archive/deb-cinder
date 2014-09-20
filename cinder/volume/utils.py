@@ -17,14 +17,16 @@
 
 import math
 
+from Crypto.Random import random
 from oslo.config import cfg
 
 from cinder.brick.local_dev import lvm as brick_lvm
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder.openstack.common import strutils
+from cinder.openstack.common import timeutils
 from cinder.openstack.common import units
 from cinder import rpc
 from cinder import utils
@@ -41,6 +43,7 @@ def null_safe_str(s):
 
 def _usage_from_volume(context, volume_ref, **kw):
     usage_info = dict(tenant_id=volume_ref['project_id'],
+                      host=volume_ref['host'],
                       user_id=volume_ref['user_id'],
                       instance_uuid=volume_ref['instance_uuid'],
                       availability_zone=volume_ref['availability_zone'],
@@ -51,7 +54,13 @@ def _usage_from_volume(context, volume_ref, **kw):
                       created_at=null_safe_str(volume_ref['created_at']),
                       status=volume_ref['status'],
                       snapshot_id=volume_ref['snapshot_id'],
-                      size=volume_ref['size'])
+                      size=volume_ref['size'],
+                      replication_status=volume_ref['replication_status'],
+                      replication_extended_status=
+                      volume_ref['replication_extended_status'],
+                      replication_driver_data=
+                      volume_ref['replication_driver_data'],
+                      )
 
     usage_info.update(kw)
     return usage_info
@@ -104,8 +113,106 @@ def notify_about_snapshot_usage(context, snapshot, event_suffix,
                                             usage_info)
 
 
+def notify_about_replication_usage(context, volume, suffix,
+                                   extra_usage_info=None, host=None):
+    if not host:
+        host = CONF.host
+
+    if not extra_usage_info:
+        extra_usage_info = {}
+
+    usage_info = _usage_from_volume(context,
+                                    volume,
+                                    **extra_usage_info)
+
+    rpc.get_notifier('replication', host).info(context,
+                                               'replication.%s' % suffix,
+                                               usage_info)
+
+
+def notify_about_replication_error(context, volume, suffix,
+                                   extra_error_info=None, host=None):
+    if not host:
+        host = CONF.host
+
+    if not extra_error_info:
+        extra_error_info = {}
+
+    usage_info = _usage_from_volume(context,
+                                    volume,
+                                    **extra_error_info)
+
+    rpc.get_notifier('replication', host).error(context,
+                                                'replication.%s' % suffix,
+                                                usage_info)
+
+
+def _usage_from_consistencygroup(context, group_ref, **kw):
+    usage_info = dict(tenant_id=group_ref['project_id'],
+                      user_id=group_ref['user_id'],
+                      availability_zone=group_ref['availability_zone'],
+                      consistencygroup_id=group_ref['id'],
+                      name=group_ref['name'],
+                      created_at=null_safe_str(group_ref['created_at']),
+                      status=group_ref['status'])
+
+    usage_info.update(kw)
+    return usage_info
+
+
+def notify_about_consistencygroup_usage(context, group, event_suffix,
+                                        extra_usage_info=None, host=None):
+    if not host:
+        host = CONF.host
+
+    if not extra_usage_info:
+        extra_usage_info = {}
+
+    usage_info = _usage_from_consistencygroup(context,
+                                              group,
+                                              **extra_usage_info)
+
+    rpc.get_notifier("consistencygroup", host).info(
+        context,
+        'consistencygroup.%s' % event_suffix,
+        usage_info)
+
+
+def _usage_from_cgsnapshot(context, cgsnapshot_ref, **kw):
+    usage_info = dict(
+        tenant_id=cgsnapshot_ref['project_id'],
+        user_id=cgsnapshot_ref['user_id'],
+        cgsnapshot_id=cgsnapshot_ref['id'],
+        name=cgsnapshot_ref['name'],
+        consistencygroup_id=cgsnapshot_ref['consistencygroup_id'],
+        created_at=null_safe_str(cgsnapshot_ref['created_at']),
+        status=cgsnapshot_ref['status'])
+
+    usage_info.update(kw)
+    return usage_info
+
+
+def notify_about_cgsnapshot_usage(context, cgsnapshot, event_suffix,
+                                  extra_usage_info=None, host=None):
+    if not host:
+        host = CONF.host
+
+    if not extra_usage_info:
+        extra_usage_info = {}
+
+    usage_info = _usage_from_cgsnapshot(context,
+                                        cgsnapshot,
+                                        **extra_usage_info)
+
+    rpc.get_notifier("cgsnapshot", host).info(
+        context,
+        'cgsnapshot.%s' % event_suffix,
+        usage_info)
+
+
 def setup_blkio_cgroup(srcpath, dstpath, bps_limit, execute=utils.execute):
     if not bps_limit:
+        LOG.debug('Not using bps rate limiting on volume copy')
         return None
 
     try:
@@ -128,6 +235,8 @@ def setup_blkio_cgroup(srcpath, dstpath, bps_limit, execute=utils.execute):
         return None
 
     group_name = CONF.volume_copy_blkio_cgroup_name
+    LOG.debug('Setting rate limit to %s bps for blkio '
+              'group: %s' % (bps_limit, group_name))
     try:
         execute('cgcreate', '-g', 'blkio:%s' % group_name, run_as_root=True)
     except processutils.ProcessExecutionError:
@@ -209,7 +318,23 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
         cmd = cgcmd + cmd
 
     # Perform the copy
+    start_time = timeutils.utcnow()
     execute(*cmd, run_as_root=True)
+    duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
+
+    # NOTE(jdg): use a default of 1, mostly for unit test, but in
+    # some incredible event this is 0 (cirros image?) don't barf
+    if duration < 1:
+        duration = 1
+    mbps = (size_in_m / duration)
+    mesg = ("Volume copy details: src %(src)s, dest %(dest)s, "
+            "size %(sz).2f MB, duration %(duration).2f sec")
+    LOG.debug(mesg % {"src": srcstr,
+                      "dest": deststr,
+                      "sz": size_in_m,
+                      "duration": duration})
+    mesg = _("Volume copy %(size_in_m).2f MB at %(mbps).2f MB/s")
+    LOG.info(mesg % {'size_in_m': size_in_m, 'mbps': mbps})
 
 
 def clear_volume(volume_size, volume_path, volume_clear=None,
@@ -244,7 +369,15 @@ def clear_volume(volume_size, volume_path, volume_clear=None,
             value=volume_clear)
 
     clear_cmd.append(volume_path)
+    start_time = timeutils.utcnow()
     utils.execute(*clear_cmd, run_as_root=True)
+    duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
+
+    # NOTE(jdg): use a default of 1, mostly for unit test, but in
+    # some incredible event this is 0 (cirros image?) don't barf
+    if duration < 1:
+        duration = 1
+    LOG.info(_('Elapsed time for clear volume: %.2f sec') % duration)
 
 
 def supports_thin_provisioning():
@@ -268,3 +401,102 @@ def get_all_volume_groups(vg_name=None):
     return brick_lvm.LVM.get_all_volume_groups(
         utils.get_root_helper(),
         vg_name)
+
+# Default symbols to use for passwords. Avoids visually confusing characters.
+# ~6 bits per symbol
+DEFAULT_PASSWORD_SYMBOLS = ('23456789',  # Removed: 0,1
+                            'ABCDEFGHJKLMNPQRSTUVWXYZ',   # Removed: I, O
+                            'abcdefghijkmnopqrstuvwxyz')  # Removed: l
+
+
+def generate_password(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
+    """Generate a random password from the supplied symbol groups.
+
+    At least one symbol from each group will be included. Unpredictable
+    results if length is less than the number of symbol groups.
+
+    Believed to be reasonably secure (with a reasonable password length!)
+
+    """
+    # NOTE(jerdfelt): Some password policies require at least one character
+    # from each group of symbols, so start off with one random character
+    # from each symbol group
+    password = [random.choice(s) for s in symbolgroups]
+    # If length < len(symbolgroups), the leading characters will only
+    # be from the first length groups. Try our best to not be predictable
+    # by shuffling and then truncating.
+    random.shuffle(password)
+    password = password[:length]
+    length -= len(password)
+
+    # then fill with random characters from all symbol groups
+    symbols = ''.join(symbolgroups)
+    password.extend([random.choice(symbols) for _i in xrange(length)])
+
+    # finally shuffle to ensure first x characters aren't from a
+    # predictable group
+    random.shuffle(password)
+
+    return ''.join(password)
+
+
+def generate_username(length=20, symbolgroups=DEFAULT_PASSWORD_SYMBOLS):
+    # Use the same implementation as the password generation.
+    return generate_password(length, symbolgroups)
+
+
+DEFAULT_POOL_NAME = '_pool0'
+
+
+def extract_host(host, level='backend', default_pool_name=False):
+    """Extract Host, Backend or Pool information from host string.
+
+    :param host: String for host, which could include host@backend#pool info
+    :param level: Indicate which level of information should be extracted
+                  from host string. Level can be 'host', 'backend' or 'pool',
+                  default value is 'backend'
+    :param default_pool_name: this flag specify what to do if level == 'pool'
+                              and there is no 'pool' info encoded in host
+                              string.  default_pool_name=True will return
+                              DEFAULT_POOL_NAME, otherwise we return None.
+                              Default value of this parameter is False.
+    :return: expected level of information
+
+    For example:
+        host = 'HostA@BackendB#PoolC'
+        ret = extract_host(host, 'host')
+        # ret is 'HostA'
+        ret = extract_host(host, 'backend')
+        # ret is 'HostA@BackendB'
+        ret = extract_host(host, 'pool')
+        # ret is 'PoolC'
+
+        host = 'HostX@BackendY'
+        ret = extract_host(host, 'pool')
+        # ret is None
+        ret = extract_host(host, 'pool', True)
+        # ret is '_pool0'
+    """
+    if level == 'host':
+        # make sure pool is not included
+        hst = host.split('#')[0]
+        return hst.split('@')[0]
+    elif level == 'backend':
+        return host.split('#')[0]
+    elif level == 'pool':
+        lst = host.split('#')
+        if len(lst) == 2:
+            return lst[1]
+        elif default_pool_name is True:
+            return DEFAULT_POOL_NAME
+        else:
+            return None
+
+
+def append_host(host, pool):
+    """Encode pool into host info."""
+    if not host or not pool:
+        return host
+
+    new_host = "#".join([host, pool])
+    return new_host

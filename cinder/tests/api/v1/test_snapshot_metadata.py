@@ -121,7 +121,8 @@ def return_volume(context, volume_id):
             'encryption_key_id': None,
             'volume_type_id': None,
             'migration_status': None,
-            'metadata': {}}
+            'metadata': {},
+            'project_id': context.project_id}
 
 
 def return_snapshot_nonexistent(context, snapshot_id):
@@ -137,7 +138,6 @@ class SnapshotMetaDataTest(test.TestCase):
     def setUp(self):
         super(SnapshotMetaDataTest, self).setUp()
         self.volume_api = cinder.volume.api.API()
-        fakes.stub_out_key_pair_funcs(self.stubs)
         self.stubs.Set(cinder.db, 'volume_get', return_volume)
         self.stubs.Set(cinder.db, 'snapshot_get', return_snapshot)
         self.stubs.Set(cinder.db, 'snapshot_metadata_get',

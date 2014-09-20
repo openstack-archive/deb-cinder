@@ -27,8 +27,8 @@ import time
 import uuid
 
 from cinder import exception
+from cinder.i18n import _
 from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import units
@@ -1223,7 +1223,7 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
                     if avl_vol['name'] in self.volume_list:
                         return avl_vol
                 elif self._get_vol_option(avl_vol['name'], 'root') != 'true':
-                        return avl_vol
+                    return avl_vol
         return None
 
     def _get_igroup_by_initiator(self, initiator):
@@ -1527,7 +1527,7 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         vols = self._get_filer_volumes()
         for vol in vols:
             volume = vol.get_child_content('name')
-            if self.volume_list and not volume in self.volume_list:
+            if self.volume_list and volume not in self.volume_list:
                 continue
             state = vol.get_child_content('state')
             inconsistent = vol.get_child_content('is-inconsistent')

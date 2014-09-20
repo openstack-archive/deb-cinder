@@ -17,6 +17,7 @@
 
 
 import ast
+
 import webob
 from webob import exc
 
@@ -24,8 +25,9 @@ from cinder.api import common
 from cinder.api.openstack import wsgi
 from cinder.api.v2.views import volumes as volume_views
 from cinder.api import xmlutil
+from cinder import consistencygroup as consistencygroupAPI
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import uuidutils
 from cinder import utils
@@ -59,6 +61,7 @@ def make_volume(elem):
     elem.set('volume_type')
     elem.set('snapshot_id')
     elem.set('source_volid')
+    elem.set('consistencygroup_id')
 
     attachments = xmlutil.SubTemplateElement(elem, 'attachments')
     attachment = xmlutil.SubTemplateElement(attachments, 'attachment',
@@ -119,7 +122,7 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
 
         attributes = ['name', 'description', 'size',
                       'volume_type', 'availability_zone', 'imageRef',
-                      'snapshot_id', 'source_volid']
+                      'snapshot_id', 'source_volid', 'consistencygroup_id']
         for attr in attributes:
             if volume_node.getAttribute(attr):
                 volume[attr] = volume_node.getAttribute(attr)
@@ -156,6 +159,7 @@ class VolumeController(wsgi.Controller):
 
     def __init__(self, ext_mgr):
         self.volume_api = cinder_volume.API()
+        self.consistencygroup_api = consistencygroupAPI.API()
         self.ext_mgr = ext_mgr
         super(VolumeController, self).__init__()
 
@@ -179,7 +183,7 @@ class VolumeController(wsgi.Controller):
         """Delete a volume."""
         context = req.environ['cinder.context']
 
-        LOG.audit(_("Delete volume with id: %s"), id, context=context)
+        LOG.info(_("Delete volume with id: %s"), id, context=context)
 
         try:
             volume = self.volume_api.get(context, id)
@@ -325,13 +329,45 @@ class VolumeController(wsgi.Controller):
         else:
             kwargs['source_volume'] = None
 
+        source_replica = volume.get('source_replica')
+        if source_replica is not None:
+            try:
+                src_vol = self.volume_api.get_volume(context,
+                                                     source_replica)
+                if src_vol['replication_status'] == 'disabled':
+                    explanation = _('source volume id:%s is not'
+                                    ' replicated') % source_volid
+                    raise exc.HTTPNotFound(explanation=explanation)
+                kwargs['source_replica'] = src_vol
+            except exception.NotFound:
+                explanation = (_('replica source volume id:%s not found') %
+                               source_replica)
+                raise exc.HTTPNotFound(explanation=explanation)
+        else:
+            kwargs['source_replica'] = None
+
+        consistencygroup_id = volume.get('consistencygroup_id')
+        if consistencygroup_id is not None:
+            try:
+                kwargs['consistencygroup'] = \
+                    self.consistencygroup_api.get(context,
+                                                  consistencygroup_id)
+            except exception.NotFound:
+                explanation = _('Consistency group id:%s not found') % \
+                    consistencygroup_id
+                raise exc.HTTPNotFound(explanation=explanation)
+        else:
+            kwargs['consistencygroup'] = None
+
         size = volume.get('size', None)
         if size is None and kwargs['snapshot'] is not None:
             size = kwargs['snapshot']['volume_size']
         elif size is None and kwargs['source_volume'] is not None:
             size = kwargs['source_volume']['size']
+        elif size is None and kwargs['source_replica'] is not None:
+            size = kwargs['source_replica']['size']
 
-        LOG.audit(_("Create volume of %s GB"), size, context=context)
+        LOG.info(_("Create volume of %s GB"), size, context=context)
 
         if self.ext_mgr.is_loaded('os-image-create'):
             image_href = volume.get('imageRef')

@@ -16,18 +16,19 @@
 
 import contextlib
 import hashlib
-import mock
 import os
-import six
 import tempfile
 import uuid
+
+import mock
+import six
 
 from cinder.backup import driver
 from cinder.backup.drivers import ceph
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils

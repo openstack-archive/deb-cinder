@@ -380,6 +380,21 @@ class DBAPIVolumeTestCase(BaseTest):
                                             db.volume_get_all_by_host(
                                             self.ctxt, 'h%d' % i))
 
+    def test_volume_get_all_by_host_with_pools(self):
+        volumes = []
+        vol_on_host_wo_pool = [db.volume_create(self.ctxt, {'host': 'foo'})
+                               for j in xrange(3)]
+        vol_on_host_w_pool = [db.volume_create(
+            self.ctxt, {'host': 'foo#pool0'})]
+        volumes.append((vol_on_host_wo_pool +
+                        vol_on_host_w_pool))
+        # insert an additional record that doesn't belongs to the same
+        # host as 'foo' and test if it is included in the result
+        db.volume_create(self.ctxt, {'host': 'foobar'})
+        self._assertEqualListsOfObjects(volumes[0],
+                                        db.volume_get_all_by_host(
+                                        self.ctxt, 'foo'))
+
     def test_volume_get_all_by_project(self):
         volumes = []
         for i in xrange(3):
@@ -658,10 +673,12 @@ class DBAPIVolumeTestCase(BaseTest):
 
     def test_volume_update(self):
         volume = db.volume_create(self.ctxt, {'host': 'h1'})
-        db.volume_update(self.ctxt, volume['id'],
-                         {'host': 'h2', 'metadata': {'m1': 'v1'}})
+        ref_a = db.volume_update(self.ctxt, volume['id'],
+                                 {'host': 'h2',
+                                  'metadata': {'m1': 'v1'}})
         volume = db.volume_get(self.ctxt, volume['id'])
         self.assertEqual('h2', volume['host'])
+        self.assertEqual(dict(ref_a), dict(volume))
 
     def test_volume_update_nonexistent(self):
         self.assertRaises(exception.VolumeNotFound, db.volume_update,
@@ -1124,11 +1141,11 @@ class DBAPIIscsiTargetTestCase(BaseTest):
         self.assertEqual(db.iscsi_target_count_by_host(self.ctxt, 'fake_host'),
                          3)
 
-    @test.testtools.skip("bug 1187367")
     def test_integrity_error(self):
-        db.iscsi_target_create_safe(self.ctxt, self._get_base_values())
-        self.assertFalse(db.iscsi_target_create_safe(self.ctxt,
-                                                     self._get_base_values()))
+        values = self._get_base_values()
+        values['id'] = 1
+        db.iscsi_target_create_safe(self.ctxt, values)
+        self.assertFalse(db.iscsi_target_create_safe(self.ctxt, values))
 
 
 class DBAPIBackupTestCase(BaseTest):

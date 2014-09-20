@@ -16,12 +16,12 @@
 
 import contextlib
 import errno
-import mock
 import os
 import tempfile
 import time
 import traceback
 
+import mock
 import mox as mox_lib
 from mox import IgnoreArg
 from mox import IsA
@@ -33,8 +33,8 @@ from cinder import compute
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.i18n import _
 from cinder.image import image_utils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import imageutils
 from cinder.openstack.common import processutils as putils
 from cinder.openstack.common import units
@@ -81,6 +81,7 @@ class GlusterFsDriverTestCase(test.TestCase):
     TEST_LOCAL_PATH = '/mnt/glusterfs/volume-123'
     TEST_FILE_NAME = 'test.txt'
     TEST_SHARES_CONFIG_FILE = '/etc/cinder/test-shares.conf'
+    TEST_TMP_FILE = '/tmp/tempfile'
     VOLUME_UUID = 'abcdefab-cdef-abcd-efab-cdefabcdefab'
     SNAP_UUID = 'bacadaca-baca-daca-baca-dacadacadaca'
     SNAP_UUID_2 = 'bebedede-bebe-dede-bebe-dedebebedede'
@@ -793,7 +794,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
             self.assertTrue(mock_do_umount.called)
             self.assertTrue(mock_logger.warning.called)
-            mock_logger.debug.assert_not_called()
+            self.assertFalse(mock_logger.debug.called)
 
     def test_unmount_shares_1share(self):
         self._driver.shares = {'127.7.7.7:/gluster1': None}
@@ -932,7 +933,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             try:
                 self._driver._do_umount(True, test_share)
             except putils.ProcessExecutionError:
-                mock_logger.info.assert_not_called()
+                self.assertFalse(mock_logger.info.called)
                 self.assertTrue(mock_logger.error.called)
             except Exception as e:
                 self.fail('Unexpected exception thrown:', e)
@@ -1842,8 +1843,8 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         mock_local_path_volume.assert_called_with(snapshot['volume'])
         mock_read_info_file.assert_called_with(info_path)
-        mock_delete_if_exists.assert_not_called()
-        mock_write_info_file.assert_not_called()
+        self.assertFalse(mock_delete_if_exists.called)
+        self.assertFalse(mock_write_info_file.called)
 
         # Test case where snapshot_file != active_file
         snapshot = {'name': 'fake-volume',
@@ -2061,7 +2062,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                          self.TEST_MNT_POINT_BASE)
 
     def test_get_mount_point_base(self):
-        (mox, drv) = self._mox, self._driver
+        drv = self._driver
 
         self.assertEqual(drv._get_mount_point_base(),
                          self.TEST_MNT_POINT_BASE)
@@ -2221,17 +2222,22 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         volume = self._simple_volume()
         volume_path = '%s/%s' % (self.TEST_MNT_POINT, volume['name'])
+        image_meta = {'id': '10958016-e196-42e3-9e7f-5d8927ae3099'}
 
         with contextlib.nested(
             mock.patch.object(drv, 'get_active_image_from_info'),
             mock.patch.object(drv, '_local_volume_dir'),
             mock.patch.object(image_utils, 'qemu_img_info'),
-            mock.patch.object(image_utils, 'upload_volume')
+            mock.patch.object(image_utils, 'upload_volume'),
+            mock.patch.object(image_utils, 'create_temporary_file')
         ) as (mock_get_active_image_from_info, mock_local_volume_dir,
-              mock_qemu_img_info, mock_upload_volume):
+              mock_qemu_img_info, mock_upload_volume,
+              mock_create_temporary_file):
             mock_get_active_image_from_info.return_value = volume['name']
 
             mock_local_volume_dir.return_value = self.TEST_MNT_POINT
+
+            mock_create_temporary_file.return_value = self.TEST_TMP_FILE
 
             qemu_img_output = """image: %s
             file format: raw
@@ -2243,13 +2249,14 @@ class GlusterFsDriverTestCase(test.TestCase):
 
             upload_path = volume_path
 
-            drv.copy_volume_to_image(mock.ANY, volume, mock.ANY, mock.ANY)
+            drv.copy_volume_to_image(mock.ANY, volume, mock.ANY, image_meta)
 
             mock_get_active_image_from_info.assert_called_once_with(volume)
             mock_local_volume_dir.assert_called_once_with(volume)
             mock_qemu_img_info.assert_called_once_with(volume_path)
             mock_upload_volume.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, upload_path)
+            mock_create_temporary_file.assert_once_called_with()
 
     def test_copy_volume_to_image_qcow2_image(self):
         """Upload a qcow2 image file which has to be converted to raw first."""
@@ -2265,13 +2272,15 @@ class GlusterFsDriverTestCase(test.TestCase):
             mock.patch.object(image_utils, 'qemu_img_info'),
             mock.patch.object(image_utils, 'convert_image'),
             mock.patch.object(image_utils, 'upload_volume'),
-            mock.patch.object(drv, '_execute')
+            mock.patch.object(image_utils, 'create_temporary_file')
         ) as (mock_get_active_image_from_info, mock_local_volume_dir,
               mock_qemu_img_info, mock_convert_image, mock_upload_volume,
-              mock_execute):
+              mock_create_temporary_file):
             mock_get_active_image_from_info.return_value = volume['name']
 
             mock_local_volume_dir.return_value = self.TEST_MNT_POINT
+
+            mock_create_temporary_file.return_value = self.TEST_TMP_FILE
 
             qemu_img_output = """image: %s
             file format: qcow2
@@ -2281,9 +2290,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             img_info = imageutils.QemuImgInfo(qemu_img_output)
             mock_qemu_img_info.return_value = img_info
 
-            upload_path = '%s/%s.temp_image.%s' % (self.TEST_MNT_POINT,
-                                                   volume['id'],
-                                                   image_meta['id'])
+            upload_path = self.TEST_TMP_FILE
 
             drv.copy_volume_to_image(mock.ANY, volume, mock.ANY, image_meta)
 
@@ -2294,7 +2301,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                 volume_path, upload_path, 'raw')
             mock_upload_volume.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, upload_path)
-            mock_execute.assert_called_once_with('rm', '-f', upload_path)
+            mock_create_temporary_file.assert_once_called_with()
 
     def test_copy_volume_to_image_snapshot_exists(self):
         """Upload an active snapshot which has to be converted to raw first."""
@@ -2311,13 +2318,15 @@ class GlusterFsDriverTestCase(test.TestCase):
             mock.patch.object(image_utils, 'qemu_img_info'),
             mock.patch.object(image_utils, 'convert_image'),
             mock.patch.object(image_utils, 'upload_volume'),
-            mock.patch.object(drv, '_execute')
+            mock.patch.object(image_utils, 'create_temporary_file')
         ) as (mock_get_active_image_from_info, mock_local_volume_dir,
               mock_qemu_img_info, mock_convert_image, mock_upload_volume,
-              mock_execute):
+              mock_create_temporary_file):
             mock_get_active_image_from_info.return_value = volume['name']
 
             mock_local_volume_dir.return_value = self.TEST_MNT_POINT
+
+            mock_create_temporary_file.return_value = self.TEST_TMP_FILE
 
             qemu_img_output = """image: volume-%s.%s
             file format: qcow2
@@ -2328,9 +2337,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             img_info = imageutils.QemuImgInfo(qemu_img_output)
             mock_qemu_img_info.return_value = img_info
 
-            upload_path = '%s/%s.temp_image.%s' % (self.TEST_MNT_POINT,
-                                                   volume['id'],
-                                                   image_meta['id'])
+            upload_path = self.TEST_TMP_FILE
 
             drv.copy_volume_to_image(mock.ANY, volume, mock.ANY, image_meta)
 
@@ -2341,4 +2348,4 @@ class GlusterFsDriverTestCase(test.TestCase):
                 volume_path, upload_path, 'raw')
             mock_upload_volume.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, upload_path)
-            mock_execute.assert_called_once_with('rm', '-f', upload_path)
+            mock_create_temporary_file.assert_once_called_with()

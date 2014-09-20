@@ -22,7 +22,7 @@ from cinder.api import common
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import strutils
 from cinder import utils
@@ -106,17 +106,18 @@ class SnapshotsController(wsgi.Controller):
         context = req.environ['cinder.context']
 
         try:
-            vol = self.volume_api.get_snapshot(context, id)
+            snapshot = self.volume_api.get_snapshot(context, id)
+            req.cache_resource(snapshot)
         except exception.NotFound:
             raise exc.HTTPNotFound()
 
-        return {'snapshot': _translate_snapshot_detail_view(context, vol)}
+        return {'snapshot': _translate_snapshot_detail_view(context, snapshot)}
 
     def delete(self, req, id):
         """Delete a snapshot."""
         context = req.environ['cinder.context']
 
-        LOG.audit(_("Delete snapshot with id: %s"), id, context=context)
+        LOG.info(_("Delete snapshot with id: %s"), id, context=context)
 
         try:
             snapshot = self.volume_api.get_snapshot(context, id)
@@ -152,6 +153,7 @@ class SnapshotsController(wsgi.Controller):
         snapshots = self.volume_api.get_all_snapshots(context,
                                                       search_opts=search_opts)
         limited_list = common.limited(snapshots, req)
+        req.cache_resource(limited_list)
         res = [entity_maker(context, snapshot) for snapshot in limited_list]
         return {'snapshots': res}
 
@@ -180,7 +182,7 @@ class SnapshotsController(wsgi.Controller):
 
         force = snapshot.get('force', False)
         msg = _("Create snapshot from volume %s")
-        LOG.audit(msg, volume_id, context=context)
+        LOG.info(msg, volume_id, context=context)
 
         if not utils.is_valid_boolstr(force):
             msg = _("Invalid value '%s' for force. ") % force

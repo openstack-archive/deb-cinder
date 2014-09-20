@@ -24,7 +24,7 @@ from oslo.config import cfg
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
@@ -39,10 +39,20 @@ quota_opts = [
     cfg.IntOpt('quota_snapshots',
                default=10,
                help='Number of volume snapshots allowed per project'),
+    cfg.IntOpt('quota_consistencygroups',
+               default=10,
+               help='Number of consistencygroups allowed per project'),
     cfg.IntOpt('quota_gigabytes',
                default=1000,
                help='Total amount of storage, in gigabytes, allowed '
                     'for volumes and snapshots per project'),
+    cfg.IntOpt('quota_backups',
+               default=10,
+               help='Number of volume backups allowed per project'),
+    cfg.IntOpt('quota_backup_gigabytes',
+               default=1000,
+               help='Total amount of storage, in gigabytes, allowed '
+                    'for backups per project'),
     cfg.IntOpt('reservation_expire',
                default=86400,
                help='Number of seconds until a reservation expires'),
@@ -102,6 +112,7 @@ class DbQuotaDriver(object):
         default_quotas = {}
         if CONF.use_default_quota_class:
             default_quotas = db.quota_class_get_default(context)
+
         for resource in resources.values():
             if resource.name not in default_quotas:
                 LOG.deprecated(_("Default quota for resource: %(res)s is set "
@@ -858,7 +869,10 @@ class VolumeTypeQuotaEngine(QuotaEngine):
         # Global quotas.
         argses = [('volumes', '_sync_volumes', 'quota_volumes'),
                   ('snapshots', '_sync_snapshots', 'quota_snapshots'),
-                  ('gigabytes', '_sync_gigabytes', 'quota_gigabytes'), ]
+                  ('gigabytes', '_sync_gigabytes', 'quota_gigabytes'),
+                  ('backups', '_sync_backups', 'quota_backups'),
+                  ('backup_gigabytes', '_sync_backup_gigabytes',
+                   'quota_backup_gigabytes')]
         for args in argses:
             resource = ReservableResource(*args)
             result[resource.name] = resource
@@ -878,4 +892,29 @@ class VolumeTypeQuotaEngine(QuotaEngine):
     def register_resources(self, resources):
         raise NotImplementedError(_("Cannot register resources"))
 
+
+class CGQuotaEngine(QuotaEngine):
+    """Represent the consistencygroup quotas."""
+
+    @property
+    def resources(self):
+        """Fetches all possible quota resources."""
+
+        result = {}
+        # Global quotas.
+        argses = [('consistencygroups', '_sync_consistencygroups',
+                   'quota_consistencygroups'), ]
+        for args in argses:
+            resource = ReservableResource(*args)
+            result[resource.name] = resource
+
+        return result
+
+    def register_resource(self, resource):
+        raise NotImplementedError(_("Cannot register resource"))
+
+    def register_resources(self, resources):
+        raise NotImplementedError(_("Cannot register resources"))
+
 QUOTAS = VolumeTypeQuotaEngine()
+CGQUOTAS = CGQuotaEngine()

@@ -22,11 +22,12 @@ import tempfile
 import urllib
 
 from oslo.config import cfg
+import six
 
 from cinder import exception
+from cinder.i18n import _
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import strutils
 from cinder.openstack.common import units
@@ -747,18 +748,18 @@ class RBDDriver(driver.VolumeDriver):
         try:
             fsid, pool, image, snapshot = self._parse_location(image_location)
         except exception.ImageUnacceptable as e:
-            LOG.debug('not cloneable: %s', e)
+            LOG.debug('not cloneable: %s', six.text_type(e))
             return False
 
         if self._get_fsid() != fsid:
-            reason = _('%s is in a different ceph cluster') % image_location
+            reason = ('%s is in a different ceph cluster') % image_location
             LOG.debug(reason)
             return False
 
         if image_meta['disk_format'] != 'raw':
-            reason = _("rbd image clone requires image format to be "
-                       "'raw' but image {0} is '{1}'").format(
-                           image_location, image_meta['disk_format'])
+            reason = ("rbd image clone requires image format to be "
+                      "'raw' but image {0} is '{1}'").format(
+                          image_location, image_meta['disk_format'])
             LOG.debug(reason)
             return False
 

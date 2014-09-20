@@ -17,14 +17,15 @@
 
 
 import math
-import mock
 import os
 import tempfile
 
+import mock
+
 from cinder import db
 from cinder import exception
+from cinder.i18n import _
 from cinder.image import image_utils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import units
@@ -943,7 +944,8 @@ class ManagedRBDTestCase(DriverTestCase):
         # image.fake has been converted to mock.
         fake_image.stub_out_image_service(self.stubs)
         self.volume.driver.set_initialized()
-        self.volume.stats = {'allocated_capacity_gb': 0}
+        self.volume.stats = {'allocated_capacity_gb': 0,
+                             'pools': {}}
         self.called = []
 
     def _create_volume_from_image(self, expected_status, raw=False,

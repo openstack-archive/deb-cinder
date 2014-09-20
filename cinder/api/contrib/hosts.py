@@ -15,17 +15,17 @@
 
 """The hosts admin extension."""
 
+from xml.parsers import expat
 
 from oslo.config import cfg
 import webob.exc
-from xml.parsers import expat
 
 from cinder.api import extensions
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import db
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder import utils
@@ -178,8 +178,8 @@ class HostController(wsgi.Controller):
         """Sets the specified host's ability to accept new volumes."""
         context = req.environ['cinder.context']
         state = "enabled" if enabled else "disabled"
-        LOG.audit(_("Setting host %(host)s to %(state)s."),
-                  {'host': host, 'state': state})
+        LOG.info(_("Setting host %(host)s to %(state)s."),
+                 {'host': host, 'state': state})
         result = self.api.set_host_enabled(context,
                                            host=host,
                                            enabled=enabled)

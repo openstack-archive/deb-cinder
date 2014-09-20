@@ -16,14 +16,16 @@
 """Unit tests for image utils."""
 
 import contextlib
-import mox
 import tempfile
 
+import mock
+import mox
 from oslo.config import cfg
 
 from cinder import context
 from cinder import exception
 from cinder.image import image_utils
+from cinder.openstack.common import fileutils
 from cinder.openstack.common import processutils
 from cinder.openstack.common import units
 from cinder import test
@@ -77,7 +79,9 @@ class TestUtils(test.TestCase):
 
         mox.VerifyAll()
 
-    def test_convert_image(self):
+    @mock.patch('os.stat')
+    def test_convert_image(self, mock_stat):
+
         mox = self._mox
         mox.StubOutWithMock(utils, 'execute')
 
@@ -251,7 +255,9 @@ class TestUtils(test.TestCase):
 
         self._mox.ReplayAll()
 
-    def test_fetch_to_raw(self):
+    @mock.patch('os.stat')
+    def test_fetch_to_raw(self, mock_stat):
+
         SRC_INFO = ("image: qemu.qcow2\n"
                     "file_format: qcow2 \n"
                     "virtual_size: 50M (52428800 bytes)\n"
@@ -270,7 +276,8 @@ class TestUtils(test.TestCase):
                                  mox.IgnoreArg())
         self._mox.VerifyAll()
 
-    def test_fetch_to_raw_with_bps_limit(self):
+    @mock.patch('os.stat')
+    def test_fetch_to_raw_with_bps_limit(self, mock_stat):
         SRC_INFO = ("image: qemu.qcow2\n"
                     "file_format: qcow2 \n"
                     "virtual_size: 50M (52428800 bytes)\n"
@@ -333,7 +340,9 @@ class TestUtils(test.TestCase):
                           mox.IgnoreArg())
         self._mox.VerifyAll()
 
-    def test_fetch_to_raw_on_error_not_convert_to_raw(self):
+    @mock.patch('os.stat')
+    def test_fetch_to_raw_on_error_not_convert_to_raw(self, mock_stat):
+
         IMG_INFO = ("image: qemu.qcow2\n"
                     "file_format: qcow2 \n"
                     "virtual_size: 50M (52428800 bytes)\n"
@@ -420,13 +429,15 @@ class TestUtils(test.TestCase):
 
         self._test_fetch_verify_image(TEST_RETURN)
 
-    def test_upload_volume(self, bps_limit=0):
+    @mock.patch('os.stat')
+    def test_upload_volume(self, mock_stat, bps_limit=0):
         image_meta = {'id': 1, 'disk_format': 'qcow2'}
         TEST_RET = "image: qemu.qcow2\n"\
                    "file_format: qcow2 \n"\
                    "virtual_size: 50M (52428800 bytes)\n"\
                    "cluster_size: 65536\n"\
                    "disk_size: 196K (200704 bytes)"
+
         if bps_limit:
             CONF.set_override('volume_copy_bps_limit', bps_limit)
             prefix = ('cgexec', '-g', 'blkio:test')
@@ -454,7 +465,9 @@ class TestUtils(test.TestCase):
                                   image_meta, '/dev/loop1')
         m.VerifyAll()
 
-    def test_upload_volume_with_bps_limit(self):
+    @mock.patch('os.stat')
+    def test_upload_volume_with_bps_limit(self, mock_stat):
+
         self.test_upload_volume(bps_limit=1048576)
 
     def test_upload_volume_with_raw_image(self):
@@ -470,7 +483,8 @@ class TestUtils(test.TestCase):
                                       image_meta, f.name)
         mox.VerifyAll()
 
-    def test_upload_volume_on_error(self):
+    @mock.patch('os.stat')
+    def test_upload_volume_on_error(self, mock_stat):
         image_meta = {'id': 1, 'disk_format': 'qcow2'}
         TEST_RET = "image: qemu.vhd\n"\
                    "file_format: vhd \n"\
@@ -608,10 +622,10 @@ class TestTemporaryFile(test.TestCase):
     def test_file_unlinked(self):
         mox = self.mox
         mox.StubOutWithMock(image_utils, 'create_temporary_file')
-        mox.StubOutWithMock(image_utils.os, 'unlink')
+        mox.StubOutWithMock(fileutils, 'delete_if_exists')
 
         image_utils.create_temporary_file().AndReturn('somefile')
-        image_utils.os.unlink('somefile')
+        fileutils.delete_if_exists('somefile')
 
         mox.ReplayAll()
 
@@ -621,10 +635,10 @@ class TestTemporaryFile(test.TestCase):
     def test_file_unlinked_on_error(self):
         mox = self.mox
         mox.StubOutWithMock(image_utils, 'create_temporary_file')
-        mox.StubOutWithMock(image_utils.os, 'unlink')
+        mox.StubOutWithMock(fileutils, 'delete_if_exists')
 
         image_utils.create_temporary_file().AndReturn('somefile')
-        image_utils.os.unlink('somefile')
+        fileutils.delete_if_exists('somefile')
 
         mox.ReplayAll()
 
@@ -693,6 +707,7 @@ class TestXenServerImageToCoalescedVhd(test.TestCase):
         mox.StubOutWithMock(image_utils, 'fix_vhd_chain')
         mox.StubOutWithMock(image_utils, 'coalesce_chain')
         mox.StubOutWithMock(image_utils.os, 'unlink')
+        mox.StubOutWithMock(fileutils, 'delete_if_exists')
         mox.StubOutWithMock(image_utils, 'rename_file')
 
         image_utils.temporary_dir().AndReturn(fake_context('somedir'))
@@ -702,7 +717,7 @@ class TestXenServerImageToCoalescedVhd(test.TestCase):
         image_utils.fix_vhd_chain(['somedir/0.vhd', 'somedir/1.vhd'])
         image_utils.coalesce_chain(
             ['somedir/0.vhd', 'somedir/1.vhd']).AndReturn('somedir/1.vhd')
-        image_utils.os.unlink('image')
+        fileutils.delete_if_exists('image')
         image_utils.rename_file('somedir/1.vhd', 'image')
 
         mox.ReplayAll()

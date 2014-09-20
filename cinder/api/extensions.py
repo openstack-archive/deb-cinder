@@ -24,7 +24,7 @@ import cinder.api.openstack
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import importutils
 from cinder.openstack.common import log as logging
 import cinder.policy
@@ -181,7 +181,7 @@ class ExtensionManager(object):
     """
 
     def __init__(self):
-        LOG.audit(_('Initializing extension manager.'))
+        LOG.info(_('Initializing extension manager.'))
 
         self.cls_list = CONF.osapi_volume_extension
         self.extensions = {}
@@ -196,7 +196,7 @@ class ExtensionManager(object):
             return
 
         alias = ext.alias
-        LOG.audit(_('Loaded extension: %s'), alias)
+        LOG.info(_('Loaded extension: %s'), alias)
 
         if alias in self.extensions:
             raise exception.Error("Found duplicate extension: %s" % alias)

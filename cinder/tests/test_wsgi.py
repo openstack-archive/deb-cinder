@@ -16,18 +16,20 @@
 
 """Unit tests for `cinder.wsgi`."""
 
-import mock
 import os.path
 import tempfile
 import urllib2
 
+import mock
 from oslo.config import cfg
+from oslo.i18n import _lazy
 import testtools
 import webob
 import webob.dec
 
 from cinder import exception
-from cinder.openstack.common import gettextutils
+from cinder import i18n
+from cinder.i18n import _
 from cinder import test
 import cinder.wsgi
 
@@ -35,6 +37,11 @@ CONF = cfg.CONF
 
 TEST_VAR_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                'var'))
+
+
+def open_no_proxy(*args, **kwargs):
+    opener = urllib2.build_opener(urllib2.ProxyHandler({}))
+    return opener.open(*args, **kwargs)
 
 
 class TestLoaderNothingExists(test.TestCase):
@@ -132,7 +139,7 @@ class TestWSGIServer(test.TestCase):
                                     host="127.0.0.1", port=0)
         server.start()
 
-        response = urllib2.urlopen('http://127.0.0.1:%d/' % server.port)
+        response = open_no_proxy('http://127.0.0.1:%d/' % server.port)
         self.assertEqual(greetings, response.read())
 
         server.stop()
@@ -154,7 +161,7 @@ class TestWSGIServer(test.TestCase):
 
         server.start()
 
-        response = urllib2.urlopen('https://127.0.0.1:%d/' % server.port)
+        response = open_no_proxy('https://127.0.0.1:%d/' % server.port)
         self.assertEqual(greetings, response.read())
 
         server.stop()
@@ -179,7 +186,7 @@ class TestWSGIServer(test.TestCase):
                                     port=0)
         server.start()
 
-        response = urllib2.urlopen('https://[::1]:%d/' % server.port)
+        response = open_no_proxy('https://[::1]:%d/' % server.port)
         self.assertEqual(greetings, response.read())
 
         server.stop()
@@ -200,14 +207,21 @@ class TestWSGIServer(test.TestCase):
 
 class ExceptionTest(test.TestCase):
 
+    def setUp(self):
+        super(ExceptionTest, self).setUp()
+        back_use_lazy = _lazy.USE_LAZY
+        i18n.enable_lazy()
+        self.addCleanup(self._restore_use_lazy, back_use_lazy)
+
+    def _restore_use_lazy(self, back_use_lazy):
+        _lazy.USE_LAZY = back_use_lazy
+
     def _wsgi_app(self, inner_app):
         # NOTE(luisg): In order to test localization, we need to
         # make sure the lazy _() is installed in the 'fault' module
         # also we don't want to install the _() system-wide and
         # potentially break other test cases, so we do it here for this
         # test suite only.
-        gettextutils.install('')
-        gettextutils.enable_lazy()
         from cinder.api.middleware import fault
         return fault.FaultWrapper(inner_app)
 
@@ -278,11 +292,11 @@ class ExceptionTest(test.TestCase):
         resp = webob.Request.blank('/').get_response(api)
         self.assertEqual(500, resp.status_int)
 
-    @mock.patch('cinder.openstack.common.gettextutils.translate')
+    @mock.patch('cinder.i18n.translate')
     def test_cinder_exception_with_localized_explanation(self, mock_t9n):
         msg = 'My Not Found'
         msg_translation = 'Mi No Encontrado'
-        message = gettextutils.Message(msg, '')
+        message = _(msg)  # noqa
 
         @webob.dec.wsgify
         def fail(req):
@@ -305,9 +319,7 @@ class ExceptionTest(test.TestCase):
 
         # Test response with localization
         def mock_translate(msgid, locale):
-            if isinstance(msgid, gettextutils.Message):
-                return msg_translation
-            return msgid
+            return msg_translation
 
         mock_t9n.side_effect = mock_translate
 

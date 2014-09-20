@@ -18,17 +18,18 @@
 iSCSI Cinder Volume driver for Hitachi Unified Storage (HUS-HNAS) platform.
 """
 
-from oslo.config import cfg
 from xml.etree import ElementTree as ETree
 
+from oslo.config import cfg
+
 from cinder import exception
+from cinder.i18n import _
 from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import units
-from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers.hds.hnas_backend import HnasBackend
+from cinder.volume import utils
 
 
 HDS_HNAS_ISCSI_VERSION = '1.0.0'
@@ -38,7 +39,7 @@ LOG = logging.getLogger(__name__)
 iSCSI_OPTS = [
     cfg.StrOpt('hds_hnas_iscsi_config_file',
                default='/opt/hds/hnas/cinder_iscsi_conf.xml',
-               help='configuration file for HDS iSCSI cinder plugin')]
+               help='Configuration file for HDS iSCSI cinder plugin')]
 
 CONF = cfg.CONF
 CONF.register_opts(iSCSI_OPTS)

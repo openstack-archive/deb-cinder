@@ -15,15 +15,16 @@
 #
 """HP LeftHand SAN ISCSI REST Proxy."""
 
+from oslo.config import cfg
+
 from cinder import context
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import units
-from cinder import utils
 from cinder.volume.driver import ISCSIDriver
+from cinder.volume import utils
 from cinder.volume import volume_types
-from oslo.config import cfg
 
 LOG = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ try:
     from hplefthandclient import client
     from hplefthandclient import exceptions as hpexceptions
 except ImportError:
-    LOG.error(_('Module hplefthandclient not installed.'))
+    import cinder.tests.fake_hp_lefthand_client as hplefthandclient
 
 hplefthand_opts = [
     cfg.StrOpt('hplefthand_api_url',
@@ -90,9 +91,11 @@ class HPLeftHandRESTProxy(ISCSIDriver):
                 should check for snapshots
         1.0.4 - Fixed bug #1285925, LeftHand AO volume create performance
                 improvement
+        1.0.5 - Fixed bug #1311350, Live-migration of an instance when
+                attached to a volume was causing an error.
     """
 
-    VERSION = "1.0.4"
+    VERSION = "1.0.5"
 
     device_stats = {}
 
@@ -265,7 +268,21 @@ class HPLeftHandRESTProxy(ISCSIDriver):
         try:
             server_info = self._create_server(connector)
             volume_info = self.client.getVolumeByName(volume['name'])
-            self.client.addServerAccess(volume_info['id'], server_info['id'])
+
+            access_already_enabled = False
+            if volume_info['iscsiSessions'] is not None:
+                # Extract the server id for each session to check if the
+                # new server already has access permissions enabled.
+                for session in volume_info['iscsiSessions']:
+                    server_id = int(session['server']['uri'].split('/')[3])
+                    if server_id == server_info['id']:
+                        access_already_enabled = True
+                        break
+
+            if not access_already_enabled:
+                self.client.addServerAccess(
+                    volume_info['id'],
+                    server_info['id'])
 
             iscsi_properties = self._get_iscsi_properties(volume)
 

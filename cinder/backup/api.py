@@ -19,22 +19,24 @@ Handles all requests relating to the volume backups service.
 
 
 from eventlet import greenthread
-
 from oslo.config import cfg
 
 from cinder.backup import rpcapi as backup_rpcapi
 from cinder import context
 from cinder.db import base
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
+from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
-from cinder import utils
-
 import cinder.policy
+from cinder import quota
+from cinder import utils
 import cinder.volume
+from cinder.volume import utils as volume_utils
 
 CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
+QUOTAS = quota.QUOTAS
 
 
 def check_policy(context, action):
@@ -117,12 +119,48 @@ class API(base.Base):
         if volume['status'] != "available":
             msg = _('Volume to be backed up must be available')
             raise exception.InvalidVolume(reason=msg)
-        volume_host = volume['host'].partition('@')[0]
+        volume_host = volume_utils.extract_host(volume['host'], 'host')
         if not self._is_backup_service_enabled(volume, volume_host):
             raise exception.ServiceNotFound(service_id='cinder-backup')
 
-        self.db.volume_update(context, volume_id, {'status': 'backing-up'})
+        # do quota reserver before setting volume status and backup status
+        try:
+            reserve_opts = {'backups': 1,
+                            'backup_gigabytes': volume['size']}
+            reservations = QUOTAS.reserve(context, **reserve_opts)
+        except exception.OverQuota as e:
+            overs = e.kwargs['overs']
+            usages = e.kwargs['usages']
+            quotas = e.kwargs['quotas']
 
+            def _consumed(resource_name):
+                return (usages[resource_name]['reserved'] +
+                        usages[resource_name]['in_use'])
+
+            for over in overs:
+                if 'gigabytes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "%(s_size)sG backup (%(d_consumed)dG of "
+                            "%(d_quota)dG already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    's_size': volume['size'],
+                                    'd_consumed': _consumed(over),
+                                    'd_quota': quotas[over]})
+                    raise exception.VolumeBackupSizeExceedsAvailableQuota(
+                        requested=volume['size'],
+                        consumed=_consumed('backup_gigabytes'),
+                        quota=quotas['backup_gigabytes'])
+                elif 'backups' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "backups (%(d_consumed)d backups "
+                            "already consumed)")
+
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    'd_consumed': _consumed(over)})
+                    raise exception.BackupLimitExceeded(
+                        allowed=quotas[over])
+
+        self.db.volume_update(context, volume_id, {'status': 'backing-up'})
         options = {'user_id': context.user_id,
                    'project_id': context.project_id,
                    'display_name': name,
@@ -132,8 +170,15 @@ class API(base.Base):
                    'container': container,
                    'size': volume['size'],
                    'host': volume_host, }
-
-        backup = self.db.backup_create(context, options)
+        try:
+            backup = self.db.backup_create(context, options)
+            QUOTAS.commit(context, reservations)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                try:
+                    self.db.backup_destroy(context, backup['id'])
+                finally:
+                    QUOTAS.rollback(context, reservations)
 
         #TODO(DuncanT): In future, when we have a generic local attach,
         #               this can go via the scheduler, which enables
@@ -164,10 +209,10 @@ class API(base.Base):
             name = 'restore_backup_%s' % backup_id
             description = 'auto-created_from_restore_from_backup'
 
-            LOG.audit(_("Creating volume of %(size)s GB for restore of "
-                        "backup %(backup_id)s"),
-                      {'size': size, 'backup_id': backup_id},
-                      context=context)
+            LOG.info(_("Creating volume of %(size)s GB for restore of "
+                       "backup %(backup_id)s"),
+                     {'size': size, 'backup_id': backup_id},
+                     context=context)
             volume = self.volume_api.create(context, size, name, description)
             volume_id = volume['id']
 
@@ -191,10 +236,10 @@ class API(base.Base):
                    {'volume_size': volume['size'], 'size': size})
             raise exception.InvalidVolume(reason=msg)
 
-        LOG.audit(_("Overwriting volume %(volume_id)s with restore of "
-                    "backup %(backup_id)s"),
-                  {'volume_id': volume_id, 'backup_id': backup_id},
-                  context=context)
+        LOG.info(_("Overwriting volume %(volume_id)s with restore of "
+                   "backup %(backup_id)s"),
+                 {'volume_id': volume_id, 'backup_id': backup_id},
+                 context=context)
 
         # Setting the status here rather than setting at start and unrolling
         # for each error condition, it should be a very small window

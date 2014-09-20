@@ -42,19 +42,19 @@ was deemed the safest action to take. It is therefore recommended to always
 restore to a new volume (default).
 """
 
-import eventlet
 import fcntl
 import os
 import re
 import subprocess
 import time
 
+import eventlet
 from oslo.config import cfg
 
 from cinder.backup.driver import BackupDriver
 from cinder import exception
+from cinder.i18n import _
 from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import strutils
 from cinder.openstack.common import units

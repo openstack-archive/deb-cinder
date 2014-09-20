@@ -19,8 +19,10 @@
 """Implementation of SQLAlchemy backend."""
 
 
+import functools
 import sys
 import threading
+import time
 import uuid
 import warnings
 
@@ -28,7 +30,8 @@ from oslo.config import cfg
 from oslo.db import exception as db_exc
 from oslo.db import options
 from oslo.db.sqlalchemy import session as db_session
-from sqlalchemy.exc import IntegrityError
+import osprofiler.sqlalchemy
+import sqlalchemy
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, joinedload_all
 from sqlalchemy.orm import RelationshipProperty
@@ -38,13 +41,14 @@ from sqlalchemy.sql import func
 from cinder.common import sqlalchemyutils
 from cinder.db.sqlalchemy import models
 from cinder import exception
-from cinder.openstack.common.gettextutils import _
+from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
 
 
 CONF = cfg.CONF
+CONF.import_group("profiler", "cinder.service")
 LOG = logging.getLogger(__name__)
 
 options.set_defaults(CONF, connection='sqlite:///$state_path/cinder.sqlite')
@@ -62,6 +66,13 @@ def _create_facade_lazily():
                 CONF.database.connection,
                 **dict(CONF.database.iteritems())
             )
+
+            if CONF.profiler.profiler_enabled:
+                if CONF.profiler.trace_sqlalchemy:
+                    osprofiler.sqlalchemy.add_tracing(sqlalchemy,
+                                                      _FACADE.get_engine(),
+                                                      "db")
+
         return _FACADE
 
 
@@ -190,6 +201,24 @@ def require_snapshot_exists(f):
     return wrapper
 
 
+def _retry_on_deadlock(f):
+    """Decorator to retry a DB API call if Deadlock was received."""
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        while True:
+            try:
+                return f(*args, **kwargs)
+            except db_exc.DBDeadlock:
+                LOG.warn(_("Deadlock detected when running "
+                           "'%(func_name)s': Retrying..."),
+                         dict(func_name=f.__name__))
+                # Retry!
+                time.sleep(0.5)
+                continue
+    functools.update_wrapper(wrapped, f)
+    return wrapped
+
+
 def model_query(context, *args, **kwargs):
     """Query helper that accounts for context's `read_deleted` field.
 
@@ -241,6 +270,14 @@ def _sync_snapshots(context, project_id, session, volume_type_id=None,
     return {key: snapshots}
 
 
+def _sync_backups(context, project_id, session, volume_type_id=None,
+                  volume_type_name=None):
+    (backups, gigs) = _backup_data_get_for_project(
+        context, project_id, volume_type_id=volume_type_id, session=session)
+    key = 'backups'
+    return {key: backups}
+
+
 def _sync_gigabytes(context, project_id, session, volume_type_id=None,
                     volume_type_name=None):
     (_junk, vol_gigs) = _volume_data_get_for_project(
@@ -255,10 +292,30 @@ def _sync_gigabytes(context, project_id, session, volume_type_id=None,
     return {key: vol_gigs + snap_gigs}
 
 
+def _sync_consistencygroups(context, project_id, session,
+                            volume_type_id=None,
+                            volume_type_name=None):
+    (_junk, groups) = _consistencygroup_data_get_for_project(
+        context, project_id, session=session)
+    key = 'consistencygroups'
+    return {key: groups}
+
+
+def _sync_backup_gigabytes(context, project_id, session, volume_type_id=None,
+                           volume_type_name=None):
+    key = 'backup_gigabytes'
+    (_junk, backup_gigs) = _backup_data_get_for_project(
+        context, project_id, volume_type_id=volume_type_id, session=session)
+    return {key: backup_gigs}
+
+
 QUOTA_SYNC_FUNCTIONS = {
     '_sync_volumes': _sync_volumes,
     '_sync_snapshots': _sync_snapshots,
     '_sync_gigabytes': _sync_gigabytes,
+    '_sync_consistencygroups': _sync_consistencygroups,
+    '_sync_backups': _sync_backups,
+    '_sync_backup_gigabytes': _sync_backup_gigabytes
 }
 
 
@@ -398,6 +455,7 @@ def service_update(context, service_id, values):
     with session.begin():
         service_ref = _service_get(context, service_id, session=session)
         service_ref.update(values)
+        return service_ref
 
 
 ###################
@@ -449,12 +507,15 @@ def iscsi_target_create_safe(context, values):
     for (key, value) in values.iteritems():
         iscsi_target_ref[key] = value
     session = get_session()
-    with session.begin():
-        try:
-            iscsi_target_ref.save(session)
+
+    try:
+        with session.begin():
+            session.add(iscsi_target_ref)
             return iscsi_target_ref
-        except IntegrityError:
-            return None
+    # TODO(e0ne): Remove check on db_exc.DBError, when
+    #             Cinder will use oslo.db 0.4.0 or higher.
+    except (db_exc.DBError, db_exc.DBDuplicateEntry):
+        return None
 
 
 ###################
@@ -513,6 +574,7 @@ def quota_update(context, project_id, resource, limit):
     with session.begin():
         quota_ref = _quota_get(context, project_id, resource, session=session)
         quota_ref.hard_limit = limit
+        return quota_ref
 
 
 @require_admin_context
@@ -592,6 +654,7 @@ def quota_class_update(context, class_name, resource, limit):
         quota_class_ref = _quota_class_get(context, class_name, resource,
                                            session=session)
         quota_class_ref.hard_limit = limit
+        return quota_class_ref
 
 
 @require_admin_context
@@ -698,6 +761,7 @@ def _get_quota_usages(context, session, project_id):
 
 
 @require_context
+@_retry_on_deadlock
 def quota_reserve(context, resources, quotas, deltas, expire,
                   until_refresh, max_age, project_id=None):
     elevated = context.elevated()
@@ -849,6 +913,7 @@ def _quota_reservations(session, context, reservations):
 
 
 @require_context
+@_retry_on_deadlock
 def reservation_commit(context, reservations, project_id=None):
     session = get_session()
     with session.begin():
@@ -864,6 +929,7 @@ def reservation_commit(context, reservations, project_id=None):
 
 
 @require_context
+@_retry_on_deadlock
 def reservation_rollback(context, reservations, project_id=None):
     session = get_session()
     with session.begin():
@@ -878,6 +944,7 @@ def reservation_rollback(context, reservations, project_id=None):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def quota_destroy_all_by_project(context, project_id):
     session = get_session()
     with session.begin():
@@ -907,6 +974,7 @@ def quota_destroy_all_by_project(context, project_id):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def reservation_expire(context):
     session = get_session()
     with session.begin():
@@ -929,6 +997,7 @@ def reservation_expire(context):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def volume_allocate_iscsi_target(context, volume_id, host):
     session = get_session()
     with session.begin():
@@ -1029,6 +1098,25 @@ def _volume_data_get_for_project(context, project_id, volume_type_id=None,
 
 
 @require_admin_context
+def _backup_data_get_for_project(context, project_id, volume_type_id=None,
+                                 session=None):
+    query = model_query(context,
+                        func.count(models.Backup.id),
+                        func.sum(models.Backup.size),
+                        read_deleted="no",
+                        session=session).\
+        filter_by(project_id=project_id)
+
+    if volume_type_id:
+        query = query.filter_by(volume_type_id=volume_type_id)
+
+    result = query.first()
+
+    # NOTE(vish): convert None to 0
+    return (result[0] or 0, result[1] or 0)
+
+
+@require_admin_context
 def volume_data_get_for_project(context, project_id, volume_type_id=None):
     return _volume_data_get_for_project(context, project_id, volume_type_id)
 
@@ -1059,6 +1147,7 @@ def finish_volume_migration(context, src_vol_id, dest_vol_id):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def volume_destroy(context, volume_id):
     session = get_session()
     now = timeutils.utcnow()
@@ -1111,12 +1200,14 @@ def _volume_get_query(context, session=None, project_only=False):
                            project_only=project_only).\
             options(joinedload('volume_metadata')).\
             options(joinedload('volume_admin_metadata')).\
-            options(joinedload('volume_type'))
+            options(joinedload('volume_type')).\
+            options(joinedload('consistencygroup'))
     else:
         return model_query(context, models.Volume, session=session,
                            project_only=project_only).\
             options(joinedload('volume_metadata')).\
-            options(joinedload('volume_type'))
+            options(joinedload('volume_type')).\
+            options(joinedload('consistencygroup'))
 
 
 @require_context
@@ -1159,14 +1250,36 @@ def volume_get_all(context, marker, limit, sort_key, sort_dir,
         query = _generate_paginate_query(context, session, marker, limit,
                                          sort_key, sort_dir, filters)
         # No volumes would match, return empty list
-        if query == None:
+        if query is None:
             return []
         return query.all()
 
 
 @require_admin_context
 def volume_get_all_by_host(context, host):
-    return _volume_get_query(context).filter_by(host=host).all()
+    """Retrieves all volumes hosted on a host."""
+    # As a side effect of the introduction of pool-aware scheduler,
+    # newly created volumes will have pool information appended to
+    # 'host' field of a volume record. So a volume record in DB can
+    # now be either form below:
+    #     Host
+    #     Host#Pool
+    if host and isinstance(host, basestring):
+        session = get_session()
+        with session.begin():
+            host_attr = getattr(models.Volume, 'host')
+            conditions = [host_attr == host,
+                          host_attr.op('LIKE')(host + '#%')]
+            result = _volume_get_query(context).filter(or_(*conditions)).all()
+            return result
+    elif not host:
+        return []
+
+
+@require_admin_context
+def volume_get_all_by_group(context, group_id):
+    return _volume_get_query(context).filter_by(consistencygroup_id=group_id).\
+        all()
 
 
 @require_context
@@ -1197,7 +1310,7 @@ def volume_get_all_by_project(context, project_id, marker, limit, sort_key,
         query = _generate_paginate_query(context, session, marker, limit,
                                          sort_key, sort_dir, filters)
         # No volumes would match, return empty list
-        if query == None:
+        if query is None:
             return []
         return query.all()
 
@@ -1230,11 +1343,11 @@ def _generate_paginate_query(context, session, marker, limit, sort_key,
         # 'no_migration_targets' is unique, must be either NULL or
         # not start with 'target:'
         if ('no_migration_targets' in filters and
-                filters['no_migration_targets'] == True):
+                filters['no_migration_targets'] is True):
             filters.pop('no_migration_targets')
             try:
                 column_attr = getattr(models.Volume, 'migration_status')
-                conditions = [column_attr == None,
+                conditions = [column_attr == None,  # noqa
                               column_attr.op('NOT LIKE')('target:%')]
                 query = query.filter(or_(*conditions))
             except AttributeError:
@@ -1457,6 +1570,7 @@ def volume_metadata_get(context, volume_id):
 
 @require_context
 @require_volume_exists
+@_retry_on_deadlock
 def volume_metadata_delete(context, volume_id, key):
     _volume_user_metadata_get_query(context, volume_id).\
         filter_by(key=key).\
@@ -1467,6 +1581,7 @@ def volume_metadata_delete(context, volume_id, key):
 
 @require_context
 @require_volume_exists
+@_retry_on_deadlock
 def volume_metadata_update(context, volume_id, metadata, delete):
     return _volume_user_metadata_update(context, volume_id, metadata, delete)
 
@@ -1505,6 +1620,7 @@ def volume_admin_metadata_get(context, volume_id):
 
 @require_admin_context
 @require_volume_exists
+@_retry_on_deadlock
 def volume_admin_metadata_delete(context, volume_id, key):
     _volume_admin_metadata_get_query(context, volume_id).\
         filter_by(key=key).\
@@ -1515,6 +1631,7 @@ def volume_admin_metadata_delete(context, volume_id, key):
 
 @require_admin_context
 @require_volume_exists
+@_retry_on_deadlock
 def volume_admin_metadata_update(context, volume_id, metadata, delete):
     return _volume_admin_metadata_update(context, volume_id, metadata, delete)
 
@@ -1539,6 +1656,7 @@ def snapshot_create(context, values):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def snapshot_destroy(context, snapshot_id):
     session = get_session()
     with session.begin():
@@ -1592,6 +1710,16 @@ def snapshot_get_all_for_volume(context, volume_id):
 
 
 @require_context
+def snapshot_get_all_for_cgsnapshot(context, cgsnapshot_id):
+    return model_query(context, models.Snapshot, read_deleted='no',
+                       project_only=True).\
+        filter_by(cgsnapshot_id=cgsnapshot_id).\
+        options(joinedload('volume')).\
+        options(joinedload('snapshot_metadata')).\
+        all()
+
+
+@require_context
 def snapshot_get_all_by_project(context, project_id):
     authorize_project_context(context, project_id)
     return model_query(context, models.Snapshot).\
@@ -1630,7 +1758,7 @@ def snapshot_get_active_by_window(context, begin, end=None, project_id=None):
     """Return snapshots that were active during window."""
 
     query = model_query(context, models.Snapshot, read_deleted="yes")
-    query = query.filter(or_(models.Snapshot.deleted_at == None,
+    query = query.filter(or_(models.Snapshot.deleted_at == None,  # noqa
                              models.Snapshot.deleted_at > begin))
     query = query.options(joinedload(models.Snapshot.volume))
     if end:
@@ -1647,6 +1775,7 @@ def snapshot_update(context, snapshot_id, values):
     with session.begin():
         snapshot_ref = _snapshot_get(context, snapshot_id, session=session)
         snapshot_ref.update(values)
+        return snapshot_ref
 
 ####################
 
@@ -1676,6 +1805,7 @@ def snapshot_metadata_get(context, snapshot_id):
 
 @require_context
 @require_snapshot_exists
+@_retry_on_deadlock
 def snapshot_metadata_delete(context, snapshot_id, key):
     _snapshot_metadata_get_query(context, snapshot_id).\
         filter_by(key=key).\
@@ -1700,6 +1830,7 @@ def _snapshot_metadata_get_item(context, snapshot_id, key, session=None):
 
 @require_context
 @require_snapshot_exists
+@_retry_on_deadlock
 def snapshot_metadata_update(context, snapshot_id, metadata, delete):
     session = get_session()
     with session.begin():
@@ -1836,6 +1967,19 @@ def volume_type_get_by_name(context, name):
     return _volume_type_get_by_name(context, name)
 
 
+@require_context
+def volume_types_get_by_name_or_id(context, volume_type_list):
+    """Return a dict describing specific volume_type."""
+    req_volume_types = []
+    for vol_t in volume_type_list:
+        if not uuidutils.is_uuid_like(vol_t):
+            vol_type = _volume_type_get_by_name(context, vol_t)
+        else:
+            vol_type = _volume_type_get(context, vol_t)
+        req_volume_types.append(vol_type)
+    return req_volume_types
+
+
 @require_admin_context
 def volume_type_qos_associations_get(context, qos_specs_id, inactive=False):
     read_deleted = "yes" if inactive else "no"
@@ -1923,6 +2067,7 @@ def volume_type_qos_specs_get(context, type_id):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def volume_type_destroy(context, id):
     session = get_session()
     with session.begin():
@@ -1952,7 +2097,7 @@ def volume_get_active_by_window(context,
                                 project_id=None):
     """Return volumes that were active during window."""
     query = model_query(context, models.Volume, read_deleted="yes")
-    query = query.filter(or_(models.Volume.deleted_at == None,
+    query = query.filter(or_(models.Volume.deleted_at == None,  # noqa
                              models.Volume.deleted_at > begin))
     if end:
         query = query.filter(models.Volume.created_at < end)
@@ -2401,7 +2546,9 @@ def _volume_glance_metadata_get_all(context, session=None):
                         models.VolumeGlanceMetadata,
                         session=session)
     if is_user_context(context):
-        query = query.filter(models.Volume.project_id == context.project_id)
+        query = query.filter(
+            models.Volume.id == models.VolumeGlanceMetadata.volume_id,
+            models.Volume.project_id == context.project_id)
     return query.all()
 
 
@@ -2745,6 +2892,7 @@ def transfer_create(context, values):
 
 
 @require_context
+@_retry_on_deadlock
 def transfer_destroy(context, transfer_id):
     session = get_session()
     with session.begin():
@@ -2796,5 +2944,196 @@ def transfer_accept(context, transfer_id, user_id, project_id):
         session.query(models.Transfer).\
             filter_by(id=transfer_ref['id']).\
             update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')})
+
+
+###############################
+
+
+@require_admin_context
+def _consistencygroup_data_get_for_project(context, project_id,
+                                           session=None):
+    query = model_query(context,
+                        func.count(models.ConsistencyGroup.id),
+                        read_deleted="no",
+                        session=session).\
+        filter_by(project_id=project_id)
+
+    result = query.first()
+
+    return (0, result[0] or 0)
+
+
+@require_admin_context
+def consistencygroup_data_get_for_project(context, project_id):
+    return _consistencygroup_data_get_for_project(context, project_id)
+
+
+@require_context
+def _consistencygroup_get(context, consistencygroup_id, session=None):
+    result = model_query(context, models.ConsistencyGroup, session=session,
+                         project_only=True).\
+        filter_by(id=consistencygroup_id).\
+        first()
+
+    if not result:
+        raise exception.ConsistencyGroupNotFound(
+            consistencygroup_id=consistencygroup_id)
+
+    return result
+
+
+@require_context
+def consistencygroup_get(context, consistencygroup_id):
+    return _consistencygroup_get(context, consistencygroup_id)
+
+
+@require_admin_context
+def consistencygroup_get_all(context):
+    return model_query(context, models.ConsistencyGroup).all()
+
+
+@require_admin_context
+def consistencygroup_get_all_by_host(context, host):
+    return model_query(context, models.ConsistencyGroup).\
+        filter_by(host=host).all()
+
+
+@require_context
+def consistencygroup_get_all_by_project(context, project_id):
+    authorize_project_context(context, project_id)
+
+    return model_query(context, models.ConsistencyGroup).\
+        filter_by(project_id=project_id).all()
+
+
+@require_context
+def consistencygroup_create(context, values):
+    consistencygroup = models.ConsistencyGroup()
+    if not values.get('id'):
+        values['id'] = str(uuid.uuid4())
+
+    session = get_session()
+    with session.begin():
+        consistencygroup.update(values)
+        session.add(consistencygroup)
+
+        return _consistencygroup_get(context, values['id'], session=session)
+
+
+@require_context
+def consistencygroup_update(context, consistencygroup_id, values):
+    session = get_session()
+    with session.begin():
+        result = model_query(context, models.ConsistencyGroup, project_only=True).\
+            filter_by(id=consistencygroup_id).\
+            first()
+
+        if not result:
+            raise exception.ConsistencyGroupNotFound(
+                _("No consistency group with id %s") % consistencygroup_id)
+
+        result.update(values)
+        result.save(session=session)
+    return result
+
+
+@require_admin_context
+def consistencygroup_destroy(context, consistencygroup_id):
+    session = get_session()
+    with session.begin():
+        model_query(context, models.ConsistencyGroup, session=session).\
+            filter_by(id=consistencygroup_id).\
+            update({'status': 'deleted',
+                    'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')})
+
+
+###############################
+
+
+@require_context
+def _cgsnapshot_get(context, cgsnapshot_id, session=None):
+    result = model_query(context, models.Cgsnapshot, session=session,
+                         project_only=True).\
+        filter_by(id=cgsnapshot_id).\
+        first()
+
+    if not result:
+        raise exception.CgSnapshotNotFound(cgsnapshot_id=cgsnapshot_id)
+
+    return result
+
+
+@require_context
+def cgsnapshot_get(context, cgsnapshot_id):
+    return _cgsnapshot_get(context, cgsnapshot_id)
+
+
+@require_admin_context
+def cgsnapshot_get_all(context):
+    return model_query(context, models.Cgsnapshot).all()
+
+
+@require_admin_context
+def cgsnapshot_get_all_by_host(context, host):
+    return model_query(context, models.Cgsnapshot).filter_by(host=host).all()
+
+
+@require_admin_context
+def cgsnapshot_get_all_by_group(context, group_id):
+    return model_query(context, models.Cgsnapshot).\
+        filter_by(consistencygroup_id=group_id).all()
+
+
+@require_context
+def cgsnapshot_get_all_by_project(context, project_id):
+    authorize_project_context(context, project_id)
+
+    return model_query(context, models.Cgsnapshot).\
+        filter_by(project_id=project_id).all()
+
+
+@require_context
+def cgsnapshot_create(context, values):
+    cgsnapshot = models.Cgsnapshot()
+    if not values.get('id'):
+        values['id'] = str(uuid.uuid4())
+
+    session = get_session()
+    with session.begin():
+        cgsnapshot.update(values)
+        session.add(cgsnapshot)
+
+        return _cgsnapshot_get(context, values['id'], session=session)
+
+
+@require_context
+def cgsnapshot_update(context, cgsnapshot_id, values):
+    session = get_session()
+    with session.begin():
+        result = model_query(context, models.Cgsnapshot, project_only=True).\
+            filter_by(id=cgsnapshot_id).\
+            first()
+
+        if not result:
+            raise exception.CgSnapshotNotFound(
+                _("No cgsnapshot with id %s") % cgsnapshot_id)
+
+        result.update(values)
+        result.save(session=session)
+    return result
+
+
+@require_admin_context
+def cgsnapshot_destroy(context, cgsnapshot_id):
+    session = get_session()
+    with session.begin():
+        model_query(context, models.Cgsnapshot, session=session).\
+            filter_by(id=cgsnapshot_id).\
+            update({'status': 'deleted',
+                    'deleted': True,
                     'deleted_at': timeutils.utcnow(),
                     'updated_at': literal_column('updated_at')})

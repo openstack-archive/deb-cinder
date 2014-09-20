@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# vim: et tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2012 - 2013 Red Hat, Inc.
 # All Rights Reserved.
@@ -20,11 +19,10 @@ import sys
 
 import rtslib
 
-from cinder.openstack.common import gettextutils
-from cinder.openstack.common.gettextutils import _
+from cinder import i18n
+from cinder.i18n import _
 
-gettextutils.install('cinder')
-gettextutils.enable_lazy()
+i18n.enable_lazy()
 
 
 class RtstoolError(Exception):
@@ -96,7 +94,7 @@ def add_initiator(target_iqn, initiator_iqn, userid, password):
         if t.dump()['wwn'] == target_iqn:
             target = t
             break
-    if target == None:
+    if target is None:
         raise RtstoolError(_('Could not find target %s') % target_iqn)
 
     tpg = target.tpgs.next()  # get the first one

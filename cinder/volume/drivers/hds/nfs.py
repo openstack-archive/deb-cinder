@@ -19,14 +19,14 @@ Volume driver for HDS HNAS NFS storage.
 
 import os
 import time
-
-from oslo.config import cfg
 from xml.etree import ElementTree as ETree
 
+from oslo.config import cfg
+
 from cinder import exception
+from cinder.i18n import _
 from cinder.image import image_utils
 from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import processutils
 from cinder.openstack.common import units
@@ -41,7 +41,7 @@ LOG = logging.getLogger(__name__)
 NFS_OPTS = [
     cfg.StrOpt('hds_hnas_nfs_config_file',
                default='/opt/hds/hnas/cinder_nfs_conf.xml',
-               help='configuration file for HDS NFS cinder plugin'), ]
+               help='Configuration file for HDS NFS cinder plugin'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(NFS_OPTS)
@@ -413,8 +413,8 @@ class HDSNFSDriver(nfs.NfsDriver):
         for line in lines:
             if 'Export' in line:
                 inf = line.split()
-                (export, path, fslabel, hdp, evs, ip1) = \
-                    inf[1], inf[3], inf[5], inf[7], inf[9], inf[11]
+                (export, path, fslabel, hdp, ip1) = \
+                    inf[1], inf[3], inf[5], inf[7], inf[11]
                 # 9, 10, etc are IP addrs
                 key = ip1 + ':' + export
                 conf[key] = {}

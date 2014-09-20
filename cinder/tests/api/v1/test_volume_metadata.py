@@ -106,7 +106,8 @@ def stub_max_volume_metadata():
 def return_volume(context, volume_id):
     return {'id': '0cc3346e-9fef-4445-abe6-5d2b2690ec64',
             'name': 'fake',
-            'metadata': {}}
+            'metadata': {},
+            'project_id': context.project_id}
 
 
 def return_volume_nonexistent(context, volume_id):
@@ -122,7 +123,6 @@ class volumeMetaDataTest(test.TestCase):
     def setUp(self):
         super(volumeMetaDataTest, self).setUp()
         self.volume_api = cinder.volume.api.API()
-        fakes.stub_out_key_pair_funcs(self.stubs)
         self.stubs.Set(cinder.db, 'volume_get', return_volume)
         self.stubs.Set(cinder.db, 'volume_metadata_get',
                        return_volume_metadata)

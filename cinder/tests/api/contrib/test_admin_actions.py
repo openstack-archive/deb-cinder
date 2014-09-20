@@ -12,9 +12,9 @@
 
 import ast
 import tempfile
-import webob
 
 from oslo.config import cfg
+import webob
 
 from cinder.api.contrib import admin_actions
 from cinder.brick.local_dev import lvm as brick_lvm
@@ -588,6 +588,20 @@ class AdminActionsTest(test.TestCase):
         volume = self._migrate_volume_prep()
         volume = self._migrate_volume_exec(ctx, volume, host, expected_status)
         self.assertEqual(volume['migration_status'], 'starting')
+
+    def test_migrate_volume_fail_replication(self):
+        expected_status = 400
+        host = 'test2'
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = self._migrate_volume_prep()
+        # current status is available
+        volume = db.volume_create(ctx,
+                                  {'status': 'available',
+                                   'host': 'test',
+                                   'provider_location': '',
+                                   'attach_status': '',
+                                   'replication_status': 'active'})
+        volume = self._migrate_volume_exec(ctx, volume, host, expected_status)
 
     def test_migrate_volume_as_non_admin(self):
         expected_status = 403
