@@ -7,7 +7,7 @@ cinder (2014.2~b3-1) experimental; urgency=medium
   [ gustavo panizzo ]
   * Support to run cinder daemons under systemd.
 
- -- Thomas Goirand <zigo@debian.org>  Tue, 01 Jul 2014 22:26:43 +0800
+ -- Thomas Goirand <zigo@debian.org>  Sat, 20 Sep 2014 10:15:10 +0000
 
 cinder (2014.1.1-2) unstable; urgency=medium
 
