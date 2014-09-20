@@ -3,6 +3,8 @@ cinder (2014.2~b3-1) experimental; urgency=medium
   [ Thomas Goirand ]
   * New upstream release.
   * New (build-)depends for this release.
+  * Removes usr/bin/cinder-rpc-zmq-receiver fron cinder-common.install,
+    as its gone upstream (moved into Oslo, it seems).
 
   [ gustavo panizzo ]
   * Support to run cinder daemons under systemd.
