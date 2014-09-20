@@ -1,4 +1,4 @@
-cinder (2014.2~b2-1) experimental; urgency=medium
+cinder (2014.2~b3-1) experimental; urgency=medium
 
   [ Thomas Goirand ]
   * New upstream release.
