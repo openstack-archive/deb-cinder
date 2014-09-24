@@ -21,7 +21,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_write_new_conf cinder cinder.conf
 	pkgos_write_new_conf cinder api-paste.ini
 	pkgos_write_new_conf cinder logging.conf
-	pkgos_dbc_postinst ${CINDER_CONF} DEFAULT sql_connection cinder $@
+	pkgos_dbc_postinst ${CINDER_CONF} database connection cinder $@
 	pkgos_rabbit_write_conf ${CINDER_CONF} DEFAULT cinder
 	pkgos_write_admin_creds ${CINDER_CONF} keystone_authtoken cinder
 	db_get cinder/volume_group
