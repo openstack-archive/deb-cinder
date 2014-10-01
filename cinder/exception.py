@@ -294,18 +294,6 @@ class ISCSITargetNotFoundForVolume(NotFound):
     message = _("No target id found for volume %(volume_id)s.")
 
 
-class ISCSITargetCreateFailed(CinderException):
-    message = _("Failed to create iscsi target for volume %(volume_id)s.")
-
-
-class ISCSITargetRemoveFailed(CinderException):
-    message = _("Failed to remove iscsi target for volume %(volume_id)s.")
-
-
-class ISCSITargetAttachFailed(CinderException):
-    message = _("Failed to attach iSCSI target for volume %(volume_id)s.")
-
-
 class InvalidImageRef(Invalid):
     message = _("Invalid image href %(image_href)s.")
 
@@ -512,6 +500,10 @@ class BackupOperationError(Invalid):
 
 class BackupMetadataUnsupportedVersion(BackupDriverException):
     message = _("Unsupported backup metadata version requested")
+
+
+class BackupVerifyUnsupportedDriver(BackupDriverException):
+    message = _("Unsupported backup verify driver")
 
 
 class VolumeMetadataBackupExists(BackupDriverException):
@@ -736,6 +728,19 @@ class NfsNoSuitableShareFound(RemoteFSNoSuitableShareFound):
     message = _("There is no share which can host %(volume_size)sG")
 
 
+# Smbfs driver
+class SmbfsException(RemoteFSException):
+    message = _("Unknown SMBFS exception.")
+
+
+class SmbfsNoSharesMounted(RemoteFSNoSharesMounted):
+    message = _("No mounted SMBFS shares found.")
+
+
+class SmbfsNoSuitableShareFound(RemoteFSNoSuitableShareFound):
+    message = _("There is no share which can host %(volume_size)sG.")
+
+
 # Gluster driver
 class GlusterfsException(RemoteFSException):
     message = _("Unknown Gluster exception")
@@ -849,3 +854,8 @@ class HBSDBusy(HBSDError):
 
 class HBSDNotFound(NotFound):
     message = _("Storage resource could not be found.")
+
+
+# Datera driver
+class DateraAPIException(VolumeBackendAPIException):
+    message = _("Bad response from Datera API")

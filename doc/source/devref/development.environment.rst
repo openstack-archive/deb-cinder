@@ -68,6 +68,10 @@ On Fedora-based distributions (e.g., Fedora/RHEL/CentOS/Scientific Linux)::
 
   sudo yum install python-devel openssl-devel python-pip git libmysqlclient-dev libqp-dev
 
+On openSUSE-based distributions (SLES 12, openSUSE 13.1, Factory or Tumbleweed)::
+
+  sudo zypper install gcc git libmysqlclient-devel libopenssl-devel postgresql-devel python-devel python-pip
+
 
 Mac OS X Systems
 ----------------
@@ -123,7 +127,7 @@ You can manually install the virtual environment instead of having
 This will install all of the Python packages listed in the
 ``requirements.txt`` file into your virtualenv. There will also be some
 additional packages (pip, setuptools) that are installed
-by the ``tools/install_venv.py`` file into the virutalenv.
+by the ``tools/install_venv.py`` file into the virtualenv.
 
 If all goes well, you should get a message something like this::
 

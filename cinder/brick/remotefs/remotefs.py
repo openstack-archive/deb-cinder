@@ -42,6 +42,12 @@ class RemoteFsClient(object):
                     err=_('nfs_mount_point_base required'))
             self._mount_options = kwargs.get('nfs_mount_options', None)
             self._check_nfs_options()
+        elif mount_type == "cifs":
+            self._mount_base = kwargs.get('smbfs_mount_point_base', None)
+            if not self._mount_base:
+                raise exception.InvalidParameterValue(
+                    err=_('smbfs_mount_point_base required'))
+            self._mount_options = kwargs.get('smbfs_mount_options', None)
         elif mount_type == "glusterfs":
             self._mount_base = kwargs.get('glusterfs_mount_point_base', None)
             if not self._mount_base:
@@ -127,7 +133,7 @@ class RemoteFsClient(object):
             except Exception as e:
                 mnt_errors[mnt_type] = six.text_type(e)
                 LOG.debug('Failed to do %s mount.', mnt_type)
-        raise exception.BrickException(_("NFS mount failed for share %(sh)s."
+        raise exception.BrickException(_("NFS mount failed for share %(sh)s. "
                                          "Error - %(error)s")
                                        % {'sh': nfs_share,
                                           'error': mnt_errors})

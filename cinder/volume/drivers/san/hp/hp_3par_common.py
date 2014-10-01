@@ -67,6 +67,7 @@ from taskflow.patterns import linear_flow
 LOG = logging.getLogger(__name__)
 
 MIN_CLIENT_VERSION = '3.1.0'
+MIN_CLIENT_SSH_ARGS_VERSION = '3.1.1'
 
 hp3par_opts = [
     cfg.StrOpt('hp3par_api_url',
@@ -145,10 +146,15 @@ class HP3PARCommon(object):
                  This update now requires 3.1.3 MU1 firmware
                  and hp3parclient 3.1.0
         2.0.18 - HP 3PAR manage_existing with volume-type support
+        2.0.19 - Update default persona from Generic to Generic-ALUA
+        2.0.20 - Configurable SSH missing key policy and known hosts file
+        2.0.21 - Remove bogus invalid snapCPG=None exception
+        2.0.22 - HP 3PAR drivers should not claim to have 'infinite' space
+        2.0.23 - Increase the hostname size from 23 to 31  Bug #1371242
 
     """
 
-    VERSION = "2.0.18"
+    VERSION = "2.0.23"
 
     stats = {}
 
@@ -166,8 +172,8 @@ class HP3PARCommon(object):
     # Valid values for volume type extra specs
     # The first value in the list is the default value
     valid_prov_values = ['thin', 'full']
-    valid_persona_values = ['1 - Generic',
-                            '2 - Generic-ALUA',
+    valid_persona_values = ['2 - Generic-ALUA',
+                            '1 - Generic',
                             '6 - Generic-legacy',
                             '7 - HPUX-legacy',
                             '8 - AIX-legacy',
@@ -209,12 +215,26 @@ class HP3PARCommon(object):
             LOG.error(ex_msg)
             raise exception.InvalidInput(reason=ex_msg)
 
-        cl.setSSHOptions(self.config.san_ip,
-                         self.config.san_login,
-                         self.config.san_password,
-                         port=self.config.san_ssh_port,
-                         conn_timeout=self.config.ssh_conn_timeout,
-                         privatekey=self.config.san_private_key)
+        if client_version < MIN_CLIENT_SSH_ARGS_VERSION:
+            cl.setSSHOptions(self.config.san_ip,
+                             self.config.san_login,
+                             self.config.san_password,
+                             port=self.config.san_ssh_port,
+                             conn_timeout=self.config.ssh_conn_timeout,
+                             privatekey=self.config.san_private_key)
+        else:
+            known_hosts_file = CONF.ssh_hosts_key_file
+            policy = "AutoAddPolicy"
+            if CONF.strict_ssh_host_key_policy:
+                policy = "RejectPolicy"
+            cl.setSSHOptions(self.config.san_ip,
+                             self.config.san_login,
+                             self.config.san_password,
+                             port=self.config.san_ssh_port,
+                             conn_timeout=self.config.ssh_conn_timeout,
+                             privatekey=self.config.san_private_key,
+                             missing_key_policy=policy,
+                             known_hosts_file=known_hosts_file)
 
         return cl
 
@@ -542,8 +562,8 @@ class HP3PARCommon(object):
             index = len(hostname)
 
         # we'll just chop this off for now.
-        if index > 23:
-            index = 23
+        if index > 31:
+            index = 31
 
         return hostname[:index]
 
@@ -605,11 +625,13 @@ class HP3PARCommon(object):
                  'vendor_name': 'Hewlett-Packard',
                  'volume_backend_name': None}
 
+        info = self.client.getStorageSystemInfo()
         try:
             cpg = self.client.getCPG(self.config.hp3par_cpg)
             if 'limitMiB' not in cpg['SDGrowth']:
-                total_capacity = 'infinite'
-                free_capacity = 'infinite'
+                # System capacity is best we can do for now.
+                total_capacity = info['totalCapacityMiB'] * const
+                free_capacity = info['freeCapacityMiB'] * const
             else:
                 total_capacity = int(cpg['SDGrowth']['limitMiB'] * const)
                 free_capacity = int((cpg['SDGrowth']['limitMiB'] -
@@ -623,7 +645,6 @@ class HP3PARCommon(object):
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
 
-        info = self.client.getStorageSystemInfo()
         stats['location_info'] = ('HP3PARDriver:%(sys_id)s:%(dest_cpg)s' %
                                   {'sys_id': info['serialNumber'],
                                    'dest_cpg': self.config.safe_get(
@@ -1617,7 +1638,7 @@ class HP3PARCommon(object):
 
     def _retype_pre_checks(self, host, new_persona,
                            old_cpg, new_cpg,
-                           old_snap_cpg, new_snap_cpg):
+                           new_snap_cpg):
         """Test retype parameters before making retype changes.
 
         Do pre-retype parameter validation.  These checks will
@@ -1641,12 +1662,6 @@ class HP3PARCommon(object):
                 reason = (_("Cannot retype from one 3PAR array to another."))
                 raise exception.InvalidHost(reason)
 
-        if not old_snap_cpg:
-            reason = (_("Invalid current snapCPG name for retype.  The volume "
-                        "may be in a transitioning state.  snapCpg='%s'.") %
-                      old_snap_cpg)
-            raise exception.InvalidVolume(reason)
-
         # Validate new_snap_cpg.  A white-space snapCPG will fail eventually,
         # but we'd prefer to fail fast -- if this ever happens.
         if not new_snap_cpg or new_snap_cpg.isspace():
@@ -1655,11 +1670,12 @@ class HP3PARCommon(object):
             raise exception.InvalidInput(reason)
 
         # Check to make sure CPGs are in the same domain
-        if self.get_domain(old_cpg) != self.get_domain(new_cpg):
+        domain = self.get_domain(old_cpg)
+        if domain != self.get_domain(new_cpg):
             reason = (_('Cannot retype to a CPG in a different domain.'))
             raise exception.Invalid3PARDomain(reason)
 
-        if self.get_domain(old_snap_cpg) != self.get_domain(new_snap_cpg):
+        if domain != self.get_domain(new_snap_cpg):
             reason = (_('Cannot retype to a snap CPG in a different domain.'))
             raise exception.Invalid3PARDomain(reason)
 
@@ -1672,7 +1688,7 @@ class HP3PARCommon(object):
 
         self._retype_pre_checks(host, new_persona,
                                 old_cpg, new_cpg,
-                                old_snap_cpg, new_snap_cpg)
+                                new_snap_cpg)
 
         flow_name = action.replace(":", "_") + "_api"
         retype_flow = linear_flow.Flow(flow_name)

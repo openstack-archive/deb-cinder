@@ -14,10 +14,6 @@
 # Size of RPC connection pool. (integer value)
 #rpc_conn_pool_size=30
 
-# Modules of exceptions that are permitted to be recreated
-# upon receiving exception data from an rpc call. (list value)
-#allowed_rpc_exception_modules=oslo.messaging.exceptions,nova.exception,cinder.exception,exceptions
-
 # Qpid broker hostname. (string value)
 #qpid_hostname=localhost
 
@@ -46,6 +42,10 @@
 
 # Whether to disable the Nagle algorithm. (boolean value)
 #qpid_tcp_nodelay=true
+
+# The number of prefetched messages held by receiver. (integer
+# value)
+#qpid_receiver_capacity=1
 
 # The qpid topology version to use.  Version 1 is what was
 # originally used by impl_qpid.  Version 2 includes some
@@ -155,15 +155,6 @@
 
 # Heartbeat time-to-live. (integer value)
 #matchmaker_heartbeat_ttl=600
-
-# Host to locate redis. (string value)
-#host=127.0.0.1
-
-# Use this port to connect to redis host. (integer value)
-#port=6379
-
-# Password for Redis server (optional). (string value)
-#password=<None>
 
 # Size of RPC greenthread pool. (integer value)
 #rpc_thread_pool_size=64
@@ -276,6 +267,24 @@
 # default is equal to the number of CPUs available. (integer
 # value)
 #osapi_volume_workers=<None>
+
+
+#
+# Options defined in cinder.ssh_utils
+#
+
+# Option to enable strict host key checking.  When set to
+# "True" Cinder will only connect to systems with a host key
+# present in the configured "ssh_hosts_key_file".  When set to
+# "False" the host key will be saved upon first connection and
+# used for subsequent connections.  Default=False (boolean
+# value)
+#strict_ssh_host_key_policy=false
+
+# File containing SSH host keys for the systems with which
+# Cinder needs to communicate.  OPTIONAL:
+# Default=$state_path/ssh_known_hosts (string value)
+#ssh_hosts_key_file=$state_path/ssh_known_hosts
 
 
 #
@@ -515,6 +524,10 @@
 # value)
 #glance_api_ssl_compression=false
 
+# Location of ca certificates file to use for glance client
+# requests. (string value)
+#glance_ca_certificates_file=<None>
+
 # http/https timeout value for glance operations. If no value
 # (None) is supplied here, the glanceclient default value is
 # used. (integer value)
@@ -529,7 +542,7 @@
 # The topic that volume backup nodes listen on (string value)
 #backup_topic=cinder-backup
 
-# Deploy v1 of the Cinder API. (boolean value)
+# DEPRECATED: Deploy v1 of the Cinder API. (boolean value)
 #enable_v1_api=true
 
 # Deploy v2 of the Cinder API. (boolean value)
@@ -780,7 +793,7 @@
 #logging_exception_prefix=%(asctime)s.%(msecs)03d %(process)d TRACE %(name)s %(instance)s
 
 # List of logger=LEVEL pairs. (list value)
-#default_log_levels=amqp=WARN,amqplib=WARN,boto=WARN,qpid=WARN,sqlalchemy=WARN,suds=INFO,oslo.messaging=INFO,iso8601=WARN,requests.packages.urllib3.connectionpool=WARN,urllib3.connectionpool=WARN,websocket=WARN,keystonemiddleware=WARN,routes.middleware=WARN
+#default_log_levels=amqp=WARN,amqplib=WARN,boto=WARN,qpid=WARN,sqlalchemy=WARN,suds=INFO,oslo.messaging=INFO,iso8601=WARN,requests.packages.urllib3.connectionpool=WARN,urllib3.connectionpool=WARN,websocket=WARN,keystonemiddleware=WARN,routes.middleware=WARN,stevedore=WARN
 
 # Enables or disables publication of error events. (boolean
 # value)
@@ -1083,6 +1096,14 @@
 # value)
 #iscsi_write_cache=on
 
+# The path to the client certificate key for verification, if
+# the driver supports it. (string value)
+#driver_client_cert_key=<None>
+
+# The path to the client certificate for verification, if the
+# driver supports it. (string value)
+#driver_client_cert=<None>
+
 
 #
 # Options defined in cinder.volume.drivers.block_device
@@ -1112,6 +1133,23 @@
 # Volume Type key name to store ESM Repository Name (string
 # value)
 #coraid_repository_key=coraid_repository
+
+
+#
+# Options defined in cinder.volume.drivers.datera
+#
+
+# Datera API token. (string value)
+#datera_api_token=<None>
+
+# Datera API port. (string value)
+#datera_api_port=7717
+
+# Datera API version. (string value)
+#datera_api_version=1
+
+# Number of replicas to create of an inode. (string value)
+#datera_num_replicas=3
 
 
 #
@@ -1399,9 +1437,9 @@
 # may take a significantly longer time. (boolean value)
 #gpfs_sparse_volumes=true
 
-# Specifies the storage pool that volumes are assigned to.  By
+# Specifies the storage pool that volumes are assigned to. By
 # default, the system storage pool is used. (string value)
-#gpfs_storage_pool=<None>
+#gpfs_storage_pool=system
 
 
 #
@@ -1996,6 +2034,42 @@
 
 
 #
+# Options defined in cinder.volume.drivers.smbfs
+#
+
+# File with the list of available smbfs shares. (string value)
+#smbfs_shares_config=/etc/cinder/smbfs_shares
+
+# Default format that will be used when creating volumes if no
+# volume format is specified. Can be set to: raw, qcow2, vhd
+# or vhdx. (string value)
+#smbfs_default_volume_format=qcow2
+
+# Create volumes as sparsed files which take no space rather
+# than regular files when using raw format, in which case
+# volume creation takes lot of time. (boolean value)
+#smbfs_sparsed_volumes=true
+
+# Percent of ACTUAL usage of the underlying volume before no
+# new volumes can be allocated to the volume destination.
+# (floating point value)
+#smbfs_used_ratio=0.95
+
+# This will compare the allocated to available space on the
+# volume destination.  If the ratio exceeds this number, the
+# destination will no longer be valid. (floating point value)
+#smbfs_oversub_ratio=1.0
+
+# Base dir containing mount points for smbfs shares. (string
+# value)
+#smbfs_mount_point_base=$state_path/mnt
+
+# Mount options passed to the smbfs client. See mount.cifs man
+# page for details. (string value)
+#smbfs_mount_options=noperm,file_mode=0775,dir_mode=0775
+
+
+#
 # Options defined in cinder.volume.drivers.solidfire
 #
 
@@ -2065,6 +2139,10 @@
 # the VC server version. (string value)
 #vmware_host_version=<None>
 
+# Directory where virtual disks are stored during volume
+# backup and restore. (string value)
+#vmware_tmp_dir=/tmp
+
 
 #
 # Options defined in cinder.volume.drivers.windows.windows
@@ -2072,29 +2150,6 @@
 
 # Path to store VHD backed volumes (string value)
 #windows_iscsi_lun_path=C:\iSCSIVirtualDisks
-
-
-#
-# Options defined in cinder.volume.drivers.xenapi.sm
-#
-
-# NFS server to be used by XenAPINFSDriver (string value)
-#xenapi_nfs_server=<None>
-
-# Path of exported NFS, used by XenAPINFSDriver (string value)
-#xenapi_nfs_serverpath=<None>
-
-# URL for XenAPI connection (string value)
-#xenapi_connection_url=<None>
-
-# Username for XenAPI connection (string value)
-#xenapi_connection_username=root
-
-# Password for XenAPI connection (string value)
-#xenapi_connection_password=<None>
-
-# Base path to the storage repository (string value)
-#xenapi_sr_base_path=/var/run/sr-mount
 
 
 #
@@ -2190,6 +2245,9 @@
 # Network interfaces of iSCSI targets. (comma separated)
 # (string value)
 #zfssa_target_interfaces=<None>
+
+# REST connection timeout. (seconds) (integer value)
+#zfssa_rest_timeout=<None>
 
 
 #
@@ -2583,6 +2641,32 @@
 # value)
 #memcache_secret_key=<None>
 
+# (optional) number of seconds memcached server is considered
+# dead before it is tried again. (integer value)
+#memcache_pool_dead_retry=300
+
+# (optional) max total number of open connections to every
+# memcached server. (integer value)
+#memcache_pool_maxsize=10
+
+# (optional) socket timeout in seconds for communicating with
+# a memcache server. (integer value)
+#memcache_pool_socket_timeout=3
+
+# (optional) number of seconds a connection to memcached is
+# held unused in the pool before it is closed. (integer value)
+#memcache_pool_unused_timeout=60
+
+# (optional) number of seconds that an operation will wait to
+# get a memcache client connection from the pool. (integer
+# value)
+#memcache_pool_conn_get_timeout=10
+
+# (optional) use the advanced (eventlet safe) memcache client
+# pool. The advanced pool will only work under python 2.x.
+# (boolean value)
+#memcache_use_advanced_pool=false
+
 # (optional) indicate whether to set the X-Service-Catalog
 # header. If False, middleware will not ask for service
 # catalog on token validation and will not set the X-Service-
@@ -2616,6 +2700,22 @@
 # should be set to a single value for better performance.
 # (list value)
 #hash_algorithms=md5
+
+
+[matchmaker_redis]
+
+#
+# Options defined in oslo.messaging
+#
+
+# Host to locate redis. (string value)
+#host=127.0.0.1
+
+# Use this port to connect to redis host. (integer value)
+#port=6379
+
+# Password for Redis server (optional). (string value)
+#password=<None>
 
 
 [matchmaker_ring]

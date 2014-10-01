@@ -83,3 +83,18 @@ class InvalidDiskTypeException(VMwareDriverException):
 class ImageTransferException(VMwareDriverException):
     """Thrown when there is an error during image transfer."""
     message = _("Error occurred during image transfer.")
+
+
+class VirtualDiskNotFoundException(VMwareDriverException):
+    """Thrown when virtual disk is not found."""
+    message = _("There is no virtual disk device.")
+
+
+class ProfileNotFoundException(VMwareDriverException):
+    """Thrown when the given storage profile cannot be found."""
+    message = _("Storage profile: %(storage_profile)s not found.")
+
+
+class NoValidDatastoreException(VMwareDriverException):
+    """Thrown when there are no valid datastores."""
+    message = _("There are no valid datastores.")

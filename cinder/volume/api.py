@@ -24,6 +24,7 @@ import datetime
 import functools
 
 from oslo.config import cfg
+import six
 
 from cinder import context
 from cinder.db import base
@@ -155,11 +156,31 @@ class API(base.Base):
                scheduler_hints=None, backup_source_volume=None,
                source_replica=None, consistencygroup=None):
 
-        if volume_type and consistencygroup:
+        # NOTE(jdg): we can have a create without size if we're
+        # doing a create from snap or volume.  Currently
+        # the taskflow api will handle this and pull in the
+        # size from the source.
+
+        # NOTE(jdg): cinderclient sends in a string representation
+        # of the size value.  BUT there is a possbility that somebody
+        # could call the API directly so the is_int_like check
+        # handles both cases (string representation or true float or int).
+        if size and (not utils.is_int_like(size) or int(size) <= 0):
+            msg = _('Invalid volume size provided for create request '
+                    '(size argument must be an integer (or string '
+                    'represenation or an integer) and greater '
+                    'than zero).')
+            raise exception.InvalidInput(reason=msg)
+
+        if consistencygroup:
+            if not volume_type:
+                msg = _("volume_type must be provided when creating "
+                        "a volume in a consistency group.")
+                raise exception.InvalidInput(reason=msg)
             cg_voltypeids = consistencygroup.get('volume_type_id')
             if volume_type.get('id') not in cg_voltypeids:
                 msg = _("Invalid volume_type provided (requested type "
-                        "must be supported by this consistency group.")
+                        "must be supported by this consistency group).")
                 raise exception.InvalidInput(reason=msg)
 
         if source_volume and volume_type:
@@ -313,11 +334,34 @@ class API(base.Base):
             raise exception.VolumeNotFound(volume_id=volume_id)
         return volume
 
+    def _get_all_tenants_value(self, filters):
+        """Returns a Boolean for the value of filters['all_tenants'].
+
+           False is returned if 'all_tenants' is not in the filters dictionary.
+           An InvalidInput exception is thrown for invalid values.
+        """
+
+        b = False
+        if 'all_tenants' in filters:
+            val = six.text_type(filters['all_tenants']).lower()
+            if val in ['true', '1']:
+                b = True
+            elif val in ['false', '0']:
+                b = False
+            else:
+                msg = _('all_tenants param must be 0 or 1')
+                raise exception.InvalidInput(reason=msg)
+
+        return b
+
     def get_all(self, context, marker=None, limit=None, sort_key='created_at',
                 sort_dir='desc', filters=None, viewable_admin_meta=False):
         check_policy(context, 'get_all')
+
         if filters is None:
             filters = {}
+
+        allTenants = self._get_all_tenants_value(filters)
 
         try:
             if limit is not None:
@@ -337,9 +381,9 @@ class API(base.Base):
             filters['no_migration_targets'] = True
 
         if filters:
-            LOG.debug("Searching by: %s" % str(filters))
+            LOG.debug("Searching by: %s" % six.text_type(filters))
 
-        if (context.is_admin and 'all_tenants' in filters):
+        if context.is_admin and allTenants:
             # Need to remove all_tenants to pass the filtering below.
             del filters['all_tenants']
             volumes = self.db.volume_get_all(context, marker, limit, sort_key,
@@ -1079,7 +1123,7 @@ class API(base.Base):
             msg = _('Volume status must be available to update readonly flag.')
             raise exception.InvalidVolume(reason=msg)
         self.update_volume_admin_metadata(context.elevated(), volume,
-                                          {'readonly': str(flag)})
+                                          {'readonly': six.text_type(flag)})
 
     @wrap_check_policy
     def retype(self, context, volume, new_type, migration_policy=None):

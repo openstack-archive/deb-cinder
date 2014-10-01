@@ -16,6 +16,7 @@
 Tests for NetApp e-series iscsi volume driver.
 """
 
+import copy
 import json
 import re
 
@@ -27,8 +28,12 @@ from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp import common
+from cinder.volume.drivers.netapp.eseries import client
+from cinder.volume.drivers.netapp.eseries import iscsi
+from cinder.volume.drivers.netapp.eseries.iscsi import LOG as driver_log
 from cinder.volume.drivers.netapp.options import netapp_basicauth_opts
 from cinder.volume.drivers.netapp.options import netapp_eseries_opts
+import cinder.volume.drivers.netapp.utils as na_utils
 
 
 LOG = logging.getLogger(__name__)
@@ -98,6 +103,32 @@ class FakeEseriesServerHandler(object):
                     "wwn": "60080E500023BB3400001FC352D14CB2",
                     "capacity": "2147483648", "mgmtClientAttribute": 0,
                     "label": "bdm-vc-test-1", "volumeFull": false,
+                    "blkSize": 512, "volumeCopyTarget": false,
+                    "volumeGroupRef":
+                    "0400000060080E500023BB3400001F9F52CECC3F",
+                    "preferredControllerId": "070000000000000000000001",
+                    "currentManager": "070000000000000000000001",
+                    "applicationTagOwned": false, "status": "optimal",
+                    "segmentSize": 131072, "volumeUse": "standardVolume",
+                    "action": "none", "preferredManager":
+                    "070000000000000000000001", "volumeHandle": 15,
+                    "offline": false, "preReadRedundancyCheckEnabled": false,
+                    "dssPreallocEnabled": false, "name": "bdm-vc-test-1",
+                    "worldWideName": "60080E500023BB3400001FC352D14CB2",
+                    "currentControllerId": "070000000000000000000001",
+                    "protectionInformationCapable": false, "mapped": false,
+                    "reconPriority": 1, "protectionType":
+                    "type1Protection"},
+                    {"extremeProtection": false, "pitBaseVolume": true,
+                    "dssMaxSegmentSize": 131072,
+                    "totalSizeInBytes": "1073741824", "raidLevel": "raid6",
+                    "volumeRef": "0200000060080E500023BB34000003FB515C2293",
+                    "listOfMappings": [], "sectorOffset": "15",
+                    "id": "0200000060080E500023BB34000003FB515C2293",
+                    "wwn": "60080E500023BB3400001FC352D14CB2",
+                    "capacity": "2147483648", "mgmtClientAttribute": 0,
+                    "label": "CFDXJ67BLJH25DXCZFZD4NSF54",
+                    "volumeFull": false,
                     "blkSize": 512, "volumeCopyTarget": false,
                     "volumeGroupRef":
                     "0400000060080E500023BB3400001F9F52CECC3F",
@@ -562,7 +593,7 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
     """Test case for NetApp e-series iscsi driver."""
 
     volume = {'id': '114774fb-e15a-4fae-8ee2-c9723e3645ef', 'size': 1,
-              'volume_name': 'lun1',
+              'volume_name': 'lun1', 'host': 'hostname@backend#DDP',
               'os_type': 'linux', 'provider_location': 'lun1',
               'id': '114774fb-e15a-4fae-8ee2-c9723e3645ef',
               'provider_auth': 'provider a b', 'project_id': 'project',
@@ -597,7 +628,10 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
                           'project_id': 'project', 'display_name': None,
                           'display_description': 'lun1',
                           'volume_type_id': None}
+    fake_eseries_volume_label = na_utils.convert_uuid_to_es_fmt(volume['id'])
     connector = {'initiator': 'iqn.1998-01.com.vmware:localhost-28a58148'}
+    fake_size_gb = volume['size']
+    fake_eseries_pool_label = 'DDP'
 
     def setUp(self):
         super(NetAppEseriesIscsiDriverTestCase, self).setUp()
@@ -672,7 +706,7 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
 
         maps = [{'lunMappingRef': 'hdkjsdhjsdh',
                  'mapRef': '8400000060080E500023C73400300381515BFBA3',
-                 'volumeRef': 'CFDXJ67BLJH25DXCZFZD4NSF54',
+                 'volumeRef': '0200000060080E500023BB34000003FB515C2293',
                  'lun': 2}]
         self.driver._get_host_mapping_for_vol_frm_array = mock.Mock(
             return_value=maps)
@@ -745,3 +779,102 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
             self.volume_clone_large, self.snapshot)
         self.driver.delete_snapshot(self.snapshot)
         self.driver.delete_volume(self.volume)
+
+    @mock.patch.object(iscsi.Driver, '_get_volume',
+                       mock.Mock(return_value={'volumeGroupRef': 'fake_ref'}))
+    def test_get_pool(self):
+        self.driver._objects['pools'] = [{'volumeGroupRef': 'fake_ref',
+                                          'label': 'ddp1'}]
+        pool = self.driver.get_pool({'id': 'fake-uuid'})
+        self.assertEqual(pool, 'ddp1')
+
+    @mock.patch.object(iscsi.Driver, '_get_volume',
+                       mock.Mock(return_value={'volumeGroupRef': 'fake_ref'}))
+    def test_get_pool_no_pools(self):
+        self.driver._objects['pools'] = []
+        pool = self.driver.get_pool({'id': 'fake-uuid'})
+        self.assertEqual(pool, None)
+
+    @mock.patch.object(iscsi.Driver, '_get_volume',
+                       mock.Mock(return_value={'volumeGroupRef': 'fake_ref'}))
+    def test_get_pool_no_match(self):
+        self.driver._objects['pools'] = [{'volumeGroupRef': 'fake_ref2',
+                                          'label': 'ddp2'}]
+        pool = self.driver.get_pool({'id': 'fake-uuid'})
+        self.assertEqual(pool, None)
+
+    @mock.patch.object(iscsi.Driver, '_create_volume', mock.Mock())
+    def test_create_volume(self):
+        self.driver.create_volume(self.volume)
+        self.driver._create_volume.assert_called_with(
+            'DDP', self.fake_eseries_volume_label, self.volume['size'])
+
+    def test_create_volume_no_pool_provided_by_scheduler(self):
+        volume = copy.deepcopy(self.volume)
+        volume['host'] = "host@backend"  # missing pool
+        self.assertRaises(exception.InvalidHost, self.driver.create_volume,
+                          volume)
+
+    @mock.patch.object(client.RestClient, 'list_storage_pools')
+    def test_helper_create_volume_fail(self, fake_list_pools):
+        fake_pool = {}
+        fake_pool['label'] = self.fake_eseries_pool_label
+        fake_pool['volumeGroupRef'] = 'foo'
+        fake_pools = [fake_pool]
+        fake_list_pools.return_value = fake_pools
+        wrong_eseries_pool_label = 'hostname@backend'
+        self.assertRaises(exception.NetAppDriverException,
+                          self.driver._create_volume, wrong_eseries_pool_label,
+                          self.fake_eseries_volume_label, self.fake_size_gb)
+
+    @mock.patch.object(driver_log, 'info')
+    @mock.patch.object(client.RestClient, 'list_storage_pools')
+    @mock.patch.object(client.RestClient, 'create_volume',
+                       mock.MagicMock(return_value='CorrectVolume'))
+    def test_helper_create_volume(self, storage_pools, log_info):
+        fake_pool = {}
+        fake_pool['label'] = self.fake_eseries_pool_label
+        fake_pool['volumeGroupRef'] = 'foo'
+        fake_pools = [fake_pool]
+        storage_pools.return_value = fake_pools
+        drv = self.driver
+        storage_vol = drv.driver._create_volume(self.fake_eseries_pool_label,
+                                                self.fake_eseries_volume_label,
+                                                self.fake_size_gb)
+        log_info.assert_called_once_with("Created volume with label %s.",
+                                         self.fake_eseries_volume_label)
+        self.assertEqual('CorrectVolume', storage_vol)
+
+    @mock.patch.object(client.RestClient, 'list_storage_pools')
+    @mock.patch.object(client.RestClient, 'create_volume',
+                       mock.MagicMock(
+                           side_effect=exception.NetAppDriverException))
+    @mock.patch.object(driver_log, 'info', mock.Mock())
+    def test_create_volume_check_exception(self, fake_list_pools):
+        fake_pool = {}
+        fake_pool['label'] = self.fake_eseries_pool_label
+        fake_pool['volumeGroupRef'] = 'foo'
+        fake_pools = [fake_pool]
+        fake_list_pools.return_value = fake_pools
+        self.assertRaises(exception.NetAppDriverException,
+                          self.driver._create_volume,
+                          self.fake_eseries_pool_label,
+                          self.fake_eseries_volume_label, self.fake_size_gb)
+
+    def test_portal_for_vol_controller(self):
+        volume = {'id': 'vol_id', 'currentManager': 'ctrl1'}
+        vol_nomatch = {'id': 'vol_id', 'currentManager': 'ctrl3'}
+        portals = [{'controller': 'ctrl2', 'iqn': 'iqn2'},
+                   {'controller': 'ctrl1', 'iqn': 'iqn1'}]
+        portal = self.driver._get_iscsi_portal_for_vol(volume, portals)
+        self.assertEqual(portal, {'controller': 'ctrl1', 'iqn': 'iqn1'})
+        portal = self.driver._get_iscsi_portal_for_vol(vol_nomatch, portals)
+        self.assertEqual(portal, {'controller': 'ctrl2', 'iqn': 'iqn2'})
+
+    def test_portal_for_vol_any_false(self):
+        vol_nomatch = {'id': 'vol_id', 'currentManager': 'ctrl3'}
+        portals = [{'controller': 'ctrl2', 'iqn': 'iqn2'},
+                   {'controller': 'ctrl1', 'iqn': 'iqn1'}]
+        self.assertRaises(exception.NetAppDriverException,
+                          self.driver._get_iscsi_portal_for_vol,
+                          vol_nomatch, portals, False)

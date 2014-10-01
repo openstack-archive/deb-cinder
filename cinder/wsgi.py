@@ -39,6 +39,7 @@ from cinder import exception
 from cinder.i18n import _
 from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import network_utils
 from cinder import utils
 
 
@@ -174,8 +175,8 @@ class Server(object):
                                {'host': host, 'port': port})
 
         (self._host, self._port) = self._socket.getsockname()[0:2]
-        LOG.info(_("%(name)s listening on %(_host)s:%(_port)s")
-                 % self.__dict__)
+        LOG.info(_("%(name)s listening on %(_host)s:%(_port)s") %
+                 {'name': self.name, '_host': self._host, '_port': self._port})
 
     def start(self):
         """Start serving a WSGI application.
@@ -190,6 +191,18 @@ class Server(object):
         # to keep file descriptor usable.
 
         dup_socket = self._socket.dup()
+        dup_socket.setsockopt(socket.SOL_SOCKET,
+                              socket.SO_REUSEADDR, 1)
+
+        # NOTE(praneshp): Call set_tcp_keepalive in oslo to set
+        # tcp keepalive parameters. Sockets can hang around forever
+        # without keepalive
+        network_utils.set_tcp_keepalive(dup_socket,
+                                        CONF.tcp_keepalive,
+                                        CONF.tcp_keepidle,
+                                        CONF.tcp_keepalive_count,
+                                        CONF.tcp_keepalive_interval)
+
         if self._use_ssl:
             try:
                 ssl_kwargs = {
@@ -205,14 +218,6 @@ class Server(object):
 
                 dup_socket = ssl.wrap_socket(dup_socket,
                                              **ssl_kwargs)
-
-                dup_socket.setsockopt(socket.SOL_SOCKET,
-                                      socket.SO_REUSEADDR, 1)
-
-                # sockets can hang around forever without keepalive
-                dup_socket.setsockopt(socket.SOL_SOCKET,
-                                      socket.SO_KEEPALIVE, 1)
-
             except Exception:
                 with excutils.save_and_reraise_exception():
                     LOG.error(_("Failed to start %(name)s on %(_host)s:"

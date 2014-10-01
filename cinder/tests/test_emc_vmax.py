@@ -925,7 +925,9 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         self.tempdir = tempfile.mkdtemp()
         super(EMCVMAXISCSIDriverNoFastTestCase, self).setUp()
         self.config_file_path = None
+        self.config_file_1364232 = None
         self.create_fake_config_file_no_fast()
+        self.addCleanup(self._cleanup)
 
         configuration = mock.Mock()
         configuration.safe_get.return_value = 'ISCSINoFAST'
@@ -945,6 +947,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         driver = EMCVMAXISCSIDriver(configuration=configuration)
         driver.db = FakeDB()
         self.driver = driver
+        self.driver.utils = EMCVMAXUtils(object)
 
     def create_fake_config_file_no_fast(self):
 
@@ -1008,11 +1011,33 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         doc.writexml(f)
         f.close()
 
+    # Create XML config file with newlines and whitespaces
+    # Bug #1364232
+    def create_fake_config_file_1364232(self):
+        filename = 'cinder_emc_config_1364232.xml'
+        self.config_file_1364232 = self.tempdir + '/' + filename
+        text_file = open(self.config_file_1364232, "w")
+        text_file.write("<?xml version='1.0' encoding='UTF-8'?>\n<EMC>\n"
+                        "<EcomServerIp>10.108.246.202</EcomServerIp>\n"
+                        "<EcomServerPort>5988</EcomServerPort>\n"
+                        "<EcomUserName>admin\t</EcomUserName>\n"
+                        "<EcomPassword>#1Password</EcomPassword>\n"
+                        "<PortGroups><PortGroup>OS-PORTGROUP1-PG"
+                        "</PortGroup><PortGroup>OS-PORTGROUP2-PG"
+                        "                </PortGroup>\n"
+                        "<PortGroup>OS-PORTGROUP3-PG</PortGroup>"
+                        "<PortGroup>OS-PORTGROUP4-PG</PortGroup>"
+                        "</PortGroups>\n<Array>000198700439"
+                        "              \n</Array>\n<Pool>FC_SLVR1\n"
+                        "</Pool>\n<FastPolicy>SILVER1</FastPolicy>\n"
+                        "</EMC>")
+        text_file.close()
+
     def fake_ecom_connection(self):
         conn = FakeEcomConnection()
         return conn
 
-    def fake_do_iscsi_discovery(self, volume, ipAddress):
+    def fake_do_iscsi_discovery(self, volume):
         output = []
         item = '10.10.0.50: 3260,1 iqn.1992-04.com.emc: 50000973f006dd80'
         output.append(item)
@@ -1020,6 +1045,24 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
 
     def fake_sleep(self, seconds):
         return
+
+    def test_get_volume_stats_1364232(self):
+        self.create_fake_config_file_1364232()
+        self.assertEqual('000198700439',
+                         self.driver.utils.parse_array_name_from_file(
+                             self.config_file_1364232))
+        self.assertEqual('FC_SLVR1',
+                         self.driver.utils.parse_pool_name_from_file(
+                             self.config_file_1364232))
+        self.assertEqual('SILVER1',
+                         self.driver.utils.parse_fast_policy_name_from_file(
+                             self.config_file_1364232))
+        self.assertIn('OS-PORTGROUP',
+                      self.driver.utils.parse_file_to_get_port_group_name(
+                          self.config_file_1364232))
+        bExists = os.path.exists(self.config_file_1364232)
+        if bExists:
+            os.remove(self.config_file_1364232)
 
     @mock.patch.object(
         EMCVMAXCommon,
@@ -1138,12 +1181,8 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         '_wrap_find_device_number',
         return_value={'hostlunid': 1,
                       'storagesystem': EMCVMAXCommonData.storage_system})
-    @mock.patch.object(
-        EMCVMAXUtils,
-        'find_ip_protocol_endpoint',
-        return_value='10.10.10.10')
     def test_map_no_fast_success(self, _mock_volume_type, mock_wrap_group,
-                                 mock_wrap_device, mock_find_ip):
+                                 mock_wrap_device):
         self.driver.initialize_connection(self.data.test_volume,
                                           self.data.connector)
 
@@ -1319,15 +1358,18 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
             self.data.test_ctxt, self.data.test_volume, self.data.new_type,
             self.data.diff, self.data.test_host)
 
+    def test_check_for_setup_error(self):
+        self.driver.configuration.iscsi_ip_address = '1.1.1.1'
+        self.driver.check_for_setup_error()
+        self.driver.configuration.iscsi_ip_address = None
+        self.assertRaises(exception.InvalidInput,
+                          self.driver.check_for_setup_error)
+
     def _cleanup(self):
         bExists = os.path.exists(self.config_file_path)
         if bExists:
             os.remove(self.config_file_path)
         shutil.rmtree(self.tempdir)
-
-    def tearDown(self):
-        self._cleanup()
-        super(EMCVMAXISCSIDriverNoFastTestCase, self).tearDown()
 
 
 class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
@@ -1340,6 +1382,7 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
         super(EMCVMAXISCSIDriverFastTestCase, self).setUp()
         self.config_file_path = None
         self.create_fake_config_file_fast()
+        self.addCleanup(self._cleanup)
 
         configuration = mock.Mock()
         configuration.cinder_emc_config_file = self.config_file_path
@@ -1430,7 +1473,7 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
         conn = FakeEcomConnection()
         return conn
 
-    def fake_do_iscsi_discovery(self, volume, ipAddress):
+    def fake_do_iscsi_discovery(self, volume):
         output = []
         item = '10.10.0.50: 3260,1 iqn.1992-04.com.emc: 50000973f006dd80'
         output.append(item)
@@ -1581,12 +1624,8 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
         '_wrap_find_device_number',
         return_value={'hostlunid': 1,
                       'storagesystem': EMCVMAXCommonData.storage_system})
-    @mock.patch.object(
-        EMCVMAXUtils,
-        'find_ip_protocol_endpoint',
-        return_value='10.10.10.10')
     def test_map_fast_success(self, _mock_volume_type, mock_wrap_group,
-                              mock_wrap_device, mock_find_ip):
+                              mock_wrap_device):
         self.driver.initialize_connection(self.data.test_volume,
                                           self.data.connector)
 
@@ -1853,10 +1892,6 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
             os.remove(self.config_file_path)
         shutil.rmtree(self.tempdir)
 
-    def tearDown(self):
-        self._cleanup()
-        super(EMCVMAXISCSIDriverFastTestCase, self).tearDown()
-
 
 class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
     def setUp(self):
@@ -1867,6 +1902,7 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
         super(EMCVMAXFCDriverNoFastTestCase, self).setUp()
         self.config_file_path = None
         self.create_fake_config_file_no_fast()
+        self.addCleanup(self._cleanup)
 
         configuration = mock.Mock()
         configuration.cinder_emc_config_file = self.config_file_path
@@ -2072,12 +2108,8 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
         '_wrap_find_device_number',
         return_value={'hostlunid': 1,
                       'storagesystem': EMCVMAXCommonData.storage_system})
-    @mock.patch.object(
-        EMCVMAXUtils,
-        'find_ip_protocol_endpoint',
-        return_value='10.10.10.10')
     def test_map_no_fast_success(self, _mock_volume_type, mock_wrap_group,
-                                 mock_wrap_device, mock_find_ip):
+                                 mock_wrap_device):
         self.driver.initialize_connection(self.data.test_volume,
                                           self.data.connector)
 
@@ -2259,10 +2291,6 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
             os.remove(self.config_file_path)
         shutil.rmtree(self.tempdir)
 
-    def tearDown(self):
-        self._cleanup()
-        super(EMCVMAXFCDriverNoFastTestCase, self).tearDown()
-
 
 class EMCVMAXFCDriverFastTestCase(test.TestCase):
 
@@ -2274,6 +2302,7 @@ class EMCVMAXFCDriverFastTestCase(test.TestCase):
         super(EMCVMAXFCDriverFastTestCase, self).setUp()
         self.config_file_path = None
         self.create_fake_config_file_fast()
+        self.addCleanup(self._cleanup)
 
         configuration = mock.Mock()
         configuration.cinder_emc_config_file = self.config_file_path
@@ -2777,7 +2806,3 @@ class EMCVMAXFCDriverFastTestCase(test.TestCase):
         if bExists:
             os.remove(self.config_file_path)
         shutil.rmtree(self.tempdir)
-
-    def tearDown(self):
-        self._cleanup()
-        super(EMCVMAXFCDriverFastTestCase, self).tearDown()

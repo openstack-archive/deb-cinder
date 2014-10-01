@@ -19,12 +19,15 @@ import mock
 
 import ast
 
+from oslo.config import cfg
+
 from cinder import context
 from cinder import exception
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import units
 from cinder import test
 from cinder.tests import fake_hp_3par_client as hp3parclient
+from cinder.volume.drivers.san.hp import hp_3par_common as hpcommon
 from cinder.volume.drivers.san.hp import hp_3par_fc as hpfcdriver
 from cinder.volume.drivers.san.hp import hp_3par_iscsi as hpdriver
 from cinder.volume import qos_specs
@@ -33,6 +36,8 @@ from cinder.volume import volume_types
 hpexceptions = hp3parclient.hpexceptions
 
 LOG = logging.getLogger(__name__)
+
+CONF = cfg.CONF
 
 HP3PAR_CPG = 'OpenStackCPG'
 HP3PAR_CPG_SNAP = 'OpenStackCPGSnap'
@@ -277,7 +282,7 @@ class HP3PARBaseDriver(object):
         'extra_specs': {
             'cpg': 'bogus',
             'snap_cpg': 'bogus',
-            'hp3par:persona': '1 - Generic'
+            'hp3par:persona': '2 - Generic-ALUA'
         }
     }
 
@@ -384,6 +389,90 @@ class HP3PARBaseDriver(object):
         self.driver = driver(configuration=conf)
         self.driver.do_setup(None)
         return _m_client
+
+    @mock.patch('hp3parclient.version', "3.0.9")
+    def test_unsupported_client_version(self):
+
+        self.assertRaises(exception.InvalidInput,
+                          self.setup_driver)
+
+    @mock.patch('hp3parclient.version', "3.1.0")
+    def test_ssh_options_310(self):
+
+        self.ctxt = context.get_admin_context()
+        mock_client = self.setup_mock_client(driver=hpfcdriver.HP3PARFCDriver)
+        expected = [
+            mock.call.setSSHOptions(
+                HP3PAR_SAN_IP,
+                HP3PAR_USER_NAME,
+                HP3PAR_USER_PASS,
+                privatekey=HP3PAR_SAN_SSH_PRIVATE,
+                port=HP3PAR_SAN_SSH_PORT,
+                conn_timeout=HP3PAR_SAN_SSH_CON_TIMEOUT),
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch('hp3parclient.version', "3.1.1")
+    def test_ssh_options(self):
+
+        expected_hosts_key_file = "test_hosts_key_file"
+        orig_ssh_hosts_key_file = CONF.ssh_hosts_key_file
+        orig_strict_ssh_host_key_policy = CONF.strict_ssh_host_key_policy
+        CONF.ssh_hosts_key_file = expected_hosts_key_file
+        CONF.strict_ssh_host_key_policy = False
+
+        self.ctxt = context.get_admin_context()
+        mock_client = self.setup_mock_client(driver=hpfcdriver.HP3PARFCDriver)
+
+        CONF.ssh_hosts_key_file = orig_ssh_hosts_key_file
+        CONF.strict_ssh_host_key_policy = orig_strict_ssh_host_key_policy
+
+        expected = [
+            mock.call.setSSHOptions(
+                HP3PAR_SAN_IP,
+                HP3PAR_USER_NAME,
+                HP3PAR_USER_PASS,
+                privatekey=HP3PAR_SAN_SSH_PRIVATE,
+                known_hosts_file=expected_hosts_key_file,
+                missing_key_policy="AutoAddPolicy",
+                port=HP3PAR_SAN_SSH_PORT,
+                conn_timeout=HP3PAR_SAN_SSH_CON_TIMEOUT),
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
+
+    @mock.patch('hp3parclient.version', "3.1.1")
+    def test_ssh_options_strict(self):
+
+        expected_hosts_key_file = "test_hosts_key_file"
+        orig_ssh_hosts_key_file = CONF.ssh_hosts_key_file
+        orig_strict_ssh_host_key_policy = CONF.strict_ssh_host_key_policy
+        CONF.ssh_hosts_key_file = expected_hosts_key_file
+        CONF.strict_ssh_host_key_policy = True
+
+        self.ctxt = context.get_admin_context()
+        mock_client = self.setup_mock_client(driver=hpfcdriver.HP3PARFCDriver)
+
+        CONF.ssh_hosts_key_file = orig_ssh_hosts_key_file
+        CONF.strict_ssh_host_key_policy = orig_strict_ssh_host_key_policy
+
+        expected = [
+            mock.call.setSSHOptions(
+                HP3PAR_SAN_IP,
+                HP3PAR_USER_NAME,
+                HP3PAR_USER_PASS,
+                privatekey=HP3PAR_SAN_SSH_PRIVATE,
+                known_hosts_file=expected_hosts_key_file,
+                missing_key_policy="RejectPolicy",
+                port=HP3PAR_SAN_SSH_PORT,
+                conn_timeout=HP3PAR_SAN_SSH_CON_TIMEOUT),
+            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
+            mock.call.getCPG(HP3PAR_CPG),
+            mock.call.logout()]
+        mock_client.assert_has_calls(expected)
 
     def test_task_waiter(self):
 
@@ -503,27 +592,6 @@ class HP3PARBaseDriver(object):
         expected = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
             mock.call.getVolume(self.VOLUME_3PAR_NAME),
-            mock.call.logout()]
-        mock_client.assert_has_calls(expected)
-
-    @mock.patch.object(volume_types, 'get_volume_type')
-    def test_retype_snap_cpg_check(self, _mock_volume_types):
-        _mock_volume_types.return_value = self.RETYPE_VOLUME_TYPE_1
-        mock_client = self.setup_driver(mock_conf=self.RETYPE_CONF)
-        mock_client.getVolume.return_value = self.RETYPE_VOLUME_INFO_NO_SNAP
-
-        self.assertRaises(exception.InvalidVolume,
-                          self.driver.retype,
-                          self.ctxt,
-                          self.RETYPE_VOLUME_INFO_NO_SNAP,
-                          self.RETYPE_VOLUME_TYPE_1,
-                          self.RETYPE_DIFF,
-                          self.RETYPE_HOST)
-
-        expected = [
-            mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
-            mock.call.getVolume(self.VOLUME_3PAR_NAME),
-            mock.call.getStorageSystemInfo(),
             mock.call.logout()]
         mock_client.assert_has_calls(expected)
 
@@ -650,7 +718,6 @@ class HP3PARBaseDriver(object):
             {'domain': 'cpg_domain'},
             {'domain': 'cpg_domain'},
             {'domain': 'snap_cpg_domain_1'},
-            {'domain': 'snap_cpg_domain_2'},
         ]
 
         self.assertRaises(exception.Invalid3PARDomain,
@@ -667,7 +734,6 @@ class HP3PARBaseDriver(object):
             mock.call.getStorageSystemInfo(),
             mock.call.getCPG(self.RETYPE_VOLUME_INFO_0['userCPG']),
             mock.call.getCPG(self.RETYPE_VOLUME_TYPE_1['extra_specs']['cpg']),
-            mock.call.getCPG(self.RETYPE_VOLUME_INFO_0['snapCPG']),
             mock.call.getCPG(
                 self.RETYPE_VOLUME_TYPE_1['extra_specs']['snap_cpg']),
             mock.call.logout()
@@ -1870,6 +1936,13 @@ class HP3PARBaseDriver(object):
 
         mock_client.assert_has_calls(expected)
 
+    def test__safe_hostname(self):
+        long_hostname = "abc123abc123abc123abc123abc123abc123"
+        fixed_hostname = "abc123abc123abc123abc123abc123a"
+        common = hpcommon.HP3PARCommon(None)
+        safe_host = common._safe_hostname(long_hostname)
+        self.assertEqual(fixed_hostname, safe_host)
+
 
 class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
 
@@ -2191,30 +2264,35 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
         # and return the mock HTTP 3PAR client
         mock_client = self.setup_driver()
         mock_client.getCPG.return_value = self.cpgs[0]
-        mock_client.getStorageSystemInfo.return_value = {'serialNumber':
-                                                         '1234'}
+        totalCapacityMiB = 8000
+        freeCapacityMiB = 4000
+        mock_client.getStorageSystemInfo.return_value = {
+            'serialNumber': '1234',
+            'totalCapacityMiB': totalCapacityMiB,
+            'freeCapacityMiB': freeCapacityMiB
+        }
         stats = self.driver.get_volume_stats(True)
+        const = 0.0009765625
         self.assertEqual(stats['storage_protocol'], 'FC')
-        self.assertEqual(stats['total_capacity_gb'], 'infinite')
-        self.assertEqual(stats['free_capacity_gb'], 'infinite')
+        self.assertEqual(stats['total_capacity_gb'], totalCapacityMiB * const)
+        self.assertEqual(stats['free_capacity_gb'], freeCapacityMiB * const)
 
         expected = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
-            mock.call.getCPG(HP3PAR_CPG),
             mock.call.getStorageSystemInfo(),
+            mock.call.getCPG(HP3PAR_CPG),
             mock.call.logout()]
 
         mock_client.assert_has_calls(expected)
         stats = self.driver.get_volume_stats(True)
         self.assertEqual(stats['storage_protocol'], 'FC')
-        self.assertEqual(stats['total_capacity_gb'], 'infinite')
-        self.assertEqual(stats['free_capacity_gb'], 'infinite')
+        self.assertEqual(stats['total_capacity_gb'], totalCapacityMiB * const)
+        self.assertEqual(stats['free_capacity_gb'], freeCapacityMiB * const)
 
         cpg2 = self.cpgs[0].copy()
         cpg2.update({'SDGrowth': {'limitMiB': 8192}})
         mock_client.getCPG.return_value = cpg2
 
-        const = 0.0009765625
         stats = self.driver.get_volume_stats(True)
         self.assertEqual(stats['storage_protocol'], 'FC')
         total_capacity_gb = 8192 * const
@@ -2264,7 +2342,7 @@ class TestHP3PARFCDriver(HP3PARBaseDriver, test.TestCase):
             mock.call.createHost(
                 self.FAKE_HOST,
                 FCWwns=['123456789012345', '123456789054321'],
-                optional={'domain': None, 'persona': 1}),
+                optional={'domain': None, 'persona': 2}),
             mock.call.getHost(self.FAKE_HOST)]
 
         mock_client.assert_has_calls(expected)
@@ -2479,30 +2557,31 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
         # and return the mock HTTP 3PAR client
         mock_client = self.setup_driver()
         mock_client.getCPG.return_value = self.cpgs[0]
-        mock_client.getStorageSystemInfo.return_value = {'serialNumber':
-                                                         '1234'}
+        totalCapacityMiB = 8000
+        freeCapacityMiB = 4000
+        mock_client.getStorageSystemInfo.return_value = {
+            'serialNumber': '1234',
+            'totalCapacityMiB': totalCapacityMiB,
+            'freeCapacityMiB': freeCapacityMiB
+        }
         stats = self.driver.get_volume_stats(True)
+        const = 0.0009765625
         self.assertEqual(stats['storage_protocol'], 'iSCSI')
-        self.assertEqual(stats['total_capacity_gb'], 'infinite')
-        self.assertEqual(stats['free_capacity_gb'], 'infinite')
+        self.assertEqual(stats['total_capacity_gb'], totalCapacityMiB * const)
+        self.assertEqual(stats['free_capacity_gb'], freeCapacityMiB * const)
 
         expected = [
             mock.call.login(HP3PAR_USER_NAME, HP3PAR_USER_PASS),
-            mock.call.getCPG(HP3PAR_CPG),
             mock.call.getStorageSystemInfo(),
+            mock.call.getCPG(HP3PAR_CPG),
             mock.call.logout()]
 
         mock_client.assert_has_calls(expected)
-
-        self.assertEqual(stats['storage_protocol'], 'iSCSI')
-        self.assertEqual(stats['total_capacity_gb'], 'infinite')
-        self.assertEqual(stats['free_capacity_gb'], 'infinite')
 
         cpg2 = self.cpgs[0].copy()
         cpg2.update({'SDGrowth': {'limitMiB': 8192}})
         mock_client.getCPG.return_value = cpg2
 
-        const = 0.0009765625
         stats = self.driver.get_volume_stats(True)
         self.assertEqual(stats['storage_protocol'], 'iSCSI')
         total_capacity_gb = 8192 * const
@@ -2533,7 +2612,7 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
             mock.call.findHost(iqn='iqn.1993-08.org.debian:01:222'),
             mock.call.createHost(
                 self.FAKE_HOST,
-                optional={'domain': None, 'persona': 1},
+                optional={'domain': None, 'persona': 2},
                 iscsiNames=['iqn.1993-08.org.debian:01:222']),
             mock.call.getHost(self.FAKE_HOST)]
 
@@ -2588,7 +2667,7 @@ class TestHP3PARISCSIDriver(HP3PARBaseDriver, test.TestCase):
             mock.call.findHost(iqn='iqn.1993-08.org.debian:01:222'),
             mock.call.createHost(
                 self.FAKE_HOST,
-                optional={'domain': None, 'persona': 1},
+                optional={'domain': None, 'persona': 2},
                 iscsiNames=['iqn.1993-08.org.debian:01:222']),
             mock.call.modifyHost(
                 'fakehost',

@@ -17,6 +17,8 @@
 Implements operations on volumes residing on VMware datastores.
 """
 
+import urllib
+
 from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import units
@@ -386,6 +388,15 @@ class VMwareVolumeOps(object):
 
         return connected_hosts
 
+    def is_datastore_accessible(self, datastore, host):
+        """Check if the datastore is accessible to the given host.
+
+        :param datastore: datastore reference
+        :return: True if the datastore is accessible
+        """
+        hosts = self.get_connected_hosts(datastore)
+        return host.value in [host_ref.value for host_ref in hosts]
+
     def _in_maintenance(self, summary):
         """Check if a datastore is entering maintenance or in maintenance.
 
@@ -527,9 +538,10 @@ class VMwareVolumeOps(object):
             if child_entity._type != 'Folder':
                 continue
             child_entity_name = self.get_entity_name(child_entity)
-            if child_entity_name == child_folder_name:
-                LOG.debug("Child folder already present: %s." %
-                          child_entity)
+            if child_entity_name and (urllib.unquote(child_entity_name) ==
+                                      child_folder_name):
+                LOG.debug("Child folder: %s already present.",
+                          child_folder_name)
                 return child_entity
 
         # Need to create the child folder
@@ -831,7 +843,8 @@ class VMwareVolumeOps(object):
         LOG.debug("Spec for relocating the backing: %s.", relocate_spec)
         return relocate_spec
 
-    def relocate_backing(self, backing, datastore, resource_pool, host):
+    def relocate_backing(
+            self, backing, datastore, resource_pool, host, disk_type=None):
         """Relocates backing to the input datastore and resource pool.
 
         The implementation uses moveAllDiskBackingsAndAllowSharing disk move
@@ -841,15 +854,27 @@ class VMwareVolumeOps(object):
         :param datastore: Reference to the datastore
         :param resource_pool: Reference to the resource pool
         :param host: Reference to the host
+        :param disk_type: destination disk type
         """
         LOG.debug("Relocating backing: %(backing)s to datastore: %(ds)s "
-                  "and resource pool: %(rp)s." %
-                  {'backing': backing, 'ds': datastore, 'rp': resource_pool})
+                  "and resource pool: %(rp)s with destination disk type: "
+                  "%(disk_type)s.",
+                  {'backing': backing,
+                   'ds': datastore,
+                   'rp': resource_pool,
+                   'disk_type': disk_type})
 
         # Relocate the volume backing
         disk_move_type = 'moveAllDiskBackingsAndAllowSharing'
+
+        disk_device = None
+        if disk_type is not None:
+            disk_device = self._get_disk_device(backing)
+
         relocate_spec = self._get_relocate_spec(datastore, resource_pool, host,
-                                                disk_move_type)
+                                                disk_move_type, disk_type,
+                                                disk_device)
+
         task = self._session.invoke_api(self._session.vim, 'RelocateVM_Task',
                                         backing, spec=relocate_spec)
         LOG.debug("Initiated relocation of volume backing: %s." % backing)
@@ -1044,6 +1069,19 @@ class VMwareVolumeOps(object):
         LOG.info(_("Successfully created clone: %s.") % new_backing)
         return new_backing
 
+    def _reconfigure_backing(self, backing, reconfig_spec):
+        """Reconfigure backing VM with the given spec."""
+        LOG.debug("Reconfiguring backing VM: %(backing)s with spec: %(spec)s.",
+                  {'backing': backing,
+                   'spec': reconfig_spec})
+        reconfig_task = self._session.invoke_api(self._session.vim,
+                                                 "ReconfigVM_Task",
+                                                 backing,
+                                                 spec=reconfig_spec)
+        LOG.debug("Task: %s created for reconfiguring backing VM.",
+                  reconfig_task)
+        self._session.wait_for_task(reconfig_task)
+
     def attach_disk_to_backing(self, backing, size_in_kb, disk_type,
                                adapter_type, vmdk_ds_file_path):
         """Attach an existing virtual disk to the backing VM.
@@ -1055,6 +1093,13 @@ class VMwareVolumeOps(object):
         :param vmdk_ds_file_path: datastore file path of the virtual disk to
                                   be attached
         """
+        LOG.debug("Reconfiguring backing VM: %(backing)s to add new disk: "
+                  "%(path)s with size (KB): %(size)d and adapter type: "
+                  "%(adapter_type)s.",
+                  {'backing': backing,
+                   'path': vmdk_ds_file_path,
+                   'size': size_in_kb,
+                   'adapter_type': adapter_type})
         cf = self._session.vim.client.factory
         reconfig_spec = cf.create('ns0:VirtualMachineConfigSpec')
         specs = self._create_specs_for_disk_add(size_in_kb,
@@ -1062,16 +1107,7 @@ class VMwareVolumeOps(object):
                                                 adapter_type,
                                                 vmdk_ds_file_path)
         reconfig_spec.deviceChange = specs
-        LOG.debug("Reconfiguring backing VM: %(backing)s with spec: %(spec)s.",
-                  {'backing': backing,
-                   'spec': reconfig_spec})
-        reconfig_task = self._session.invoke_api(self._session.vim,
-                                                 "ReconfigVM_Task",
-                                                 backing,
-                                                 spec=reconfig_spec)
-        LOG.debug("Task: %s created for reconfiguring backing VM.",
-                  reconfig_task)
-        self._session.wait_for_task(reconfig_task)
+        self._reconfigure_backing(backing, reconfig_spec)
         LOG.debug("Backing VM: %s reconfigured with new disk.", backing)
 
     def rename_backing(self, backing, new_name):
@@ -1092,6 +1128,32 @@ class VMwareVolumeOps(object):
         LOG.info(_("Backing VM: %(backing)s renamed to %(new_name)s."),
                  {'backing': backing,
                   'new_name': new_name})
+
+    def change_backing_profile(self, backing, profile_id):
+        """Change storage profile of the backing VM.
+
+        The current profile is removed if the new profile is None.
+        """
+        LOG.debug("Reconfiguring backing VM: %(backing)s to change profile to:"
+                  " %(profile)s.",
+                  {'backing': backing,
+                   'profile': profile_id})
+        cf = self._session.vim.client.factory
+        reconfig_spec = cf.create('ns0:VirtualMachineConfigSpec')
+
+        if profile_id is None:
+            vm_profile = cf.create('ns0:VirtualMachineEmptyProfileSpec')
+            vm_profile.dynamicType = 'profile'
+        else:
+            vm_profile = cf.create('ns0:VirtualMachineDefinedProfileSpec')
+            vm_profile.profileId = profile_id.uniqueId
+
+        reconfig_spec.vmProfile = [vm_profile]
+        self._reconfigure_backing(backing, reconfig_spec)
+        LOG.debug("Backing VM: %(backing)s reconfigured with new profile: "
+                  "%(profile)s.",
+                  {'backing': backing,
+                   'profile': profile_id})
 
     def delete_file(self, file_path, datacenter=None):
         """Delete file or folder on the datastore.
@@ -1142,6 +1204,9 @@ class VMwareVolumeOps(object):
             if device.__class__.__name__ == "VirtualDisk":
                 return device
 
+        LOG.error(_("Virtual disk device of backing: %s not found."), backing)
+        raise error_util.VirtualDiskNotFoundException()
+
     def get_vmdk_path(self, backing):
         """Get the vmdk file name of the backing.
 
@@ -1158,6 +1223,15 @@ class VMwareVolumeOps(object):
             LOG.error(msg)
             raise AssertionError(msg)
         return backing.fileName
+
+    def get_disk_size(self, backing):
+        """Get disk size of the backing.
+
+        :param backing: backing VM reference
+        :return: disk size in bytes
+        """
+        disk_device = self._get_disk_device(backing)
+        return disk_device.capacityInKB * units.Ki
 
     def _get_virtual_disk_create_spec(self, size_in_kb, adapter_type,
                                       disk_type):
@@ -1274,13 +1348,17 @@ class VMwareVolumeOps(object):
         profile_manager = pbm.service_content.profileManager
         res_type = pbm.client.factory.create('ns0:PbmProfileResourceType')
         res_type.resourceType = 'STORAGE'
+        profiles = []
         profileIds = self._session.invoke_api(pbm, 'PbmQueryProfile',
                                               profile_manager,
                                               resourceType=res_type)
         LOG.debug("Got profile IDs: %s", profileIds)
-        return self._session.invoke_api(pbm, 'PbmRetrieveContent',
-                                        profile_manager,
-                                        profileIds=profileIds)
+
+        if profileIds:
+            profiles = self._session.invoke_api(pbm, 'PbmRetrieveContent',
+                                                profile_manager,
+                                                profileIds=profileIds)
+        return profiles
 
     def retrieve_profile_id(self, profile_name):
         """Get the profile uuid from current VC for given profile name.
@@ -1313,3 +1391,27 @@ class VMwareVolumeOps(object):
                                                  profile=profile_id)
         LOG.debug("Filtered hubs: %s", filtered_hubs)
         return filtered_hubs
+
+    def get_profile(self, backing):
+        """Query storage profile associated with the given backing.
+
+        :param backing: backing reference
+        :return: profile name
+        """
+        pbm = self._session.pbm
+        profile_manager = pbm.service_content.profileManager
+
+        object_ref = pbm.client.factory.create('ns0:PbmServerObjectRef')
+        object_ref.key = backing.value
+        object_ref.objectType = 'virtualMachine'
+
+        profile_ids = self._session.invoke_api(pbm,
+                                               'PbmQueryAssociatedProfile',
+                                               profile_manager,
+                                               entity=object_ref)
+        if profile_ids:
+            profiles = self._session.invoke_api(pbm,
+                                                'PbmRetrieveContent',
+                                                profile_manager,
+                                                profileIds=profile_ids)
+            return profiles[0].name

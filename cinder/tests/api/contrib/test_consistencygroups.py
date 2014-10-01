@@ -20,13 +20,15 @@ Tests for consistency group code.
 import json
 from xml.dom import minidom
 
+import mock
 import webob
 
+import cinder.consistencygroup
 from cinder import context
 from cinder import db
+from cinder.i18n import _
 from cinder import test
 from cinder.tests.api import fakes
-import cinder.volume
 
 
 class ConsistencyGroupsAPITestCase(test.TestCase):
@@ -34,10 +36,7 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
 
     def setUp(self):
         super(ConsistencyGroupsAPITestCase, self).setUp()
-        self.volume_api = cinder.volume.API()
-        self.context = context.get_admin_context()
-        self.context.project_id = 'fake'
-        self.context.user_id = 'fake'
+        self.cg_api = cinder.consistencygroup.API()
 
     @staticmethod
     def _create_consistencygroup(
@@ -45,6 +44,7 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
             description='this is a test consistency group',
             volume_type_id='123456',
             availability_zone='az1',
+            host='fakehost',
             status='creating'):
         """Create a consistency group object."""
         consistencygroup = {}
@@ -54,8 +54,8 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         consistencygroup['name'] = name
         consistencygroup['description'] = description
         consistencygroup['volume_type_id'] = volume_type_id
+        consistencygroup['host'] = host
         consistencygroup['status'] = status
-        consistencygroup['host'] = 'fakehost'
         return db.consistencygroup_create(
             context.get_admin_context(),
             consistencygroup)['id']
@@ -74,14 +74,15 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res_dict['consistencygroup']['availability_zone'],
-                         'az1')
-        self.assertEqual(res_dict['consistencygroup']['description'],
-                         'this is a test consistency group')
-        self.assertEqual(res_dict['consistencygroup']['name'],
-                         'test_consistencygroup')
-        self.assertEqual(res_dict['consistencygroup']['status'], 'creating')
+        self.assertEqual(200, res.status_int)
+        self.assertEqual('az1',
+                         res_dict['consistencygroup']['availability_zone'])
+        self.assertEqual('this is a test consistency group',
+                         res_dict['consistencygroup']['description'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroup']['name'])
+        self.assertEqual('creating',
+                         res_dict['consistencygroup']['status'])
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id)
@@ -94,11 +95,11 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         req.headers['Content-Type'] = 'application/xml'
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         consistencygroup = dom.getElementsByTagName('consistencygroup')
         name = consistencygroup.item(0).getAttribute('name')
-        self.assertEqual(name.strip(), "test_consistencygroup")
+        self.assertEqual("test_consistencygroup", name.strip())
         db.consistencygroup_destroy(
             context.get_admin_context(),
             consistencygroup_id)
@@ -110,10 +111,10 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 404)
-        self.assertEqual(res_dict['itemNotFound']['code'], 404)
-        self.assertEqual(res_dict['itemNotFound']['message'],
-                         'ConsistencyGroup 9999 could not be found.')
+        self.assertEqual(404, res.status_int)
+        self.assertEqual(404, res_dict['itemNotFound']['code'])
+        self.assertEqual('ConsistencyGroup 9999 could not be found.',
+                         res_dict['itemNotFound']['message'])
 
     def test_list_consistencygroups_json(self):
         consistencygroup_id1 = self._create_consistencygroup()
@@ -126,19 +127,19 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res_dict['consistencygroups'][0]['id'],
-                         consistencygroup_id1)
-        self.assertEqual(res_dict['consistencygroups'][0]['name'],
-                         'test_consistencygroup')
-        self.assertEqual(res_dict['consistencygroups'][1]['id'],
-                         consistencygroup_id2)
-        self.assertEqual(res_dict['consistencygroups'][1]['name'],
-                         'test_consistencygroup')
-        self.assertEqual(res_dict['consistencygroups'][2]['id'],
-                         consistencygroup_id3)
-        self.assertEqual(res_dict['consistencygroups'][2]['name'],
-                         'test_consistencygroup')
+        self.assertEqual(200, res.status_int)
+        self.assertEqual(consistencygroup_id1,
+                         res_dict['consistencygroups'][0]['id'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroups'][0]['name'])
+        self.assertEqual(consistencygroup_id2,
+                         res_dict['consistencygroups'][1]['id'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroups'][1]['name'])
+        self.assertEqual(consistencygroup_id3,
+                         res_dict['consistencygroups'][2]['id'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroups'][2]['name'])
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id3)
@@ -158,16 +159,16 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         consistencygroup_list = dom.getElementsByTagName('consistencygroup')
 
-        self.assertEqual(consistencygroup_list.item(0).getAttribute('id'),
-                         consistencygroup_id1)
-        self.assertEqual(consistencygroup_list.item(1).getAttribute('id'),
-                         consistencygroup_id2)
-        self.assertEqual(consistencygroup_list.item(2).getAttribute('id'),
-                         consistencygroup_id3)
+        self.assertEqual(consistencygroup_id1,
+                         consistencygroup_list.item(0).getAttribute('id'))
+        self.assertEqual(consistencygroup_id2,
+                         consistencygroup_list.item(1).getAttribute('id'))
+        self.assertEqual(consistencygroup_id3,
+                         consistencygroup_list.item(2).getAttribute('id'))
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id3)
@@ -188,39 +189,39 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res_dict['consistencygroups'][0]['availability_zone'],
-                         'az1')
-        self.assertEqual(res_dict['consistencygroups'][0]['description'],
-                         'this is a test consistency group')
-        self.assertEqual(res_dict['consistencygroups'][0]['name'],
-                         'test_consistencygroup')
-        self.assertEqual(res_dict['consistencygroups'][0]['id'],
-                         consistencygroup_id1)
-        self.assertEqual(res_dict['consistencygroups'][0]['status'],
-                         'creating')
+        self.assertEqual(200, res.status_int)
+        self.assertEqual('az1',
+                         res_dict['consistencygroups'][0]['availability_zone'])
+        self.assertEqual('this is a test consistency group',
+                         res_dict['consistencygroups'][0]['description'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroups'][0]['name'])
+        self.assertEqual(consistencygroup_id1,
+                         res_dict['consistencygroups'][0]['id'])
+        self.assertEqual('creating',
+                         res_dict['consistencygroups'][0]['status'])
 
-        self.assertEqual(res_dict['consistencygroups'][1]['availability_zone'],
-                         'az1')
-        self.assertEqual(res_dict['consistencygroups'][1]['description'],
-                         'this is a test consistency group')
-        self.assertEqual(res_dict['consistencygroups'][1]['name'],
-                         'test_consistencygroup')
-        self.assertEqual(res_dict['consistencygroups'][1]['id'],
-                         consistencygroup_id2)
-        self.assertEqual(res_dict['consistencygroups'][1]['status'],
-                         'creating')
+        self.assertEqual('az1',
+                         res_dict['consistencygroups'][1]['availability_zone'])
+        self.assertEqual('this is a test consistency group',
+                         res_dict['consistencygroups'][1]['description'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroups'][1]['name'])
+        self.assertEqual(consistencygroup_id2,
+                         res_dict['consistencygroups'][1]['id'])
+        self.assertEqual('creating',
+                         res_dict['consistencygroups'][1]['status'])
 
-        self.assertEqual(res_dict['consistencygroups'][2]['availability_zone'],
-                         'az1')
-        self.assertEqual(res_dict['consistencygroups'][2]['description'],
-                         'this is a test consistency group')
-        self.assertEqual(res_dict['consistencygroups'][2]['name'],
-                         'test_consistencygroup')
-        self.assertEqual(res_dict['consistencygroups'][2]['id'],
-                         consistencygroup_id3)
-        self.assertEqual(res_dict['consistencygroups'][2]['status'],
-                         'creating')
+        self.assertEqual('az1',
+                         res_dict['consistencygroups'][2]['availability_zone'])
+        self.assertEqual('this is a test consistency group',
+                         res_dict['consistencygroups'][2]['description'])
+        self.assertEqual('test_consistencygroup',
+                         res_dict['consistencygroups'][2]['name'])
+        self.assertEqual(consistencygroup_id3,
+                         res_dict['consistencygroups'][2]['id'])
+        self.assertEqual('creating',
+                         res_dict['consistencygroups'][2]['status'])
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id3)
@@ -240,54 +241,57 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         consistencygroup_detail = dom.getElementsByTagName('consistencygroup')
 
         self.assertEqual(
-            consistencygroup_detail.item(0).getAttribute('availability_zone'),
-            'az1')
+            'az1',
+            consistencygroup_detail.item(0).getAttribute('availability_zone'))
         self.assertEqual(
-            consistencygroup_detail.item(0).getAttribute('description'),
-            'this is a test consistency group')
+            'this is a test consistency group',
+            consistencygroup_detail.item(0).getAttribute('description'))
         self.assertEqual(
-            consistencygroup_detail.item(0).getAttribute('name'),
-            'test_consistencygroup')
+            'test_consistencygroup',
+            consistencygroup_detail.item(0).getAttribute('name'))
         self.assertEqual(
-            consistencygroup_detail.item(0).getAttribute('id'),
-            consistencygroup_id1)
+            consistencygroup_id1,
+            consistencygroup_detail.item(0).getAttribute('id'))
         self.assertEqual(
-            consistencygroup_detail.item(0).getAttribute('status'), 'creating')
+            'creating',
+            consistencygroup_detail.item(0).getAttribute('status'))
 
         self.assertEqual(
-            consistencygroup_detail.item(1).getAttribute('availability_zone'),
-            'az1')
+            'az1',
+            consistencygroup_detail.item(1).getAttribute('availability_zone'))
         self.assertEqual(
-            consistencygroup_detail.item(1).getAttribute('description'),
-            'this is a test consistency group')
+            'this is a test consistency group',
+            consistencygroup_detail.item(1).getAttribute('description'))
         self.assertEqual(
-            consistencygroup_detail.item(1).getAttribute('name'),
-            'test_consistencygroup')
+            'test_consistencygroup',
+            consistencygroup_detail.item(1).getAttribute('name'))
         self.assertEqual(
-            consistencygroup_detail.item(1).getAttribute('id'),
-            consistencygroup_id2)
+            consistencygroup_id2,
+            consistencygroup_detail.item(1).getAttribute('id'))
         self.assertEqual(
-            consistencygroup_detail.item(1).getAttribute('status'), 'creating')
+            'creating',
+            consistencygroup_detail.item(1).getAttribute('status'))
 
         self.assertEqual(
-            consistencygroup_detail.item(2).getAttribute('availability_zone'),
-            'az1')
+            'az1',
+            consistencygroup_detail.item(2).getAttribute('availability_zone'))
         self.assertEqual(
-            consistencygroup_detail.item(2).getAttribute('description'),
-            'this is a test consistency group')
+            'this is a test consistency group',
+            consistencygroup_detail.item(2).getAttribute('description'))
         self.assertEqual(
-            consistencygroup_detail.item(2).getAttribute('name'),
-            'test_consistencygroup')
+            'test_consistencygroup',
+            consistencygroup_detail.item(2).getAttribute('name'))
         self.assertEqual(
-            consistencygroup_detail.item(2).getAttribute('id'),
-            consistencygroup_id3)
+            consistencygroup_id3,
+            consistencygroup_detail.item(2).getAttribute('id'))
         self.assertEqual(
-            consistencygroup_detail.item(2).getAttribute('status'), 'creating')
+            'creating',
+            consistencygroup_detail.item(2).getAttribute('status'))
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id3)
@@ -298,7 +302,14 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
 
     def test_create_consistencygroup_json(self):
         group_id = "1"
+
+        # Create volume type
+        vol_type = 'test'
+        db.volume_type_create(context.get_admin_context(),
+                              {'name': vol_type, 'extra_specs': {}})
+
         body = {"consistencygroup": {"name": "cg1",
+                                     "volume_types": vol_type,
                                      "description":
                                      "Consistency Group 1", }}
         req = webob.Request.blank('/v2/fake/consistencygroups')
@@ -308,7 +319,7 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 202)
+        self.assertEqual(202, res.status_int)
         self.assertIn('id', res_dict['consistencygroup'])
 
         db.consistencygroup_destroy(context.get_admin_context(), group_id)
@@ -323,11 +334,11 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 400)
-        self.assertEqual(res_dict['badRequest']['code'], 400)
-        self.assertEqual(res_dict['badRequest']['message'],
-                         'The server could not comply with the request since'
-                         ' it is either malformed or otherwise incorrect.')
+        self.assertEqual(400, res.status_int)
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        self.assertEqual('The server could not comply with the request since'
+                         ' it is either malformed or otherwise incorrect.',
+                         res_dict['badRequest']['message'])
 
     def test_delete_consistencygroup_available(self):
         consistencygroup_id = self._create_consistencygroup(status='available')
@@ -339,10 +350,10 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         req.body = json.dumps(body)
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 202)
-        self.assertEqual(self._get_consistencygroup_attrib(consistencygroup_id,
-                         'status'),
-                         'deleting')
+        self.assertEqual(202, res.status_int)
+        self.assertEqual('deleting',
+                         self._get_consistencygroup_attrib(consistencygroup_id,
+                                                           'status'))
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id)
@@ -355,10 +366,10 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 404)
-        self.assertEqual(res_dict['itemNotFound']['code'], 404)
-        self.assertEqual(res_dict['itemNotFound']['message'],
-                         'Consistency group could not be found')
+        self.assertEqual(404, res.status_int)
+        self.assertEqual(404, res_dict['itemNotFound']['code'])
+        self.assertEqual('Consistency group 9999 could not be found.',
+                         res_dict['itemNotFound']['message'])
 
     def test_delete_consistencygroup_with_Invalidconsistencygroup(self):
         consistencygroup_id = self._create_consistencygroup(status='invalid')
@@ -371,10 +382,77 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 400)
-        self.assertEqual(res_dict['badRequest']['code'], 400)
-        self.assertEqual(res_dict['badRequest']['message'],
-                         'Invalid consistency group')
+        self.assertEqual(400, res.status_int)
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        msg = (_('Invalid ConsistencyGroup: Consistency group status must be '
+                 'available or error, but current status is: invalid'))
+        self.assertEqual(msg, res_dict['badRequest']['message'])
 
         db.consistencygroup_destroy(context.get_admin_context(),
                                     consistencygroup_id)
+
+    def test_delete_consistencygroup_no_host(self):
+        consistencygroup_id = self._create_consistencygroup(
+            host=None,
+            status='error')
+        req = webob.Request.blank('/v2/fake/consistencygroups/%s/delete' %
+                                  consistencygroup_id)
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        body = {"consistencygroup": {"force": True}}
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(res.status_int, 202)
+
+        cg = db.consistencygroup_get(
+            context.get_admin_context(read_deleted='yes'),
+            consistencygroup_id)
+        self.assertEqual(cg['status'], 'deleted')
+        self.assertEqual(cg['host'], None)
+
+    def test_create_delete_consistencygroup_update_quota(self):
+        ctxt = context.RequestContext('fake', 'fake', auth_token=True)
+        name = 'mycg'
+        description = 'consistency group 1'
+        fake_type = {'id': '1', 'name': 'fake_type'}
+        self.stubs.Set(db, 'volume_types_get_by_name_or_id',
+                       mock.Mock(return_value=[fake_type]))
+        self.stubs.Set(self.cg_api,
+                       '_cast_create_consistencygroup',
+                       mock.Mock())
+        self.stubs.Set(self.cg_api, 'update_quota',
+                       mock.Mock())
+
+        cg = self.cg_api.create(ctxt, name, description, fake_type['name'])
+        self.cg_api.update_quota.assert_called_once_with(
+            ctxt, cg['id'], 1)
+        self.assertEqual(cg['status'], 'creating')
+        self.assertEqual(cg['host'], None)
+        self.cg_api.update_quota.reset_mock()
+
+        cg['status'] = 'error'
+        self.cg_api.delete(ctxt, cg)
+        self.cg_api.update_quota.assert_called_once_with(
+            ctxt, cg['id'], -1, ctxt.project_id)
+        cg = db.consistencygroup_get(
+            context.get_admin_context(read_deleted='yes'),
+            cg['id'])
+        self.assertEqual(cg['status'], 'deleted')
+
+    def test_create_consistencygroup_failed_no_volume_type(self):
+        name = 'cg1'
+        body = {"consistencygroup": {"name": name,
+                                     "description":
+                                     "Consistency Group 1", }}
+        req = webob.Request.blank('/v2/fake/consistencygroups')
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+
+        self.assertEqual(400, res.status_int)
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        msg = (_('volume_types must be provided to create '
+                 'consistency group %s.') % name)
+        self.assertEqual(msg, res_dict['badRequest']['message'])

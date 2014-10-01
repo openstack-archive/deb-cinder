@@ -967,7 +967,7 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         if model_update:
             try:
-                self.db.volume_update(context,
+                self.db.volume_update(context.elevated(),
                                       volume_id,
                                       model_update)
             except exception.CinderException:
@@ -981,6 +981,8 @@ class VolumeManager(manager.SchedulerDependentManager):
                     self.db.volume_update(context.elevated(),
                                           volume_id,
                                           {'status': 'error'})
+
+        return model_update
 
     def _migrate_volume_generic(self, ctxt, volume, host, new_type_id):
         rpcapi = volume_rpcapi.VolumeAPI()
@@ -1667,7 +1669,11 @@ class VolumeManager(manager.SchedulerDependentManager):
             if volume_ref['attach_status'] == "attached":
                 # Volume is still attached, need to detach first
                 raise exception.VolumeAttached(volume_id=volume_ref['id'])
-            if volume_ref['host'] != self.host:
+            # self.host is 'host@backend'
+            # volume_ref['host'] is 'host@backend#pool'
+            # Extract host before doing comparison
+            new_host = vol_utils.extract_host(volume_ref['host'])
+            if new_host != self.host:
                 raise exception.InvalidVolume(
                     reason=_("Volume is not local to this node"))
 

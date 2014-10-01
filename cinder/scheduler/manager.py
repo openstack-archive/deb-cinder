@@ -53,7 +53,7 @@ LOG = logging.getLogger(__name__)
 class SchedulerManager(manager.Manager):
     """Chooses a host to create volumes."""
 
-    RPC_API_VERSION = '1.6'
+    RPC_API_VERSION = '1.7'
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -96,18 +96,18 @@ class SchedulerManager(manager.Manager):
                 context, group_id,
                 request_spec_list,
                 filter_properties_list)
-        except exception.NoValidHost as ex:
+        except exception.NoValidHost:
             msg = (_("Could not find a host for consistency group "
                      "%(group_id)s.") %
                    {'group_id': group_id})
             LOG.error(msg)
             db.consistencygroup_update(context, group_id,
                                        {'status': 'error'})
-        except Exception as ex:
+        except Exception:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Failed to create consistency group "
-                            "%(group_id)s."))
-                LOG.exception(ex)
+                LOG.exception(_("Failed to create consistency group "
+                                "%(group_id)s."),
+                              {'group_id': group_id})
                 db.consistencygroup_update(context, group_id,
                                            {'status': 'error'})
 
@@ -239,6 +239,10 @@ class SchedulerManager(manager.Manager):
         else:
             volume_rpcapi.VolumeAPI().manage_existing(context, volume_ref,
                                                       request_spec.get('ref'))
+
+    def get_pools(self, context, filters=None):
+        """Get active pools from scheduler's cache."""
+        return self.driver.get_pools(context, filters)
 
     def _set_volume_state_and_notify(self, method, updates, context, ex,
                                      request_spec, msg=None):

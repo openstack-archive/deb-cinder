@@ -30,6 +30,7 @@
 
     "volume_extension:volume_admin_actions:reset_status": "rule:admin_api",
     "volume_extension:snapshot_admin_actions:reset_status": "rule:admin_api",
+    "volume_extension:backup_admin_actions:reset_status": "rule:admin_api",
     "volume_extension:volume_admin_actions:force_delete": "rule:admin_api",
     "volume_extension:volume_admin_actions:force_detach": "rule:admin_api",
     "volume_extension:snapshot_admin_actions:force_delete": "rule:admin_api",
@@ -73,5 +74,7 @@
     "consistencygroup:create_cgsnapshot" : "",
     "consistencygroup:delete_cgsnapshot": "",
     "consistencygroup:get_cgsnapshot": "",
-    "consistencygroup:get_all_cgsnapshots": ""
+    "consistencygroup:get_all_cgsnapshots": "",
+
+    "scheduler_extension:scheduler_stats:get_pools" : "rule:admin_api"
 }

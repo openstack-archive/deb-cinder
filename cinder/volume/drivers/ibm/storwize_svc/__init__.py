@@ -753,7 +753,10 @@ class StorwizeSVCDriver(san.SanDriver):
         return replica_status
 
     def get_replication_status(self, ctxt, volume):
-        return self.replication.get_replication_status(volume)
+        replica_status = None
+        if self.replication:
+            replica_status = self.replication.get_replication_status(volume)
+        return replica_status
 
     def _check_volume_copy_ops(self):
         LOG.debug("enter: update volume copy status")
@@ -923,7 +926,8 @@ class StorwizeSVCDriver(san.SanDriver):
 
         # Add replica if needed
         if not old_type_replication and new_type_replication:
-            model_update = self.replication.create_replica(ctxt, volume)
+            model_update = self.replication.create_replica(ctxt, volume,
+                                                           new_type)
 
         LOG.debug('exit: retype: ild=%(id)s, new_type=%(new_type)s,'
                   'diff=%(diff)s, host=%(host)s' % {'id': volume['id'],

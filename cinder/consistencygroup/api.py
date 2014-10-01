@@ -104,27 +104,20 @@ class API(base.Base):
         return availability_zone
 
     def create(self, context, name, description,
-               cg_volume_types=None, availability_zone=None):
+               cg_volume_types, availability_zone=None):
 
         check_policy(context, 'create')
         volume_type_list = None
-        if cg_volume_types:
-            volume_type_list = cg_volume_types.split(',')
+        volume_type_list = cg_volume_types.split(',')
 
         req_volume_types = []
-        if volume_type_list:
-            req_volume_types = (self.db.volume_types_get_by_name_or_id(
-                context, volume_type_list))
-
-        if not req_volume_types:
-            volume_type = volume_types.get_default_volume_type()
-            req_volume_types.append(volume_type)
+        req_volume_types = (self.db.volume_types_get_by_name_or_id(
+            context, volume_type_list))
 
         req_volume_type_ids = ""
         for voltype in req_volume_types:
-            if voltype:
-                req_volume_type_ids = (
-                    req_volume_type_ids + voltype.get('id') + ",")
+            req_volume_type_ids = (
+                req_volume_type_ids + voltype.get('id') + ",")
         if len(req_volume_type_ids) == 0:
             req_volume_type_ids = None
 
@@ -156,7 +149,7 @@ class API(base.Base):
             filter_properties_list.append(filter_properties)
 
         # Update quota for consistencygroups
-        self.update_quota(context, group['id'])
+        self.update_quota(context, group['id'], 1)
 
         self._cast_create_consistencygroup(context, group['id'],
                                            request_spec_list,
@@ -219,21 +212,35 @@ class API(base.Base):
             request_spec_list=request_spec_list,
             filter_properties_list=filter_properties_list)
 
-    def update_quota(self, context, group_id):
-        reserve_opts = {'consistencygroups': 1}
+    def update_quota(self, context, group_id, num, project_id=None):
+        reserve_opts = {'consistencygroups': num}
         try:
-            reservations = CGQUOTAS.reserve(context, **reserve_opts)
-            CGQUOTAS.commit(context, reservations)
+            reservations = CGQUOTAS.reserve(context,
+                                            project_id=project_id,
+                                            **reserve_opts)
+            if reservations:
+                CGQUOTAS.commit(context, reservations)
         except Exception:
             with excutils.save_and_reraise_exception():
                 try:
-                    self.db.consistencygroup_destroy(context, group_id)
+                    self.db.consistencygroup_destroy(context.elevated(),
+                                                     group_id)
                 finally:
-                    LOG.error(_("Failed to update quota for creating"
+                    LOG.error(_("Failed to update quota for "
                                 "consistency group %s."), group_id)
 
     @wrap_check_policy
     def delete(self, context, group, force=False):
+        if not group['host']:
+            self.update_quota(context, group['id'], -1, group['project_id'])
+
+            msg = ("No host for consistency group %s. Deleting from "
+                   "the database.") % group['id']
+            LOG.debug(msg)
+            self.db.consistencygroup_destroy(context.elevated(), group['id'])
+
+            return
+
         if not force and group['status'] not in ["available", "error"]:
             msg = _("Consistency group status must be available or error, "
                     "but current status is: %s") % group['status']

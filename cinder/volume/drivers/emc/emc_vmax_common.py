@@ -344,10 +344,8 @@ class EMCVMAXCommon(object):
         :param volume: volume Object
         :param connector: the connector Object
         :returns: deviceInfoDict, device information tuple
-        :returns: ipAddress, required for ISCSI command
         :raises: VolumeBackendAPIException
         """
-        ipAddress = None
         extraSpecs = self._initial_setup(volume)
 
         volumeName = volume['name']
@@ -390,15 +388,8 @@ class EMCVMAXCommon(object):
                                      % {'vol': volumeName})
                 raise exception.VolumeBackendAPIException(
                     data=exception_message)
-        if self.protocol.lower() == 'iscsi':
-            ipAddress = self.utils.find_ip_protocol_endpoint(
-                self.conn, deviceInfoDict['storagesystem'])
-            if ipAddress is None:
-                LOG.info(_("Unable to get iscsi IP address "
-                           "for storagesystem %(storageSystem)s")
-                         % {'storageSystem': deviceInfoDict['storagesystem']})
 
-        return deviceInfoDict, ipAddress
+        return deviceInfoDict
 
     def _wrap_find_device_number(self, volume, connector):
         """Aid for unit testing
@@ -652,7 +643,7 @@ class EMCVMAXCommon(object):
                 'QoS_support': False,
                 'volume_backend_name': backendName or self.__class__.__name__,
                 'vendor_name': "EMC",
-                'driver_version': '1.0',
+                'driver_version': '2.0',
                 'storage_protocol': 'unknown',
                 'location_info': location_info}
 

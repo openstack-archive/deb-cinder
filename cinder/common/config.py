@@ -100,6 +100,9 @@ global_opts = [
                      'can improve data throughput, such as when high '
                      'network bandwidth is available and you use '
                      'compressed image formats like qcow2.'),
+    cfg.StrOpt('glance_ca_certificates_file',
+               help='Location of ca certificates file to use for glance '
+                    'client requests.'),
     cfg.IntOpt('glance_request_timeout',
                default=None,
                help='http/https timeout value for glance operations. If no '
@@ -116,7 +119,7 @@ global_opts = [
                help='The topic that volume backup nodes listen on'),
     cfg.BoolOpt('enable_v1_api',
                 default=True,
-                help=_("Deploy v1 of the Cinder API.")),
+                help=_("DEPRECATED: Deploy v1 of the Cinder API.")),
     cfg.BoolOpt('enable_v2_api',
                 default=True,
                 help=_("Deploy v2 of the Cinder API.")),

@@ -22,6 +22,7 @@ import BaseHTTPServer
 import httplib
 
 from lxml import etree
+import mock
 import six
 
 from cinder import exception
@@ -39,7 +40,6 @@ from cinder.volume.drivers.netapp.options import netapp_connection_opts
 from cinder.volume.drivers.netapp.options import netapp_provisioning_opts
 from cinder.volume.drivers.netapp.options import netapp_transport_opts
 from cinder.volume.drivers.netapp import ssc_utils
-
 
 LOG = logging.getLogger("cinder.volume.driver")
 
@@ -495,7 +495,7 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
               'os_type': 'linux', 'provider_location': 'lun1',
               'id': 'lun1', 'provider_auth': None, 'project_id': 'project',
               'display_name': None, 'display_description': 'lun1',
-              'volume_type_id': None}
+              'volume_type_id': None, 'host': 'hostname@backend#vol1'}
     snapshot = {'name': 'snapshot1', 'size': 2, 'volume_name': 'lun1',
                 'volume_size': 2, 'project_id': 'project',
                 'display_name': None, 'display_description': 'lun1',
@@ -524,7 +524,7 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
                 'os_type': 'linux', 'provider_location': 'lun1',
                 'id': 'lun1', 'provider_auth': None, 'project_id': 'project',
                 'display_name': None, 'display_description': 'lun1',
-                'volume_type_id': None}
+                'volume_type_id': None, 'host': 'hostname@backend#vol1'}
     vol1 = ssc_utils.NetAppVolume('lun1', 'openstack')
     vol1.state['vserver_root'] = False
     vol1.state['status'] = 'online'
@@ -623,12 +623,11 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
         if not properties:
             raise AssertionError('Target portal is none')
 
-    def test_fail_create_vol(self):
-        self.assertRaises(exception.VolumeBackendAPIException,
-                          self.driver.create_volume, self.vol_fail)
-
     def test_vol_stats(self):
         self.driver.get_volume_stats(refresh=True)
+        stats = self.driver._stats
+        self.assertEqual(stats['vendor_name'], 'NetApp')
+        self.assertTrue(stats['pools'][0]['pool_name'])
 
     def test_create_vol_snapshot_diff_size_resize(self):
         self.driver.create_volume(self.volume)
@@ -657,6 +656,23 @@ class NetAppDirectCmodeISCSIDriverTestCase(test.TestCase):
     def test_extend_vol_sub_lun_clone(self):
         self.driver.create_volume(self.volume)
         self.driver.extend_volume(self.volume, 4)
+
+    def test_initialize_connection_no_target_details_found(self):
+        fake_volume = {'name': 'mock-vol'}
+        fake_connector = {'initiator': 'iqn.mock'}
+        self.driver._map_lun = mock.Mock(return_value='mocked-lun-id')
+        self.driver._get_iscsi_service_details = mock.Mock(
+            return_value='mocked-iqn')
+        self.driver._get_target_details = mock.Mock(return_value=[])
+        expected = (_('No iscsi target details were found for LUN %s')
+                    % fake_volume['name'])
+        try:
+            self.driver.initialize_connection(fake_volume, fake_connector)
+        except exception.VolumeBackendAPIException as exc:
+            if expected not in str(exc):
+                self.fail(_('Expected exception message is missing'))
+        else:
+            self.fail(_('VolumeBackendAPIException not raised'))
 
 
 class NetAppDriverNegativeTestCase(test.TestCase):
@@ -1133,6 +1149,7 @@ class NetAppDirect7modeISCSIDriverTestCase_NV(
         client = driver.client
         client.set_api_version(1, 9)
         self.driver = driver
+        self.driver.root_volume_name = 'root'
 
     def _set_config(self, configuration):
         configuration.netapp_storage_family = 'ontap_7mode'
@@ -1149,19 +1166,6 @@ class NetAppDirect7modeISCSIDriverTestCase_NV(
         self.driver.create_volume(self.volume)
         self.driver.delete_volume(self.volume)
         self.driver.volume_list = []
-
-    def test_create_fail_on_select_vol(self):
-        self.driver.volume_list = ['vol2', 'vol3']
-        success = False
-        try:
-            self.driver.create_volume(self.volume)
-        except exception.VolumeBackendAPIException:
-            success = True
-            pass
-        finally:
-            self.driver.volume_list = []
-        if not success:
-            raise AssertionError('Failed creating on selected volumes')
 
     def test_check_for_setup_error_version(self):
         drv = self.driver
@@ -1195,6 +1199,7 @@ class NetAppDirect7modeISCSIDriverTestCase_WV(
         client = driver.client
         client.set_api_version(1, 9)
         self.driver = driver
+        self.driver.root_volume_name = 'root'
 
     def _set_config(self, configuration):
         configuration.netapp_storage_family = 'ontap_7mode'
