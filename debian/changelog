@@ -2,6 +2,8 @@ cinder (2014.2~rc1-1) experimental; urgency=medium
 
   * New upstream release.
   * Updated (build-)depends for this release.
+  * Added more lintian-override for false positive about unused debconf
+    templates.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 01 Oct 2014 15:43:51 +0800
 

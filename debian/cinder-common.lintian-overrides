@@ -4,3 +4,6 @@ cinder-common: unused-debconf-template cinder/auth-host
 cinder-common: unused-debconf-template cinder/admin-tenant-name
 cinder-common: unused-debconf-template cinder/admin-user
 cinder-common: unused-debconf-template cinder/admin-password
+cinder-common: unused-debconf-template cinder/rabbit_host
+cinder-common: unused-debconf-template cinder/rabbit_userid
+cinder-common: unused-debconf-template cinder/rabbit_password
