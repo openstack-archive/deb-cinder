@@ -261,11 +261,19 @@ class API(base.Base):
         self.db.volume_update(context, volume['id'], fields)
 
     def get(self, context, volume_id, viewable_admin_meta=False):
+        old_ctxt = context.deepcopy()
         if viewable_admin_meta:
-            context = context.elevated()
-        rv = self.db.volume_get(context, volume_id)
+            ctxt = context.elevated()
+        else:
+            ctxt = context
+        rv = self.db.volume_get(ctxt, volume_id)
         volume = dict(rv.iteritems())
-        check_policy(context, 'get', volume)
+        try:
+            check_policy(old_ctxt, 'get', volume)
+        except exception.PolicyNotAuthorized:
+            # raise VolumeNotFound instead to make sure Cinder behaves
+            # as it used to
+            raise exception.VolumeNotFound(volume_id=volume_id)
         return volume
 
     def get_all(self, context, marker=None, limit=None, sort_key='created_at',
