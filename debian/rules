@@ -15,7 +15,7 @@ endif
 override_dh_clean:
 	dh_clean
 	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst debian/cinder-volume.postinst
-	rm -rf setuptools_git-*-py*.egg/
+	rm -rf debian/*.upstart debian/*.service
 
 override_dh_install:
 	dh_install --fail-missing -Xbin/cinder-all
