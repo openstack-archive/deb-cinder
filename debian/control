@@ -4,8 +4,9 @@ Priority: extra
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Thomas Goirand <zigo@debian.org>,
            Gustavo Panizzo <gfa@zumbi.com.ar>
-Build-Depends: debhelper (>= 8.0.0),
-               openstack-pkg-tools (>= 12~),
+Build-Depends: debhelper (>= 9),
+               dh-systemd,
+               openstack-pkg-tools (>= 14~),
                po-debconf,
                python-all (>= 2.6.6-3~),
                python-pbr (>= 0.6),

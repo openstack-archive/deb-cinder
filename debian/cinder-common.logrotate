@@ -1,4 +1,4 @@
-/var/log/cinder/cinder-volume.log {
+/var/log/cinder/*.log {
     daily
     missingok
     compress
