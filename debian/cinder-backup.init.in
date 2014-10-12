@@ -13,8 +13,6 @@
 
 # Author: Thomas Goirand <zigo@debian.org>
 
-# PATH should only include /usr/* if it runs after the mountnfs.sh script
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Cinder Backup"
 PROJECT_NAME=cinder
 NAME=${PROJECT_NAME}-backup

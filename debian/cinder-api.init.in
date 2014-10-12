@@ -12,10 +12,8 @@
 #                    virtual machine instances
 ### END INIT INFO
 
-# Author: Julien Danjou <acid@debian.org>, Thomas Goirand <zigo@debian.org>
+# Author: Thomas Goirand <zigo@debian.org>
 
-# PATH should only include /usr/* if it runs after the mountnfs.sh script
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Cinder Api"
 PROJECT_NAME=cinder
 NAME=${PROJECT_NAME}-api
