@@ -1,6 +1,7 @@
 cinder (2014.2~rc2-1) experimental; urgency=medium
 
   * New upstream release.
+  * Updated (build-)depends for this release.
   * Switching to templated init scripts using openstack-pkg-tools >= 13.
   * Mangling upstream rc and beta versions in watch file.
   * Now using a single cinder-common.logrotate file instead of so many.
