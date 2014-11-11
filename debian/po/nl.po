@@ -95,7 +95,7 @@ msgstr ""
 #. proprietaire ("tenant")
 #: ../cinder-common.templates:4001
 msgid "Authentication server tenant name:"
-msgstr "Naam van de cliëntruimte (tenant) op de authenticatieserver:"
+msgstr "Naam van de cliÃ«ntruimte (tenant) op de authenticatieserver:"
 
 #. Type: string
 #. Description
@@ -109,7 +109,7 @@ msgstr "Naam van de cliëntruimte (tenant) op de authenticatieserver:"
 #: ../cinder-common.templates:4001
 msgid "Please specify the authentication server tenant name."
 msgstr ""
-"Gelieve de naam te vermelden van de cliëntruimte (tenant) op de "
+"Gelieve de naam te vermelden van de cliÃ«ntruimte (tenant) op de "
 "authenticatieserver."
 
 #. Type: string
