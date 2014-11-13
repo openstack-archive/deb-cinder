@@ -1,2 +1,3 @@
 install-missing-files.patch
 CVE-2014-7230_CVE-2014-7231_Sync_process_utils_from_oslo.patch
+Sync_latest_strutils_from_oslo-incubator_for_mask_password_fix.patch

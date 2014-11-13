@@ -1,3 +1,10 @@
+cinder (2014.1.3-7) unstable; urgency=medium
+
+  * Adds fix for "delete volume failed due to unicode problems" which seems to
+    happen after fixing CVE-2014-7230 & CVE-2014-7231 (Closes: #769223).
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 13 Nov 2014 21:36:14 +0800
+
 cinder (2014.1.3-6) unstable; urgency=medium
 
   * Fixed debconf translation nl.po encoding (Closes: #766904).
