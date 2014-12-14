@@ -1,6 +1,8 @@
 cinder (2014.2.1-1) experimental; urgency=medium
 
   * New upstream release.
+  * Now depends on openstack-pkg-tools (>= 20~) to avoid systemd issues with
+    previous versions.
 
  -- Thomas Goirand <zigo@debian.org>  Sun, 14 Dec 2014 08:59:02 +0000
 
