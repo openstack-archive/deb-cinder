@@ -1,3 +1,9 @@
+cinder (2014.2.1-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 14 Dec 2014 08:59:02 +0000
+
 cinder (2014.2-1) experimental; urgency=medium
 
   * New upstream release.
