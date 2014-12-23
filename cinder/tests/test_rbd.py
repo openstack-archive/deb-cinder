@@ -21,14 +21,14 @@ import os
 import tempfile
 
 import mock
+from oslo.utils import timeutils
+from oslo.utils import units
 
 from cinder import db
 from cinder import exception
 from cinder.i18n import _
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
-from cinder.openstack.common import units
 from cinder import test
 from cinder.tests.image import fake as fake_image
 from cinder.tests.test_volume import DriverTestCase
@@ -81,11 +81,6 @@ def common_mocks(f):
             inst.mock_rados = mock_rados
             inst.mock_client = mock_client
             inst.mock_proxy = mock_proxy
-            inst.mock_rados.Rados = mock.Mock
-            inst.mock_rados.Rados.ioctx = mock.Mock()
-            inst.mock_rbd.RBD = mock.Mock
-            inst.mock_rbd.Image = mock.Mock
-            inst.mock_rbd.Image.close = mock.Mock()
             inst.mock_rbd.RBD.Error = Exception
             inst.mock_rados.Error = Exception
             inst.mock_rbd.ImageBusy = MockImageBusyException
@@ -167,7 +162,6 @@ class RBDTestCase(test.TestCase):
         with mock.patch.object(self.driver, '_supports_layering') as \
                 mock_supports_layering:
             mock_supports_layering.return_value = True
-            self.mock_rbd.RBD.create = mock.Mock()
 
             self.driver.create_volume(self.volume)
 
@@ -177,16 +171,17 @@ class RBDTestCase(test.TestCase):
                     self.volume_size * units.Gi, order]
             kwargs = {'old_format': False,
                       'features': self.mock_rbd.RBD_FEATURE_LAYERING}
-            self.mock_rbd.RBD.create.assert_called_once_with(*args, **kwargs)
-            client.__enter__.assert_called_once()
-            client.__exit__.assert_called_once()
-            mock_supports_layering.assert_called_once()
+            self.mock_rbd.RBD.return_value.create.assert_called_once_with(
+                *args, **kwargs)
+            client.__enter__.assert_called_once_with()
+            client.__exit__.assert_called_once_with(None, None, None)
+            mock_supports_layering.assert_called_once_with()
 
     @common_mocks
     def test_manage_existing_get_size(self):
-        with mock.patch.object(self.driver.rbd.Image, 'size') as \
+        with mock.patch.object(self.driver.rbd.Image(), 'size') as \
                 mock_rbd_image_size:
-            with mock.patch.object(self.driver.rbd.Image, 'close') \
+            with mock.patch.object(self.driver.rbd.Image(), 'close') \
                     as mock_rbd_image_close:
                 mock_rbd_image_size.return_value = 2 * units.Gi
                 existing_ref = {'source-name': self.volume_name}
@@ -200,9 +195,9 @@ class RBDTestCase(test.TestCase):
     @common_mocks
     def test_manage_existing_get_invalid_size(self):
 
-        with mock.patch.object(self.driver.rbd.Image, 'size') as \
+        with mock.patch.object(self.driver.rbd.Image(), 'size') as \
                 mock_rbd_image_size:
-            with mock.patch.object(self.driver.rbd.Image, 'close') \
+            with mock.patch.object(self.driver.rbd.Image(), 'close') \
                     as mock_rbd_image_close:
                 mock_rbd_image_size.return_value = 'abcd'
                 existing_ref = {'source-name': self.volume_name}
@@ -218,29 +213,24 @@ class RBDTestCase(test.TestCase):
         client = self.mock_client.return_value
         client.__enter__.return_value = client
 
-        with mock.patch.object(driver, 'RADOSClient') as mock_rados_client:
-            with mock.patch.object(self.driver.rbd.RBD(), 'rename') as \
-                    mock_rbd_image_rename:
-                exist_volume = 'vol-exist'
-                existing_ref = {'source-name': exist_volume}
-                mock_rbd_image_rename.return_value = 0
-                mock_rbd_image_rename(mock_rados_client.ioctx,
-                                      exist_volume,
-                                      self.volume_name)
-                self.driver.manage_existing(self.volume, existing_ref)
-                mock_rbd_image_rename.assert_called_with(
-                    mock_rados_client.ioctx,
-                    exist_volume,
-                    self.volume_name)
+        with mock.patch.object(self.driver.rbd.RBD(), 'rename') as \
+                mock_rbd_image_rename:
+            exist_volume = 'vol-exist'
+            existing_ref = {'source-name': exist_volume}
+            mock_rbd_image_rename.return_value = 0
+            self.driver.manage_existing(self.volume, existing_ref)
+            mock_rbd_image_rename.assert_called_with(
+                client.ioctx,
+                exist_volume,
+                self.volume_name)
 
     @common_mocks
     def test_manage_existing_with_exist_rbd_image(self):
         client = self.mock_client.return_value
         client.__enter__.return_value = client
 
-        self.mock_rbd.Image.rename = mock.Mock()
-        self.mock_rbd.Image.rename.side_effect = \
-            MockImageExistsException
+        self.mock_rbd.RBD.return_value.rename.side_effect = (
+            MockImageExistsException)
 
         exist_volume = 'vol-exist'
         existing_ref = {'source-name': exist_volume}
@@ -260,7 +250,6 @@ class RBDTestCase(test.TestCase):
         with mock.patch.object(self.driver, '_supports_layering') as \
                 mock_supports_layering:
             mock_supports_layering.return_value = False
-            self.mock_rbd.RBD.create = mock.Mock()
 
             self.driver.create_volume(self.volume)
 
@@ -270,10 +259,11 @@ class RBDTestCase(test.TestCase):
                     self.volume_size * units.Gi, order]
             kwargs = {'old_format': True,
                       'features': 0}
-            self.mock_rbd.RBD.create.assert_called_once_with(*args, **kwargs)
-            client.__enter__.assert_called_once()
-            client.__exit__.assert_called_once()
-            mock_supports_layering.assert_called_once()
+            self.mock_rbd.RBD.return_value.create.assert_called_once_with(
+                *args, **kwargs)
+            client.__enter__.assert_called_once_with()
+            client.__exit__.assert_called_once_with(None, None, None)
+            mock_supports_layering.assert_called_once_with()
 
     @common_mocks
     def test_delete_backup_snaps(self):
@@ -284,17 +274,14 @@ class RBDTestCase(test.TestCase):
             rbd_image = self.driver.rbd.Image()
             self.driver._delete_backup_snaps(rbd_image)
             mock_get_backup_snaps.assert_called_once_with(rbd_image)
-            self.assertTrue(self.driver.rbd.Image.remove_snap.called)
+            self.assertTrue(
+                self.driver.rbd.Image.return_value.remove_snap.called)
 
     @common_mocks
     def test_delete_volume(self):
         client = self.mock_client.return_value
 
-        self.driver.rbd.Image.list_snaps = mock.Mock()
-        self.driver.rbd.Image.list_snaps.return_value = []
-        self.driver.rbd.Image.close = mock.Mock()
-        self.driver.rbd.Image.remove = mock.Mock()
-        self.driver.rbd.Image.unprotect_snap = mock.Mock()
+        self.driver.rbd.Image.return_value.list_snaps.return_value = []
 
         with mock.patch.object(self.driver, '_get_clone_info') as \
                 mock_get_clone_info:
@@ -304,30 +291,35 @@ class RBDTestCase(test.TestCase):
 
                 self.driver.delete_volume(self.volume)
 
-                mock_get_clone_info.assert_called_once()
-                self.driver.rbd.Image.list_snaps.assert_called_once()
-                client.__enter__.assert_called_once()
-                client.__exit__.assert_called_once()
-                mock_delete_backup_snaps.assert_called_once()
-                self.assertFalse(self.driver.rbd.Image.unprotect_snap.called)
-                self.driver.rbd.RBD.remove.assert_called_once()
+                mock_get_clone_info.assert_called_once_with(
+                    self.mock_rbd.Image.return_value,
+                    self.volume_name,
+                    None)
+                (self.driver.rbd.Image.return_value
+                    .list_snaps.assert_called_once_with())
+                client.__enter__.assert_called_once_with()
+                client.__exit__.assert_called_once_with(None, None, None)
+                mock_delete_backup_snaps.assert_called_once_with(
+                    self.mock_rbd.Image.return_value)
+                self.assertFalse(
+                    self.driver.rbd.Image.return_value.unprotect_snap.called)
+                self.assertEqual(
+                    1, self.driver.rbd.RBD.return_value.remove.call_count)
 
     @common_mocks
     def delete_volume_not_found(self):
         self.mock_rbd.Image.side_effect = self.mock_rbd.ImageNotFound
         self.assertIsNone(self.driver.delete_volume(self.volume))
-        self.mock_rbd.Image.assert_called_once()
+        self.mock_rbd.Image.assert_called_once_with()
         # Make sure the exception was raised
         self.assertEqual(RAISED_EXCEPTIONS, [self.mock_rbd.ImageNotFound])
 
     @common_mocks
     def test_delete_busy_volume(self):
-        self.mock_rbd.Image.list_snaps = mock.Mock()
-        self.mock_rbd.Image.list_snaps.return_value = []
-        self.mock_rbd.Image.unprotect_snap = mock.Mock()
+        self.mock_rbd.Image.return_value.list_snaps.return_value = []
 
-        self.mock_rbd.RBD.remove = mock.Mock()
-        self.mock_rbd.RBD.remove.side_effect = self.mock_rbd.ImageBusy
+        self.mock_rbd.RBD.return_value.remove.side_effect = (
+            self.mock_rbd.ImageBusy)
 
         with mock.patch.object(self.driver, '_get_clone_info') as \
                 mock_get_clone_info:
@@ -339,12 +331,19 @@ class RBDTestCase(test.TestCase):
                     self.assertRaises(exception.VolumeIsBusy,
                                       self.driver.delete_volume, self.volume)
 
-                    mock_get_clone_info.assert_called_once()
-                    self.mock_rbd.Image.list_snaps.assert_called_once()
-                    mock_rados_client.assert_called_once()
-                    mock_delete_backup_snaps.assert_called_once()
-                    self.assertFalse(self.mock_rbd.Image.unprotect_snap.called)
-                    self.mock_rbd.RBD.remove.assert_called_once()
+                    mock_get_clone_info.assert_called_once_with(
+                        self.mock_rbd.Image.return_value,
+                        self.volume_name,
+                        None)
+                    (self.mock_rbd.Image.return_value.list_snaps
+                     .assert_called_once_with())
+                    mock_rados_client.assert_called_once_with(self.driver)
+                    mock_delete_backup_snaps.assert_called_once_with(
+                        self.mock_rbd.Image.return_value)
+                    self.assertFalse(
+                        self.mock_rbd.Image.return_value.unprotect_snap.called)
+                    self.assertEqual(
+                        1, self.mock_rbd.RBD.return_value.remove.call_count)
                     # Make sure the exception was raised
                     self.assertEqual(RAISED_EXCEPTIONS,
                                      [self.mock_rbd.ImageBusy])
@@ -384,7 +383,7 @@ class RBDTestCase(test.TestCase):
         self.assertEqual(info, parent_info)
 
         self.assertFalse(volume.set_snap.called)
-        volume.parent_info.assert_called_once()
+        volume.parent_info.assert_called_once_with()
 
     @common_mocks
     def test_get_clone_info_w_snap(self):
@@ -401,9 +400,8 @@ class RBDTestCase(test.TestCase):
 
         self.assertEqual(info, parent_info)
 
-        volume.set_snap.assert_called_once()
         self.assertEqual(volume.set_snap.call_count, 2)
-        volume.parent_info.assert_called_once()
+        volume.parent_info.assert_called_once_with()
 
     @common_mocks
     def test_get_clone_info_w_exception(self):
@@ -419,9 +417,8 @@ class RBDTestCase(test.TestCase):
 
         self.assertEqual(info, (None, None, None))
 
-        volume.set_snap.assert_called_once()
         self.assertEqual(volume.set_snap.call_count, 2)
-        volume.parent_info.assert_called_once()
+        volume.parent_info.assert_called_once_with()
         # Make sure the exception was raised
         self.assertEqual(RAISED_EXCEPTIONS, [self.mock_rbd.ImageNotFound])
 
@@ -439,7 +436,7 @@ class RBDTestCase(test.TestCase):
         self.assertEqual(info, parent_info)
 
         self.assertFalse(volume.set_snap.called)
-        volume.parent_info.assert_called_once()
+        volume.parent_info.assert_called_once_with()
 
     @common_mocks
     def test_create_cloned_volume(self):
@@ -447,24 +444,22 @@ class RBDTestCase(test.TestCase):
         dst_name = u'volume-00000002'
 
         self.cfg.rbd_max_clone_depth = 2
-        self.mock_rbd.RBD.clone = mock.Mock()
 
         with mock.patch.object(self.driver, '_get_clone_depth') as \
                 mock_get_clone_depth:
             # Try with no flatten required
             mock_get_clone_depth.return_value = 1
 
-            self.mock_rbd.Image.create_snap = mock.Mock()
-            self.mock_rbd.Image.protect_snap = mock.Mock()
-            self.mock_rbd.Image.close = mock.Mock()
+            self.driver.create_cloned_volume({'name': dst_name},
+                                             {'name': src_name})
 
-            self.driver.create_cloned_volume(dict(name=dst_name),
-                                             dict(name=src_name))
-
-            self.mock_rbd.Image.create_snap.assert_called_once()
-            self.mock_rbd.Image.protect_snap.assert_called_once()
-            self.mock_rbd.RBD.clone.assert_called_once()
-            self.mock_rbd.Image.close.assert_called_once()
+            (self.mock_rbd.Image.return_value.create_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            (self.mock_rbd.Image.return_value.protect_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            self.assertEqual(
+                1, self.mock_rbd.RBD.return_value.clone.call_count)
+            self.mock_rbd.Image.return_value.close.assert_called_once_with()
             self.assertTrue(mock_get_clone_depth.called)
 
     @common_mocks
@@ -473,30 +468,29 @@ class RBDTestCase(test.TestCase):
         dst_name = u'volume-00000002'
 
         self.cfg.rbd_max_clone_depth = 1
-        self.mock_rbd.RBD.clone = mock.Mock()
-        self.mock_rbd.RBD.clone.side_effect = self.mock_rbd.RBD.Error
+        self.mock_rbd.RBD.return_value.clone.side_effect = (
+            self.mock_rbd.RBD.Error)
 
         with mock.patch.object(self.driver, '_get_clone_depth') as \
                 mock_get_clone_depth:
             # Try with no flatten required
             mock_get_clone_depth.return_value = 1
 
-            self.mock_rbd.Image.create_snap = mock.Mock()
-            self.mock_rbd.Image.protect_snap = mock.Mock()
-            self.mock_rbd.Image.unprotect_snap = mock.Mock()
-            self.mock_rbd.Image.remove_snap = mock.Mock()
-            self.mock_rbd.Image.close = mock.Mock()
-
             self.assertRaises(self.mock_rbd.RBD.Error,
                               self.driver.create_cloned_volume,
                               dict(name=dst_name), dict(name=src_name))
 
-            self.mock_rbd.Image.create_snap.assert_called_once()
-            self.mock_rbd.Image.protect_snap.assert_called_once()
-            self.mock_rbd.RBD.clone.assert_called_once()
-            self.mock_rbd.Image.unprotect_snap.assert_called_once()
-            self.mock_rbd.Image.remove_snap.assert_called_once()
-            self.mock_rbd.Image.close.assert_called_once()
+            (self.mock_rbd.Image.return_value.create_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            (self.mock_rbd.Image.return_value.protect_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            self.assertEqual(
+                1, self.mock_rbd.RBD.return_value.clone.call_count)
+            (self.mock_rbd.Image.return_value.unprotect_snap
+             .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            (self.mock_rbd.Image.return_value.remove_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            self.mock_rbd.Image.return_value.close.assert_called_once_with()
             self.assertTrue(mock_get_clone_depth.called)
 
     @common_mocks
@@ -505,29 +499,28 @@ class RBDTestCase(test.TestCase):
         dst_name = u'volume-00000002'
 
         self.cfg.rbd_max_clone_depth = 2
-        self.mock_rbd.RBD.clone = mock.Mock()
-        self.mock_rbd.RBD.clone.side_effect = self.mock_rbd.RBD.Error
+        self.mock_rbd.RBD.return_value.clone.side_effect = (
+            self.mock_rbd.RBD.Error)
         with mock.patch.object(self.driver, '_get_clone_depth') as \
                 mock_get_clone_depth:
             # Try with no flatten required
             mock_get_clone_depth.return_value = 1
 
-            self.mock_rbd.Image.create_snap = mock.Mock()
-            self.mock_rbd.Image.protect_snap = mock.Mock()
-            self.mock_rbd.Image.unprotect_snap = mock.Mock()
-            self.mock_rbd.Image.remove_snap = mock.Mock()
-            self.mock_rbd.Image.close = mock.Mock()
-
             self.assertRaises(self.mock_rbd.RBD.Error,
                               self.driver.create_cloned_volume,
-                              dict(name=dst_name), dict(name=src_name))
+                              {'name': dst_name}, {'name': src_name})
 
-            self.mock_rbd.Image.create_snap.assert_called_once()
-            self.mock_rbd.Image.protect_snap.assert_called_once()
-            self.mock_rbd.RBD.clone.assert_called_once()
-            self.mock_rbd.Image.unprotect_snap.assert_called_once()
-            self.mock_rbd.Image.remove_snap.assert_called_once()
-            self.mock_rbd.Image.close.assert_called_once()
+            (self.mock_rbd.Image.return_value.create_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            (self.mock_rbd.Image.return_value.protect_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            self.assertEqual(
+                1, self.mock_rbd.RBD.return_value.clone.call_count)
+            (self.mock_rbd.Image.return_value.unprotect_snap
+             .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            (self.mock_rbd.Image.return_value.remove_snap
+                .assert_called_once_with('.'.join((dst_name, 'clone_snap'))))
+            self.mock_rbd.Image.return_value.close.assert_called_once_with()
 
     @common_mocks
     def test_good_locations(self):
@@ -575,11 +568,12 @@ class RBDTestCase(test.TestCase):
             mock_get_fsid.return_value = 'abc'
             location = 'rbd://abc/pool/image/snap'
 
-            self.mock_proxy.side_effect = self.mock_rbd.Error
+            self.driver.rbd.Error = Exception
+            self.mock_proxy.side_effect = Exception
 
             args = [location, {'disk_format': 'raw'}]
             self.assertFalse(self.driver._is_cloneable(*args))
-            self.mock_proxy.assert_called_once()
+            self.assertEqual(1, self.mock_proxy.call_count)
             self.assertTrue(mock_get_fsid.called)
 
     @common_mocks
@@ -638,7 +632,7 @@ class RBDTestCase(test.TestCase):
             reserved_percentage=0)
 
         actual = self.driver.get_volume_stats(True)
-        client.cluster.get_cluster_stats.assert_called_once()
+        client.cluster.get_cluster_stats.assert_called_once_with()
         self.assertDictMatch(expected, actual)
 
     @common_mocks
@@ -662,7 +656,7 @@ class RBDTestCase(test.TestCase):
                         reserved_percentage=0)
 
         actual = self.driver.get_volume_stats(True)
-        client.cluster.get_cluster_stats.assert_called_once()
+        client.cluster.get_cluster_stats.assert_called_once_with()
         self.assertDictMatch(expected, actual)
 
     @common_mocks
@@ -717,14 +711,13 @@ class RBDTestCase(test.TestCase):
         # capture both rados client used to perform the clone
         client.__enter__.side_effect = mock__enter__(client)
 
-        self.mock_rbd.RBD.clone = mock.Mock()
-
         self.driver._clone(self.volume, src_pool, src_image, src_snap)
 
         args = [client_stack[0].ioctx, str(src_image), str(src_snap),
                 client_stack[1].ioctx, str(self.volume_name)]
         kwargs = {'features': self.mock_rbd.RBD_FEATURE_LAYERING}
-        self.mock_rbd.RBD.clone.assert_called_once_with(*args, **kwargs)
+        self.mock_rbd.RBD.return_value.clone.assert_called_once_with(
+            *args, **kwargs)
         self.assertEqual(client.__enter__.call_count, 2)
 
     @common_mocks
@@ -744,78 +737,96 @@ class RBDTestCase(test.TestCase):
         self.mox.VerifyAll()
 
     @common_mocks
+    def test_retype(self):
+        context = {}
+        diff = {'encryption': {},
+                'extra_specs': {}}
+        fake_volume = {'name': 'testvolume',
+                       'host': 'currenthost'}
+        fake_type = 'high-IOPS'
+
+        # no support for migration
+        host = {'host': 'anotherhost'}
+        self.assertFalse(self.driver.retype(context, fake_volume,
+                                            fake_type, diff, host))
+        host = {'host': 'currenthost'}
+
+        # no support for changing encryption
+        diff['encryption'] = {'non-empty': 'non-empty'}
+        self.assertFalse(self.driver.retype(context, fake_volume,
+                                            fake_type, diff, host))
+        diff['encryption'] = {}
+
+        # no support for changing extra_specs
+        diff['extra_specs'] = {'non-empty': 'non-empty'}
+        self.assertFalse(self.driver.retype(context, fake_volume,
+                                            fake_type, diff, host))
+        diff['extra_specs'] = {}
+
+        self.assertTrue(self.driver.retype(context, fake_volume,
+                                           fake_type, diff, host))
+
     def test_rbd_volume_proxy_init(self):
+        mock_driver = mock.Mock(name='driver')
+        mock_driver._connect_to_rados.return_value = (None, None)
+        with driver.RBDVolumeProxy(mock_driver, self.volume_name):
+            self.assertEqual(1, mock_driver._connect_to_rados.call_count)
+            self.assertFalse(mock_driver._disconnect_from_rados.called)
+
+        self.assertEqual(1, mock_driver._disconnect_from_rados.call_count)
+
+        mock_driver.reset_mock()
+
         snap = u'snapshot-name'
+        with driver.RBDVolumeProxy(mock_driver, self.volume_name,
+                                   snapshot=snap):
+            self.assertEqual(1, mock_driver._connect_to_rados.call_count)
+            self.assertFalse(mock_driver._disconnect_from_rados.called)
 
-        client = self.mock_client.return_value
-        client.__enter__.return_value = client
-
-        with mock.patch.object(self.driver, '_connect_to_rados') as \
-                mock_connect_from_rados:
-            with mock.patch.object(self.driver, '_disconnect_from_rados') as \
-                    mock_disconnect_from_rados:
-                mock_connect_from_rados.return_value = (None, None)
-                mock_disconnect_from_rados.return_value = (None, None)
-
-                with driver.RBDVolumeProxy(self.driver, self.volume_name):
-                    mock_connect_from_rados.assert_called_once()
-                    self.assertFalse(mock_disconnect_from_rados.called)
-
-                mock_disconnect_from_rados.assert_called_once()
-
-                mock_connect_from_rados.reset_mock()
-                mock_disconnect_from_rados.reset_mock()
-
-                with driver.RBDVolumeProxy(self.driver, self.volume_name,
-                                           snapshot=snap):
-                    mock_connect_from_rados.assert_called_once()
-                    self.assertFalse(mock_disconnect_from_rados.called)
-
-                mock_disconnect_from_rados.assert_called_once()
+        self.assertEqual(1, mock_driver._disconnect_from_rados.call_count)
 
     @common_mocks
     def test_connect_to_rados(self):
         # Default
         self.cfg.rados_connect_timeout = -1
 
-        self.mock_rados.Rados.connect = mock.Mock()
-        self.mock_rados.Rados.shutdown = mock.Mock()
-        self.mock_rados.Rados.open_ioctx = mock.Mock()
-        self.mock_rados.Rados.open_ioctx.return_value = \
-            self.mock_rados.Rados.ioctx
+        self.mock_rados.Rados.return_value.open_ioctx.return_value = \
+            self.mock_rados.Rados.return_value.ioctx
 
         # default configured pool
         ret = self.driver._connect_to_rados()
-        self.assertTrue(self.mock_rados.Rados.connect.called)
+        self.assertTrue(self.mock_rados.Rados.return_value.connect.called)
         # Expect no timeout if default is used
-        self.mock_rados.Rados.connect.assert_called_once_with()
-        self.assertTrue(self.mock_rados.Rados.open_ioctx.called)
-        self.assertIsInstance(ret[0], self.mock_rados.Rados)
-        self.assertEqual(ret[1], self.mock_rados.Rados.ioctx)
-        self.mock_rados.Rados.open_ioctx.assert_called_with(self.cfg.rbd_pool)
+        self.mock_rados.Rados.return_value.connect.assert_called_once_with()
+        self.assertTrue(self.mock_rados.Rados.return_value.open_ioctx.called)
+        self.assertEqual(ret[1], self.mock_rados.Rados.return_value.ioctx)
+        self.mock_rados.Rados.return_value.open_ioctx.assert_called_with(
+            self.cfg.rbd_pool)
 
         # different pool
         ret = self.driver._connect_to_rados('alt_pool')
-        self.assertTrue(self.mock_rados.Rados.connect.called)
-        self.assertTrue(self.mock_rados.Rados.open_ioctx.called)
-        self.assertIsInstance(ret[0], self.mock_rados.Rados)
-        self.assertEqual(ret[1], self.mock_rados.Rados.ioctx)
-        self.mock_rados.Rados.open_ioctx.assert_called_with('alt_pool')
+        self.assertTrue(self.mock_rados.Rados.return_value.connect.called)
+        self.assertTrue(self.mock_rados.Rados.return_value.open_ioctx.called)
+        self.assertEqual(ret[1], self.mock_rados.Rados.return_value.ioctx)
+        self.mock_rados.Rados.return_value.open_ioctx.assert_called_with(
+            'alt_pool')
 
         # With timeout
         self.cfg.rados_connect_timeout = 1
-        self.mock_rados.Rados.connect.reset_mock()
+        self.mock_rados.Rados.return_value.connect.reset_mock()
         self.driver._connect_to_rados()
-        self.mock_rados.Rados.connect.assert_called_once_with(timeout=1)
+        self.mock_rados.Rados.return_value.connect.assert_called_once_with(
+            timeout=1)
 
         # error
-        self.mock_rados.Rados.open_ioctx.reset_mock()
-        self.mock_rados.Rados.shutdown.reset_mock()
-        self.mock_rados.Rados.open_ioctx.side_effect = self.mock_rados.Error
+        self.mock_rados.Rados.return_value.open_ioctx.reset_mock()
+        self.mock_rados.Rados.return_value.shutdown.reset_mock()
+        self.mock_rados.Rados.return_value.open_ioctx.side_effect = (
+            self.mock_rados.Error)
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._connect_to_rados)
-        self.mock_rados.Rados.open_ioctx.assert_called_once()
-        self.mock_rados.Rados.shutdown.assert_called_once()
+        self.assertTrue(self.mock_rados.Rados.return_value.open_ioctx.called)
+        self.mock_rados.Rados.return_value.shutdown.assert_called_once_with()
 
 
 class RBDImageIOWrapperTestCase(test.TestCase):
@@ -919,12 +930,12 @@ class RBDImageIOWrapperTestCase(test.TestCase):
         with mock.patch.object(driver, 'LOG') as mock_logger:
             self.meta.image.flush = mock.Mock()
             self.mock_rbd_wrapper.flush()
-            self.meta.image.flush.assert_called_once()
+            self.meta.image.flush.assert_called_once_with()
             self.meta.image.flush.reset_mock()
             # this should be caught and logged silently.
             self.meta.image.flush.side_effect = AttributeError
             self.mock_rbd_wrapper.flush()
-            self.meta.image.flush.assert_called_once()
+            self.meta.image.flush.assert_called_once_with()
             msg = _("flush() not supported in this version of librbd")
             mock_logger.warning.assert_called_with(msg)
 
@@ -1008,7 +1019,7 @@ class ManagedRBDTestCase(DriverTestCase):
                     self._create_volume_from_image('available', raw=True)
                     self.assertFalse(mock_copy.called)
 
-                mock_clone_image.assert_called_once()
+                self.assertTrue(mock_clone_image.called)
                 self.assertFalse(mock_create.called)
 
     def test_create_vol_from_non_raw_image_status_available(self):
@@ -1025,10 +1036,10 @@ class ManagedRBDTestCase(DriverTestCase):
                 with mock.patch.object(create_volume.CreateVolumeFromSpecTask,
                                        '_copy_image_to_volume') as mock_copy:
                     self._create_volume_from_image('available', raw=False)
-                    mock_copy.assert_called_once()
+                    self.assertTrue(mock_copy.called)
 
-                mock_clone_image.assert_called_once()
-                mock_create.assert_called_once()
+                self.assertTrue(mock_clone_image.called)
+                self.assertTrue(mock_create.called)
 
     def test_create_vol_from_image_status_error(self):
         """Fail to clone raw image then verify volume is in error state."""
@@ -1042,7 +1053,7 @@ class ManagedRBDTestCase(DriverTestCase):
                                                    clone_error=True)
                     self.assertFalse(mock_copy.called)
 
-                mock_clone_image.assert_called_once()
+                self.assertTrue(mock_clone_image.called)
                 self.assertFalse(self.volume.driver.create_volume.called)
 
     def test_clone_failure(self):
@@ -1070,10 +1081,12 @@ class ManagedRBDTestCase(DriverTestCase):
                         mock_resize:
                     image_loc = ('rbd://fee/fi/fo/fum', None)
 
-                    actual = driver.clone_image({'name': 'vol1'}, image_loc,
+                    volume = {'name': 'vol1'}
+                    actual = driver.clone_image(volume, image_loc,
                                                 'id.foo',
                                                 {'disk_format': 'raw'})
 
                     self.assertEqual(expected, actual)
-                    mock_clone.assert_called_once()
-                    mock_resize.assert_called_once()
+                    mock_clone.assert_called_once_with(volume,
+                                                       'fi', 'fo', 'fum')
+                    mock_resize.assert_called_once_with(volume)

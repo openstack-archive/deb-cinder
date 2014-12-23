@@ -26,7 +26,7 @@ import urllib2
 import netaddr
 import six.moves.urllib.parse as urlparse
 
-from cinder.i18n import _
+from cinder.i18n import _, _LI
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers.vmware import error_util
 from cinder.volume.drivers.vmware import vim_util
@@ -148,7 +148,7 @@ class VMwareHTTPWriteFile(VMwareHTTPFile):
         param_list = {'dcPath': data_center_name, 'dsName': datastore_name}
         base_url = base_url + '?' + urllib.urlencode(param_list)
         _urlparse = urlparse.urlparse(base_url)
-        scheme, netloc, path, params, query, fragment = _urlparse
+        scheme, netloc, path, _params, query, _fragment = _urlparse
         if scheme == 'http':
             conn = httplib.HTTPConnection(netloc)
         elif scheme == 'https':
@@ -206,12 +206,12 @@ class VMwareHTTPWriteVmdk(VMwareHTTPFile):
             msg = _("Could not retrieve URL from lease.")
             LOG.exception(msg)
             raise error_util.VimException(msg)
-        LOG.info(_("Opening vmdk url: %s for write.") % url)
+        LOG.info(_LI("Opening vmdk url: %s for write.") % url)
 
         # Prepare the http connection to the vmdk url
         cookies = session.vim.client.options.transport.cookiejar
         _urlparse = urlparse.urlparse(url)
-        scheme, netloc, path, params, query, fragment = _urlparse
+        scheme, netloc, path, _params, query, _fragment = _urlparse
         if scheme == 'http':
             conn = httplib.HTTPConnection(netloc)
         elif scheme == 'https':
@@ -299,7 +299,7 @@ class VMwareHTTPReadVmdk(VMwareHTTPFile):
             msg = _("Could not retrieve URL from lease.")
             LOG.exception(msg)
             raise error_util.VimException(msg)
-        LOG.info(_("Opening vmdk url: %s for read.") % url)
+        LOG.info(_LI("Opening vmdk url: %s for read.") % url)
 
         cookies = session.vim.client.options.transport.cookiejar
         headers = {'User-Agent': USER_AGENT,

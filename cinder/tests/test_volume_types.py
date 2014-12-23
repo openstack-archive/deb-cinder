@@ -49,19 +49,24 @@ class VolumeTypeTestCase(test.TestCase):
                                     size="300",
                                     rpm="7200",
                                     visible="True")
+        self.vol_type1_description = self.vol_type1_name + '_desc'
 
     def test_volume_type_create_then_destroy(self):
         """Ensure volume types can be created and deleted."""
         prev_all_vtypes = volume_types.get_all_types(self.ctxt)
 
+        # create
         type_ref = volume_types.create(self.ctxt,
                                        self.vol_type1_name,
-                                       self.vol_type1_specs)
+                                       self.vol_type1_specs,
+                                       description=self.vol_type1_description)
         new = volume_types.get_volume_type_by_name(self.ctxt,
                                                    self.vol_type1_name)
 
         LOG.info(_("Given data: %s"), self.vol_type1_specs)
         LOG.info(_("Result data: %s"), new)
+
+        self.assertEqual(self.vol_type1_description, new['description'])
 
         for k, v in self.vol_type1_specs.iteritems():
             self.assertEqual(v, new['extra_specs'][k],
@@ -72,6 +77,14 @@ class VolumeTypeTestCase(test.TestCase):
                          len(new_all_vtypes),
                          'drive type was not created')
 
+        # update
+        new_type_desc = self.vol_type1_description + '_updated'
+        type_ref_updated = volume_types.update(self.ctxt,
+                                               type_ref.id,
+                                               new_type_desc)
+        self.assertEqual(new_type_desc, type_ref_updated['description'])
+
+        # destroy
         volume_types.destroy(self.ctxt, type_ref['id'])
         new_all_vtypes = volume_types.get_all_types(self.ctxt)
         self.assertEqual(prev_all_vtypes,
@@ -229,6 +242,24 @@ class VolumeTypeTestCase(test.TestCase):
                                              encryption)
         self.assertTrue(volume_types.is_encrypted(self.ctxt, volume_type_id))
 
+    def test_add_access(self):
+        project_id = '456'
+        vtype = volume_types.create(self.ctxt, 'type1')
+        vtype_id = vtype.get('id')
+
+        volume_types.add_volume_type_access(self.ctxt, vtype_id, project_id)
+        vtype_access = db.volume_type_access_get_all(self.ctxt, vtype_id)
+        self.assertIn(project_id, [a.project_id for a in vtype_access])
+
+    def test_remove_access(self):
+        project_id = '456'
+        vtype = volume_types.create(self.ctxt, 'type1', projects=['456'])
+        vtype_id = vtype.get('id')
+
+        volume_types.remove_volume_type_access(self.ctxt, vtype_id, project_id)
+        vtype_access = db.volume_type_access_get_all(self.ctxt, vtype_id)
+        self.assertNotIn(project_id, vtype_access)
+
     def test_get_volume_type_qos_specs(self):
         qos_ref = qos_specs.create(self.ctxt, 'qos-specs-1', {'k1': 'v1',
                                                               'k2': 'v2',
@@ -302,9 +333,11 @@ class VolumeTypeTestCase(test.TestCase):
 
         # And add encryption for good measure
         enc_keyvals1 = {'cipher': 'c1', 'key_size': 256, 'provider': 'p1',
-                        'control_location': 'front-end'}
+                        'control_location': 'front-end',
+                        'encryption_id': 'uuid1'}
         enc_keyvals2 = {'cipher': 'c1', 'key_size': 128, 'provider': 'p1',
-                        'control_location': 'front-end'}
+                        'control_location': 'front-end',
+                        'encryption_id': 'uuid2'}
         db.volume_type_encryption_create(self.ctxt, type_ref1['id'],
                                          enc_keyvals1)
         db.volume_type_encryption_create(self.ctxt, type_ref2['id'],
@@ -332,7 +365,19 @@ class VolumeTypeTestCase(test.TestCase):
                           'control_location': (None, 'front-end'),
                           'deleted': (None, False),
                           'key_size': (None, 256),
-                          'provider': (None, 'p1')})
+                          'provider': (None, 'p1'),
+                          'encryption_id': (None, 'uuid1')})
+
+    def test_encryption_create(self):
+        volume_type = volume_types.create(self.ctxt, "type1")
+        volume_type_id = volume_type.get('id')
+        encryption = {
+            'control_location': 'front-end',
+            'provider': 'fake_provider',
+        }
+        db_api.volume_type_encryption_create(self.ctxt, volume_type_id,
+                                             encryption)
+        self.assertTrue(volume_types.is_encrypted(self.ctxt, volume_type_id))
 
     def test_get_volume_type_encryption(self):
         volume_type = volume_types.create(self.ctxt, "type1")

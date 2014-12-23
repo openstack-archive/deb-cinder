@@ -32,14 +32,14 @@ Notes:
 import os
 import re
 
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import units
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LI, _LW
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume.drivers import nfs
 from cinder.volume.drivers.remotefs import nas_opts
@@ -88,7 +88,7 @@ class IBMNAS_NFSDriver(nfs.NfsDriver, san.SanDriver):
         self.configuration.san_ssh_port = self.configuration.nas_ssh_port
         self.configuration.ibmnas_platform_type = \
             self.configuration.ibmnas_platform_type.lower()
-        LOG.info(_('Initialized driver for IBMNAS Platform: %s.'),
+        LOG.info(_LI('Initialized driver for IBMNAS Platform: %s.'),
                  self.configuration.ibmnas_platform_type)
 
     def set_execute(self, execute):
@@ -284,8 +284,9 @@ class IBMNAS_NFSDriver(nfs.NfsDriver, san.SanDriver):
     def delete_volume(self, volume):
         """Deletes a logical volume."""
         if not volume['provider_location']:
-            LOG.warn(_('Volume %s does not have provider_location specified, '
-                     'skipping.'), volume['name'])
+            LOG.warn(_LW('Volume %s does not have '
+                         'provider_location specified, '
+                         'skipping.'), volume['name'])
             return
 
         export_path = self._get_export_path(volume['id'])

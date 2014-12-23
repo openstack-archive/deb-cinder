@@ -15,6 +15,7 @@
 
 
 from oslo.config import cfg
+from oslo.utils import timeutils
 import webob.exc
 
 from cinder.api import extensions
@@ -24,7 +25,6 @@ from cinder import db
 from cinder import exception
 from cinder.i18n import _
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
 from cinder import utils
 
 
@@ -105,7 +105,7 @@ class ServiceController(wsgi.Controller):
         svcs = []
         for svc in services:
             delta = now - (svc['updated_at'] or svc['created_at'])
-            alive = abs(utils.total_seconds(delta)) <= CONF.service_down_time
+            alive = abs(delta.total_seconds()) <= CONF.service_down_time
             art = (alive and "up") or "down"
             active = 'enabled'
             if svc['disabled']:

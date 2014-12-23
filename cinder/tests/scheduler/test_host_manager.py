@@ -18,10 +18,10 @@ Tests For HostManager
 
 import mock
 from oslo.config import cfg
+from oslo.utils import timeutils
 
 from cinder import exception
 from cinder.openstack.common.scheduler import filters
-from cinder.openstack.common import timeutils
 from cinder.scheduler import host_manager
 from cinder import test
 
@@ -84,7 +84,7 @@ class HostManagerTestCase(test.TestCase):
         self.assertEqual(expected, mock_func.call_args_list)
         self.assertEqual(set(result), set(self.fake_hosts))
 
-    @mock.patch('cinder.openstack.common.timeutils.utcnow')
+    @mock.patch('oslo.utils.timeutils.utcnow')
     def test_update_service_capabilities(self, _mock_utcnow):
         service_states = self.host_manager.service_states
         self.assertDictMatch(service_states, {})
@@ -115,6 +115,57 @@ class HostManagerTestCase(test.TestCase):
                     'host2': host2_volume_capabs,
                     'host3': host3_volume_capabs}
         self.assertDictMatch(service_states, expected)
+
+    @mock.patch('cinder.db.service_get_all_by_topic')
+    @mock.patch('cinder.utils.service_is_up')
+    @mock.patch('oslo.utils.timeutils.utcnow')
+    def test_update_and_get_pools(self, _mock_utcnow,
+                                  _mock_service_is_up,
+                                  _mock_service_get_all_by_topic):
+        """Test interaction between update and get_pools
+
+        This test verifies that each time that get_pools is called it gets the
+        latest copy of service_capabilities, which is timestamped with the
+        current date/time.
+        """
+        context = 'fake_context'
+        _mock_utcnow.side_effect = [400, 401, 402]
+
+        services = [
+            # This is the first call to utcnow()
+            dict(id=1, host='host1', topic='volume', disabled=False,
+                 availability_zone='zone1', updated_at=timeutils.utcnow()),
+        ]
+
+        mocked_service_states = {
+            'host1': dict(volume_backend_name='AAA',
+                          total_capacity_gb=512, free_capacity_gb=200,
+                          timestamp=None, reserved_percentage=0),
+        }
+
+        _mock_service_get_all_by_topic.return_value = services
+        _mock_service_is_up.return_value = True
+        _mock_warning = mock.Mock()
+        host_manager.LOG.warn = _mock_warning
+
+        host_volume_capabs = dict(free_capacity_gb=4321)
+
+        service_name = 'volume'
+        with mock.patch.dict(self.host_manager.service_states,
+                             mocked_service_states):
+            self.host_manager.update_service_capabilities(service_name,
+                                                          'host1',
+                                                          host_volume_capabs)
+            res = self.host_manager.get_pools(context)
+            self.assertEqual(1, len(res))
+            self.assertEqual(401, res[0]['capabilities']['timestamp'])
+
+            self.host_manager.update_service_capabilities(service_name,
+                                                          'host1',
+                                                          host_volume_capabs)
+            res = self.host_manager.get_pools(context)
+            self.assertEqual(1, len(res))
+            self.assertEqual(402, res[0]['capabilities']['timestamp'])
 
     @mock.patch('cinder.db.service_get_all_by_topic')
     @mock.patch('cinder.utils.service_is_up')
@@ -222,9 +273,6 @@ class HostManagerTestCase(test.TestCase):
 
         with mock.patch.dict(self.host_manager.service_states,
                              mocked_service_states):
-            # call get_all_host_states to populate host_state_map
-            self.host_manager.get_all_host_states(context)
-
             res = self.host_manager.get_pools(context)
 
             # check if get_pools returns all 3 pools
@@ -426,6 +474,20 @@ class HostStateTestCase(test.TestCase):
                          'infinite')
         self.assertEqual(fake_host.pools['_pool0'].free_capacity_gb,
                          'unknown')
+
+    def test_update_from_empty_volume_capability(self):
+        fake_host = host_manager.HostState('host1')
+
+        vol_cap = {'timestamp': None}
+
+        fake_host.update_from_volume_capability(vol_cap)
+        self.assertEqual(fake_host.total_capacity_gb, 0)
+        self.assertEqual(fake_host.free_capacity_gb, None)
+        # Pool stats has been updated
+        self.assertEqual(fake_host.pools['_pool0'].total_capacity_gb,
+                         0)
+        self.assertEqual(fake_host.pools['_pool0'].free_capacity_gb,
+                         0)
 
 
 class PoolStateTestCase(test.TestCase):

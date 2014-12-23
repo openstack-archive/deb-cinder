@@ -21,13 +21,13 @@ import re
 import threading
 
 from oslo.config import cfg
+from oslo.utils import excutils
 import six
 
 from cinder.db.sqlalchemy import api
 from cinder.db.sqlalchemy import models
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _LE, _LW
 from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.drivers.hitachi import hbsd_basiclib as basic_lib
@@ -389,14 +389,14 @@ class HBSDCommon(object):
                     try:
                         self.command.restart_pair_horcm()
                     except Exception as e:
-                        LOG.warning(_('Failed to restart horcm: %s') %
+                        LOG.warning(_LW('Failed to restart horcm: %s') %
                                     six.text_type(e))
         else:
             if (all_split or is_vvol) and restart:
                 try:
                     self.command.restart_pair_horcm()
                 except Exception as e:
-                    LOG.warning(_('Failed to restart horcm: %s') %
+                    LOG.warning(_LW('Failed to restart horcm: %s') %
                                 six.text_type(e))
 
     def copy_async_data(self, pvol, svol, is_vvol):
@@ -718,7 +718,7 @@ class HBSDCommon(object):
             total_gb, free_gb = self.command.comm_get_dp_pool(
                 self.configuration.hitachi_pool_id)
         except Exception as ex:
-            LOG.error(_('Failed to update volume status: %s') %
+            LOG.error(_LE('Failed to update volume status: %s') %
                       six.text_type(ex))
             return None
 

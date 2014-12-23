@@ -20,7 +20,7 @@ from oslo.config import cfg
 from cinder import context
 from cinder.db.sqlalchemy import api
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LI
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
 from cinder.volume import driver
@@ -139,7 +139,7 @@ class BlockDeviceDriver(driver.ISCSIDriver):
                                   self.local_path(volume))
 
     def create_cloned_volume(self, volume, src_vref):
-        LOG.info(_('Creating clone of volume: %s') % src_vref['id'])
+        LOG.info(_LI('Creating clone of volume: %s') % src_vref['id'])
         device = self.find_appropriate_size_device(src_vref['size'])
         volutils.copy_volume(
             self.local_path(src_vref), device,
@@ -190,8 +190,8 @@ class BlockDeviceDriver(driver.ISCSIDriver):
         return used_devices
 
     def _get_device_size(self, dev_path):
-        out, err = self._execute('blockdev', '--getsz', dev_path,
-                                 run_as_root=True)
+        out, _err = self._execute('blockdev', '--getsz', dev_path,
+                                  run_as_root=True)
         size_in_m = int(out)
         return size_in_m / 2048
 

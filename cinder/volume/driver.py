@@ -19,15 +19,15 @@ Drivers for volumes.
 
 import time
 
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import excutils
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE, _LW
 from cinder.image import image_utils
-from cinder.openstack.common import excutils
 from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
 from cinder import utils
 from cinder.volume import iscsi
 from cinder.volume import rpcapi as volume_rpcapi
@@ -92,9 +92,8 @@ volume_opts = [
                help='IET configuration file'),
     cfg.StrOpt('lio_initiator_iqns',
                default='',
-               help=('Comma-separated list of initiator IQNs '
-                     'allowed to connect to the '
-                     'iSCSI target. (From Nova compute nodes.)')),
+               help='This option is deprecated and unused. '
+                    'It will be removed in the next release.'),
     cfg.StrOpt('iscsi_iotype',
                default='fileio',
                help=('Sets the behavior of the iSCSI target '
@@ -127,6 +126,10 @@ volume_opts = [
                default=None,
                help='The path to the client certificate for verification, '
                     'if the driver supports it.'),
+    cfg.BoolOpt('driver_use_ssl',
+                default=False,
+                help='Tell driver to use SSL for connection to backend '
+                     'storage if the driver supports it.'),
 ]
 
 # for backward compatibility
@@ -175,7 +178,7 @@ class VolumeDriver(object):
        data path related implementation should be a *member object*
        that we call a connector.  The point here is that for example
        don't allow the LVM driver to implement iSCSI methods, instead
-       call whatever connector it has configued via conf file
+       call whatever connector it has configured via conf file
        (iSCSI{LIO, TGT, IET}, FC, etc).
 
        In the base class and for example the LVM driver we do this via a has-a
@@ -228,8 +231,8 @@ class VolumeDriver(object):
                         self._is_non_recoverable(ex.stderr, non_recoverable):
                     raise
 
-                LOG.exception(_("Recovering from a failed execute.  "
-                                "Try number %s"), tries)
+                LOG.exception(_LE("Recovering from a failed execute.  "
+                                  "Try number %s"), tries)
                 time.sleep(tries ** 2)
 
     def _detach_volume(self, context, attach_info, volume, properties,
@@ -262,8 +265,8 @@ class VolumeDriver(object):
                 LOG.debug(("volume %s: removing export"), volume['id'])
                 self.remove_export(context, volume)
             except Exception as ex:
-                LOG.exception(_("Error detaching volume %(volume)s, "
-                                "due to remove export failure."),
+                LOG.exception(_LE("Error detaching volume %(volume)s, "
+                                  "due to remove export failure."),
                               {"volume": volume['id']})
                 raise exception.RemoveExportException(volume=volume['id'],
                                                       reason=ex)
@@ -471,9 +474,9 @@ class VolumeDriver(object):
                                                    model_update)
             except exception.CinderException as ex:
                 if model_update:
-                    LOG.exception(_("Failed updating model of volume "
-                                    "%(volume_id)s with driver provided model "
-                                    "%(model)s") %
+                    LOG.exception(_LE("Failed updating model of volume "
+                                      "%(volume_id)s with driver provided "
+                                      "model %(model)s") %
                                   {'volume_id': volume['id'],
                                    'model': model_update})
                     raise exception.ExportFailure(reason=ex)
@@ -506,7 +509,10 @@ class VolumeDriver(object):
         device = connector.connect_volume(conn['data'])
         host_device = device['path']
 
-        if not connector.check_valid_device(host_device):
+        # Secure network file systems will NOT run as root.
+        root_access = not self.secure_file_operations_enabled()
+
+        if not connector.check_valid_device(host_device, root_access):
             raise exception.DeviceUnavailable(path=host_device,
                                               reason=(_("Unable to access "
                                                         "the backend storage "
@@ -548,9 +554,15 @@ class VolumeDriver(object):
 
         try:
             volume_path = attach_info['device']['path']
-            with utils.temporary_chown(volume_path):
+
+            # Secure network file systems will not chown files.
+            if self.secure_file_operations_enabled():
                 with fileutils.file_open(volume_path) as volume_file:
                     backup_service.backup(backup, volume_file)
+            else:
+                with utils.temporary_chown(volume_path):
+                    with fileutils.file_open(volume_path) as volume_file:
+                        backup_service.backup(backup, volume_file)
 
         finally:
             self._detach_volume(context, attach_info, volume, properties)
@@ -567,9 +579,16 @@ class VolumeDriver(object):
 
         try:
             volume_path = attach_info['device']['path']
-            with utils.temporary_chown(volume_path):
+
+            # Secure network file systems will not chown files.
+            if self.secure_file_operations_enabled():
                 with fileutils.file_open(volume_path, 'wb') as volume_file:
                     backup_service.restore(backup, volume['id'], volume_file)
+            else:
+                with utils.temporary_chown(volume_path):
+                    with fileutils.file_open(volume_path, 'wb') as volume_file:
+                        backup_service.restore(backup, volume['id'],
+                                               volume_file)
 
         finally:
             self._detach_volume(context, attach_info, volume, properties)
@@ -828,6 +847,25 @@ class VolumeDriver(object):
         """
         return None
 
+    def secure_file_operations_enabled(self):
+        """Determine if driver is running in Secure File Operations mode.
+
+        The Cinder Volume driver needs to query if this driver is running
+        in a secure file operations mode. By default, it is False: any driver
+        that does support secure file operations should override this method.
+        """
+        return False
+
+    def update_migrated_volume(self, ctxt, volume, new_volume):
+        """Return model update for migrated volume.
+
+        :param volume: The original volume that was migrated to this backend
+        :param new_volume: The migration volume object that was created on
+                           this backend as part of the migration process
+        :return model_update to update DB with any needed changes
+        """
+        return None
+
 
 class ISCSIDriver(VolumeDriver):
     """Executes commands relating to ISCSI volumes.
@@ -851,7 +889,8 @@ class ISCSIDriver(VolumeDriver):
     def _do_iscsi_discovery(self, volume):
         # TODO(justinsb): Deprecate discovery and use stored info
         # NOTE(justinsb): Discovery won't work with CHAP-secured targets (?)
-        LOG.warn(_("ISCSI provider_location not stored, using discovery"))
+        LOG.warn(_LW("ISCSI provider_location not "
+                     "stored, using discovery"))
 
         volume_name = volume['name']
 
@@ -864,7 +903,7 @@ class ISCSIDriver(VolumeDriver):
                                         volume['host'].split('@')[0],
                                         run_as_root=True)
         except processutils.ProcessExecutionError as ex:
-            LOG.error(_("ISCSI discovery attempt failed for:%s") %
+            LOG.error(_LE("ISCSI discovery attempt failed for:%s") %
                       volume['host'].split('@')[0])
             LOG.debug("Error from iscsiadm -m discovery: %s" % ex.stderr)
             return None
@@ -1002,10 +1041,6 @@ class ISCSIDriver(VolumeDriver):
             }
 
         """
-
-        if CONF.iscsi_helper == 'lioadm':
-            self.target_helper.initialize_connection(volume, connector)
-
         iscsi_properties = self._get_iscsi_properties(volume)
         return {
             'driver_volume_type': 'iscsi',
@@ -1071,6 +1106,8 @@ class ISCSIDriver(VolumeDriver):
 
     def get_target_helper(self, db):
         root_helper = utils.get_root_helper()
+        # FIXME(jdg): These work because the driver will overide
+        # but we need to move these to use self.configuraiton
         if CONF.iscsi_helper == 'iseradm':
             return iscsi.ISERTgtAdm(root_helper, CONF.volumes_dir,
                                     CONF.iscsi_target_prefix, db=db)
@@ -1082,9 +1119,7 @@ class ISCSIDriver(VolumeDriver):
         elif CONF.iscsi_helper == 'fake':
             return iscsi.FakeIscsiHelper()
         elif CONF.iscsi_helper == 'lioadm':
-            return iscsi.LioAdm(root_helper,
-                                CONF.lio_initiator_iqns,
-                                CONF.iscsi_target_prefix, db=db)
+            return iscsi.LioAdm(root_helper, CONF.iscsi_target_prefix, db=db)
         else:
             return iscsi.IetAdm(root_helper, CONF.iet_conf, CONF.iscsi_iotype,
                                 db=db)
@@ -1203,7 +1238,6 @@ class ISERDriver(ISCSIDriver):
             }
 
         """
-
         iser_properties = self._get_iscsi_properties(volume)
         return {
             'driver_volume_type': 'iser',

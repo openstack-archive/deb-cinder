@@ -19,8 +19,9 @@ import mock
 
 from json import JSONEncoder
 
+from oslo.utils import units
+
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import units
 from cinder import test
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.zfssa import restclient as client
@@ -114,24 +115,21 @@ class FakeZFSSA(object):
     def get_target(self, target):
         return 'iqn.1986-03.com.sun:02:00000-aaaa-bbbb-cccc-ddddd'
 
-    def create_lun(self, pool, project, lun, volsize, targetgroup,
-                   volblocksize, sparse, compression, logbias):
+    def create_lun(self, pool, project, lun, volsize, targetgroup, specs):
         out = {}
         if not self.host and not self.user:
             return out
 
-        out = {"logbias": logbias,
-               "compression": compression,
-               "status": "online",
+        out = {"status": "online",
                "lunguid": "600144F0F8FBD5BD000053CE53AB0001",
                "initiatorgroup": ["fake_initgrp"],
                "volsize": volsize,
                "pool": pool,
-               "volblocksize": volblocksize,
                "name": lun,
                "project": project,
-               "sparse": sparse,
                "targetgroup": targetgroup}
+        if specs:
+            out.update(specs)
 
         return out
 
@@ -213,12 +211,17 @@ class FakeZFSSA(object):
 
         return out
 
+    def get_initiator_initiatorgroup(self, initiator):
+        ret = ['test-init-grp1']
+        return ret
+
 
 class TestZFSSAISCSIDriver(test.TestCase):
 
     test_vol = {
         'name': 'cindervol',
-        'size': 1
+        'size': 1,
+        'id': 1
     }
 
     test_snap = {
@@ -258,12 +261,17 @@ class TestZFSSAISCSIDriver(test.TestCase):
             'iqn.1-0.org.deb:01:d7, iqn.1-0.org.deb:01:d9'
         self.configuration.zfssa_initiator_user = ''
         self.configuration.zfssa_initiator_password = ''
+        self.configuration.zfssa_initiator_config = "{'test-init-grp1':[{'iqn':\
+            'iqn.1-0.org.deb:01:d7','user':'','password':''}],'test-init-grp\
+            2':[{'iqn':'iqn.1-0.org.deb:01:d9','user':'','password':''}]}"
         self.configuration.zfssa_target_group = 'test-target-grp1'
         self.configuration.zfssa_target_user = ''
         self.configuration.zfssa_target_password = ''
         self.configuration.zfssa_target_portal = '1.1.1.1:3260'
         self.configuration.zfssa_target_interfaces = 'e1000g0'
         self.configuration.zfssa_rest_timeout = 60
+        self.configuration.volume_backend_name = 'fake_zfssa'
+        self.configuration.safe_get = self.fake_safe_get
 
     def test_create_delete_volume(self):
         self.drv.create_volume(self.test_vol)
@@ -282,14 +290,20 @@ class TestZFSSAISCSIDriver(test.TestCase):
                                              self.test_snap)
         self.drv.delete_volume(self.test_vol)
 
-    def test_create_export(self):
-        self.drv.create_volume(self.test_vol)
-        self.drv.create_export({}, self.test_vol)
-        self.drv.delete_volume(self.test_vol)
-
     def test_remove_export(self):
         self.drv.create_volume(self.test_vol)
-        self.drv.remove_export({}, self.test_vol)
+        self.drv.terminate_connection(self.test_vol, '')
+        self.drv.delete_volume(self.test_vol)
+
+    def test_volume_attach_detach(self):
+        self.drv.create_volume(self.test_vol)
+
+        connector = dict(initiator='iqn.1-0.org.deb:01:d7')
+        props = self.drv.initialize_connection(self.test_vol, connector)
+        self.assertEqual('iscsi', props['driver_volume_type'])
+        self.assertEqual(self.test_vol['id'], props['data']['volume_id'])
+
+        self.drv.terminate_connection(self.test_vol, '')
         self.drv.delete_volume(self.test_vol)
 
     def test_get_volume_stats(self):
@@ -300,8 +314,31 @@ class TestZFSSAISCSIDriver(test.TestCase):
         self.drv.extend_volume(self.test_vol, 3)
         self.drv.delete_volume(self.test_vol)
 
+    @mock.patch('cinder.volume.volume_types.get_volume_type_extra_specs')
+    def test_get_voltype_specs(self, get_volume_type_extra_specs):
+        volume_type_id = mock.sentinel.volume_type_id
+        volume = {'volume_type_id': volume_type_id}
+        get_volume_type_extra_specs.return_value = {
+            'zfssa:volblocksize': '128k',
+            'zfssa:compression': 'gzip'
+        }
+        ret = self.drv._get_voltype_specs(volume)
+        self.assertEqual(ret.get('volblocksize'), '128k')
+        self.assertEqual(ret.get('sparse'),
+                         self.configuration.zfssa_lun_sparse)
+        self.assertEqual(ret.get('compression'), 'gzip')
+        self.assertEqual(ret.get('logbias'),
+                         self.configuration.zfssa_lun_logbias)
+
     def tearDown(self):
         super(TestZFSSAISCSIDriver, self).tearDown()
+
+    def fake_safe_get(self, value):
+        try:
+            val = getattr(self.configuration, value)
+        except AttributeError:
+            val = None
+        return val
 
 
 class FakeAddIni2InitGrp(object):

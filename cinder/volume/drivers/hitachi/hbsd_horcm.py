@@ -20,15 +20,15 @@ import shlex
 import threading
 import time
 
+from oslo.concurrency import processutils as putils
 from oslo.config import cfg
+from oslo.utils import excutils
 import six
 
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _LE, _LW
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
-from cinder.openstack.common import processutils as putils
 from cinder import utils
 from cinder.volume.drivers.hitachi import hbsd_basiclib as basic_lib
 
@@ -214,7 +214,7 @@ class HBSDHORCM(basic_lib.HBSDBasicLib):
             raise loopingcall.LoopingCallDone()
 
         if self.shutdown_horcm(inst):
-            LOG.error(_("Failed to shutdown horcm."))
+            LOG.error(_LE("Failed to shutdown horcm."))
             raise loopingcall.LoopingCallDone()
 
     @horcm_synchronized
@@ -275,14 +275,14 @@ class HBSDHORCM(basic_lib.HBSDBasicLib):
             raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
         if time.time() - start >= EXEC_MAX_WAITTIME:
-            LOG.error(_("horcm command timeout."))
+            LOG.error(_LE("horcm command timeout."))
             raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
         if (ret == EX_ENAUTH and
                 not re.search("-login %s %s" % (user, passwd), args)):
             _ret, _stdout, _stderr = self.comm_login()
             if _ret:
-                LOG.error(_("Failed to authenticate user."))
+                LOG.error(_LE("Failed to authenticate user."))
                 raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
         elif ret in HORCM_ERROR:
@@ -291,11 +291,11 @@ class HBSDHORCM(basic_lib.HBSDBasicLib):
                 if self.check_horcm(inst) != HORCM_RUNNING:
                     _ret, _stdout, _stderr = self.start_horcm(inst)
             if _ret and _ret != HORCM_RUNNING:
-                LOG.error(_("Failed to start horcm."))
+                LOG.error(_LE("Failed to start horcm."))
                 raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
         elif ret not in COMMAND_IO_TO_RAID:
-            LOG.error(_("Unexpected error occurs in horcm."))
+            LOG.error(_LE("Unexpected error occurs in horcm."))
             raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
     def exec_raidcom(self, cmd, args, printflag=True):
@@ -894,7 +894,7 @@ class HBSDHORCM(basic_lib.HBSDBasicLib):
         try:
             self.comm_modify_ldev(ldev)
         except Exception as e:
-            LOG.warning(_('Failed to discard zero page: %s') %
+            LOG.warning(_LW('Failed to discard zero page: %s') %
                         six.text_type(e))
 
     @storage_synchronized
@@ -1393,7 +1393,7 @@ HORCM_CMD
                                            [basic_lib.PSUS], timeout,
                                            interval, check_svol=True)
                         except Exception as ex:
-                            LOG.warning(_('Failed to create pair: %s') %
+                            LOG.warning(_LW('Failed to create pair: %s') %
                                         six.text_type(ex))
 
                         try:
@@ -1403,7 +1403,7 @@ HORCM_CMD
                                 [basic_lib.SMPL], timeout,
                                 self.conf.hitachi_async_copy_check_interval)
                         except Exception as ex:
-                            LOG.warning(_('Failed to create pair: %s') %
+                            LOG.warning(_LW('Failed to create pair: %s') %
                                         six.text_type(ex))
 
                     if self.is_smpl(copy_group, ldev_name):
@@ -1411,14 +1411,14 @@ HORCM_CMD
                             self.delete_pair_config(pvol, svol, copy_group,
                                                     ldev_name)
                         except Exception as ex:
-                            LOG.warning(_('Failed to create pair: %s') %
+                            LOG.warning(_LW('Failed to create pair: %s') %
                                         six.text_type(ex))
 
                     if restart:
                         try:
                             self.restart_pair_horcm()
                         except Exception as ex:
-                            LOG.warning(_('Failed to restart horcm: %s') %
+                            LOG.warning(_LW('Failed to restart horcm: %s') %
                                         six.text_type(ex))
 
         else:
@@ -1437,7 +1437,7 @@ HORCM_CMD
                             pvol, svol, [basic_lib.SMPL], timeout,
                             self.conf.hitachi_async_copy_check_interval)
                     except Exception as ex:
-                        LOG.warning(_('Failed to create pair: %s') %
+                        LOG.warning(_LW('Failed to create pair: %s') %
                                     six.text_type(ex))
 
     def delete_pair(self, pvol, svol, is_vvol):

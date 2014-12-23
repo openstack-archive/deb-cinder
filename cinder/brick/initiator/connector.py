@@ -17,17 +17,18 @@ import os
 import socket
 import time
 
+from oslo.concurrency import lockutils
+from oslo.concurrency import processutils as putils
+
 from cinder.brick import exception
 from cinder.brick import executor
 from cinder.brick.initiator import host_driver
 from cinder.brick.initiator import linuxfc
 from cinder.brick.initiator import linuxscsi
 from cinder.brick.remotefs import remotefs
-from cinder.i18n import _
-from cinder.openstack.common import lockutils
+from cinder.i18n import _, _LE, _LW
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
-from cinder.openstack.common import processutils as putils
 
 LOG = logging.getLogger(__name__)
 
@@ -123,22 +124,29 @@ class InitiatorConnector(executor.Executor):
                                   execute=execute,
                                   device_scan_attempts=device_scan_attempts,
                                   *args, **kwargs)
+        elif protocol == "HUAWEISDSHYPERVISOR":
+            return HuaweiStorHyperConnector(root_helper=root_helper,
+                                            driver=driver,
+                                            execute=execute,
+                                            device_scan_attempts=
+                                            device_scan_attempts,
+                                            *args, **kwargs)
         else:
             msg = (_("Invalid InitiatorConnector protocol "
                      "specified %(protocol)s") %
                    dict(protocol=protocol))
             raise ValueError(msg)
 
-    def check_valid_device(self, path):
+    def check_valid_device(self, path, run_as_root=True):
         cmd = ('dd', 'if=%(path)s' % {"path": path},
                'of=/dev/null', 'count=1')
         out, info = None, None
         try:
-            out, info = self._execute(*cmd, run_as_root=True,
+            out, info = self._execute(*cmd, run_as_root=run_as_root,
                                       root_helper=self._root_helper)
         except putils.ProcessExecutionError as e:
-            LOG.error(_("Failed to access the device on the path "
-                        "%(path)s: %(error)s %(info)s.") %
+            LOG.error(_LE("Failed to access the device on the path "
+                          "%(path)s: %(error)s %(info)s.") %
                       {"path": path, "error": e.stderr,
                        "info": info})
             return False
@@ -226,8 +234,8 @@ class ISCSIConnector(InitiatorConnector):
             if tries >= self.device_scan_attempts:
                 raise exception.VolumeDeviceNotFound(device=host_device)
 
-            LOG.warn(_("ISCSI volume not yet found at: %(host_device)s. "
-                       "Will rescan & retry.  Try number: %(tries)s"),
+            LOG.warn(_LW("ISCSI volume not yet found at: %(host_device)s. "
+                         "Will rescan & retry.  Try number: %(tries)s"),
                      {'host_device': host_device,
                       'tries': tries})
 
@@ -633,8 +641,8 @@ class FibreChannelConnector(InitiatorConnector):
                 LOG.error(msg)
                 raise exception.NoFibreChannelVolumeDeviceFound()
 
-            LOG.warn(_("Fibre volume not yet found. "
-                       "Will rescan & retry.  Try number: %(tries)s"),
+            LOG.warn(_LW("Fibre volume not yet found. "
+                         "Will rescan & retry.  Try number: %(tries)s"),
                      {'tries': tries})
 
             self._linuxfc.rescan_hosts(hbas)
@@ -777,8 +785,8 @@ class AoEConnector(InitiatorConnector):
             if waiting_status['tries'] >= self.device_scan_attempts:
                 raise exception.VolumeDeviceNotFound(device=aoe_path)
 
-            LOG.warn(_("AoE volume not yet found at: %(path)s. "
-                       "Try number: %(tries)s"),
+            LOG.warn(_LW("AoE volume not yet found at: %(path)s. "
+                         "Try number: %(tries)s"),
                      {'path': aoe_device,
                       'tries': waiting_status['tries']})
 
@@ -859,8 +867,8 @@ class RemoteFsConnector(InitiatorConnector):
                     kwargs.get('glusterfs_mount_point_base') or\
                     mount_point_base
         else:
-            LOG.warn(_("Connection details not present."
-                       " RemoteFsClient may not initialize properly."))
+            LOG.warn(_LW("Connection details not present."
+                         " RemoteFsClient may not initialize properly."))
         self._remotefsclient = remotefs.RemoteFsClient(mount_type, root_helper,
                                                        execute=execute,
                                                        *args, **kwargs)
@@ -927,3 +935,116 @@ class LocalConnector(InitiatorConnector):
     def disconnect_volume(self, connection_properties, device_info):
         """Disconnect a volume from the local host."""
         pass
+
+
+class HuaweiStorHyperConnector(InitiatorConnector):
+    """"Connector class to attach/detach SDSHypervisor volumes."""
+    attached_success_code = 0
+    has_been_attached_code = 50151401
+    attach_mnid_done_code = 50151405
+    vbs_unnormal_code = 50151209
+    not_mount_node_code = 50155007
+    iscliexist = True
+
+    def __init__(self, root_helper, driver=None, execute=putils.execute,
+                 *args, **kwargs):
+        self.cli_path = os.getenv('HUAWEISDSHYPERVISORCLI_PATH')
+        if not self.cli_path:
+            self.cli_path = '/usr/local/bin/sds/sds_cli'
+            LOG.debug("CLI path is not configured, using default %s."
+                      % self.cli_path)
+        if not os.path.isfile(self.cli_path):
+            self.iscliexist = False
+            LOG.error(_LE('SDS CLI file not found, '
+                          'HuaweiStorHyperConnector init failed'))
+        super(HuaweiStorHyperConnector, self).__init__(root_helper,
+                                                       driver=driver,
+                                                       execute=execute,
+                                                       *args, **kwargs)
+
+    @synchronized('connect_volume')
+    def connect_volume(self, connection_properties):
+        """Connect to a volume."""
+        LOG.debug("Connect_volume connection properties: %s."
+                  % connection_properties)
+        out = self._attach_volume(connection_properties['volume_id'])
+        if not out or int(out['ret_code']) not in (self.attached_success_code,
+                                                   self.has_been_attached_code,
+                                                   self.attach_mnid_done_code):
+            msg = (_("Attach volume failed, "
+                   "error code is %s") % out['ret_code'])
+            raise exception.BrickException(msg=msg)
+        out = self._query_attached_volume(
+            connection_properties['volume_id'])
+        if not out or int(out['ret_code']) != 0:
+            msg = _("query attached volume failed or volume not attached.")
+            raise exception.BrickException(msg=msg)
+
+        device_info = {'type': 'block',
+                       'path': out['dev_addr']}
+        return device_info
+
+    @synchronized('connect_volume')
+    def disconnect_volume(self, connection_properties, device_info):
+        """Disconnect a volume from the local host."""
+        LOG.debug("Disconnect_volume: %s." % connection_properties)
+        out = self._detach_volume(connection_properties['volume_id'])
+        if not out or int(out['ret_code']) not in (self.attached_success_code,
+                                                   self.vbs_unnormal_code,
+                                                   self.not_mount_node_code):
+            msg = (_("Disconnect_volume failed, "
+                   "error code is %s") % out['ret_code'])
+            raise exception.BrickException(msg=msg)
+
+    def is_volume_connected(self, volume_name):
+        """Check if volume already connected to host"""
+        LOG.debug('Check if volume %s already connected to a host.'
+                  % volume_name)
+        out = self._query_attached_volume(volume_name)
+        if out:
+            return int(out['ret_code']) == 0
+        return False
+
+    def _attach_volume(self, volume_name):
+        return self._cli_cmd('attach', volume_name)
+
+    def _detach_volume(self, volume_name):
+        return self._cli_cmd('detach', volume_name)
+
+    def _query_attached_volume(self, volume_name):
+        return self._cli_cmd('querydev', volume_name)
+
+    def _cli_cmd(self, method, volume_name):
+        LOG.debug("Enter into _cli_cmd.")
+        if not self.iscliexist:
+            msg = _("SDS command line doesn't exist, "
+                    "cann't execute SDS command.")
+            raise exception.BrickException(msg=msg)
+        if not method or volume_name is None:
+            return
+        cmd = [self.cli_path, '-c', method, '-v', volume_name]
+        out, clilog = self._execute(*cmd, run_as_root=False,
+                                    root_helper=self._root_helper)
+        analyse_result = self._analyze_output(out)
+        LOG.debug('%(method)s volume returns %(analyse_result)s.'
+                  % {'method': method, 'analyse_result': analyse_result})
+        if clilog:
+            LOG.error(_LE("SDS CLI output some log: %s.")
+                      % clilog)
+        return analyse_result
+
+    def _analyze_output(self, out):
+        LOG.debug("Enter into _analyze_output.")
+        if out:
+            analyse_result = {}
+            out_temp = out.split('\n')
+            for line in out_temp:
+                LOG.debug("Line is %s." % line)
+                if line.find('=') != -1:
+                    key, val = line.split('=', 1)
+                    LOG.debug(key + " = " + val)
+                    if key in ['ret_code', 'ret_desc', 'dev_addr']:
+                        analyse_result[key] = val
+            return analyse_result
+        else:
+            return None

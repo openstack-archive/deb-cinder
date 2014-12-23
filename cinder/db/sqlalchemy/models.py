@@ -21,12 +21,11 @@ SQLAlchemy models for cinder data.
 
 from oslo.config import cfg
 from oslo.db.sqlalchemy import models
+from oslo.utils import timeutils
 from sqlalchemy import Column, Integer, String, Text, schema
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship, backref, validates
-
-from cinder.openstack.common import timeutils
 
 
 CONF = cfg.CONF
@@ -201,15 +200,38 @@ class VolumeTypes(BASE, CinderBase):
     __tablename__ = "volume_types"
     id = Column(String(36), primary_key=True)
     name = Column(String(255))
+    description = Column(String(255))
     # A reference to qos_specs entity
     qos_specs_id = Column(String(36),
                           ForeignKey('quality_of_service_specs.id'))
+    is_public = Column(Boolean, default=True)
     volumes = relationship(Volume,
                            backref=backref('volume_type', uselist=False),
                            foreign_keys=id,
                            primaryjoin='and_('
                            'Volume.volume_type_id == VolumeTypes.id, '
                            'VolumeTypes.deleted == False)')
+
+
+class VolumeTypeProjects(BASE, CinderBase):
+    """Represent projects associated volume_types."""
+    __tablename__ = "volume_type_projects"
+    __table_args__ = (schema.UniqueConstraint(
+        "volume_type_id", "project_id", "deleted",
+        name="uniq_volume_type_projects0volume_type_id0project_id0deleted"),
+    )
+    id = Column(Integer, primary_key=True)
+    volume_type_id = Column(Integer, ForeignKey('volume_types.id'),
+                            nullable=False)
+    project_id = Column(String(255))
+
+    volume_type = relationship(
+        VolumeTypes,
+        backref="projects",
+        foreign_keys=volume_type_id,
+        primaryjoin='and_('
+        'VolumeTypeProjects.volume_type_id == VolumeTypes.id,'
+        'VolumeTypeProjects.deleted == False)')
 
 
 class VolumeTypeExtraSpecs(BASE, CinderBase):
@@ -491,13 +513,12 @@ class Encryption(BASE, CinderBase):
     """
 
     __tablename__ = 'encryption'
+    encryption_id = Column(String(36), primary_key=True)
     cipher = Column(String(255))
     key_size = Column(Integer)
     provider = Column(String(255))
     control_location = Column(String(255))
-    volume_type_id = Column(String(36),
-                            ForeignKey('volume_types.id'),
-                            primary_key=True)
+    volume_type_id = Column(String(36), ForeignKey('volume_types.id'))
     volume_type = relationship(
         VolumeTypes,
         backref="encryption",

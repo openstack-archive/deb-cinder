@@ -20,16 +20,18 @@ This driver requires Purity version 3.4.0 or later.
 
 import cookielib
 import json
+import re
 import urllib2
+import uuid
 
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import excutils
+from oslo.utils import units
 
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _LE, _LI, _LW
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume.drivers.san import san
 
@@ -43,6 +45,9 @@ PURE_OPTS = [
 CONF = cfg.CONF
 CONF.register_opts(PURE_OPTS)
 
+INVALID_CHARACTERS = re.compile(r"[^-a-zA-Z0-9]")
+GENERATED_NAME = re.compile(r".*-[a-f0-9]{32}-cinder$")
+
 
 def _get_vol_name(volume):
     """Return the name of the volume Purity will use."""
@@ -51,8 +56,16 @@ def _get_vol_name(volume):
 
 def _get_snap_name(snapshot):
     """Return the name of the snapshot that Purity will use."""
-    return "{0}-cinder.{1}".format(snapshot["volume_name"],
-                                   snapshot["name"])
+    return "%s-cinder.%s" % (snapshot["volume_name"], snapshot["name"])
+
+
+def _generate_purity_host_name(name):
+    """Return a valid Purity host name based on the name passed in."""
+    if len(name) > 23:
+        name = name[0:23]
+    name = INVALID_CHARACTERS.sub("-", name)
+    name = name.lstrip("-")
+    return "{name}-{uuid}-cinder".format(name=name, uuid=uuid.uuid4().hex)
 
 
 class PureISCSIDriver(san.SanISCSIDriver):
@@ -117,18 +130,23 @@ class PureISCSIDriver(san.SanISCSIDriver):
             self._array.extend_volume(vol_name, vol_size)
 
     def delete_volume(self, volume):
-        """Deletes a volume."""
+        """Disconnect all hosts and delete the volume"""
         LOG.debug("Enter PureISCSIDriver.delete_volume.")
         vol_name = _get_vol_name(volume)
         try:
+            connected_hosts = self._array.list_volume_hosts(vol_name)
+            for host_info in connected_hosts:
+                host_name = host_info["host"]
+                self._disconnect_host(host_name, vol_name)
             self._array.destroy_volume(vol_name)
         except exception.PureAPIException as err:
             with excutils.save_and_reraise_exception() as ctxt:
-                if err.kwargs["code"] == 400:
+                if err.kwargs["code"] == 400 and \
+                        "Volume does not exist" in err.msg:
                     # Happens if the volume does not exist.
                     ctxt.reraise = False
-                    LOG.error(_("Volume deletion failed with message: {0}"
-                                ).format(err.msg))
+                    LOG.warn(_LW("Volume deletion failed with message: %s")
+                             % err.msg)
         LOG.debug("Leave PureISCSIDriver.delete_volume.")
 
     def create_snapshot(self, snapshot):
@@ -149,8 +167,8 @@ class PureISCSIDriver(san.SanISCSIDriver):
                 if err.kwargs["code"] == 400:
                     # Happens if the snapshot does not exist.
                     ctxt.reraise = False
-                    LOG.error(_("Snapshot deletion failed with message: {0}"
-                                ).format(err.msg))
+                    LOG.error(_LE("Snapshot deletion failed with message:"
+                                  " %s") % err.msg)
         LOG.debug("Leave PureISCSIDriver.delete_snapshot.")
 
     def initialize_connection(self, volume, connector):
@@ -178,9 +196,11 @@ class PureISCSIDriver(san.SanISCSIDriver):
             self._run_iscsiadm_bare(["-m", "discovery", "-t", "sendtargets",
                                      "-p", self._iscsi_port["portal"]])
         except processutils.ProcessExecutionError as err:
-            LOG.warn(_("iSCSI discovery of port {0[name]} at {0[portal]} "
-                       "failed with error: {1}").format(self._iscsi_port,
-                                                        err.stderr))
+            LOG.warn(_LW("iSCSI discovery of port %(port_name)s at "
+                         "%(port_portal)s failed with error: %(err_msg)s") %
+                     {"port_name": self._iscsi_port["name"],
+                      "port_portal": self._iscsi_port["portal"],
+                      "err_msg": err.stderr})
             self._iscsi_port = self._choose_target_iscsi_port()
         return self._iscsi_port
 
@@ -194,51 +214,75 @@ class PureISCSIDriver(san.SanISCSIDriver):
                                          "-t", "sendtargets",
                                          "-p", port["portal"]])
             except processutils.ProcessExecutionError as err:
-                LOG.debug(("iSCSI discovery of port {0[name]} at {0[portal]} "
-                           "failed with error: {1}").format(port, err.stderr))
+                LOG.debug(("iSCSI discovery of port %(port_name)s at "
+                           "%(port_portal)s failed with error: %(err_msg)s") %
+                          {"port_name": self._iscsi_port["name"],
+                           "port_portal": self._iscsi_port["portal"],
+                           "err_msg": err.stderr})
             else:
-                LOG.info(_("Using port {0[name]} on the array at {0[portal]} "
-                           "for iSCSI connectivity.").format(port))
+                LOG.info(_LI("Using port %(name)s on the array at %(portal)s "
+                             "for iSCSI connectivity.") %
+                         {"name": port["name"], "portal": port["portal"]})
                 return port
         raise exception.PureDriverException(
-            reason=_("No reachable iSCSI-enabled ports on target array."))
+            reason=_LE("No reachable iSCSI-enabled ports on target array."))
 
     def _connect(self, volume, connector):
         """Connect the host and volume; return dict describing connection."""
-        host_name = self._get_host_name(connector)
         vol_name = _get_vol_name(volume)
+        host = self._get_host(connector)
+        if host:
+            host_name = host["name"]
+            LOG.info(_LI("Re-using existing purity host %(host_name)r")
+                     % {"host_name": host_name})
+        else:
+            host_name = _generate_purity_host_name(connector["host"])
+            iqn = connector["initiator"]
+            LOG.info(_LI("Creating host object %(host_name)r with IQN:"
+                         " %(iqn)s.") % {"host_name": host_name, "iqn": iqn})
+            self._array.create_host(host_name, iqnlist=[iqn])
+
         return self._array.connect_host(host_name, vol_name)
 
-    def _get_host_name(self, connector):
-        """Return dictionary describing the Purity host with initiator IQN."""
+    def _get_host(self, connector):
+        """Return dict describing existing Purity host object or None."""
         hosts = self._array.list_hosts()
         for host in hosts:
             if connector["initiator"] in host["iqn"]:
-                return host["name"]
-        raise exception.PureDriverException(
-            reason=(_("No host object on target array with IQN: ") +
-                    connector["initiator"]))
+                return host
+        return None
 
     def terminate_connection(self, volume, connector, **kwargs):
         """Terminate connection."""
         LOG.debug("Enter PureISCSIDriver.terminate_connection.")
         vol_name = _get_vol_name(volume)
-        message = _("Disconnection failed with message: {0}")
-        try:
-            host_name = self._get_host_name(connector)
-        except exception.PureDriverException as err:
-            # Happens if the host object is missing.
-            LOG.error(message.format(err.msg))
+        host = self._get_host(connector)
+        if host:
+            host_name = host["name"]
+            self._disconnect_host(host_name, vol_name)
         else:
-            try:
-                self._array.disconnect_host(host_name, vol_name)
-            except exception.PureAPIException as err:
-                with excutils.save_and_reraise_exception() as ctxt:
-                    if err.kwargs["code"] == 400:
-                        # Happens if the host and volume are not connected.
-                        ctxt.reraise = False
-                        LOG.error(message.format(err.msg))
+            LOG.error(_LE("Unable to find host object in Purity with IQN: "
+                          "%(iqn)s.") % {"iqn": connector["initiator"]})
         LOG.debug("Leave PureISCSIDriver.terminate_connection.")
+
+    def _disconnect_host(self, host_name, vol_name):
+        LOG.debug("Enter PureISCSIDriver._disconnect_host.")
+        try:
+            self._array.disconnect_host(host_name, vol_name)
+        except exception.PureAPIException as err:
+            with excutils.save_and_reraise_exception() as ctxt:
+                if err.kwargs["code"] == 400:
+                    # Happens if the host and volume are not connected.
+                    ctxt.reraise = False
+                    LOG.error(_LE("Disconnection failed with message: "
+                                  "%(msg)s.") % {"msg": err.msg})
+        if (GENERATED_NAME.match(host_name) and
+            not self._array.list_host_connections(host_name,
+                                                  private=True)):
+            LOG.info(_LI("Deleting unneeded host %(host_name)r.") %
+                     {"host_name": host_name})
+            self._array.delete_host(host_name)
+        LOG.debug("Leave PureISCSIDriver._disconnect_host.")
 
     def get_volume_stats(self, refresh=False):
         """Return the current state of the volume service.
@@ -286,8 +330,7 @@ class FlashArray(object):
         self._opener = urllib2.build_opener(cookie_handler)
         self._target = target
         self._rest_version = self._choose_rest_version()
-        self._root_url = "https://{0}/api/{1}/".format(target,
-                                                       self._rest_version)
+        self._root_url = "https://%s/api/%s/" % (target, self._rest_version)
         self._api_token = api_token
         self._start_session()
 
@@ -311,13 +354,12 @@ class FlashArray(object):
                 if new_version == self._rest_version:
                     raise exception.PureAPIException(
                         code=err.code,
-                        reason=(_("Unable to find usable REST API version. "
-                                  "Response from Pure Storage REST API: ") +
+                        reason=(_LE("Unable to find usable REST API version. "
+                                    "Response from Pure Storage REST API: ") +
                                 err.read()))
                 self._rest_version = new_version
-                self._root_url = "https://{0}/api/{1}/".format(
-                    self._target,
-                    self._rest_version)
+                self._root_url = "https://%s/api/%s/" % (self._target,
+                                                         self._rest_version)
                 return self._http_request(method, path, data)
             else:
                 raise exception.PureAPIException(code=err.code,
@@ -326,18 +368,18 @@ class FlashArray(object):
             # Error outside scope of HTTP status codes,
             # e.g., unable to resolve domain name
             raise exception.PureDriverException(
-                reason=_("Unable to connect to {0!r}. Check san_ip."
-                         ).format(self._target))
+                reason=_LE("Unable to connect to %r. Check san_ip.") %
+                self._target)
         else:
             content = response.read()
             if "application/json" in response.info().get('Content-Type'):
                 return json.loads(content)
             raise exception.PureAPIException(
-                reason=(_("Response not in JSON: ") + content))
+                reason=(_LE("Response not in JSON: ") + content))
 
     def _choose_rest_version(self):
         """Return a REST API version."""
-        self._root_url = "https://{0}/api/".format(self._target)
+        self._root_url = "https://%s/api/" % self._target
         data = self._http_request("GET", "api_version")
         available_versions = data["version"]
         available_versions.sort(reverse=True)
@@ -345,8 +387,9 @@ class FlashArray(object):
             if version in FlashArray.SUPPORTED_REST_API_VERSIONS:
                 return version
         raise exception.PureDriverException(
-            reason=_("All REST API versions supported by this version of the "
-                     "Pure Storage iSCSI driver are unavailable on array."))
+            reason=_LE("All REST API versions supported by this version of "
+                       "the Pure Storage iSCSI driver are unavailable on "
+                       "array."))
 
     def _start_session(self):
         """Start a REST API session."""
@@ -360,12 +403,12 @@ class FlashArray(object):
 
     def create_volume(self, name, size):
         """Create a volume and return a dictionary describing it."""
-        return self._http_request("POST", "volume/{0}".format(name),
+        return self._http_request("POST", "volume/%s" % name,
                                   {"size": size})
 
     def copy_volume(self, source, dest):
         """Clone a volume and return a dictionary describing the new volume."""
-        return self._http_request("POST", "volume/{0}".format(dest),
+        return self._http_request("POST", "volume/%s" % dest,
                                   {"source": source})
 
     def create_snapshot(self, volume, suffix):
@@ -375,28 +418,48 @@ class FlashArray(object):
 
     def destroy_volume(self, volume):
         """Destroy an existing volume or snapshot."""
-        return self._http_request("DELETE", "volume/{0}".format(volume))
+        return self._http_request("DELETE", "volume/%s" % volume)
 
     def extend_volume(self, volume, size):
         """Extend a volume to a new, larger size."""
-        return self._http_request("PUT", "volume/{0}".format(volume),
+        return self._http_request("PUT", "volume/%s" % volume,
                                   {"size": size, "truncate": False})
 
     def list_hosts(self, **kwargs):
         """Return a list of dictionaries describing each host."""
         return self._http_request("GET", "host", kwargs)
 
+    def list_host_connections(self, host, **kwargs):
+        """Return a list of dictionaries describing connected volumes."""
+        return self._http_request("GET", "host/%s/volume" % host, kwargs)
+
+    def create_host(self, host, **kwargs):
+        """Create a host."""
+        return self._http_request("POST", "host/%s" % host, kwargs)
+
+    def delete_host(self, host):
+        """Delete a host."""
+        return self._http_request("DELETE", "host/%s" % host)
+
     def connect_host(self, host, volume, **kwargs):
         """Create a connection between a host and a volume."""
         return self._http_request("POST",
-                                  "host/{0}/volume/{1}".format(host, volume),
+                                  "host/%s/volume/%s" % (host, volume),
                                   kwargs)
 
     def disconnect_host(self, host, volume):
         """Delete a connection between a host and a volume."""
         return self._http_request("DELETE",
-                                  "host/{0}/volume/{1}".format(host, volume))
+                                  "host/%s/volume/%s" % (host, volume))
+
+    def set_host(self, host, **kwargs):
+        """Set an attribute of a host."""
+        return self._http_request("PUT", "host/%s" % host, kwargs)
 
     def list_ports(self, **kwargs):
         """Return a list of dictionaries describing ports."""
         return self._http_request("GET", "port", kwargs)
+
+    def list_volume_hosts(self, volume):
+        """Return a list of dictionaries describing connected hosts."""
+        return self._http_request("GET", "volume/%s/host" % volume)

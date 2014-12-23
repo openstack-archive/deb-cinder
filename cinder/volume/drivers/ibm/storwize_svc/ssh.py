@@ -16,10 +16,11 @@
 
 import re
 
+from oslo.concurrency import processutils
+
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
 
 LOG = logging.getLogger(__name__)
 
@@ -163,8 +164,8 @@ class StorwizeSSH(object):
             raise exception.VolumeBackendAPIException(data=msg)
         if err.startswith('CMMVC6071E'):
             if not multihostmap:
-                LOG.error(_('storwize_svc_multihostmap_enabled is set '
-                            'to False, not allowing multi host mapping.'))
+                LOG.error(_LE('storwize_svc_multihostmap_enabled is set '
+                              'to False, not allowing multi host mapping.'))
                 msg = 'CMMVC6071E The VDisk-to-host mapping '\
                       'was not created because the VDisk is '\
                       'already mapped to a host.\n"'

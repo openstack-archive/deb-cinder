@@ -17,8 +17,9 @@
 Classes and utility methods for datastore selection.
 """
 
-from cinder.openstack.common import excutils
-from cinder.openstack.common.gettextutils import _
+from oslo.utils import excutils
+
+from cinder.i18n import _LE, _LW
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers.vmware import error_util
 from cinder.volume.drivers.vmware import vim_util
@@ -58,7 +59,7 @@ class DatastoreSelector(object):
         """
         profile_id = self._vops.retrieve_profile_id(profile_name)
         if profile_id is None:
-            LOG.error(_("Storage profile: %s cannot be found in vCenter."),
+            LOG.error(_LE("Storage profile: %s cannot be found in vCenter."),
                       profile_name)
             raise error_util.ProfileNotFoundException(
                 storage_profile=profile_name)
@@ -121,7 +122,8 @@ class DatastoreSelector(object):
             if not hosts:
                 break
 
-            all_hosts.extend(hosts)
+            for host in hosts:
+                all_hosts.append(host.obj)
             retrieve_result = self._vops.continue_retrieval(
                 retrieve_result)
         return all_hosts
@@ -202,21 +204,19 @@ class DatastoreSelector(object):
                   "requirements: %(req)s.",
                   {'hosts': hosts,
                    'req': req})
-        for host in hosts:
-            host_ref = host.obj
+        for host_ref in hosts:
             try:
                 (datastores, rp) = self._vops.get_dss_rp(host_ref)
             except error_util.VimConnectionException:
                 # No need to try other hosts when there is a connection problem
                 with excutils.save_and_reraise_exception():
-                    LOG.exception(_("Error occurred while selecting datastore."
-                                    ))
+                    LOG.exception(_LE("Error occurred while "
+                                      "selecting datastore."))
             except error_util.VimException:
                 # TODO(vbala) volumeops.get_dss_rp shouldn't throw VimException
                 # for empty datastore list.
-                LOG.warn(_("Unable to fetch datastores connected to host %s."),
-                         host_ref,
-                         exc_info=True)
+                LOG.warn(_LW("Unable to fetch datastores connected "
+                             "to host %s."), host_ref, exc_info=True)
                 continue
 
             if not datastores:

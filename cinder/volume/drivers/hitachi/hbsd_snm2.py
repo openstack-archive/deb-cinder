@@ -21,7 +21,7 @@ import time
 import six
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _LE, _LW
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
 from cinder import utils
@@ -72,7 +72,7 @@ class HBSDSNM2(basic_lib.HBSDBasicLib):
             raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
         if time.time() - start >= timeout:
-            LOG.error(_("snm2 command timeout."))
+            LOG.error(_LE("snm2 command timeout."))
             raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
         if (re.search('DMEC002047', stderr)
@@ -86,7 +86,7 @@ class HBSDSNM2(basic_lib.HBSDBasicLib):
                 or re.search('DMER0800CF', stderr)
                 or re.search('DMER0800D[0-6D]', stderr)
                 or re.search('DMES052602', stderr)):
-            LOG.error(_("Unexpected error occurs in snm2."))
+            LOG.error(_LE("Unexpected error occurs in snm2."))
             raise loopingcall.LoopingCallDone((ret, stdout, stderr))
 
     def exec_hsnm(self, command, args, printflag=True, noretry=False,
@@ -126,8 +126,8 @@ class HBSDSNM2(basic_lib.HBSDBasicLib):
                     used_list.append(int(line[2]))
                 if int(line[3]) == ldev:
                     hlu = int(line[2])
-                    LOG.warning(_('ldev(%(ldev)d) is already mapped '
-                                  '(hlun: %(hlu)d)')
+                    LOG.warning(_LW('ldev(%(ldev)d) is already mapped '
+                                    '(hlun: %(hlu)d)')
                                 % {'ldev': ldev, 'hlu': hlu})
                     return hlu
         return None
@@ -586,7 +586,7 @@ class HBSDSNM2(basic_lib.HBSDBasicLib):
 
     def _wait_for_add_chap_user(self, cmd, auth_username,
                                 auth_password, start):
-        # Don't move 'import pexpect' to the begining of the file so that
+        # Don't move 'import pexpect' to the beginning of the file so that
         # a tempest can work.
         import pexpect
 

@@ -20,14 +20,14 @@ import tempfile
 
 import mock
 import mox
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import units
 
 from cinder import context
 from cinder import exception
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
-from cinder.openstack.common import processutils
-from cinder.openstack.common import units
 from cinder import test
 from cinder import utils
 from cinder.volume import utils as volume_utils
@@ -71,11 +71,12 @@ class TestUtils(test.TestCase):
         TEST_IMG_SIZE_IN_GB = 1
 
         utils.execute('qemu-img', 'resize', TEST_IMG_SOURCE,
-                      '%sG' % TEST_IMG_SIZE_IN_GB, run_as_root=False)
+                      '%sG' % TEST_IMG_SIZE_IN_GB, run_as_root=True)
 
         mox.ReplayAll()
 
-        image_utils.resize_image(TEST_IMG_SOURCE, TEST_IMG_SIZE_IN_GB)
+        image_utils.resize_image(TEST_IMG_SOURCE, TEST_IMG_SIZE_IN_GB,
+                                 run_as_root=True)
 
         mox.VerifyAll()
 
@@ -100,7 +101,8 @@ class TestUtils(test.TestCase):
 
         mox.ReplayAll()
 
-        image_utils.convert_image(TEST_SOURCE, TEST_DEST, TEST_OUT_FORMAT)
+        image_utils.convert_image(TEST_SOURCE, TEST_DEST, TEST_OUT_FORMAT,
+                                  run_as_root=True)
 
         mox.VerifyAll()
 
@@ -135,7 +137,7 @@ class TestUtils(test.TestCase):
 
         mox.ReplayAll()
 
-        inf = image_utils.qemu_img_info(TEST_PATH)
+        inf = image_utils.qemu_img_info(TEST_PATH, run_as_root=True)
 
         self.assertEqual(inf.image, 'qemu.qcow2')
         self.assertEqual(inf.backing_file, 'qemu.qcow2')
@@ -187,7 +189,7 @@ class TestUtils(test.TestCase):
 
         mox.ReplayAll()
 
-        inf = image_utils.qemu_img_info(TEST_PATH)
+        inf = image_utils.qemu_img_info(TEST_PATH, run_as_root=True)
 
         self.assertEqual(inf.image, 'qemu.qcow2')
         self.assertEqual(inf.backing_file, 'qemu.qcow2')
@@ -220,7 +222,7 @@ class TestUtils(test.TestCase):
                      "disk size: 0")
 
         utils.is_blk_device(self.TEST_DEV_PATH).AndReturn(True)
-        CONF.set_override('volume_copy_bps_limit', bps_limit)
+        self.override_config('volume_copy_bps_limit', bps_limit)
 
         image_utils.create_temporary_file().AndReturn(self.TEST_DEV_PATH)
 
@@ -285,7 +287,7 @@ class TestUtils(test.TestCase):
 
         image_utils.fetch_to_raw(context, self._image_service,
                                  self.TEST_IMAGE_ID, self.TEST_DEV_PATH,
-                                 mox.IgnoreArg())
+                                 mox.IgnoreArg(), run_as_root=True)
         self._mox.VerifyAll()
 
     @mock.patch('os.stat')
@@ -447,7 +449,7 @@ class TestUtils(test.TestCase):
                    "disk_size: 196K (200704 bytes)"
 
         if bps_limit:
-            CONF.set_override('volume_copy_bps_limit', bps_limit)
+            self.override_config('volume_copy_bps_limit', bps_limit)
             prefix = ('cgexec', '-g', 'blkio:test')
         else:
             prefix = ()
@@ -484,7 +486,7 @@ class TestUtils(test.TestCase):
                    "cluster_size: 65536\n"\
                    "disk_size: 196K (200704 bytes)"
 
-        CONF.set_override('volume_copy_bps_limit', bps_limit)
+        self.override_config('volume_copy_bps_limit', bps_limit)
         prefix = ('cgexec', '-g', 'blkio:test')
 
         cmd = prefix + ('qemu-img', 'convert', '-O', 'qcow2',

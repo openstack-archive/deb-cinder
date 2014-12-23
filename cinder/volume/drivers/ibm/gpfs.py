@@ -21,15 +21,15 @@ import os
 import re
 import shutil
 
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import units
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume import driver
 
@@ -97,9 +97,6 @@ def _same_filesystem(path1, path2):
 
 def _sizestr(size_in_g):
     """Convert the specified size into a string value."""
-    if int(size_in_g) == 0:
-        # return 100M size on zero input for testing
-        return '100M'
     return '%sG' % size_in_g
 
 
@@ -123,7 +120,7 @@ class GPFSDriver(driver.VolumeDriver):
             (out, err) = self._execute('mmgetstate', '-Y', run_as_root=True)
             return out
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue mmgetstate command, error: %s.') %
+            LOG.error(_LE('Failed to issue mmgetstate command, error: %s.') %
                       exc.stderr)
             raise exception.VolumeBackendAPIException(data=exc.stderr)
 
@@ -134,7 +131,7 @@ class GPFSDriver(driver.VolumeDriver):
         state_token = lines[0].split(':').index('state')
         gpfs_state = lines[1].split(':')[state_token]
         if gpfs_state != 'active':
-            LOG.error(_('GPFS is not active.  Detailed output: %s.') % out)
+            LOG.error(_LE('GPFS is not active.  Detailed output: %s.') % out)
             exception_message = (_('GPFS is not running, state: %s.') %
                                  gpfs_state)
             raise exception.VolumeBackendAPIException(data=exception_message)
@@ -147,8 +144,8 @@ class GPFSDriver(driver.VolumeDriver):
             filesystem = lines[1].split()[0]
             return filesystem
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue df command for path %(path)s, '
-                        'error: %(error)s.') %
+            LOG.error(_LE('Failed to issue df command for path %(path)s, '
+                          'error: %(error)s.') %
                       {'path': path,
                        'error': exc.stderr})
             raise exception.VolumeBackendAPIException(data=exc.stderr)
@@ -163,7 +160,7 @@ class GPFSDriver(driver.VolumeDriver):
             cluster_id = lines[1].split(':')[value_token]
             return cluster_id
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue mmlsconfig command, error: %s.') %
+            LOG.error(_LE('Failed to issue mmlsconfig command, error: %s.') %
                       exc.stderr)
             raise exception.VolumeBackendAPIException(data=exc.stderr)
 
@@ -174,8 +171,8 @@ class GPFSDriver(driver.VolumeDriver):
             (out, err) = self._execute('mmlsattr', '-L', path,
                                        run_as_root=True)
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue mmlsattr command on path %(path)s, '
-                        'error: %(error)s') %
+            LOG.error(_LE('Failed to issue mmlsattr command on path %(path)s, '
+                          'error: %(error)s') %
                       {'path': path,
                        'error': exc.stderr})
             raise exception.VolumeBackendAPIException(data=exc.stderr)
@@ -232,8 +229,8 @@ class GPFSDriver(driver.VolumeDriver):
             (out, err) = self._execute('mmlsfs', filesystem, '-V', '-Y',
                                        run_as_root=True)
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue mmlsfs command for path %(path)s, '
-                        'error: %(error)s.') %
+            LOG.error(_LE('Failed to issue mmlsfs command for path %(path)s, '
+                          'error: %(error)s.') %
                       {'path': path,
                        'error': exc.stderr})
             raise exception.VolumeBackendAPIException(data=exc.stderr)
@@ -252,7 +249,7 @@ class GPFSDriver(driver.VolumeDriver):
             (out, err) = self._execute('mmlsconfig', 'minreleaseLeveldaemon',
                                        '-Y', run_as_root=True)
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue mmlsconfig command, error: %s.') %
+            LOG.error(_LE('Failed to issue mmlsconfig command, error: %s.') %
                       exc.stderr)
             raise exception.VolumeBackendAPIException(data=exc.stderr)
 
@@ -269,8 +266,9 @@ class GPFSDriver(driver.VolumeDriver):
         try:
             self._execute('mmlsattr', directory, run_as_root=True)
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Failed to issue mmlsattr command for path %(path)s, '
-                        'error: %(error)s.') %
+            LOG.error(_LE('Failed to issue mmlsattr command '
+                          'for path %(path)s, '
+                          'error: %(error)s.') %
                       {'path': directory,
                        'error': exc.stderr})
             raise exception.VolumeBackendAPIException(data=exc.stderr)
@@ -449,7 +447,7 @@ class GPFSDriver(driver.VolumeDriver):
         LOG.debug('Update volume attributes with mmchattr to %s.' % options)
         self._execute(*cmd, run_as_root=True)
 
-    def _set_volume_attributes(self, path, metadata):
+    def _set_volume_attributes(self, volume, path, metadata):
         """Set various GPFS attributes for this volume."""
 
         set_pool = False
@@ -477,6 +475,16 @@ class GPFSDriver(driver.VolumeDriver):
         if options:
             self._gpfs_change_attributes(options, path)
 
+        fstype = None
+        fslabel = None
+        for item in metadata:
+            if item['key'] == 'fstype':
+                fstype = item['value']
+            elif item['key'] == 'fslabel':
+                fslabel = item['value']
+        if fstype:
+            self._mkfs(volume, fstype, fslabel)
+
     def create_volume(self, volume):
         """Creates a GPFS volume."""
         # Check if GPFS is mounted
@@ -491,20 +499,10 @@ class GPFSDriver(driver.VolumeDriver):
         # Set the attributes prior to allocating any blocks so that
         # they are allocated according to the policy
         v_metadata = volume.get('volume_metadata')
-        self._set_volume_attributes(volume_path, v_metadata)
+        self._set_volume_attributes(volume, volume_path, v_metadata)
 
         if not self.configuration.gpfs_sparse_volumes:
             self._allocate_file_blocks(volume_path, volume_size)
-
-        fstype = None
-        fslabel = None
-        for item in v_metadata:
-            if item['key'] == 'fstype':
-                fstype = item['value']
-            elif item['key'] == 'fslabel':
-                fslabel = item['value']
-        if fstype:
-            self._mkfs(volume, fstype, fslabel)
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a GPFS volume from a snapshot."""
@@ -514,6 +512,8 @@ class GPFSDriver(driver.VolumeDriver):
         self._create_gpfs_copy(src=snapshot_path, dest=volume_path)
         self._set_rw_permission(volume_path)
         self._gpfs_redirect(volume_path)
+        v_metadata = volume.get('volume_metadata')
+        self._set_volume_attributes(volume, volume_path, v_metadata)
         virt_size = self._resize_volume_file(volume, volume['size'])
         return {'size': math.ceil(virt_size / units.Gi)}
 
@@ -524,6 +524,8 @@ class GPFSDriver(driver.VolumeDriver):
         dest = self.local_path(volume)
         self._create_gpfs_clone(src, dest)
         self._set_rw_permission(dest)
+        v_metadata = volume.get('volume_metadata')
+        self._set_volume_attributes(volume, dest, v_metadata)
         virt_size = self._resize_volume_file(volume, volume['size'])
         return {'size': math.ceil(virt_size / units.Gi)}
 
@@ -739,9 +741,6 @@ class GPFSDriver(driver.VolumeDriver):
             return (None, False)
 
         vol_path = self.local_path(volume)
-        # if the image is not already a GPFS snap file make it so
-        if not self._is_gpfs_parent_file(image_path):
-            self._create_gpfs_snap(image_path)
 
         data = image_utils.qemu_img_info(image_path)
 
@@ -752,6 +751,10 @@ class GPFSDriver(driver.VolumeDriver):
                     'copy_on_write'):
                 LOG.debug('Clone image to vol %s using mmclone.' %
                           volume['id'])
+                # if the image is not already a GPFS snap file make it so
+                if not self._is_gpfs_parent_file(image_path):
+                    self._create_gpfs_snap(image_path)
+
                 self._create_gpfs_copy(image_path, vol_path)
             elif self.configuration.gpfs_images_share_mode == 'copy':
                 LOG.debug('Clone image to vol %s using copyfile.' %
@@ -795,8 +798,8 @@ class GPFSDriver(driver.VolumeDriver):
         try:
             image_utils.resize_image(vol_path, new_size, run_as_root=True)
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_("Failed to resize volume "
-                        "%(volume_id)s, error: %(error)s.") %
+            LOG.error(_LE("Failed to resize volume "
+                          "%(volume_id)s, error: %(error)s.") %
                       {'volume_id': volume['id'],
                        'error': exc.stderr})
             raise exception.VolumeBackendAPIException(data=exc.stderr)
@@ -869,9 +872,9 @@ class GPFSDriver(driver.VolumeDriver):
             self._execute('mv', local_path, new_path, run_as_root=True)
             return (True, None)
         except processutils.ProcessExecutionError as exc:
-            LOG.error(_('Driver-based migration of volume %(vol)s failed. '
-                        'Move from %(src)s to %(dst)s failed with error: '
-                        '%(error)s.') %
+            LOG.error(_LE('Driver-based migration of volume %(vol)s failed. '
+                          'Move from %(src)s to %(dst)s failed with error: '
+                          '%(error)s.') %
                       {'vol': volume['name'],
                        'src': local_path,
                        'dst': new_path,

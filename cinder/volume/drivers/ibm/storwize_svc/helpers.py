@@ -19,15 +19,15 @@ import re
 import unicodedata
 
 from eventlet import greenthread
+from oslo.utils import excutils
+from oslo.utils import strutils
 import six
 
 from cinder import context
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _, _LE, _LI, _LW
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
-from cinder.openstack.common import strutils
 from cinder.volume.drivers.ibm.storwize_svc import ssh as storwize_ssh
 from cinder.volume import qos_specs
 from cinder.volume import utils
@@ -152,7 +152,7 @@ class StorwizeHelpers(object):
                 if 'unconfigured' != s:
                     wwpns.add(i)
             node['WWPN'] = list(wwpns)
-            LOG.info(_('WWPN on node %(node)s: %(wwpn)s')
+            LOG.info(_LI('WWPN on node %(node)s: %(wwpn)s')
                      % {'node': node['id'], 'wwpn': node['WWPN']})
 
     def add_chap_secret_to_host(self, host_name):
@@ -341,15 +341,15 @@ class StorwizeHelpers(object):
         # Check if the mapping exists
         resp = self.ssh.lsvdiskhostmap(volume_name)
         if not len(resp):
-            LOG.warning(_('unmap_vol_from_host: No mapping of volume '
-                          '%(vol_name)s to any host found.') %
+            LOG.warning(_LW('unmap_vol_from_host: No mapping of volume '
+                            '%(vol_name)s to any host found.') %
                         {'vol_name': volume_name})
             return
         if host_name is None:
             if len(resp) > 1:
-                LOG.warning(_('unmap_vol_from_host: Multiple mappings of '
-                              'volume %(vol_name)s found, no host '
-                              'specified.') % {'vol_name': volume_name})
+                LOG.warning(_LW('unmap_vol_from_host: Multiple mappings of '
+                                'volume %(vol_name)s found, no host '
+                                'specified.') % {'vol_name': volume_name})
                 return
             else:
                 host_name = resp[0]['host_name']
@@ -359,8 +359,8 @@ class StorwizeHelpers(object):
                 if h == host_name:
                     found = True
             if not found:
-                LOG.warning(_('unmap_vol_from_host: No mapping of volume '
-                              '%(vol_name)s to host %(host)s found.') %
+                LOG.warning(_LW('unmap_vol_from_host: No mapping of volume '
+                                '%(vol_name)s to host %(host)s found.') %
                             {'vol_name': volume_name, 'host': host_name})
 
         # We now know that the mapping exists
@@ -471,8 +471,8 @@ class StorwizeHelpers(object):
                 key = 'protocol'
                 words = value.split()
                 if not (words and len(words) == 2 and words[0] == '<in>'):
-                    LOG.error(_('Protocol must be specified as '
-                                '\'<in> iSCSI\' or \'<in> FC\'.'))
+                    LOG.error(_LE('Protocol must be specified as '
+                                  '\'<in> iSCSI\' or \'<in> FC\'.'))
                 del words[0]
                 value = words[0]
 
@@ -486,8 +486,8 @@ class StorwizeHelpers(object):
                 key = 'replication'
                 words = value.split()
                 if not (words and len(words) == 2 and words[0] == '<is>'):
-                    LOG.error(_('Replication must be specified as '
-                                '\'<is> True\' or \'<is> False\'.'))
+                    LOG.error(_LE('Replication must be specified as '
+                                  '\'<is> True\' or \'<is> False\'.'))
                 del words[0]
                 value = words[0]
 
@@ -797,7 +797,7 @@ class StorwizeHelpers(object):
         """Ensures that vdisk is not part of FC mapping and deletes it."""
         LOG.debug('enter: delete_vdisk: vdisk %s' % vdisk)
         if not self.is_vdisk_defined(vdisk):
-            LOG.info(_('Tried to delete non-existant vdisk %s.') % vdisk)
+            LOG.info(_LI('Tried to delete non-existant vdisk %s.') % vdisk)
             return
         self.ensure_vdisk_no_fc_mappings(vdisk)
         self.ssh.rmvdisk(vdisk, force=force)

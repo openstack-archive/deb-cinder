@@ -16,7 +16,7 @@
 import six
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers.emc import emc_vmax_utils
 
@@ -490,7 +490,7 @@ class EMCVMAXProvision(object):
                     rc = self._terminate_migrate_session(
                         conn, volumeInstanceName)
                 except Exception as ex:
-                    LOG.error(_("Exception: %s") % six.text_type(ex))
+                    LOG.error(_LE("Exception: %s") % six.text_type(ex))
                     exceptionMessage = (_(
                         "Failed to terminate migrate session"))
                     LOG.error(exceptionMessage)
@@ -501,7 +501,7 @@ class EMCVMAXProvision(object):
                         conn, storageRelocationServiceInstanceName,
                         volumeInstanceName, targetPoolInstanceName)
                 except Exception as ex:
-                    LOG.error(_("Exception: %s") % six.text_type(ex))
+                    LOG.error(_LE("Exception: %s") % six.text_type(ex))
                     exceptionMessage = (_(
                         "Failed to migrate volume for the second time"))
                     LOG.error(exceptionMessage)
@@ -509,7 +509,7 @@ class EMCVMAXProvision(object):
                         data=exceptionMessage)
 
             else:
-                LOG.error(_("Exception: %s") % six.text_type(ex))
+                LOG.error(_LE("Exception: %s") % six.text_type(ex))
                 exceptionMessage = (_(
                     "Failed to migrate volume for the first time"))
                 LOG.error(exceptionMessage)
@@ -543,7 +543,7 @@ class EMCVMAXProvision(object):
 
     def create_element_replica(
             self, conn, repServiceInstanceName, cloneName,
-            sourceName, sourceInstance):
+            sourceName, sourceInstance, targetInstance):
         """Make SMI-S call to create replica for source element.
 
         :param conn: the connection to the ecom server
@@ -551,14 +551,23 @@ class EMCVMAXProvision(object):
         :param cloneName: replica name
         :param sourceName: source volume name
         :param sourceInstance: source volume instance
+        :param targetInstance: target volume instance
         :returns: rc - return code
         :returns: job - job object of the replica creation operation
         """
-        rc, job = conn.InvokeMethod(
-            'CreateElementReplica', repServiceInstanceName,
-            ElementName=cloneName,
-            SyncType=self.utils.get_num(8, '16'),
-            SourceElement=sourceInstance.path)
+        if targetInstance is None:
+            rc, job = conn.InvokeMethod(
+                'CreateElementReplica', repServiceInstanceName,
+                ElementName=cloneName,
+                SyncType=self.utils.get_num(8, '16'),
+                SourceElement=sourceInstance.path)
+        else:
+            rc, job = conn.InvokeMethod(
+                'CreateElementReplica', repServiceInstanceName,
+                ElementName=cloneName,
+                SyncType=self.utils.get_num(8, '16'),
+                SourceElement=sourceInstance.path,
+                TargetElement=targetInstance.path)
 
         if rc != 0L:
             rc, errordesc = self.utils.wait_for_job_complete(conn, job)

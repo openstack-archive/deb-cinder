@@ -35,17 +35,17 @@ from xml import sax
 from xml.sax import expatreader
 from xml.sax import saxutils
 
+from oslo.concurrency import lockutils
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import importutils
+from oslo.utils import timeutils
 import six
 
 from cinder.brick.initiator import connector
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import importutils
-from cinder.openstack.common import lockutils
+from cinder.i18n import _, _LE
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder.openstack.common import timeutils
 
 
 CONF = cfg.CONF
@@ -168,7 +168,7 @@ def check_ssh_injection(cmd_list):
         # Second, check whether danger character in command. So the shell
         # special operator must be a single argument.
         for c in ssh_injection_pattern:
-            if arg == c:
+            if c not in arg:
                 continue
 
             result = arg.find(c)
@@ -414,6 +414,14 @@ def is_valid_boolstr(val):
             val == '1' or val == '0')
 
 
+def is_none_string(val):
+    """Check if a string represents a None value."""
+    if not isinstance(val, six.string_types):
+        return False
+
+    return val.lower() == 'none'
+
+
 def monkey_patch():
     """If the CONF.monkey_patch set as True,
     this function patches a decorator
@@ -479,15 +487,6 @@ def make_dev_path(dev, partition=None, base='/dev'):
     return path
 
 
-def total_seconds(td):
-    """Local total_seconds implementation for compatibility with python 2.6."""
-    if hasattr(td, 'total_seconds'):
-        return td.total_seconds()
-    else:
-        return ((td.days * 86400 + td.seconds) * 10 ** 6 +
-                td.microseconds) / 10.0 ** 6
-
-
 def sanitize_hostname(hostname):
     """Return a hostname which conforms to RFC-952 and RFC-1123 specs."""
     if isinstance(hostname, unicode):
@@ -512,7 +511,7 @@ def service_is_up(service):
     """Check whether a service is up based on last heartbeat."""
     last_heartbeat = service['updated_at'] or service['created_at']
     # Timestamps in DB are UTC.
-    elapsed = total_seconds(timeutils.utcnow() - last_heartbeat)
+    elapsed = (timeutils.utcnow() - last_heartbeat).total_seconds()
     return abs(elapsed) <= CONF.service_down_time
 
 
@@ -615,7 +614,7 @@ def require_driver_initialized(driver):
     # we can't do anything if the driver didn't init
     if not driver.initialized:
         driver_name = driver.__class__.__name__
-        LOG.error(_("Volume driver %s not initialized") % driver_name)
+        LOG.error(_LE("Volume driver %s not initialized") % driver_name)
         raise exception.DriverNotInitialized()
 
 
@@ -636,17 +635,17 @@ def _get_disk_of_partition(devpath, st=None):
     for '/dev/disk1p1' ('p' is prepended to the partition number if the disk
     name ends with numbers).
     """
-    if st is None:
-        st = os.stat(devpath)
     diskpath = re.sub('(?:(?<=\d)p)?\d+$', '', devpath)
     if diskpath != devpath:
         try:
-            st = os.stat(diskpath)
-            if stat.S_ISBLK(st.st_mode):
-                return (diskpath, st)
+            st_disk = os.stat(diskpath)
+            if stat.S_ISBLK(st_disk.st_mode):
+                return (diskpath, st_disk)
         except OSError:
             pass
     # devpath is not a partition
+    if st is None:
+        st = os.stat(devpath)
     return (devpath, st)
 
 

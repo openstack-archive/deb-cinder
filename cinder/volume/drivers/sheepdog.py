@@ -22,14 +22,14 @@ import os
 import re
 import tempfile
 
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import units
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE
 from cinder.image import image_utils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder.openstack.common import units
 from cinder.volume import driver
 
 
@@ -55,7 +55,7 @@ class SheepdogDriver(driver.VolumeDriver):
             #NOTE(francois-charlier) Since 0.24 'collie cluster info -r'
             #  gives short output, but for compatibility reason we won't
             #  use it and just check if 'running' is in the output.
-            (out, err) = self._execute('collie', 'cluster', 'info')
+            (out, _err) = self._execute('collie', 'cluster', 'info')
             if 'status: running' not in out:
                 exception_message = (_("Sheepdog is not working: %s") % out)
                 raise exception.VolumeBackendAPIException(
@@ -176,7 +176,7 @@ class SheepdogDriver(driver.VolumeDriver):
             stats['total_capacity_gb'] = total / units.Gi
             stats['free_capacity_gb'] = (total - used) / units.Gi
         except processutils.ProcessExecutionError:
-            LOG.exception(_('error refreshing volume stats'))
+            LOG.exception(_LE('error refreshing volume stats'))
 
         self._stats = stats
 

@@ -1,6 +1,6 @@
-# Copyright (c) 2012 NetApp, Inc.
-# Copyright (c) 2012 OpenStack Foundation
-# All Rights Reserved.
+# Copyright (c) 2012 NetApp, Inc.  All rights reserved.
+# Copyright (c) 2014 Navneet Singh.  All rights reserved.
+# Copyright (c) 2014 Bob Callaway.  All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -36,7 +36,8 @@ netapp_proxy_opts = [
     cfg.StrOpt('netapp_storage_protocol',
                default=None,
                help=('The storage protocol to be used on the data path with '
-                     'the storage system; valid values are iscsi or nfs.')), ]
+                     'the storage system; valid values are iscsi, fc, or '
+                     'nfs.')), ]
 
 netapp_connection_opts = [
     cfg.StrOpt('netapp_server_hostname',
@@ -44,12 +45,11 @@ netapp_connection_opts = [
                help='The hostname (or IP address) for the storage system or '
                     'proxy server.'),
     cfg.IntOpt('netapp_server_port',
-               default=80,
+               default=None,
                help=('The TCP port to use for communication with the storage '
-                     'system or proxy server. Traditionally, port 80 is used '
-                     'for HTTP and port 443 is used for HTTPS; however, this '
-                     'value should be changed if an alternate port has been '
-                     'configured on the storage system or proxy server.')), ]
+                     'system or proxy server. If not specified, Data ONTAP '
+                     'drivers will use 80 for HTTP and 443 for HTTPS; '
+                     'E-Series will use 8080 for HTTP and 8443 for HTTPS.')), ]
 
 netapp_transport_opts = [
     cfg.StrOpt('netapp_transport_type',
@@ -79,8 +79,8 @@ netapp_provisioning_opts = [
     cfg.StrOpt('netapp_volume_list',
                default=None,
                help=('This option is only utilized when the storage protocol '
-                     'is configured to use iSCSI. This option is used to '
-                     'restrict provisioning to the specified controller '
+                     'is configured to use iSCSI or FC. This option is used '
+                     'to restrict provisioning to the specified controller '
                      'volumes. Specify the value of this option to be a '
                      'comma separated list of NetApp controller volume names '
                      'to be used for provisioning.')), ]
@@ -106,10 +106,16 @@ netapp_7mode_opts = [
                help=('The vFiler unit on which provisioning of block storage '
                      'volumes will be done. This option is only used by the '
                      'driver when connecting to an instance with a storage '
-                     'family of Data ONTAP operating in 7-Mode and the '
-                     'storage protocol selected is iSCSI. Only use this '
+                     'family of Data ONTAP operating in 7-Mode. Only use this '
                      'option when utilizing the MultiStore feature on the '
-                     'NetApp storage system.')), ]
+                     'NetApp storage system.')),
+    cfg.StrOpt('netapp_partner_backend_name',
+               default=None,
+               help=('The name of the config.conf stanza for a Data ONTAP '
+                     '(7-mode) HA partner.  This option is only used by the '
+                     'driver when connecting to an instance with a storage '
+                     'family of Data ONTAP operating in 7-Mode, and it is '
+                     'required if the storage protocol selected is FC.')), ]
 
 netapp_img_cache_opts = [
     cfg.IntOpt('thres_avl_size_perc_start',

@@ -30,20 +30,22 @@ from oslo.config import cfg
 from oslo.db import exception as db_exc
 from oslo.db import options
 from oslo.db.sqlalchemy import session as db_session
+from oslo.utils import timeutils
 import osprofiler.sqlalchemy
+import six
 import sqlalchemy
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, joinedload_all
 from sqlalchemy.orm import RelationshipProperty
 from sqlalchemy.sql.expression import literal_column
+from sqlalchemy.sql.expression import true
 from sqlalchemy.sql import func
 
 from cinder.common import sqlalchemyutils
 from cinder.db.sqlalchemy import models
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LW
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
 
 
@@ -209,8 +211,8 @@ def _retry_on_deadlock(f):
             try:
                 return f(*args, **kwargs)
             except db_exc.DBDeadlock:
-                LOG.warn(_("Deadlock detected when running "
-                           "'%(func_name)s': Retrying..."),
+                LOG.warn(_LW("Deadlock detected when running "
+                             "'%(func_name)s': Retrying..."),
                          dict(func_name=f.__name__))
                 # Retry!
                 time.sleep(0.5)
@@ -252,7 +254,7 @@ def model_query(context, *args, **kwargs):
 
 def _sync_volumes(context, project_id, session, volume_type_id=None,
                   volume_type_name=None):
-    (volumes, gigs) = _volume_data_get_for_project(
+    (volumes, _gigs) = _volume_data_get_for_project(
         context, project_id, volume_type_id=volume_type_id, session=session)
     key = 'volumes'
     if volume_type_name:
@@ -262,7 +264,7 @@ def _sync_volumes(context, project_id, session, volume_type_id=None,
 
 def _sync_snapshots(context, project_id, session, volume_type_id=None,
                     volume_type_name=None):
-    (snapshots, gigs) = _snapshot_data_get_for_project(
+    (snapshots, _gigs) = _snapshot_data_get_for_project(
         context, project_id, volume_type_id=volume_type_id, session=session)
     key = 'snapshots'
     if volume_type_name:
@@ -272,7 +274,7 @@ def _sync_snapshots(context, project_id, session, volume_type_id=None,
 
 def _sync_backups(context, project_id, session, volume_type_id=None,
                   volume_type_name=None):
-    (backups, gigs) = _backup_data_get_for_project(
+    (backups, _gigs) = _backup_data_get_for_project(
         context, project_id, volume_type_id=volume_type_id, session=session)
     key = 'backups'
     return {key: backups}
@@ -889,8 +891,8 @@ def quota_reserve(context, resources, quotas, deltas, expire,
                     usages[resource].reserved += delta
 
     if unders:
-        LOG.warning(_("Change will make usage less than 0 for the following "
-                      "resources: %s") % unders)
+        LOG.warning(_LW("Change will make usage less than 0 for the following "
+                        "resources: %s") % unders)
     if overs:
         usages = dict((k, dict(in_use=v['in_use'], reserved=v['reserved']))
                       for k, v in usages.items())
@@ -1871,8 +1873,8 @@ def snapshot_metadata_update(context, snapshot_id, metadata, delete):
 
 
 @require_admin_context
-def volume_type_create(context, values):
-    """Create a new instance type.
+def volume_type_create(context, values, projects=None):
+    """Create a new volume type.
 
     In order to pass in extra specs, the values dict should contain a
     'extra_specs' key/value pair:
@@ -1880,6 +1882,8 @@ def volume_type_create(context, values):
     """
     if not values.get('id'):
         values['id'] = str(uuid.uuid4())
+
+    projects = projects or []
 
     session = get_session()
     with session.begin():
@@ -1901,7 +1905,53 @@ def volume_type_create(context, values):
             session.add(volume_type_ref)
         except Exception as e:
             raise db_exc.DBError(e)
+        for project in set(projects):
+            access_ref = models.VolumeTypeProjects()
+            access_ref.update({"volume_type_id": volume_type_ref.id,
+                               "project_id": project})
+            access_ref.save(session=session)
         return volume_type_ref
+
+
+def _volume_type_get_query(context, session=None, read_deleted=None,
+                           expected_fields=None):
+    expected_fields = expected_fields or []
+    query = model_query(context,
+                        models.VolumeTypes,
+                        session=session,
+                        read_deleted=read_deleted).\
+        options(joinedload('extra_specs'))
+
+    if 'projects' in expected_fields:
+        query = query.options(joinedload('projects'))
+
+    if not context.is_admin:
+        the_filter = [models.VolumeTypes.is_public == true()]
+        projects_attr = getattr(models.VolumeTypes, 'projects')
+        the_filter.extend([
+            projects_attr.any(project_id=context.project_id)
+        ])
+        query = query.filter(or_(*the_filter))
+
+    return query
+
+
+@require_admin_context
+def volume_type_update(context, volume_type_id, values):
+    session = get_session()
+    with session.begin():
+        volume_type_ref = _volume_type_ref_get(context,
+                                               volume_type_id,
+                                               session)
+
+        if not volume_type_ref:
+            raise exception.VolumeTypeNotFound(type_id=volume_type_id)
+
+        volume_type_ref.update(values)
+        volume_type_ref.save(session=session)
+        volume_type = volume_type_get(context, volume_type_id)
+
+        return volume_type
 
 
 @require_context
@@ -1910,11 +1960,22 @@ def volume_type_get_all(context, inactive=False, filters=None):
     filters = filters or {}
 
     read_deleted = "yes" if inactive else "no"
-    rows = model_query(context, models.VolumeTypes,
-                       read_deleted=read_deleted).\
-        options(joinedload('extra_specs')).\
-        order_by("name").\
-        all()
+
+    query = _volume_type_get_query(context, read_deleted=read_deleted)
+
+    if 'is_public' in filters and filters['is_public'] is not None:
+        the_filter = [models.VolumeTypes.is_public == filters['is_public']]
+        if filters['is_public'] and context.project_id is not None:
+            projects_attr = getattr(models.VolumeTypes, 'projects')
+            the_filter.extend([
+                projects_attr.any(project_id=context.project_id, deleted=False)
+            ])
+        if len(the_filter) > 1:
+            query = query.filter(or_(*the_filter))
+        else:
+            query = query.filter(the_filter[0])
+
+    rows = query.order_by("name").all()
 
     result = {}
     for row in rows:
@@ -1923,8 +1984,54 @@ def volume_type_get_all(context, inactive=False, filters=None):
     return result
 
 
+def _volume_type_get_id_from_volume_type_query(context, id, session=None):
+    return model_query(
+        context, models.VolumeTypes.id, read_deleted="no",
+        session=session, base_model=models.VolumeTypes).\
+        filter_by(id=id)
+
+
+def _volume_type_get_id_from_volume_type(context, id, session=None):
+    result = _volume_type_get_id_from_volume_type_query(
+        context, id, session=session).first()
+    if not result:
+        raise exception.VolumeTypeNotFound(volume_type_id=id)
+    return result[0]
+
+
 @require_context
-def _volume_type_get(context, id, session=None, inactive=False):
+def _volume_type_get(context, id, session=None, inactive=False,
+                     expected_fields=None):
+    expected_fields = expected_fields or []
+    read_deleted = "yes" if inactive else "no"
+    result = _volume_type_get_query(
+        context, session, read_deleted, expected_fields).\
+        filter_by(id=id).\
+        first()
+
+    if not result:
+        raise exception.VolumeTypeNotFound(volume_type_id=id)
+
+    vtype = _dict_with_extra_specs(result)
+
+    if 'projects' in expected_fields:
+        vtype['projects'] = [p['project_id'] for p in result['projects']]
+
+    return vtype
+
+
+@require_context
+def volume_type_get(context, id, inactive=False, expected_fields=None):
+    """Return a dict describing specific volume_type."""
+
+    return _volume_type_get(context, id,
+                            session=None,
+                            inactive=inactive,
+                            expected_fields=expected_fields)
+
+
+@require_context
+def _volume_type_ref_get(context, id, session=None, inactive=False):
     read_deleted = "yes" if inactive else "no"
     result = model_query(context,
                          models.VolumeTypes,
@@ -1937,14 +2044,7 @@ def _volume_type_get(context, id, session=None, inactive=False):
     if not result:
         raise exception.VolumeTypeNotFound(volume_type_id=id)
 
-    return _dict_with_extra_specs(result)
-
-
-@require_context
-def volume_type_get(context, id, inactive=False):
-    """Return a dict describing specific volume_type."""
-
-    return _volume_type_get(context, id, None, inactive)
+    return result
 
 
 @require_context
@@ -1956,8 +2056,8 @@ def _volume_type_get_by_name(context, name, session=None):
 
     if not result:
         raise exception.VolumeTypeNotFoundByName(volume_type_name=name)
-    else:
-        return _dict_with_extra_specs(result)
+
+    return _dict_with_extra_specs(result)
 
 
 @require_context
@@ -2105,6 +2205,51 @@ def volume_get_active_by_window(context,
         query = query.filter_by(project_id=project_id)
 
     return query.all()
+
+
+def _volume_type_access_query(context, session=None):
+    return model_query(context, models.VolumeTypeProjects, session=session,
+                       read_deleted="no")
+
+
+@require_admin_context
+def volume_type_access_get_all(context, type_id):
+    volume_type_id = _volume_type_get_id_from_volume_type(context, type_id)
+    return _volume_type_access_query(context).\
+        filter_by(volume_type_id=volume_type_id).all()
+
+
+@require_admin_context
+def volume_type_access_add(context, type_id, project_id):
+    """Add given tenant to the volume type access list."""
+    volume_type_id = _volume_type_get_id_from_volume_type(context, type_id)
+
+    access_ref = models.VolumeTypeProjects()
+    access_ref.update({"volume_type_id": volume_type_id,
+                       "project_id": project_id})
+
+    session = get_session()
+    with session.begin():
+        try:
+            access_ref.save(session=session)
+        except db_exc.DBDuplicateEntry:
+            raise exception.VolumeTypeAccessExists(volume_type_id=type_id,
+                                                   project_id=project_id)
+        return access_ref
+
+
+@require_admin_context
+def volume_type_access_remove(context, type_id, project_id):
+    """Remove given tenant from the volume type access list."""
+    volume_type_id = _volume_type_get_id_from_volume_type(context, type_id)
+
+    count = _volume_type_access_query(context).\
+        filter_by(volume_type_id=volume_type_id).\
+        filter_by(project_id=project_id).\
+        soft_delete(synchronize_session=False)
+    if count == 0:
+        raise exception.VolumeTypeAccessNotFound(
+            volume_type_id=type_id, project_id=project_id)
 
 
 ####################
@@ -2487,6 +2632,9 @@ def volume_type_encryption_create(context, volume_type_id, values):
 
         if 'volume_type_id' not in values:
             values['volume_type_id'] = volume_type_id
+
+        if 'encryption_id' not in values:
+            values['encryption_id'] = six.text_type(uuid.uuid4())
 
         encryption.update(values)
         session.add(encryption)
@@ -3026,7 +3174,8 @@ def consistencygroup_create(context, values):
 def consistencygroup_update(context, consistencygroup_id, values):
     session = get_session()
     with session.begin():
-        result = model_query(context, models.ConsistencyGroup, project_only=True).\
+        result = model_query(context, models.ConsistencyGroup,
+                             project_only=True).\
             filter_by(id=consistencygroup_id).\
             first()
 

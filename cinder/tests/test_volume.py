@@ -30,6 +30,10 @@ import eventlet
 import mock
 import mox
 from oslo.config import cfg
+from oslo.serialization import jsonutils
+from oslo.utils import importutils
+from oslo.utils import timeutils
+from oslo.utils import units
 from stevedore import extension
 from taskflow.engines.action_engine import engine
 
@@ -42,11 +46,7 @@ from cinder import exception
 from cinder.image import image_utils
 from cinder import keymgr
 from cinder.openstack.common import fileutils
-from cinder.openstack.common import importutils
-from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
-from cinder.openstack.common import units
 import cinder.policy
 from cinder import quota
 from cinder import test
@@ -323,9 +323,9 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(volume.status, "error")
         db.volume_destroy(context.get_admin_context(), volume_id)
 
-    @mock.patch.object(QUOTAS, 'reserve')
-    @mock.patch.object(QUOTAS, 'commit')
     @mock.patch.object(QUOTAS, 'rollback')
+    @mock.patch.object(QUOTAS, 'commit')
+    @mock.patch.object(QUOTAS, 'reserve')
     def test_delete_driver_not_initialized(self, reserve, commit, rollback):
         # NOTE(flaper87): Set initialized to False
         self.volume.driver._initialized = False
@@ -471,14 +471,14 @@ class VolumeTestCase(BaseVolumeTestCase):
                        fake_list_availability_zones)
 
         # Test backwards compatibility, default_availability_zone not set
-        CONF.set_override('storage_availability_zone', 'az2')
+        self.override_config('storage_availability_zone', 'az2')
         volume = volume_api.create(self.context,
                                    1,
                                    'name',
                                    'description')
         self.assertEqual(volume['availability_zone'], 'az2')
 
-        CONF.set_override('default_availability_zone', 'default-az')
+        self.override_config('default_availability_zone', 'default-az')
         volume = volume_api.create(self.context,
                                    1,
                                    'name',
@@ -1058,7 +1058,6 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         orig_elevated = self.context.elevated
 
-        ctxt_deepcopy = self.context.deepcopy()
         gthreads = []
 
         def mock_elevated(*args, **kwargs):
@@ -1067,7 +1066,7 @@ class VolumeTestCase(BaseVolumeTestCase):
 
             # we expect this to block and then fail
             t = eventlet.spawn(self.volume.create_volume,
-                               ctxt_deepcopy,
+                               self.context,
                                volume_id=dst_vol_id, source_volid=src_vol_id)
             gthreads.append(t)
 
@@ -1107,7 +1106,6 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         orig_elevated = self.context.elevated
 
-        ctxt_deepcopy = self.context.deepcopy()
         gthreads = []
 
         def mock_elevated(*args, **kwargs):
@@ -1115,7 +1113,7 @@ class VolumeTestCase(BaseVolumeTestCase):
             self.stubs.Set(self.context, 'elevated', orig_elevated)
 
             # We expect this to block and then fail
-            t = eventlet.spawn(self.volume.create_volume, ctxt_deepcopy,
+            t = eventlet.spawn(self.volume.create_volume, self.context,
                                volume_id=dst_vol_id, snapshot_id=snap_id)
             gthreads.append(t)
 
@@ -1370,8 +1368,8 @@ class VolumeTestCase(BaseVolumeTestCase):
     @mock.patch.object(db, 'volume_get')
     @mock.patch.object(db, 'volume_update')
     def test_initialize_connection_export_failure(self,
-                                                  _mock_volume_get,
                                                   _mock_volume_update,
+                                                  _mock_volume_get,
                                                   _mock_create_export):
         """Test exception path for create_export failure."""
         _fake_admin_meta = {'fake-key': 'fake-value'}
@@ -2557,25 +2555,34 @@ class VolumeTestCase(BaseVolumeTestCase):
         # clean up
         self.volume.delete_volume(self.context, volume['id'])
 
-    def test_create_volume_from_unelevated_context(self):
-        """Test context does't change after volume creation failure."""
-        def fake_create_volume(*args, **kwargs):
-            raise exception.CinderException('fake exception')
+    def test_extend_volume_with_volume_type(self):
+        elevated = context.get_admin_context()
+        project_id = self.context.project_id
+        db.volume_type_create(elevated, {'name': 'type', 'extra_specs': {}})
+        vol_type = db.volume_type_get_by_name(elevated, 'type')
 
-        # create context for testing
-        ctxt = self.context.deepcopy()
-        if 'admin' in ctxt.roles:
-            ctxt.roles.remove('admin')
-            ctxt.is_admin = False
-        # create one copy of context for future comparison
-        self.saved_ctxt = ctxt.deepcopy()
+        volume_api = cinder.volume.api.API()
+        volume = volume_api.create(self.context, 100, 'name', 'description',
+                                   volume_type=vol_type)
+        try:
+            usage = db.quota_usage_get(elevated, project_id, 'gigabytes_type')
+            volumes_in_use = usage.in_use
+        except exception.QuotaUsageNotFound:
+            volumes_in_use = 0
+        self.assertEqual(volumes_in_use, 100)
+        volume['status'] = 'available'
+        volume['host'] = 'fakehost'
+        volume['volume_type_id'] = vol_type.get('id')
 
-        self.stubs.Set(self.volume.driver, 'create_volume', fake_create_volume)
+        volume_api.extend(self.context, volume, 200)
 
-        volume_src = tests_utils.create_volume(self.context,
-                                               **self.volume_params)
-        self.assertRaises(exception.CinderException,
-                          self.volume.create_volume, ctxt, volume_src['id'])
+        try:
+            usage = db.quota_usage_get(elevated, project_id, 'gigabytes_type')
+            volumes_reserved = usage.reserved
+        except exception.QuotaUsageNotFound:
+            volumes_reserved = 0
+
+        self.assertEqual(volumes_reserved, 100)
 
     @mock.patch(
         'cinder.volume.driver.VolumeDriver.create_replica_test_volume')
@@ -2769,6 +2776,12 @@ class VolumeTestCase(BaseVolumeTestCase):
                        lambda x, y, z, remote='dest': True)
         self.stubs.Set(volume_rpcapi.VolumeAPI, 'delete_volume',
                        fake_delete_volume_rpc)
+        self.stubs.Set(volume_rpcapi.VolumeAPI,
+                       'update_migrated_volume',
+                       lambda *args: self.volume.update_migrated_volume(
+                           self.context,
+                           args[1],
+                           args[2]))
         error_logs = []
         LOG = logging.getLogger('cinder.volume.manager')
         self.stubs.Set(LOG, 'error', lambda x: error_logs.append(x))
@@ -2806,6 +2819,12 @@ class VolumeTestCase(BaseVolumeTestCase):
                        lambda *args: self.volume.attach_volume(args[1],
                                                                args[2]['id'],
                                                                *args[3:]))
+
+        self.stubs.Set(volume_rpcapi.VolumeAPI, 'update_migrated_volume',
+                       lambda *args: self.volume.update_migrated_volume(
+                           elevated,
+                           args[1],
+                           args[2]))
         self.stubs.Set(self.volume.driver, 'attach_volume',
                        lambda *args, **kwargs: None)
 
@@ -3269,6 +3288,16 @@ class VolumeTestCase(BaseVolumeTestCase):
                                      group_id)
         # Group is not deleted
         self.assertEqual(cg['status'], 'available')
+
+    def test_secure_file_operations_enabled(self):
+        """Test secure file operations setting for base driver.
+
+        General, non network file system based drivers do not have
+        anything to do with "secure_file_operations". This test verifies that
+        calling the method always returns False.
+        """
+        ret_flag = self.volume.driver.secure_file_operations_enabled()
+        self.assertFalse(ret_flag)
 
 
 class CopyVolumeToImageTestCase(BaseVolumeTestCase):

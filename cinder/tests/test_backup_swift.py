@@ -23,6 +23,7 @@ import os
 import tempfile
 import zlib
 
+import mock
 from oslo.config import cfg
 from swiftclient import client as swift
 
@@ -80,7 +81,7 @@ class BackupSwiftTestCase(test.TestCase):
         self._create_volume_db_entry()
         self.volume_file = tempfile.NamedTemporaryFile()
         self.addCleanup(self.volume_file.close)
-        for i in xrange(0, 128):
+        for _i in xrange(0, 128):
             self.volume_file.write(os.urandom(1024))
 
     def test_backup_swift_url(self):
@@ -100,14 +101,14 @@ class BackupSwiftTestCase(test.TestCase):
                                           u'adminURL': u'http://example.com'}]
                                       }]
         self.ctxt.project_id = "12345678"
-        CONF.set_override("backup_swift_url", "http://public.example.com/")
+        self.override_config("backup_swift_url", "http://public.example.com/")
         backup = SwiftBackupDriver(self.ctxt)
         self.assertEqual("%s%s" % (CONF.backup_swift_url,
                                    self.ctxt.project_id),
                          backup.swift_url)
 
     def test_backup_swift_info(self):
-        CONF.set_override("swift_catalog_info", "dummy")
+        self.override_config("swift_catalog_info", "dummy")
         self.assertRaises(exception.BackupDriverException,
                           SwiftBackupDriver,
                           self.ctxt)
@@ -144,6 +145,49 @@ class BackupSwiftTestCase(test.TestCase):
         service.backup(backup, self.volume_file)
         backup = db.backup_get(self.ctxt, 123)
         self.assertEqual(backup['container'], 'volumebackups')
+
+    @mock.patch('cinder.backup.drivers.swift.SwiftBackupDriver.'
+                '_send_progress_end')
+    @mock.patch('cinder.backup.drivers.swift.SwiftBackupDriver.'
+                '_send_progress_notification')
+    def test_backup_default_container_notify(self, _send_progress,
+                                             _send_progress_end):
+        self._create_backup_db_entry(container=None)
+        # If the backup_object_number_per_notification is set to 1,
+        # the _send_progress method will be called for sure.
+        CONF.set_override("backup_object_number_per_notification", 1)
+        CONF.set_override("backup_swift_enable_progress_timer", False)
+        service = SwiftBackupDriver(self.ctxt)
+        self.volume_file.seek(0)
+        backup = db.backup_get(self.ctxt, 123)
+        service.backup(backup, self.volume_file)
+        self.assertTrue(_send_progress.called)
+        self.assertTrue(_send_progress_end.called)
+
+        # If the backup_object_number_per_notification is increased to
+        # another value, the _send_progress method will not be called.
+        _send_progress.reset_mock()
+        _send_progress_end.reset_mock()
+        CONF.set_override("backup_object_number_per_notification", 10)
+        service = SwiftBackupDriver(self.ctxt)
+        self.volume_file.seek(0)
+        backup = db.backup_get(self.ctxt, 123)
+        service.backup(backup, self.volume_file)
+        self.assertFalse(_send_progress.called)
+        self.assertTrue(_send_progress_end.called)
+
+        # If the timer is enabled, the _send_progress will be called,
+        # since the timer can trigger the progress notification.
+        _send_progress.reset_mock()
+        _send_progress_end.reset_mock()
+        CONF.set_override("backup_object_number_per_notification", 10)
+        CONF.set_override("backup_swift_enable_progress_timer", True)
+        service = SwiftBackupDriver(self.ctxt)
+        self.volume_file.seek(0)
+        backup = db.backup_get(self.ctxt, 123)
+        service.backup(backup, self.volume_file)
+        self.assertTrue(_send_progress.called)
+        self.assertTrue(_send_progress_end.called)
 
     def test_backup_custom_container(self):
         container_name = 'fake99'

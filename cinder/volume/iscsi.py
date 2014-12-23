@@ -16,11 +16,12 @@
 import os
 import re
 
+from oslo.concurrency import processutils as putils
+
 from cinder.brick.iscsi import iscsi
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LI
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils as putils
 from cinder.volume import utils
 
 LOG = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ class _ExportMixin(object):
                                                        volume,
                                                        max_targets)
 
+        # Verify we haven't setup a CHAP creds file already
+        # if DNE no big deal, we'll just create it
         current_chap_auth = self._get_target_chap_auth(iscsi_name)
         if current_chap_auth:
             (chap_username, chap_password) = current_chap_auth
@@ -62,6 +65,8 @@ class _ExportMixin(object):
         data = {}
         data['location'] = self._iscsi_location(
             conf.iscsi_ip_address, tid, iscsi_name, conf.iscsi_port, lun)
+
+        LOG.debug('Set provider_location to: %s', data['location'])
         data['auth'] = self._iscsi_authentication(
             'CHAP', chap_username, chap_password)
         return data
@@ -70,8 +75,8 @@ class _ExportMixin(object):
         try:
             iscsi_target = self._get_iscsi_target(context, volume['id'])
         except exception.NotFound:
-            LOG.info(_("Skipping remove_export. No iscsi_target "
-                       "provisioned for volume: %s"), volume['id'])
+            LOG.info(_LI("Skipping remove_export. No iscsi_target "
+                         "provisioned for volume: %s"), volume['id'])
             return
         try:
 
@@ -85,8 +90,8 @@ class _ExportMixin(object):
             self.show_target(iscsi_target, iqn=iqn)
 
         except Exception:
-            LOG.info(_("Skipping remove_export. No iscsi_target "
-                       "is presently exported for volume: %s"), volume['id'])
+            LOG.info(_LI("Skipping remove_export. No iscsi_target "
+                         "is presently exported for volume: %s"), volume['id'])
             return
 
         self.remove_iscsi_target(iscsi_target, 0, volume['id'], volume['name'])
@@ -96,8 +101,8 @@ class _ExportMixin(object):
         iscsi_target = self._get_target_for_ensure_export(context,
                                                           volume['id'])
         if iscsi_target is None:
-            LOG.info(_("Skipping remove_export. No iscsi_target "
-                       "provisioned for volume: %s"), volume['id'])
+            LOG.info(_LI("Skipping remove_export. No iscsi_target "
+                         "provisioned for volume: %s"), volume['id'])
             return
         chap_auth = None
         # Check for https://bugs.launchpad.net/cinder/+bug/1065702
@@ -107,7 +112,7 @@ class _ExportMixin(object):
 
             msg = _('Detected inconsistency in provider_location id')
             LOG.debug('%s', msg)
-            old_name = self._fix_id_migration(context, volume)
+            old_name = self._fix_id_migration(context, volume, vg_name)
             if 'in-use' in volume['status']:
                 old_name = None
         self.create_iscsi_target(iscsi_name, iscsi_target, 0, volume_path,
@@ -241,8 +246,8 @@ class LioAdm(_ExportMixin, iscsi.LioAdm):
             iscsi_target = self.db.volume_get_iscsi_target_num(context,
                                                                volume['id'])
         except exception.NotFound:
-            LOG.info(_("Skipping remove_export. No iscsi_target "
-                       "provisioned for volume: %s"), volume['id'])
+            LOG.info(_LI("Skipping remove_export. No iscsi_target "
+                         "provisioned for volume: %s"), volume['id'])
             return
 
         self.remove_iscsi_target(iscsi_target, 0, volume['id'], volume['name'])
@@ -251,16 +256,17 @@ class LioAdm(_ExportMixin, iscsi.LioAdm):
                       vg_name, conf, old_name=None):
         try:
             volume_info = self.db.volume_get(context, volume['id'])
-            (auth_method,
-             auth_user,
-             auth_pass) = volume_info['provider_auth'].split(' ', 3)
-            chap_auth = self._iscsi_authentication(auth_method,
-                                                   auth_user,
-                                                   auth_pass)
         except exception.NotFound:
-            LOG.debug("volume_info:%s", volume_info)
-            LOG.info(_("Skipping ensure_export. No iscsi_target "
-                       "provision for volume: %s"), volume['id'])
+            LOG.info(_LI("Skipping ensure_export. No iscsi_target "
+                         "provision for volume: %s"), volume['id'])
+            return
+
+        (auth_method,
+         auth_user,
+         auth_pass) = volume_info['provider_auth'].split(' ', 3)
+        chap_auth = self._iscsi_authentication(auth_method,
+                                               auth_user,
+                                               auth_pass)
 
         iscsi_target = 1
 

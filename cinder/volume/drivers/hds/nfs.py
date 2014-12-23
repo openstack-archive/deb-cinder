@@ -21,15 +21,15 @@ import os
 import time
 from xml.etree import ElementTree as ETree
 
+from oslo.concurrency import processutils
 from oslo.config import cfg
+from oslo.utils import excutils
+from oslo.utils import units
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE, _LI
 from cinder.image import image_utils
-from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
-from cinder.openstack.common import units
 from cinder.volume.drivers.hds.hnas_backend import HnasBackend
 from cinder.volume.drivers import nfs
 
@@ -59,7 +59,7 @@ def _xml_read(root, element, check=None):
 
     try:
         val = root.findtext(element)
-        LOG.info(_("%(element)s: %(val)s")
+        LOG.info(_LI("%(element)s: %(val)s")
                  % {'element': element,
                     'val': val})
         if val:
@@ -70,9 +70,9 @@ def _xml_read(root, element, check=None):
     except ETree.ParseError:
         if check:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("XML exception reading parameter: %s") % element)
+                LOG.error(_LE("XML exception reading parameter: %s") % element)
         else:
-            LOG.info(_("XML exception reading parameter: %s") % element)
+            LOG.info(_LI("XML exception reading parameter: %s") % element)
             return None
 
 
@@ -82,11 +82,15 @@ def _read_config(xml_config_file):
     :param xml_config_file: string filename containing XML configuration
     """
 
+    if not os.access(xml_config_file, os.R_OK):
+        raise exception.NotFound(message=_LE('Can\'t open config file: ')
+                                 + xml_config_file)
+
     try:
         root = ETree.parse(xml_config_file).getroot()
     except Exception:
-        raise exception.NotFound(message='config file not found: '
-                                 + xml_config_file)
+        raise exception.ConfigNotFound(
+            message=_LE('Error parsing config file: ') + xml_config_file)
 
     # mandatory parameters
     config = {}
@@ -187,9 +191,9 @@ class HDSNFSDriver(nfs.NfsDriver):
             LOG.info("Get service: %s->%s" % (label, svc['fslabel']))
             service = (svc['hdp'], svc['path'], svc['fslabel'])
         else:
-            LOG.info(_("Available services: %s")
+            LOG.info(_LI("Available services: %s")
                      % self.config['services'].keys())
-            LOG.error(_("No configuration found for service: %s") % label)
+            LOG.error(_LE("No configuration found for service: %s") % label)
             raise exception.ParameterNotFound(param=label)
 
         return service
@@ -213,10 +217,10 @@ class HDSNFSDriver(nfs.NfsDriver):
         if self._is_file_size_equal(path, new_size):
             return
         else:
-            LOG.info(_('Resizing file to %sG'), new_size)
+            LOG.info(_LI('Resizing file to %sG'), new_size)
             image_utils.resize_image(path, new_size)
             if self._is_file_size_equal(path, new_size):
-                LOG.info(_("LUN %(id)s extended to %(size)s GB.")
+                LOG.info(_LI("LUN %(id)s extended to %(size)s GB.")
                          % {'id': volume['id'], 'size': new_size})
                 return
             else:
@@ -349,8 +353,8 @@ class HDSNFSDriver(nfs.NfsDriver):
                 tries += 1
                 if tries >= self.configuration.num_shell_tries:
                     raise
-                LOG.exception(_("Recovering from a failed execute.  "
-                                "Try number %s"), tries)
+                LOG.exception(_LE("Recovering from a failed execute.  "
+                                  "Try number %s"), tries)
                 time.sleep(tries ** 2)
 
     def _get_volume_path(self, nfs_share, volume_name):

@@ -38,14 +38,14 @@ import math
 import time
 
 from oslo.config import cfg
+from oslo.utils import excutils
+from oslo.utils import units
 
 from cinder import context
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _, _LE, _LW
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
-from cinder.openstack.common import units
 from cinder import utils
 from cinder.volume.drivers.ibm.storwize_svc import helpers as storwize_helpers
 from cinder.volume.drivers.ibm.storwize_svc import replication as storwize_rep
@@ -289,7 +289,7 @@ class StorwizeSVCDriver(san.SanDriver):
         """
         volume_defined = self._helpers.is_vdisk_defined(volume['name'])
         if not volume_defined:
-            LOG.error(_('ensure_export: Volume %s not found on storage')
+            LOG.error(_LE('ensure_export: Volume %s not found on storage')
                       % volume['name'])
 
     def create_export(self, ctxt, volume):
@@ -366,8 +366,8 @@ class StorwizeSVCDriver(san.SanDriver):
             if chap_enabled and chap_secret is None:
                 chap_secret = self._helpers.add_chap_secret_to_host(host_name)
             elif not chap_enabled and chap_secret:
-                LOG.warning(_('CHAP secret exists for host but CHAP is '
-                              'disabled'))
+                LOG.warning(_LW('CHAP secret exists for host but CHAP is '
+                                'disabled'))
 
         volume_attributes = self._helpers.get_vdisk_attributes(volume_name)
         if volume_attributes is None:
@@ -383,8 +383,8 @@ class StorwizeSVCDriver(san.SanDriver):
             preferred_node = volume_attributes['preferred_node_id']
             IO_group = volume_attributes['IO_group_id']
         except KeyError as e:
-            LOG.error(_('Did not find expected column name in '
-                        'lsvdisk: %s') % e)
+            LOG.error(_LE('Did not find expected column name in '
+                          'lsvdisk: %s') % e)
             msg = (_('initialize_connection: Missing volume '
                      'attribute for volume %s') % volume_name)
             raise exception.VolumeBackendAPIException(data=msg)
@@ -411,8 +411,8 @@ class StorwizeSVCDriver(san.SanDriver):
             if not preferred_node_entry and not vol_opts['multipath']:
                 # Get 1st node in I/O group
                 preferred_node_entry = io_group_nodes[0]
-                LOG.warn(_('initialize_connection: Did not find a preferred '
-                           'node for volume %s') % volume_name)
+                LOG.warn(_LW('initialize_connection: Did not find a preferred '
+                             'node for volume %s') % volume_name)
 
             properties = {}
             properties['target_discovered'] = False
@@ -462,10 +462,10 @@ class StorwizeSVCDriver(san.SanDriver):
                             properties['target_wwn'] = WWPN
                             break
                     else:
-                        LOG.warning(_('Unable to find a preferred node match '
-                                      'for node %(node)s in the list of '
-                                      'available WWPNs on %(host)s. '
-                                      'Using first available.') %
+                        LOG.warning(_LW('Unable to find a preferred node match'
+                                        ' for node %(node)s in the list of '
+                                        'available WWPNs on %(host)s. '
+                                        'Using first available.') %
                                     {'node': preferred_node,
                                      'host': host_name})
                         properties['target_wwn'] = conn_wwpns[0]
@@ -482,10 +482,11 @@ class StorwizeSVCDriver(san.SanDriver):
         except Exception:
             with excutils.save_and_reraise_exception():
                 self.terminate_connection(volume, connector)
-                LOG.error(_('initialize_connection: Failed to collect return '
-                            'properties for volume %(vol)s and connector '
-                            '%(conn)s.\n') % {'vol': volume,
-                                              'conn': connector})
+                LOG.error(_LE('initialize_connection: Failed '
+                              'to collect return '
+                              'properties for volume %(vol)s and connector '
+                              '%(conn)s.\n') % {'vol': volume,
+                                                'conn': connector})
 
         LOG.debug('leave: initialize_connection:\n volume: %(vol)s\n '
                   'connector %(conn)s\n properties: %(prop)s'
@@ -766,7 +767,7 @@ class StorwizeSVCDriver(san.SanDriver):
             try:
                 volume = self.db.volume_get(ctxt, vol_id)
             except Exception:
-                LOG.warn(_('Volume %s does not exist.'), vol_id)
+                LOG.warn(_LW('Volume %s does not exist.'), vol_id)
                 del self._vdiskcopyops[vol_id]
                 if not len(self._vdiskcopyops):
                     self._vdiskcopyops_loop.stop()
@@ -894,8 +895,9 @@ class StorwizeSVCDriver(san.SanDriver):
 
             # If volume is replicated, can't copy
             if new_type_replication:
-                msg = (_('Unable to retype: Volume %s is replicated.'),
-                       volume['id'])
+                msg = (_('Unable to retype: Current action needs volume-copy,'
+                         ' it is not allowed when new type is replication.'
+                         ' Volume = %s'), volume['id'])
                 raise exception.VolumeDriverException(message=msg)
 
             retype_iogrp_property(volume,
@@ -1026,7 +1028,7 @@ class StorwizeSVCDriver(san.SanDriver):
 
         attributes = self._helpers.get_pool_attrs(pool)
         if not attributes:
-            LOG.error(_('Could not get pool data from the storage'))
+            LOG.error(_LE('Could not get pool data from the storage'))
             exception_message = (_('_update_volume_stats: '
                                    'Could not get storage pool data'))
             raise exception.VolumeBackendAPIException(data=exception_message)

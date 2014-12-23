@@ -1,5 +1,4 @@
-# Copyright (c) 2014 NetApp, Inc.
-# All Rights Reserved.
+# Copyright (c) 2014 NetApp, Inc.  All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -21,21 +20,22 @@ import time
 import uuid
 
 from oslo.config import cfg
+from oslo.utils import excutils
+from oslo.utils import units
 import six
 
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _, _LE, _LI, _LW
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import units
 from cinder import utils as cinder_utils
 from cinder.volume import driver
 from cinder.volume.drivers.netapp.eseries import client
+from cinder.volume.drivers.netapp.eseries import utils
 from cinder.volume.drivers.netapp.options import netapp_basicauth_opts
 from cinder.volume.drivers.netapp.options import netapp_connection_opts
 from cinder.volume.drivers.netapp.options import netapp_eseries_opts
 from cinder.volume.drivers.netapp.options import netapp_transport_opts
-from cinder.volume.drivers.netapp import utils
+from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume import utils as volume_utils
 
 
@@ -49,11 +49,11 @@ CONF.register_opts(netapp_eseries_opts)
 CONF.register_opts(netapp_transport_opts)
 
 
-class Driver(driver.ISCSIDriver):
+class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
     """Executes commands relating to Volumes."""
 
     VERSION = "1.0.0"
-    required_flags = ['netapp_server_hostname', 'netapp_controller_ips',
+    REQUIRED_FLAGS = ['netapp_server_hostname', 'netapp_controller_ips',
                       'netapp_login', 'netapp_password',
                       'netapp_storage_pools']
     SLEEP_SECS = 5
@@ -80,70 +80,86 @@ class Driver(driver.ISCSIDriver):
                   }
 
     def __init__(self, *args, **kwargs):
-        super(Driver, self).__init__(*args, **kwargs)
-        utils.validate_instantiation(**kwargs)
+        super(NetAppEseriesISCSIDriver, self).__init__(*args, **kwargs)
+        na_utils.validate_instantiation(**kwargs)
         self.configuration.append_config_values(netapp_basicauth_opts)
         self.configuration.append_config_values(netapp_connection_opts)
         self.configuration.append_config_values(netapp_transport_opts)
         self.configuration.append_config_values(netapp_eseries_opts)
+        self._backend_name = self.configuration.safe_get("volume_backend_name")\
+            or "NetApp_ESeries"
         self._objects = {'disk_pool_refs': [], 'pools': [],
                          'volumes': {'label_ref': {}, 'ref_vol': {}},
                          'snapshots': {'label_ref': {}, 'ref_snap': {}}}
 
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""
-        self._check_flags()
+        self.context = context
+        na_utils.check_flags(self.REQUIRED_FLAGS, self.configuration)
+
+        port = self.configuration.netapp_server_port
+        scheme = self.configuration.netapp_transport_type.lower()
+        if port is None:
+            if scheme == 'http':
+                port = 8080
+            elif scheme == 'https':
+                port = 8443
+
         self._client = client.RestClient(
-            scheme=self.configuration.netapp_transport_type,
+            scheme=scheme,
             host=self.configuration.netapp_server_hostname,
-            port=self.configuration.netapp_server_port,
+            port=port,
             service_path=self.configuration.netapp_webservice_path,
             username=self.configuration.netapp_login,
             password=self.configuration.netapp_password)
         self._check_mode_get_or_register_storage_system()
 
-    def _check_flags(self):
-        """Ensure that the flags we care about are set."""
-        required_flags = self.required_flags
-        for flag in required_flags:
-            if not getattr(self.configuration, flag, None):
-                msg = _('%s is not set.') % flag
-                raise exception.InvalidInput(reason=msg)
-
     def check_for_setup_error(self):
+        self._check_host_type()
+        self._check_multipath()
+        self._check_storage_system()
+        self._populate_system_objects()
+
+    def _check_host_type(self):
         self.host_type =\
             self.HOST_TYPES.get(self.configuration.netapp_eseries_host_type,
                                 None)
         if not self.host_type:
             raise exception.NetAppDriverException(
                 _('Configured host type is not supported.'))
-        self._check_storage_system()
-        self._populate_system_objects()
+
+    def _check_multipath(self):
+        if not self.configuration.use_multipath_for_image_xfer:
+            msg = _LW('Production use of "%(backend)s" backend requires the '
+                      'Cinder controller to have multipathing properly set up '
+                      'and the configuration option "%(mpflag)s" to be set to '
+                      '"True".') % {'backend': self._backend_name,
+                                    'mpflag': 'use_multipath_for_image_xfer'}
+            LOG.warning(msg)
 
     def _check_mode_get_or_register_storage_system(self):
         """Does validity checks for storage system registry and health."""
         def _resolve_host(host):
             try:
-                ip = utils.resolve_hostname(host)
+                ip = na_utils.resolve_hostname(host)
                 return ip
             except socket.gaierror as e:
-                LOG.error(_('Error resolving host %(host)s. Error - %(e)s.')
+                LOG.error(_LE('Error resolving host %(host)s. Error - %(e)s.')
                           % {'host': host, 'e': e})
-                return None
+                raise exception.NoValidHost(
+                    _("Controller IP '%(host)s' could not be resolved: %(e)s.")
+                    % {'host': host, 'e': e})
 
         ips = self.configuration.netapp_controller_ips
         ips = [i.strip() for i in ips.split(",")]
         ips = [x for x in ips if _resolve_host(x)]
-        host = utils.resolve_hostname(
+        host = na_utils.resolve_hostname(
             self.configuration.netapp_server_hostname)
-        if not ips:
-            msg = _('Controller ips not valid after resolution.')
-            raise exception.NoValidHost(reason=msg)
         if host in ips:
-            LOG.info(_('Embedded mode detected.'))
+            LOG.info(_LI('Embedded mode detected.'))
             system = self._client.list_storage_systems()[0]
         else:
-            LOG.info(_('Proxy mode detected.'))
+            LOG.info(_LI('Proxy mode detected.'))
             system = self._client.register_storage_system(
                 ips, password=self.configuration.netapp_sa_password)
         self._client.set_system_id(system.get('id'))
@@ -172,7 +188,7 @@ class Driver(driver.ISCSIDriver):
             # password was not in sync previously.
             if ((status == 'nevercontacted') or
                     (password_not_in_sync and status == 'passwordoutofsync')):
-                LOG.info(_('Waiting for web service array communication.'))
+                LOG.info(_LI('Waiting for web service array communication.'))
                 time.sleep(self.SLEEP_SECS)
                 comm_time = comm_time + self.SLEEP_SECS
                 if comm_time >= sa_comm_timeout:
@@ -188,7 +204,7 @@ class Driver(driver.ISCSIDriver):
                 status == 'offline'):
             msg = _("System %(id)s found with bad status - %(status)s.")
             raise exception.NetAppDriverException(msg % msg_dict)
-        LOG.info(_("System %(id)s has %(status)s status.") % msg_dict)
+        LOG.info(_LI("System %(id)s has %(status)s status.") % msg_dict)
         return True
 
     def _populate_system_objects(self):
@@ -204,7 +220,7 @@ class Driver(driver.ISCSIDriver):
     def _cache_allowed_disk_pool_refs(self):
         """Caches disk pools refs as per pools configured by user."""
         d_pools = self.configuration.netapp_storage_pools
-        LOG.info(_('Configured storage pools %s.'), d_pools)
+        LOG.info(_LI('Configured storage pools %s.'), d_pools)
         pools = [x.strip().lower() if x else None for x in d_pools.split(',')]
         for pool in self._client.list_storage_pools():
             if (pool.get('raidLevel') == 'raidDiskPool'
@@ -288,7 +304,8 @@ class Driver(driver.ISCSIDriver):
             if vol.get('label') == label:
                 self._cache_volume(vol)
                 return self._get_cached_volume(label)
-        raise exception.NetAppDriverException(_("Volume %s not found."), uid)
+        raise exception.NetAppDriverException(_("Volume %(uid)s not found.")
+                                              % {'uid': uid})
 
     def _get_cached_volume(self, label):
         vol_id = self._objects['volumes']['label_ref'][label]
@@ -323,7 +340,7 @@ class Driver(driver.ISCSIDriver):
         :param volume: The volume hosted by the driver.
         :return: Name of the pool where given volume is hosted.
         """
-        eseries_volume = self._get_volume(volume['id'])
+        eseries_volume = self._get_volume(volume['name_id'])
         for pool in self._objects['pools']:
             if pool['volumeGroupRef'] == eseries_volume['volumeGroupRef']:
                 return pool['label']
@@ -342,7 +359,7 @@ class Driver(driver.ISCSIDriver):
             msg = _("Pool is not available in the volume host field.")
             raise exception.InvalidHost(reason=msg)
 
-        eseries_volume_label = utils.convert_uuid_to_es_fmt(volume['id'])
+        eseries_volume_label = utils.convert_uuid_to_es_fmt(volume['name_id'])
 
         # get size of the requested volume creation
         size_gb = int(volume['size'])
@@ -369,10 +386,11 @@ class Driver(driver.ISCSIDriver):
         try:
             vol = self._client.create_volume(target_pool['volumeGroupRef'],
                                              eseries_volume_label, size_gb)
-            LOG.info(_("Created volume with label %s."), eseries_volume_label)
+            LOG.info(_LI("Created volume with "
+                         "label %s."), eseries_volume_label)
         except exception.NetAppDriverException as e:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Error creating volume. Msg - %s."),
+                LOG.error(_LE("Error creating volume. Msg - %s."),
                           six.text_type(e))
 
         return vol
@@ -384,10 +402,10 @@ class Driver(driver.ISCSIDriver):
             try:
                 vol = self._client.create_volume(pool['volumeGroupRef'],
                                                  label, size_gb)
-                LOG.info(_("Created volume with label %s."), label)
+                LOG.info(_LI("Created volume with label %s."), label)
                 return vol
             except exception.NetAppDriverException as e:
-                LOG.error(_("Error creating volume. Msg - %s."), e)
+                LOG.error(_LE("Error creating volume. Msg - %s."), e)
         msg = _("Failure creating volume %s.")
         raise exception.NetAppDriverException(msg % label)
 
@@ -401,7 +419,7 @@ class Driver(driver.ISCSIDriver):
             src_vol = self._create_snapshot_volume(snapshot['id'])
             self._copy_volume_high_prior_readonly(src_vol, dst_vol)
             self._cache_volume(dst_vol)
-            LOG.info(_("Created volume with label %s."), label)
+            LOG.info(_LI("Created volume with label %s."), label)
         except exception.NetAppDriverException:
             with excutils.save_and_reraise_exception():
                 self._client.delete_volume(dst_vol['volumeRef'])
@@ -410,9 +428,9 @@ class Driver(driver.ISCSIDriver):
                 try:
                     self._client.delete_snapshot_volume(src_vol['id'])
                 except exception.NetAppDriverException as e:
-                    LOG.error(_("Failure deleting snap vol. Error: %s."), e)
+                    LOG.error(_LE("Failure deleting snap vol. Error: %s."), e)
             else:
-                LOG.warn(_("Snapshot volume not found."))
+                LOG.warning(_LW("Snapshot volume not found."))
 
     def _create_snapshot_volume(self, snapshot_id):
         """Creates snapshot volume for given group with snapshot_id."""
@@ -428,7 +446,7 @@ class Driver(driver.ISCSIDriver):
 
     def _copy_volume_high_prior_readonly(self, src_vol, dst_vol):
         """Copies src volume to dest volume."""
-        LOG.info(_("Copying src vol %(src)s to dest vol %(dst)s.")
+        LOG.info(_LI("Copying src vol %(src)s to dest vol %(dst)s.")
                  % {'src': src_vol['label'], 'dst': dst_vol['label']})
         try:
             job = None
@@ -441,11 +459,11 @@ class Driver(driver.ISCSIDriver):
                     time.sleep(self.SLEEP_SECS)
                     continue
                 if (j_st['status'] == 'failed' or j_st['status'] == 'halted'):
-                    LOG.error(_("Vol copy job status %s."), j_st['status'])
+                    LOG.error(_LE("Vol copy job status %s."), j_st['status'])
                     msg = _("Vol copy job for dest %s failed.")\
                         % dst_vol['label']
                     raise exception.NetAppDriverException(msg)
-                LOG.info(_("Vol copy job completed for dest %s.")
+                LOG.info(_LI("Vol copy job completed for dest %s.")
                          % dst_vol['label'])
                 break
         finally:
@@ -453,11 +471,12 @@ class Driver(driver.ISCSIDriver):
                 try:
                     self._client.delete_vol_copy_job(job['volcopyRef'])
                 except exception.NetAppDriverException:
-                    LOG.warn(_("Failure deleting job %s."), job['volcopyRef'])
+                    LOG.warning(_LW("Failure deleting "
+                                    "job %s."), job['volcopyRef'])
             else:
-                LOG.warn(_('Volume copy job for src vol %s not found.'),
-                         src_vol['id'])
-        LOG.info(_('Copy job to dest vol %s completed.'), dst_vol['label'])
+                LOG.warning(_LW('Volume copy job for src vol %s not found.'),
+                            src_vol['id'])
+        LOG.info(_LI('Copy job to dest vol %s completed.'), dst_vol['label'])
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
@@ -469,16 +488,16 @@ class Driver(driver.ISCSIDriver):
             try:
                 self.delete_snapshot(snapshot)
             except exception.NetAppDriverException:
-                LOG.warn(_("Failure deleting temp snapshot %s."),
-                         snapshot['id'])
+                LOG.warning(_LW("Failure deleting temp snapshot %s."),
+                            snapshot['id'])
 
     def delete_volume(self, volume):
         """Deletes a volume."""
         try:
-            vol = self._get_volume(volume['id'])
+            vol = self._get_volume(volume['name_id'])
             self._delete_volume(vol['label'])
         except KeyError:
-            LOG.info(_("Volume %s already deleted."), volume['id'])
+            LOG.info(_LI("Volume %s already deleted."), volume['id'])
             return
 
     def _delete_volume(self, label):
@@ -492,7 +511,8 @@ class Driver(driver.ISCSIDriver):
         """Creates a snapshot."""
         snap_grp, snap_image = None, None
         snapshot_name = utils.convert_uuid_to_es_fmt(snapshot['id'])
-        vol = self._get_volume(snapshot['volume_id'])
+        os_vol = self.db.volume_get(self.context, snapshot['volume_id'])
+        vol = self._get_volume(os_vol['name_id'])
         vol_size_gb = int(vol['totalSizeInBytes']) / units.Gi
         pools = self._get_sorted_avl_storage_pools(vol_size_gb)
         try:
@@ -502,7 +522,7 @@ class Driver(driver.ISCSIDriver):
             snap_image = self._client.create_snapshot_image(
                 snap_grp['pitGroupRef'])
             self._cache_snap_img(snap_image)
-            LOG.info(_("Created snap grp with label %s."), snapshot_name)
+            LOG.info(_LI("Created snap grp with label %s."), snapshot_name)
         except exception.NetAppDriverException:
             with excutils.save_and_reraise_exception():
                 if snap_image is None and snap_grp:
@@ -513,7 +533,7 @@ class Driver(driver.ISCSIDriver):
         try:
             snap_grp = self._get_cached_snapshot_grp(snapshot['id'])
         except KeyError:
-            LOG.warn(_("Snapshot %s already deleted.") % snapshot['id'])
+            LOG.warning(_LW("Snapshot %s already deleted.") % snapshot['id'])
             return
         self._client.delete_snapshot_group(snap_grp['pitGroupRef'])
         snapshot_name = snap_grp['label']
@@ -534,9 +554,9 @@ class Driver(driver.ISCSIDriver):
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
         initiator_name = connector['initiator']
-        vol = self._get_latest_volume(volume['id'])
+        vol = self._get_latest_volume(volume['name_id'])
         iscsi_details = self._get_iscsi_service_details()
-        iscsi_det = self._get_iscsi_portal_for_vol(vol, iscsi_details)
+        iscsi_portal = self._get_iscsi_portal_for_vol(vol, iscsi_details)
         mapping = self._map_volume_to_host(vol, initiator_name)
         lun_id = mapping['lun']
         self._cache_vol_mapping(mapping)
@@ -546,23 +566,13 @@ class Driver(driver.ISCSIDriver):
         msg = _("Successfully fetched target details for volume %(id)s and "
                 "initiator %(initiator_name)s.")
         LOG.debug(msg % msg_fmt)
-        properties = {}
-        properties['target_discovered'] = False
-        properties['target_portal'] = '%s:%s' % (iscsi_det['ip'],
-                                                 iscsi_det['tcp_port'])
-        properties['target_iqn'] = iscsi_det['iqn']
-        properties['target_lun'] = lun_id
-        properties['volume_id'] = volume['id']
-        auth = volume['provider_auth']
-        if auth:
-            (auth_method, auth_username, auth_secret) = auth.split()
-            properties['auth_method'] = auth_method
-            properties['auth_username'] = auth_username
-            properties['auth_password'] = auth_secret
-        return {
-            'driver_volume_type': 'iscsi',
-            'data': properties,
-        }
+        iqn = iscsi_portal['iqn']
+        address = iscsi_portal['ip']
+        port = iscsi_portal['tcp_port']
+        properties = na_utils.get_iscsi_connection_properties(lun_id, volume,
+                                                              iqn, address,
+                                                              port)
+        return properties
 
     def _get_iscsi_service_details(self):
         """Gets iscsi iqn, ip and port information."""
@@ -630,12 +640,12 @@ class Driver(driver.ISCSIDriver):
                     return self._client.update_host_type(
                         host['hostRef'], ht_def)
                 except exception.NetAppDriverException as e:
-                    msg = _("Unable to update host type for host with"
-                            " label %(l)s. %(e)s")
-                    LOG.warn(msg % {'l': host['label'], 'e': e.msg})
+                    msg = _LW("Unable to update host type for host with "
+                              "label %(l)s. %(e)s")
+                    LOG.warning(msg % {'l': host['label'], 'e': e.msg})
                     return host
         except exception.NotFound as e:
-            LOG.warn(_("Message - %s."), e.msg)
+            LOG.warning(_LW("Message - %s."), e.msg)
             return self._create_host(port_id, host_type)
 
     def _get_host_with_port(self, port_id):
@@ -653,7 +663,7 @@ class Driver(driver.ISCSIDriver):
 
     def _create_host(self, port_id, host_type):
         """Creates host on system with given initiator as port_id."""
-        LOG.info(_("Creating host with port %s."), port_id)
+        LOG.info(_LI("Creating host with port %s."), port_id)
         label = utils.convert_uuid_to_es_fmt(uuid.uuid4())
         port_label = utils.convert_uuid_to_es_fmt(uuid.uuid4())
         host_type = self._get_host_type_definition(host_type)
@@ -669,14 +679,14 @@ class Driver(driver.ISCSIDriver):
         raise exception.NotFound(_("Host type %s not supported.") % host_type)
 
     def _get_free_lun(self, host, maps=None):
-        """Gets free lun for given host."""
+        """Gets free LUN for given host."""
         ref = host['hostRef']
         luns = maps or self._get_vol_mapping_for_host_frm_array(ref)
         used_luns = set(map(lambda lun: int(lun['lun']), luns))
         for lun in xrange(self.MAX_LUNS_PER_HOST):
             if lun not in used_luns:
                 return lun
-        msg = _("No free luns. Host might exceeded max luns.")
+        msg = _("No free LUNs. Host might exceeded max LUNs.")
         raise exception.NetAppDriverException(msg)
 
     def _get_vol_mapping_for_host_frm_array(self, host_ref):
@@ -694,7 +704,7 @@ class Driver(driver.ISCSIDriver):
 
     def terminate_connection(self, volume, connector, **kwargs):
         """Disallow connection from connector."""
-        vol = self._get_volume(volume['id'])
+        vol = self._get_volume(volume['name_id'])
         host = self._get_host_with_port(connector['initiator'])
         mapping = self._get_cached_vol_mapping_for_host(vol, host)
         self._client.delete_volume_mapping(mapping['lunMappingRef'])
@@ -720,9 +730,7 @@ class Driver(driver.ISCSIDriver):
         """Update volume statistics."""
         LOG.debug("Updating volume stats.")
         data = dict()
-        netapp_backend = "NetApp_ESeries"
-        backend_name = self.configuration.safe_get("volume_backend_name")
-        data["volume_backend_name"] = (backend_name or netapp_backend)
+        data["volume_backend_name"] = self._backend_name
         data["vendor_name"] = "NetApp"
         data["driver_version"] = self.VERSION
         data["storage_protocol"] = "iSCSI"
@@ -758,14 +766,14 @@ class Driver(driver.ISCSIDriver):
                      (int(x.get('totalRaidedSpace', 0)) -
                       int(x.get('usedSpace', 0) >= size))]
         if not avl_pools:
-            msg = _("No storage pool found with available capacity %s.")
-            LOG.warn(msg % size_gb)
+            msg = _LW("No storage pool found with available capacity %s.")
+            LOG.warning(msg % size_gb)
         return avl_pools
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""
         stage_1, stage_2 = 0, 0
-        src_vol = self._get_volume(volume['id'])
+        src_vol = self._get_volume(volume['name_id'])
         src_label = src_vol['label']
         stage_label = 'tmp-%s' % utils.convert_uuid_to_es_fmt(uuid.uuid4())
         extend_vol = {'id': uuid.uuid4(), 'size': new_size}
@@ -777,7 +785,7 @@ class Driver(driver.ISCSIDriver):
             new_vol = stage_2
             self._cache_volume(new_vol)
             self._cache_volume(stage_1)
-            LOG.info(_('Extended volume with label %s.'), src_label)
+            LOG.info(_LI('Extended volume with label %s.'), src_label)
         except exception.NetAppDriverException:
             if stage_1 == 0:
                 with excutils.save_and_reraise_exception():
@@ -790,8 +798,9 @@ class Driver(driver.ISCSIDriver):
     def _garbage_collect_tmp_vols(self):
         """Removes tmp vols with no snapshots."""
         try:
-            if not utils.set_safe_attr(self, 'clean_job_running', True):
-                LOG.warn(_('Returning as clean tmp vol job already running.'))
+            if not na_utils.set_safe_attr(self, 'clean_job_running', True):
+                LOG.warning(_LW('Returning as clean tmp '
+                                'vol job already running.'))
                 return
             for label in self._objects['volumes']['label_ref'].keys():
                 if (label.startswith('tmp-') and
@@ -802,4 +811,4 @@ class Driver(driver.ISCSIDriver):
                         LOG.debug("Error deleting vol with label %s.",
                                   label)
         finally:
-            utils.set_safe_attr(self, 'clean_job_running', False)
+            na_utils.set_safe_attr(self, 'clean_job_running', False)

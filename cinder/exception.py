@@ -28,7 +28,7 @@ from oslo.config import cfg
 import six
 import webob.exc
 
-from cinder.i18n import _
+from cinder.i18n import _, _LE
 from cinder.openstack.common import log as logging
 
 
@@ -71,6 +71,7 @@ class CinderException(Exception):
 
     def __init__(self, message=None, **kwargs):
         self.kwargs = kwargs
+        self.kwargs['message'] = message
 
         if 'code' not in self.kwargs:
             try:
@@ -82,7 +83,7 @@ class CinderException(Exception):
             if isinstance(v, Exception):
                 self.kwargs[k] = six.text_type(v)
 
-        if not message:
+        if self._should_format():
             try:
                 message = self.message % kwargs
 
@@ -90,7 +91,7 @@ class CinderException(Exception):
                 exc_info = sys.exc_info()
                 # kwargs doesn't match a variable in the message
                 # log the issue and the kwargs
-                LOG.exception(_('Exception in string format operation'))
+                LOG.exception(_LE('Exception in string format operation'))
                 for name, value in kwargs.iteritems():
                     LOG.error("%s: %s" % (name, value))
                 if CONF.fatal_exception_format_errors:
@@ -105,6 +106,9 @@ class CinderException(Exception):
         # overshadowed by the class' message attribute
         self.msg = message
         super(CinderException, self).__init__(message)
+
+    def _should_format(self):
+        return self.kwargs['message'] is None or '%(message)' in self.message
 
     def __unicode__(self):
         return unicode(self.msg)
@@ -267,6 +271,11 @@ class VolumeTypeNotFoundByName(VolumeTypeNotFound):
                 "could not be found.")
 
 
+class VolumeTypeAccessNotFound(NotFound):
+    message = _("Volume type access not found for %(volume_type_id)s / "
+                "%(project_id)s combination.")
+
+
 class VolumeTypeExtraSpecsNotFound(NotFound):
     message = _("Volume Type %(volume_type_id)s has no extra specs with "
                 "key %(extra_specs_key)s.")
@@ -372,6 +381,11 @@ class VolumeTypeExists(Duplicate):
     message = _("Volume Type %(id)s already exists.")
 
 
+class VolumeTypeAccessExists(Duplicate):
+    message = _("Volume type access for %(volume_type_id)s / "
+                "%(project_id)s combination already exists.")
+
+
 class VolumeTypeEncryptionExists(Invalid):
     message = _("Volume type encryption for type %(type_id)s already exists.")
 
@@ -445,6 +459,10 @@ class VolumeTypeCreateFailed(CinderException):
                 "name %(name)s and specs %(extra_specs)s")
 
 
+class VolumeTypeUpdateFailed(CinderException):
+    message = _("Cannot update volume_type %(id)s")
+
+
 class UnknownCmd(VolumeDriverException):
     message = _("Unknown or unsupported command %(cmd)s")
 
@@ -512,6 +530,10 @@ class VolumeMetadataBackupExists(BackupDriverException):
 
 class BackupRBDOperationFailed(BackupDriverException):
     message = _("Backup RBD operation failed")
+
+
+class EncryptedBackupOperationFailed(BackupDriverException):
+    message = _("Backup operation of an encrypted volume failed.")
 
 
 class BackupNotFound(NotFound):
@@ -697,6 +719,10 @@ class SolidFireAccountNotFound(SolidFireDriverException):
                 "Solidfire device")
 
 
+class SolidFireRetryableException(VolumeBackendAPIException):
+    message = _("Retryable SolidFire Exception encountered")
+
+
 # HP 3Par
 class Invalid3PARDomain(VolumeDriverException):
     message = _("Invalid 3PAR Domain: %(err)s")
@@ -796,6 +822,15 @@ class NetAppDriverException(VolumeDriverException):
     message = _("NetApp Cinder Driver exception.")
 
 
+# Quobyte USP
+class QuobyteException(VolumeDriverException):
+    message = _("Unknown Quobyte exception")
+
+
+class QuobyteVolumeNotMounted(NotFound):
+    message = _("No mounted Quobyte volumes found")
+
+
 class EMCVnxCLICmdError(VolumeBackendAPIException):
     def __init__(self, cmd=None, rc=None, out='',
                  log_as_error=True, **kwargs):
@@ -859,3 +894,42 @@ class HBSDNotFound(NotFound):
 # Datera driver
 class DateraAPIException(VolumeBackendAPIException):
     message = _("Bad response from Datera API")
+
+
+# Target drivers
+class ISCSITargetCreateFailed(CinderException):
+    message = _("Failed to create iscsi target for volume %(volume_id)s.")
+
+
+class ISCSITargetRemoveFailed(CinderException):
+    message = _("Failed to remove iscsi target for volume %(volume_id)s.")
+
+
+class ISCSITargetAttachFailed(CinderException):
+    message = _("Failed to attach iSCSI target for volume %(volume_id)s.")
+
+
+# X-IO driver exception.
+class XIODriverException(VolumeDriverException):
+    message = _("X-IO Volume Driver exception!")
+
+
+# Violin Memory drivers
+class ViolinInvalidBackendConfig(CinderException):
+    message = _("Volume backend config is invalid: %(reason)s")
+
+
+class ViolinRequestRetryTimeout(CinderException):
+    message = _("Backend service retry timeout hit: %(timeout)s sec")
+
+
+class ViolinBackendErr(CinderException):
+    message = _("Backend reports: %(message)s")
+
+
+class ViolinBackendErrExists(CinderException):
+    message = _("Backend reports: item already exists")
+
+
+class ViolinBackendErrNotFound(CinderException):
+    message = _("Backend reports: item not found")

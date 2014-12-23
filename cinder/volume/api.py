@@ -24,18 +24,18 @@ import datetime
 import functools
 
 from oslo.config import cfg
+from oslo.utils import excutils
+from oslo.utils import timeutils
 import six
 
 from cinder import context
 from cinder.db import base
 from cinder import exception
 from cinder import flow_utils
-from cinder.i18n import _
+from cinder.i18n import _, _LE
 from cinder.image import glance
 from cinder import keymgr
-from cinder.openstack.common import excutils
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
 import cinder.policy
 from cinder import quota
@@ -153,7 +153,7 @@ class API(base.Base):
     def create(self, context, size, name, description, snapshot=None,
                image_id=None, volume_type=None, metadata=None,
                availability_zone=None, source_volume=None,
-               scheduler_hints=None, backup_source_volume=None,
+               scheduler_hints=None,
                source_replica=None, consistencygroup=None):
 
         # NOTE(jdg): we can have a create without size if we're
@@ -224,7 +224,6 @@ class API(base.Base):
             'source_volume': source_volume,
             'scheduler_hints': scheduler_hints,
             'key_manager': self.key_manager,
-            'backup_source_volume': backup_source_volume,
             'source_replica': source_replica,
             'optional_args': {'is_quota_committed': False},
             'consistencygroup': consistencygroup
@@ -237,7 +236,7 @@ class API(base.Base):
                                                  availability_zones,
                                                  create_what)
         except Exception:
-            LOG.exception(_("Failed to create api volume flow"))
+            LOG.exception(_LE("Failed to create api volume flow"))
             raise exception.CinderException(
                 _("Failed to create api volume flow"))
 
@@ -271,7 +270,8 @@ class API(base.Base):
                                               **reserve_opts)
             except Exception:
                 reservations = None
-                LOG.exception(_("Failed to update quota for deleting volume"))
+                LOG.exception(_LE("Failed to update quota for "
+                                  "deleting volume"))
             self.db.volume_destroy(context.elevated(), volume_id)
 
             if reservations:
@@ -280,16 +280,16 @@ class API(base.Base):
             volume_utils.notify_about_volume_usage(context,
                                                    volume, "delete.end")
             return
+        if volume['attach_status'] == "attached":
+            # Volume is still attached, need to detach first
+            raise exception.VolumeAttached(volume_id=volume_id)
+
         if not force and volume['status'] not in ["available", "error",
                                                   "error_restoring",
                                                   "error_extending"]:
             msg = _("Volume status must be available or error, "
                     "but current status is: %s") % volume['status']
             raise exception.InvalidVolume(reason=msg)
-
-        if volume['attach_status'] == "attached":
-            # Volume is still attached, need to detach first
-            raise exception.VolumeAttached(volume_id=volume_id)
 
         if volume['migration_status'] is not None:
             # Volume is migrating, wait until done
@@ -319,7 +319,6 @@ class API(base.Base):
         self.db.volume_update(context, volume['id'], fields)
 
     def get(self, context, volume_id, viewable_admin_meta=False):
-        old_ctxt = context.deepcopy()
         if viewable_admin_meta:
             ctxt = context.elevated()
         else:
@@ -327,7 +326,7 @@ class API(base.Base):
         rv = self.db.volume_get(ctxt, volume_id)
         volume = dict(rv.iteritems())
         try:
-            check_policy(old_ctxt, 'get', volume)
+            check_policy(context, 'get', volume)
         except exception.PolicyNotAuthorized:
             # raise VolumeNotFound instead to make sure Cinder behaves
             # as it used to
@@ -993,7 +992,10 @@ class API(base.Base):
             raise exception.InvalidInput(reason=msg)
 
         try:
-            reservations = QUOTAS.reserve(context, gigabytes=+size_increase)
+            reserve_opts = {'gigabytes': size_increase}
+            QUOTAS.add_volume_type_opts(context, reserve_opts,
+                                        volume.get('volume_type_id'))
+            reservations = QUOTAS.reserve(context, **reserve_opts)
         except exception.OverQuota as exc:
             usages = exc.kwargs['usages']
             quotas = exc.kwargs['quotas']
@@ -1199,7 +1201,7 @@ class API(base.Base):
             for qos_id in [old_vol_type_qos_id, vol_type_qos_id]:
                 if qos_id:
                     specs = qos_specs.get_qos_specs(context.elevated(), qos_id)
-                    if specs['qos_specs']['consumer'] != 'back-end':
+                    if specs['consumer'] != 'back-end':
                         msg = _('Retype cannot change front-end qos specs for '
                                 'in-use volumes')
                         raise exception.InvalidInput(reason=msg)
@@ -1233,7 +1235,7 @@ class API(base.Base):
                     elevated, svc_host, CONF.volume_topic)
             except exception.ServiceNotFound:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_('Unable to find service for given host.'))
+                    LOG.error(_LE('Unable to find service for given host.'))
             availability_zone = service.get('availability_zone')
 
         volume_type_id = volume_type['id'] if volume_type else None

@@ -18,13 +18,13 @@
 import random
 
 from eventlet import greenthread
+from oslo.concurrency import processutils
+from oslo.utils import excutils
 import six
 
 from cinder import exception
-from cinder.i18n import _
-from cinder.openstack.common import excutils
+from cinder.i18n import _, _LE
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import processutils
 from cinder import ssh_utils
 from cinder import utils
 from cinder.zonemanager.drivers.cisco import cisco_fabric_opts as fabric_opts
@@ -47,7 +47,7 @@ class CiscoFCSanLookupService(FCSanLookupService):
 
     def __init__(self, **kwargs):
         """Initializing the client."""
-        super(CiscoFCSanLookupService, self).__init__(self, **kwargs)
+        super(CiscoFCSanLookupService, self).__init__(**kwargs)
         self.configuration = kwargs.get('configuration', None)
         self.create_configuration()
 
@@ -56,8 +56,6 @@ class CiscoFCSanLookupService(FCSanLookupService):
         self.switch_pwd = ""
         self.switch_ip = ""
         self.sshpool = None
-
-        self.fabric_configs = ""
 
     def create_configuration(self):
         """Configuration specific to SAN context values."""
@@ -179,12 +177,12 @@ class CiscoFCSanLookupService(FCSanLookupService):
         cli_output = None
         nsinfo_list = []
         try:
-            cmd = ZoneConstant.FCNS_SHOW + fabric_vsan + ' | no-more'
+            cmd = ([ZoneConstant.FCNS_SHOW, fabric_vsan, ' | no-more'])
             cli_output = self._get_switch_info(cmd)
         except exception.FCSanLookupServiceException:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Failed collecting show fcns database for"
-                            " fabric"))
+                LOG.error(_LE("Failed collecting show fcns database for"
+                              " fabric"))
         if cli_output:
             nsinfo_list = self._parse_ns_output(cli_output)
 
@@ -268,7 +266,7 @@ class CiscoFCSanLookupService(FCSanLookupService):
                         cmd=command)
         except Exception:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Error running SSH command: %s") % command)
+                LOG.error(_LE("Error running SSH command: %s") % command)
 
     def _ssh_execute(self, cmd_list, check_exit_code=True, attempts=1):
         """Execute cli with status update.

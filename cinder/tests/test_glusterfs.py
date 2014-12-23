@@ -26,7 +26,9 @@ import mox as mox_lib
 from mox import IgnoreArg
 from mox import IsA
 from mox import stubout
+from oslo.concurrency import processutils as putils
 from oslo.config import cfg
+from oslo.utils import units
 
 from cinder import brick
 from cinder import compute
@@ -36,8 +38,6 @@ from cinder import exception
 from cinder.i18n import _
 from cinder.image import image_utils
 from cinder.openstack.common import imageutils
-from cinder.openstack.common import processutils as putils
-from cinder.openstack.common import units
 from cinder import test
 from cinder import utils
 from cinder.volume import configuration as conf
@@ -98,6 +98,8 @@ class GlusterFsDriverTestCase(test.TestCase):
             self.TEST_MNT_POINT_BASE
         self._configuration.glusterfs_sparsed_volumes = True
         self._configuration.glusterfs_qcow2_volumes = False
+        self._configuration.nas_secure_file_permissions = 'false'
+        self._configuration.nas_secure_file_operations = 'false'
 
         self.stubs = stubout.StubOutForTesting()
         self._driver =\
@@ -150,8 +152,8 @@ class GlusterFsDriverTestCase(test.TestCase):
 
     def test_local_path(self):
         """local_path common use case."""
-        CONF.set_override("glusterfs_mount_point_base",
-                          self.TEST_MNT_POINT_BASE)
+        self.override_config("glusterfs_mount_point_base",
+                             self.TEST_MNT_POINT_BASE)
         drv = self._driver
 
         volume = DumbVolume()
@@ -257,8 +259,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(brick.remotefs.remotefs.RemoteFsClient,
                             'get_mount_point')
 
-        CONF.set_override("glusterfs_mount_point_base",
-                          self.TEST_MNT_POINT_BASE)
+        self.override_config("glusterfs_mount_point_base",
+                             self.TEST_MNT_POINT_BASE)
 
         brick.remotefs.remotefs.RemoteFsClient.\
             get_mount_point(self.TEST_EXPORT1).AndReturn(hashed_path)
@@ -420,8 +422,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        CONF.set_override("glusterfs_shares_config",
-                          self.TEST_SHARES_CONFIG_FILE)
+        self.override_config("glusterfs_shares_config",
+                             self.TEST_SHARES_CONFIG_FILE)
 
         mox.StubOutWithMock(os.path, 'exists')
         os.path.exists(self.TEST_SHARES_CONFIG_FILE).AndReturn(True)
@@ -448,8 +450,8 @@ class GlusterFsDriverTestCase(test.TestCase):
         mox = self._mox
         drv = self._driver
 
-        CONF.set_override("glusterfs_shares_config",
-                          self.TEST_SHARES_CONFIG_FILE)
+        self.override_config("glusterfs_shares_config",
+                             self.TEST_SHARES_CONFIG_FILE)
 
         self.stubs.Set(drv, '_load_shares_config',
                        self._fake_load_shares_config)
@@ -559,7 +561,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         drv = self._driver
         volume = self._simple_volume()
 
-        CONF.set_override('glusterfs_sparsed_volumes', True)
+        self.override_config('glusterfs_sparsed_volumes', True)
 
         mox.StubOutWithMock(drv, '_create_sparsed_file')
         mox.StubOutWithMock(drv, '_set_rw_permissions_for_all')
@@ -788,7 +790,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             mock.patch.object(self._driver, '_load_shares_config'),
             mock.patch.object(self._driver, '_do_umount'),
             mock.patch.object(glusterfs, 'LOG')
-        ) as (mock_load_shares_config, mock_do_umount, mock_logger):
+        ) as (_mock_load_shares_config, mock_do_umount, mock_logger):
             mock_do_umount.side_effect = Exception()
 
             self._driver._unmount_shares()
@@ -803,7 +805,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         with contextlib.nested(
             mock.patch.object(self._driver, '_load_shares_config'),
             mock.patch.object(self._driver, '_do_umount')
-        ) as (mock_load_shares_config, mock_do_umount):
+        ) as (_mock_load_shares_config, mock_do_umount):
             self._driver._unmount_shares()
 
             self.assertTrue(mock_do_umount.called)
@@ -817,7 +819,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         with contextlib.nested(
             mock.patch.object(self._driver, '_load_shares_config'),
             mock.patch.object(self._driver, '_do_umount')
-        ) as (mock_load_shares_config, mock_do_umount):
+        ) as (_mock_load_shares_config, mock_do_umount):
             self._driver._unmount_shares()
 
             mock_do_umount.assert_any_call(True,
@@ -1463,7 +1465,7 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
 
-        self.assertRaisesAndMessageMatches(exception.GlusterfsException,
+        self.assertRaisesAndMessageMatches(exception.RemoteFSException,
                                            'Unable to delete snapshot',
                                            drv.delete_snapshot,
                                            snap_ref)
@@ -1473,8 +1475,8 @@ class GlusterFsDriverTestCase(test.TestCase):
     def test_get_backing_chain_for_path(self):
         (mox, drv) = self._mox, self._driver
 
-        CONF.set_override('glusterfs_mount_point_base',
-                          self.TEST_MNT_POINT_BASE)
+        self.override_config('glusterfs_mount_point_base',
+                             self.TEST_MNT_POINT_BASE)
 
         volume = self._simple_volume()
         vol_filename = volume['name']
@@ -1856,7 +1858,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             mock_qemu_img_info.assert_called_once_with(volume_path)
             mock_upload_volume.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, upload_path)
-            mock_create_temporary_file.assert_once_called_with()
+            self.assertEqual(1, mock_create_temporary_file.call_count)
 
     def test_copy_volume_to_image_qcow2_image(self):
         """Upload a qcow2 image file which has to be converted to raw first."""
@@ -1901,7 +1903,7 @@ class GlusterFsDriverTestCase(test.TestCase):
                 volume_path, upload_path, 'raw')
             mock_upload_volume.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, upload_path)
-            mock_create_temporary_file.assert_once_called_with()
+            self.assertEqual(1, mock_create_temporary_file.call_count)
 
     def test_copy_volume_to_image_snapshot_exists(self):
         """Upload an active snapshot which has to be converted to raw first."""
@@ -1948,4 +1950,4 @@ class GlusterFsDriverTestCase(test.TestCase):
                 volume_path, upload_path, 'raw')
             mock_upload_volume.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, upload_path)
-            mock_create_temporary_file.assert_once_called_with()
+            self.assertEqual(1, mock_create_temporary_file.call_count)

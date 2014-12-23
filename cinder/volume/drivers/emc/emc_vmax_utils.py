@@ -21,7 +21,7 @@ import six
 
 from cinder import context
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LE, _LI
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import loopingcall
 from cinder.volume import volume_types
@@ -57,7 +57,7 @@ class EMCVMAXUtils(object):
 
     def __init__(self, prtcl):
         if not pywbemAvailable:
-            LOG.info(_(
+            LOG.info(_LI(
                 'Module PyWBEM not installed.  '
                 'Install PyWBEM using the python-pywbem package.'))
         self.protocol = prtcl
@@ -290,8 +290,9 @@ class EMCVMAXUtils(object):
             if self._is_job_finished(conn, job):
                 raise loopingcall.LoopingCallDone()
             if self.retries > JOB_RETRIES:
-                LOG.error(_("_wait_for_job_complete failed after %(retries)d "
-                          "tries") % {'retries': self.retries})
+                LOG.error(_LE("_wait_for_job_complete "
+                              "failed after %(retries)d "
+                              "tries") % {'retries': self.retries})
 
                 raise loopingcall.LoopingCallDone()
             try:
@@ -300,7 +301,7 @@ class EMCVMAXUtils(object):
                     if self._is_job_finished(conn, job):
                         self.wait_for_job_called = True
             except Exception as e:
-                LOG.error(_("Exception: %s") % six.text_type(e))
+                LOG.error(_LE("Exception: %s") % six.text_type(e))
                 exceptionMessage = (_("Issue encountered waiting for job."))
                 LOG.error(exceptionMessage)
                 raise exception.VolumeBackendAPIException(exceptionMessage)
@@ -345,11 +346,11 @@ class EMCVMAXUtils(object):
         """
 
         def _wait_for_sync():
-            """Called at an interval until the synchronization is finished"""
+            """Called at an interval until the synchronization is finished."""
             if self._is_sync_complete(conn, syncName):
                 raise loopingcall.LoopingCallDone()
             if self.retries > JOB_RETRIES:
-                LOG.error(_("_wait_for_sync failed after %(retries)d tries")
+                LOG.error(_LE("_wait_for_sync failed after %(retries)d tries.")
                           % {'retries': self.retries})
                 raise loopingcall.LoopingCallDone()
             try:
@@ -358,7 +359,7 @@ class EMCVMAXUtils(object):
                     if self._is_sync_complete(conn, syncName):
                         self.wait_for_sync_called = True
             except Exception as e:
-                LOG.error(_("Exception: %s") % six.text_type(e))
+                LOG.error(_LE("Exception: %s") % six.text_type(e))
                 exceptionMessage = (_("Issue encountered waiting for "
                                       "synchronization."))
                 LOG.error(exceptionMessage)
@@ -661,7 +662,7 @@ class EMCVMAXUtils(object):
                       % {'fileName': fileName,
                          'fastPolicyName': fastPolicyName})
         else:
-            LOG.info(_("Fast Policy not found."))
+            LOG.info(_LI("Fast Policy not found."))
         return fastPolicyName
 
     def parse_array_name_from_file(self, fileName):
@@ -1169,3 +1170,52 @@ class EMCVMAXUtils(object):
                 break
 
         return foundIpAddress
+
+    def get_volume_meta_head(self, conn, volumeInstanceName):
+        """Get the head of a meta volume.
+
+        :param volumeInstanceName: the composite volume instance name
+        :returns: the instance name of the meta volume head
+        """
+        metaHeadInstanceName = None
+        metaHeads = conn.AssociatorNames(
+            volumeInstanceName,
+            ResultClass='EMC_Meta')
+
+        if len(metaHeads) > 0:
+            metaHeadInstanceName = metaHeads[0]
+        if metaHeadInstanceName is None:
+            LOG.info(_LI("Volume  %(volume)s does not have meta device "
+                         "members."),
+                     {'volume': volumeInstanceName})
+
+        return metaHeadInstanceName
+
+    def get_meta_members_of_composite_volume(
+            self, conn, metaHeadInstanceName):
+        """Get the member volumes of a composite volume.
+
+        :param metaHeadInstanceName: head of the composite volume
+        :returns: an array containing instance names of member volumes
+        """
+        metaMembers = conn.AssociatorNames(
+            metaHeadInstanceName,
+            AssocClass='CIM_BasedOn',
+            ResultClass='EMC_PartialAllocOfConcreteExtent')
+        LOG.debug("metaMembers:  %(members)s " % {'members': metaMembers})
+        return metaMembers
+
+    def get_meta_members_capacity_in_bit(self, conn, volumeInstanceNames):
+        """Get the capacity in bits of all meta device member volumes.
+
+        :param volumeInstanceNames: array contains meta device member volumes
+        :returns: array contains capacities of each member device in bits
+        """
+        capacitiesInBit = []
+        for volumeInstanceName in volumeInstanceNames:
+            volumeInstance = conn.GetInstance(volumeInstanceName)
+            numOfBlocks = volumeInstance['ConsumableBlocks']
+            blockSize = volumeInstance['BlockSize']
+            volumeSizeInbits = numOfBlocks * blockSize
+            capacitiesInBit.append(volumeSizeInbits)
+        return capacitiesInBit
