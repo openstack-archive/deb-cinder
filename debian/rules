@@ -18,6 +18,8 @@ override_dh_clean:
 	rm -rf debian/*.upstart debian/*.service
 
 override_dh_install:
+	tools/config/generate_sample.sh -b . -p cinder -o etc/cinder
+
 	dh_install --fail-missing -Xbin/cinder-all
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 	install -D -m 0644 $(CURDIR)/etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
