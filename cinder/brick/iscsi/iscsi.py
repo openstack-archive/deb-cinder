@@ -61,10 +61,6 @@ class TargetAdmin(executor.Executor):
         """Get the current chap auth username and password."""
         return None
 
-    def _get_target_chap_auth(self, volume_id):
-        """Get the current chap auth username and password."""
-        return None
-
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
         """Create an iSCSI target and logical unit."""

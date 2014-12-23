@@ -7329,14 +7329,6 @@ msgstr ""
 msgid "Error running SSH command: %s"
 msgstr ""
 
-#: cinder/volume/drivers/san/san.py:151
-#: cinder/zonemanager/drivers/brocade/brcd_fc_zone_client_cli.py:417
-#: cinder/zonemanager/drivers/cisco/cisco_fc_san_lookup_service.py:271
-#: cinder/zonemanager/drivers/cisco/cisco_fc_zone_client_cli.py:397
-#, python-format
-msgid "Error running SSH command: %s"
-msgstr ""
-
 #: cinder/volume/drivers/san/san.py:171
 msgid "Specify san_password or san_private_key"
 msgstr ""
@@ -7696,20 +7688,6 @@ msgstr ""
 #: cinder/volume/drivers/vmware/api.py:345
 #, python-format
 msgid "Error: unknown lease state %s."
-msgstr ""
-
-#: cinder/volume/drivers/vmware/datastore.py:61
-#, python-format
-msgid "Storage profile: %s cannot be found in vCenter."
-msgstr ""
-
-#: cinder/volume/drivers/vmware/datastore.py:212
-msgid "Error occurred while selecting datastore."
-msgstr ""
-
-#: cinder/volume/drivers/vmware/datastore.py:217
-#, python-format
-msgid "Unable to fetch datastores connected to host %s."
 msgstr ""
 
 #: cinder/volume/drivers/vmware/error_util.py:64
@@ -8133,9 +8111,7 @@ msgstr ""
 
 #: cinder/volume/drivers/vmware/vmdk.py:1953
 #, python-format
-msgid ""
-"There are no datastores matching volume requirements; can't relocate "
-"volume: %s."
+msgid "Relocating volume: %(backing)s to %(ds)s and %(rp)s."
 msgstr ""
 
 #: cinder/volume/drivers/vmware/vmdk.py:2001
