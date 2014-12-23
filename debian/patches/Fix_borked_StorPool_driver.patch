@@ -1,0 +1,59 @@
+Subject: Fix borked StorPool driver
+ The newly added StorPool driver has a number of issues; It imports it's own
+ 3'rd party libs which are not in the requirements file, it declares conf
+ options but never registers them, and as a result of these two things it break
+ the ability to generate a configuration file.
+ .
+ This patch adds a try_import around the import storpool calls like we do in
+ other drivers, and it registers the config options properly.
+Author: John Griffith <john.griffith8@gmail.com>
+Date: Tue, 23 Dec 2014 00:05:01 +0000 (-0700)
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fcinder.git;a=commitdiff_plain;h=b7e7d13df12d809e6433a74a5991d2930aa15904
+Bug-Ubuntu: 1405023
+Bug-Ubuntu: 1405022
+Bug-Ubuntu: 1405016
+Change-Id: I61340ab7c5abcdc21dbb12cf0693da036e69e90c
+Origin: upstream, https://review.openstack.org/#/c/143570/
+Last-Update: 2014-12-23
+
+diff --git a/cinder/volume/drivers/storpool.py b/cinder/volume/drivers/storpool.py
+index f8cc49c..2f1db2a 100644
+--- a/cinder/volume/drivers/storpool.py
++++ b/cinder/volume/drivers/storpool.py
+@@ -18,6 +18,7 @@
+ from __future__ import absolute_import
+ 
+ from oslo.config import cfg
++from oslo.utils import importutils
+ from oslo.utils import units
+ import six
+ 
+@@ -29,9 +30,11 @@ from cinder.volume import volume_types
+ 
+ LOG = logging.getLogger(__name__)
+ 
+-from storpool import spapi
+-from storpool import spopenstack
+-from storpool import sptypes
++storpool = importutils.try_import('storpool')
++if storpool:
++    from storpool import spapi
++    from storpool import spopenstack
++    from storpool import sptypes
+ 
+ 
+ storpool_opts = [
+@@ -43,9 +46,12 @@ storpool_opts = [
+                help='The default StorPool chain replication value.  '
+                     'Used when creating a volume with no specified type if '
+                     'storpool_template is not set.  Also used for calculating '
+-                    'the apparent free space reported in the stats.')
++                    'the apparent free space reported in the stats.'),
+ ]
+ 
++CONF = cfg.CONF
++CONF.register_opts(storpool_opts)
++
+ 
+ class StorPoolDriver(driver.VolumeDriver):
+     """The StorPool block device driver using the StorPool API"""
