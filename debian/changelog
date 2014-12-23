@@ -1,6 +1,7 @@
 cinder (2015.1~b1-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * Updated (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 23 Dec 2014 15:21:52 +0800
 
