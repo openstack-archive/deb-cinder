@@ -21,7 +21,10 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_write_new_conf cinder cinder.conf
 	pkgos_write_new_conf cinder api-paste.ini
 	pkgos_write_new_conf cinder logging.conf
-	pkgos_dbc_postinst ${CINDER_CONF} database connection cinder $@
+	db_get cinder/configure_db
+	if [ "$RET" = "true" ]; then
+		pkgos_dbc_postinst ${CINDER_CONF} database connection cinder $@
+	fi
 	pkgos_rabbit_write_conf ${CINDER_CONF} DEFAULT cinder
 	pkgos_write_admin_creds ${CINDER_CONF} keystone_authtoken cinder
 	db_get cinder/volume_group
@@ -32,8 +35,11 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	db_stop
 
 	chmod 0440 /etc/sudoers.d/cinder-common
-	echo "Now calling cinder-manage db sync: this may take a while..."
-	su -s /bin/sh -c 'cinder-manage db sync' cinder
+	db_get cinder/configure_db
+	if [ "$RET" = "true" ]; then
+		echo "Now calling cinder-manage db sync: this may take a while..."
+		su -s /bin/sh -c 'cinder-manage db sync' cinder
+	fi
 fi
 
 #DEBHELPER#
