@@ -1,3 +1,10 @@
+cinder (2014.1.3-10) unstable; urgency=medium
+
+  * Calling pkgos_dbc_postinst and cinder-manage db sync only if
+    cinder/configure_db is set to true.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 08 Jan 2015 16:14:50 +0000
+
 cinder (2014.1.3-9) unstable; urgency=medium
 
   * Rebuilt with openstack-pkg-tools (>= 22~): starts daemons on first install.
