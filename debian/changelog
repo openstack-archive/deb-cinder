@@ -1,6 +1,8 @@
-cinder (2014.2.1-2) UNRELEASED; urgency=medium
+cinder (2014.2.1-2) experimental; urgency=medium
 
   * Build-depends on dh-python and openstack-pkg-tools >= 22~.
+  * Do not run cinder-manage db sync and pkgos_dbc_postinst if the user didn't
+    ask for it through debconf.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 14 Jan 2015 22:50:45 +0000
 
