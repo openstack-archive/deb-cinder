@@ -1,3 +1,9 @@
+cinder (2014.2.2-1) experimental; urgency=medium
+
+  * New upstream point release.
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 07 Feb 2015 12:26:30 +0100
+
 cinder (2014.2.1-2) experimental; urgency=medium
 
   * Build-depends on dh-python and openstack-pkg-tools >= 22~.
