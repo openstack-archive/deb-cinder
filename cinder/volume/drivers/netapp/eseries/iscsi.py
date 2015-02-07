@@ -93,10 +93,17 @@ class Driver(driver.ISCSIDriver):
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""
         self._check_flags()
+        port = self.configuration.netapp_server_port
+        scheme = self.configuration.netapp_transport_type.lower()
+        if port is None:
+            if scheme == 'http':
+                port = 8080
+            elif scheme == 'https':
+                port = 8443
         self._client = client.RestClient(
-            scheme=self.configuration.netapp_transport_type,
+            scheme=scheme,
             host=self.configuration.netapp_server_hostname,
-            port=self.configuration.netapp_server_port,
+            port=port,
             service_path=self.configuration.netapp_webservice_path,
             username=self.configuration.netapp_login,
             password=self.configuration.netapp_password)
@@ -129,16 +136,15 @@ class Driver(driver.ISCSIDriver):
             except socket.gaierror as e:
                 LOG.error(_('Error resolving host %(host)s. Error - %(e)s.')
                           % {'host': host, 'e': e})
-                return None
+                raise exception.NoValidHost(
+                    _("Controller IP '%(host)s' could not be resolved: %(e)s.")
+                    % {'host': host, 'e': e})
 
         ips = self.configuration.netapp_controller_ips
         ips = [i.strip() for i in ips.split(",")]
         ips = [x for x in ips if _resolve_host(x)]
         host = utils.resolve_hostname(
             self.configuration.netapp_server_hostname)
-        if not ips:
-            msg = _('Controller ips not valid after resolution.')
-            raise exception.NoValidHost(reason=msg)
         if host in ips:
             LOG.info(_('Embedded mode detected.'))
             system = self._client.list_storage_systems()[0]
@@ -536,7 +542,7 @@ class Driver(driver.ISCSIDriver):
         initiator_name = connector['initiator']
         vol = self._get_latest_volume(volume['id'])
         iscsi_details = self._get_iscsi_service_details()
-        iscsi_det = self._get_iscsi_portal_for_vol(vol, iscsi_details)
+        iscsi_portal = self._get_iscsi_portal_for_vol(vol, iscsi_details)
         mapping = self._map_volume_to_host(vol, initiator_name)
         lun_id = mapping['lun']
         self._cache_vol_mapping(mapping)
@@ -546,23 +552,11 @@ class Driver(driver.ISCSIDriver):
         msg = _("Successfully fetched target details for volume %(id)s and "
                 "initiator %(initiator_name)s.")
         LOG.debug(msg % msg_fmt)
-        properties = {}
-        properties['target_discovered'] = False
-        properties['target_portal'] = '%s:%s' % (iscsi_det['ip'],
-                                                 iscsi_det['tcp_port'])
-        properties['target_iqn'] = iscsi_det['iqn']
-        properties['target_lun'] = lun_id
-        properties['volume_id'] = volume['id']
-        auth = volume['provider_auth']
-        if auth:
-            (auth_method, auth_username, auth_secret) = auth.split()
-            properties['auth_method'] = auth_method
-            properties['auth_username'] = auth_username
-            properties['auth_password'] = auth_secret
-        return {
-            'driver_volume_type': 'iscsi',
-            'data': properties,
-        }
+        address = iscsi_portal['ip']
+        port = iscsi_portal['tcp_port']
+        iqn = iscsi_portal['iqn']
+        return utils.get_iscsi_connection_properties(address, port, iqn,
+                                                     lun_id, volume)
 
     def _get_iscsi_service_details(self):
         """Gets iscsi iqn, ip and port information."""

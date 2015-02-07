@@ -31,6 +31,7 @@ from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp import api
+from cinder.volume.drivers.netapp import common
 from cinder.volume.drivers.netapp import nfs as netapp_nfs
 from cinder.volume.drivers.netapp import utils
 
@@ -188,11 +189,9 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         mox = self.mox
         drv = self._driver
         required_flags = [
-            'netapp_transport_type',
             'netapp_login',
             'netapp_password',
-            'netapp_server_hostname',
-            'netapp_server_port']
+            'netapp_server_hostname']
 
         # set required flags
         for flag in required_flags:
@@ -803,6 +802,68 @@ class NetappDirectCmodeNfsDriverTestCase(test.TestCase):
         pool = self._driver.get_pool({'provider_location': 'fake-share'})
         self.assertEqual(pool, 'fake-share')
 
+    def _set_config(self, configuration):
+        configuration.netapp_storage_family = 'ontap_cluster'
+        configuration.netapp_storage_protocol = 'nfs'
+        configuration.netapp_login = 'admin'
+        configuration.netapp_password = 'pass'
+        configuration.netapp_server_hostname = '127.0.0.1'
+        configuration.netapp_transport_type = 'http'
+        configuration.netapp_server_port = None
+        configuration.netapp_vserver = 'openstack'
+        configuration.nfs_shares_config = '/nfs'
+        return configuration
+
+    @mock.patch.object(netapp_nfs.NetAppNFSDriver, 'do_setup')
+    def test_do_setup_all_default(self, mock_set_up):
+        configuration = self._set_config(create_configuration())
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._do_custom_setup = mock.Mock()
+        driver.do_setup(context='')
+        self.assertEqual('80', driver._client.get_port())
+        self.assertEqual('http', driver._client.get_transport_type())
+
+    @mock.patch.object(netapp_nfs.NetAppNFSDriver, 'do_setup')
+    def test_do_setup_http_default_port(self, mock_setup):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'http'
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._do_custom_setup = mock.Mock()
+        driver.do_setup(context='')
+        self.assertEqual('80', driver._client.get_port())
+        self.assertEqual('http', driver._client.get_transport_type())
+
+    @mock.patch.object(netapp_nfs.NetAppNFSDriver, 'do_setup')
+    def test_do_setup_https_default_port(self, mock_setup):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'https'
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._do_custom_setup = mock.Mock()
+        driver.do_setup(context='')
+        self.assertEqual('443', driver._client.get_port())
+        self.assertEqual('https', driver._client.get_transport_type())
+
+    @mock.patch.object(netapp_nfs.NetAppNFSDriver, 'do_setup')
+    def test_do_setup_http_non_default_port(self, mock_setup):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_server_port = 81
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._do_custom_setup = mock.Mock()
+        driver.do_setup(context='')
+        self.assertEqual('81', driver._client.get_port())
+        self.assertEqual('http', driver._client.get_transport_type())
+
+    @mock.patch.object(netapp_nfs.NetAppNFSDriver, 'do_setup')
+    def test_do_setup_https_non_default_port(self, mock_setup):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'https'
+        configuration.netapp_server_port = 446
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._do_custom_setup = mock.Mock()
+        driver.do_setup(context='')
+        self.assertEqual('446', driver._client.get_port())
+        self.assertEqual('https', driver._client.get_transport_type())
+
 
 class NetappDirectCmodeNfsDriverOnlyTestCase(test.TestCase):
     """Test direct NetApp C Mode driver only and not inherit."""
@@ -812,6 +873,7 @@ class NetappDirectCmodeNfsDriverOnlyTestCase(test.TestCase):
         self._custom_setup()
 
     def _custom_setup(self):
+        self.mock_object(utils, 'OpenStackInfo')
         kwargs = {}
         kwargs['netapp_mode'] = 'proxy'
         kwargs['configuration'] = create_configuration()
@@ -1110,6 +1172,7 @@ class NetappDirectCmodeNfsDriverOnlyTestCase(test.TestCase):
 class NetappDirect7modeNfsDriverTestCase(NetappDirectCmodeNfsDriverTestCase):
     """Test direct NetApp C Mode driver."""
     def _custom_setup(self):
+        self.mock_object(utils, 'OpenStackInfo')
         self._driver = netapp_nfs.NetAppDirect7modeNfsDriver(
             configuration=create_configuration())
 
@@ -1255,3 +1318,107 @@ class NetappDirect7modeNfsDriverTestCase(NetappDirectCmodeNfsDriverTestCase):
     def test_get_pool(self):
         pool = self._driver.get_pool({'provider_location': 'fake-share'})
         self.assertEqual(pool, 'fake-share')
+
+    def test_get_actual_path_for_export_no_vfiler(self):
+        drv = self._driver
+        drv.vfiler = None
+        test_path = '/vol/test/path'
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+
+        drv._get_actual_path_for_export(test_path)
+
+        mock_invoke.assert_called_once_with(mock.ANY, None)
+
+    def test_get_actual_path_for_export_with_vfiler(self):
+        test_vfiler = 'foo'
+        drv = self._driver
+        test_path = '/vol/test/path'
+        drv.vfiler = test_vfiler
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+
+        drv._get_actual_path_for_export(test_path)
+
+        mock_invoke.assert_called_once_with(mock.ANY, test_vfiler)
+
+    def test_start_clone_no_vfiler(self):
+        drv = self._driver
+        drv.vfiler = None
+        src_path = '/vol/test/src'
+        dest_path = '/vol/test/dest'
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+
+        drv._start_clone(src_path, dest_path)
+
+        mock_invoke.assert_called_once_with(mock.ANY, None)
+
+    def test_start_clone_with_vfiler(self):
+        test_vfiler = 'foo'
+        drv = self._driver
+        src_path = '/vol/test/src'
+        dest_path = '/vol/test/dest'
+        drv.vfiler = test_vfiler
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+
+        drv._start_clone(src_path, dest_path)
+
+        mock_invoke.assert_called_once_with(mock.ANY, test_vfiler)
+
+    def test_wait_for_clone_finish_no_vfiler(self):
+        drv = self._driver
+        drv.vfiler = None
+        src_path = '/vol/test/src'
+        dest_path = '/vol/test/dest'
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+        self.mock_object(drv, "_is_clone_still_running", False)
+
+        drv._start_clone(src_path, dest_path)
+
+        mock_invoke.assert_called_once_with(mock.ANY, None)
+
+    def test_wait_for_clone_finish_with_vfiler(self):
+        test_vfiler = 'foo'
+        drv = self._driver
+        src_path = '/vol/test/src'
+        dest_path = '/vol/test/dest'
+        drv.vfiler = test_vfiler
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+        self.mock_object(drv, "_is_clone_still_running", False)
+
+        drv._start_clone(src_path, dest_path)
+
+        mock_invoke.assert_called_once_with(mock.ANY, test_vfiler)
+
+    def test_clear_clone_no_vfiler(self):
+        drv = self._driver
+        drv.vfiler = None
+        fake_clone_id = '1234'
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+
+        drv._clear_clone(fake_clone_id)
+
+        mock_invoke.assert_called_once_with(mock.ANY, None)
+
+    def test_clear_clone_with_vfiler(self):
+        test_vfiler = 'foo'
+        drv = self._driver
+        fake_clone_id = '1234'
+        drv.vfiler = test_vfiler
+        mock_invoke = mock.Mock()
+        self.mock_object(drv, "_invoke_successfully", mock_invoke)
+
+        drv._clear_clone(fake_clone_id)
+
+        mock_invoke.assert_called_once_with(mock.ANY, test_vfiler)
+
+    def _set_config(self, configuration):
+        super(NetappDirect7modeNfsDriverTestCase, self)._set_config(
+            configuration)
+        configuration.netapp_storage_family = 'ontap_7mode'
+        return configuration

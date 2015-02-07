@@ -135,8 +135,17 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
     def _get_output(self, chan):
         out = ''
         ending = '%s> ' % self.configuration.eqlx_group_name
-        while not out.endswith(ending):
-            out += chan.recv(102400)
+        while out.find(ending) == -1:
+            ret = chan.recv(102400)
+            if len(ret) == 0:
+                # According to paramiko.channel.Channel documentation, which
+                # says "If a string of length zero is returned, the channel
+                # stream has closed". So we can confirm that the EQL server
+                # has closed the connection.
+                msg = _("The EQL array has closed the connection.")
+                LOG.error(msg)
+                raise processutils.ProcessExecutionError(description=msg)
+            out += ret
 
         LOG.debug("CLI output\n%s", out)
         return out.splitlines()

@@ -22,6 +22,7 @@ import re
 
 import mock
 import requests
+import six.moves.urllib.parse as urlparse
 
 from cinder import exception
 from cinder.openstack.common import log as logging
@@ -638,6 +639,7 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
         self._custom_setup()
 
     def _custom_setup(self):
+        self.mock_object(na_utils, 'OpenStackInfo')
         configuration = self._set_config(create_configuration())
         self.driver = common.NetAppDriver(configuration=configuration)
         self.mock_object(requests, 'Session', FakeEseriesHTTPSession)
@@ -649,7 +651,7 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
         configuration.netapp_storage_protocol = 'iscsi'
         configuration.netapp_transport_type = 'http'
         configuration.netapp_server_hostname = '127.0.0.1'
-        configuration.netapp_server_port = '80'
+        configuration.netapp_server_port = None
         configuration.netapp_webservice_path = '/devmgr/vn'
         configuration.netapp_controller_ips = '127.0.0.2,127.0.0.3'
         configuration.netapp_sa_password = 'pass1234'
@@ -934,3 +936,110 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
         driver = common.NetAppDriver(configuration=configuration)
         self.assertRaises(exception.NetAppDriverException,
                           driver.check_for_setup_error)
+
+    def test_setup_good_controller_ip(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = '127.0.0.1'
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system
+
+    def test_setup_good_controller_ips(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = '127.0.0.2,127.0.0.1'
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system
+
+    def test_setup_missing_controller_ip(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = None
+        driver = common.NetAppDriver(configuration=configuration)
+        self.assertRaises(exception.InvalidInput,
+                          driver.do_setup, context='context')
+
+    def test_setup_error_invalid_controller_ip(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = '987.65.43.21'
+        driver = common.NetAppDriver(configuration=configuration)
+        self.assertRaises(exception.NoValidHost,
+                          driver._check_mode_get_or_register_storage_system)
+
+    def test_setup_error_invalid_first_controller_ip(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = '987.65.43.21,127.0.0.1'
+        driver = common.NetAppDriver(configuration=configuration)
+        self.assertRaises(exception.NoValidHost,
+                          driver._check_mode_get_or_register_storage_system)
+
+    def test_setup_error_invalid_second_controller_ip(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = '127.0.0.1,987.65.43.21'
+        driver = common.NetAppDriver(configuration=configuration)
+        self.assertRaises(exception.NoValidHost,
+                          driver._check_mode_get_or_register_storage_system)
+
+    def test_setup_error_invalid_both_controller_ips(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_controller_ips = '564.124.1231.1,987.65.43.21'
+        driver = common.NetAppDriver(configuration=configuration)
+        self.assertRaises(exception.NoValidHost,
+                          driver._check_mode_get_or_register_storage_system)
+
+    def test_do_setup_all_default(self):
+        configuration = self._set_config(create_configuration())
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system = mock.Mock()
+        driver.do_setup(context='context')
+        url = urlparse.urlparse(driver._client._endpoint)
+        port = url.port
+        scheme = url.scheme
+        self.assertEqual(8080, port)
+        self.assertEqual('http', scheme)
+
+    def test_do_setup_http_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'http'
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system = mock.Mock()
+        driver.do_setup(context='context')
+        url = urlparse.urlparse(driver._client._endpoint)
+        port = url.port
+        scheme = url.scheme
+        self.assertEqual(8080, port)
+        self.assertEqual('http', scheme)
+
+    def test_do_setup_https_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'https'
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system = mock.Mock()
+        driver.do_setup(context='context')
+        url = urlparse.urlparse(driver._client._endpoint)
+        port = url.port
+        scheme = url.scheme
+        self.assertEqual(8443, port)
+        self.assertEqual('https', scheme)
+
+    def test_do_setup_http_non_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_server_port = 81
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system = mock.Mock()
+        driver.do_setup(context='context')
+        url = urlparse.urlparse(driver._client._endpoint)
+        port = url.port
+        scheme = url.scheme
+        self.assertEqual(81, port)
+        self.assertEqual('http', scheme)
+
+    def test_do_setup_https_non_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'https'
+        configuration.netapp_server_port = 446
+        driver = common.NetAppDriver(configuration=configuration)
+        driver._check_mode_get_or_register_storage_system = mock.Mock()
+        driver.do_setup(context='context')
+        url = urlparse.urlparse(driver._client._endpoint)
+        port = url.port
+        scheme = url.scheme
+        self.assertEqual(446, port)
+        self.assertEqual('https', scheme)

@@ -84,14 +84,15 @@ class NetAppLun(object):
 class NetAppDirectISCSIDriver(driver.ISCSIDriver):
     """NetApp Direct iSCSI volume driver."""
 
+    # do not increment this as it may be used in volume type definitions
     VERSION = "1.0.0"
 
     IGROUP_PREFIX = 'openstack-'
-    required_flags = ['netapp_transport_type', 'netapp_login',
-                      'netapp_password', 'netapp_server_hostname',
-                      'netapp_server_port']
+    required_flags = ['netapp_login', 'netapp_password',
+                      'netapp_server_hostname']
 
     def __init__(self, *args, **kwargs):
+        self._app_version = kwargs.pop("app_version", "unknown")
         super(NetAppDirectISCSIDriver, self).__init__(*args, **kwargs)
         validate_instantiation(**kwargs)
         self.configuration.append_config_values(netapp_connection_opts)
@@ -114,6 +115,8 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
                                style=NaServer.STYLE_LOGIN_PASSWORD,
                                username=kwargs['login'],
                                password=kwargs['password'])
+        if kwargs['port'] is not None:
+            self.client.set_port(kwargs['port'])
 
     def _do_custom_setup(self):
         """Does custom setup depending on the type of filer."""
@@ -265,6 +268,10 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         msg_fmt = {'name': name, 'initiator_name': initiator_name}
         LOG.debug(msg % msg_fmt)
         iqn = self._get_iscsi_service_details()
+        if not iqn:
+            msg = _('Failed to get target IQN for the LUN %s')
+            raise exception.VolumeBackendAPIException(data=msg % name)
+
         target_details_list = self._get_target_details()
         msg = _("Successfully fetched target details for LUN %(name)s and "
                 "initiator %(initiator_name)s")
@@ -285,29 +292,12 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
         if not target_details['address'] and target_details['port']:
             msg = _('Failed to get target portal for the LUN %s')
             raise exception.VolumeBackendAPIException(data=msg % name)
-        if not iqn:
-            msg = _('Failed to get target IQN for the LUN %s')
-            raise exception.VolumeBackendAPIException(data=msg % name)
 
-        properties = {}
-        properties['target_discovered'] = False
-        (address, port) = (target_details['address'], target_details['port'])
-        properties['target_portal'] = '%s:%s' % (address, port)
-        properties['target_iqn'] = iqn
-        properties['target_lun'] = lun_id
-        properties['volume_id'] = volume['id']
+        address = target_details['address']
+        port = target_details['port']
 
-        auth = volume['provider_auth']
-        if auth:
-            (auth_method, auth_username, auth_secret) = auth.split()
-            properties['auth_method'] = auth_method
-            properties['auth_username'] = auth_username
-            properties['auth_password'] = auth_secret
-
-        return {
-            'driver_volume_type': 'iscsi',
-            'data': properties,
-        }
+        return na_utils.get_iscsi_connection_properties(address, port, iqn,
+                                                        lun_id, volume)
 
     def create_snapshot(self, snapshot):
         """Driver entry point for creating a snapshot.
@@ -1081,7 +1071,8 @@ class NetAppDirectCmodeISCSIDriver(NetAppDirectISCSIDriver):
         data['storage_protocol'] = 'iSCSI'
         data['pools'] = self._get_pool_stats()
 
-        na_utils.provide_ems(self, self.client, data, netapp_backend)
+        na_utils.provide_ems(self, self.client, netapp_backend,
+                             self._app_version)
         self._stats = data
 
     def _get_pool_stats(self):
@@ -1494,8 +1485,8 @@ class NetAppDirect7modeISCSIDriver(NetAppDirectISCSIDriver):
         data['storage_protocol'] = 'iSCSI'
         data['pools'] = self._get_pool_stats()
 
-        na_utils.provide_ems(self, self.client, data, netapp_backend,
-                             server_type='7mode')
+        na_utils.provide_ems(self, self.client, netapp_backend,
+                             self._app_version, server_type='7mode')
         self._stats = data
 
     def _get_pool_stats(self):
