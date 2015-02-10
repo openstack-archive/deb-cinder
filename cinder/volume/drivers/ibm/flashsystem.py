@@ -29,10 +29,10 @@ import re
 import string
 import threading
 
-from oslo.concurrency import processutils
-from oslo.config import cfg
-from oslo.utils import excutils
-from oslo.utils import units
+from oslo_concurrency import processutils
+from oslo_config import cfg
+from oslo_utils import excutils
+from oslo_utils import units
 import six
 
 from cinder import context
@@ -1137,11 +1137,11 @@ class FlashSystemDriver(san.SanDriver):
 
     def validate_connector(self, connector):
         """Check connector."""
-        if 'FC' != self._protocol or 'wwpns' not in connector:
-            msg = (_('The connector does not contain the '
-                     'required information.'))
+        if 'FC' == self._protocol and 'wwpns' not in connector:
+            msg = (_LE('The connector does not contain the '
+                       'required information: wwpns is missing'))
             LOG.error(msg)
-            raise exception.VolumeDriverException(data=msg)
+            raise exception.InvalidConnectorException(missing='wwpns')
 
     def create_volume(self, volume):
         """Create volume."""

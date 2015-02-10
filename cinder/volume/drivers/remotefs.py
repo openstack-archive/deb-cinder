@@ -21,9 +21,9 @@ import re
 import tempfile
 import time
 
-from oslo.concurrency import processutils as putils
-from oslo.config import cfg
-from oslo.utils import units
+from oslo_concurrency import processutils as putils
+from oslo_config import cfg
+from oslo_utils import units
 
 from cinder import compute
 from cinder import db
@@ -900,7 +900,7 @@ class RemoteFSSnapDriver(RemoteFSDriver):
                         'to be deleted.') % snapshot_path
                 LOG.warn(msg)
 
-                # Snapshot may be stale, so just delete it and update ther
+                # Snapshot may be stale, so just delete it and update the
                 # info file instead of blocking
                 return self._delete_stale_snapshot(snapshot)
 

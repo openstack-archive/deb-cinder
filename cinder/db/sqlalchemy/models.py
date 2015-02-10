@@ -19,9 +19,9 @@
 SQLAlchemy models for cinder data.
 """
 
-from oslo.config import cfg
-from oslo.db.sqlalchemy import models
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_db.sqlalchemy import models
+from oslo_utils import timeutils
 from sqlalchemy import Column, Integer, String, Text, schema
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import ForeignKey, DateTime, Boolean
@@ -146,6 +146,7 @@ class Volume(BASE, CinderBase):
     provider_location = Column(String(255))
     provider_auth = Column(String(255))
     provider_geometry = Column(String(255))
+    provider_id = Column(String(255))
 
     volume_type_id = Column(String(36))
     source_volid = Column(String(36))
@@ -431,6 +432,7 @@ class Snapshot(BASE, CinderBase):
     volume_type_id = Column(String(36))
 
     provider_location = Column(String(255))
+    provider_id = Column(String(255))
 
     volume = relationship(Volume, backref="snapshots",
                           foreign_keys=volume_id,

@@ -18,11 +18,11 @@
 import math
 
 from Crypto.Random import random
-from oslo.concurrency import processutils
-from oslo.config import cfg
-from oslo.utils import strutils
-from oslo.utils import timeutils
-from oslo.utils import units
+from oslo_concurrency import processutils
+from oslo_config import cfg
+from oslo_utils import strutils
+from oslo_utils import timeutils
+from oslo_utils import units
 
 from cinder.brick.local_dev import lvm as brick_lvm
 from cinder import exception
@@ -120,7 +120,7 @@ def _usage_from_snapshot(context, snapshot_ref, **extra_usage_info):
     usage_info = {
         'tenant_id': snapshot_ref['project_id'],
         'user_id': snapshot_ref['user_id'],
-        'availability_zone': snapshot_ref.volume['availability_zone'],
+        'availability_zone': snapshot_ref['volume']['availability_zone'],
         'volume_id': snapshot_ref['volume_id'],
         'volume_size': snapshot_ref['volume_size'],
         'snapshot_id': snapshot_ref['id'],

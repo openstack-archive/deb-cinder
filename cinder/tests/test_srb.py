@@ -17,8 +17,8 @@ Unit tests for the Scality Rest Block Volume Driver.
 """
 
 import mock
-from oslo.concurrency import processutils
-from oslo.utils import units
+from oslo_concurrency import processutils
+from oslo_utils import units
 
 from cinder import context
 from cinder import exception
@@ -117,7 +117,7 @@ class SRBLvmTestCase(test_brick_lvm.BrickLvmTestCase):
                                self.fake_execute)
         self.assertTrue(self.thin_vg.supports_thin_provisioning('sudo'))
         self.thin_vg.update_volume_group_info = mock.MagicMock()
-        with mock.patch('oslo.concurrency.processutils.execute'):
+        with mock.patch('oslo_concurrency.processutils.execute'):
             executor = mock.MagicMock()
             self.thin_vg._execute = executor
             self.thin_vg.extend_thin_pool()
@@ -173,7 +173,8 @@ class SRBRetryTestCase(test.TestCase):
 
     def test_retry_fail_and_succeed_mixed(self):
 
-        @srb.retry(count=4, exceptions=(Exception))
+        @srb.retry(count=4, exceptions=(Exception),
+                   sleep_mechanism=srb.retry.SLEEP_NONE)
         def _try_failing(self):
             attempted = self.attempts
             self.attempts = self.attempts + 1
@@ -211,7 +212,8 @@ class TestHandleProcessExecutionError(test.TestCase):
                     message='', info_message='', reraise=True):
                 raise processutils.ProcessExecutionError(description='Oops')
 
-        self.assertRaisesRegex(processutils.ProcessExecutionError, r'^Oops', f)
+        self.assertRaisesRegexp(processutils.ProcessExecutionError,
+                                r'^Oops', f)
 
     def test_reraise_false(self):
         with srb.handle_process_execution_error(
@@ -224,7 +226,7 @@ class TestHandleProcessExecutionError(test.TestCase):
                     message='', info_message='', reraise=RuntimeError('Oops')):
                 raise processutils.ProcessExecutionError
 
-        self.assertRaisesRegex(RuntimeError, r'^Oops', f)
+        self.assertRaisesRegexp(RuntimeError, r'^Oops', f)
 
 
 class SRBDriverTestCase(test.TestCase):
@@ -431,18 +433,18 @@ class SRBDriverTestCase(test.TestCase):
     def _fake_get_all_physical_volumes(self):
         def check(cmd_string):
             return 'env, LC_ALL=C, pvs, --noheadings, --unit=g, ' \
-                '-o, vg_name,name,size,free, --separator, :, --nosuffix' \
-                in cmd_string
+                '-o, vg_name,name,size,free, --separator, |, ' \
+                '--nosuffix' in cmd_string
 
         def act(cmd):
-            data = "  fake-outer-vg:/dev/fake1:10.00:1.00\n"
+            data = "  fake-outer-vg|/dev/fake1|10.00|1.00\n"
             for vname in self._volumes:
                 vol = self._volumes[vname]
                 for vgname in vol['vgs']:
                     vg = vol['vgs'][vgname]
                     for lvname in vg['lvs']:
                         lv_size = vg['lvs'][lvname]
-                        data += "  %s:/dev/srb/%s/device:%.2f:%.2f\n" %\
+                        data += "  %s|/dev/srb/%s/device|%.2f|%.2f\n" %\
                             (vgname, vol['name'],
                              lv_size / units.Gi, lv_size / units.Gi)
 

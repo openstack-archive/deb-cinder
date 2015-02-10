@@ -17,6 +17,7 @@
 
 import ast
 
+from oslo_utils import uuidutils
 import webob
 from webob import exc
 
@@ -26,7 +27,6 @@ from cinder.api import xmlutil
 from cinder import exception
 from cinder.i18n import _, _LI
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import uuidutils
 from cinder import utils
 from cinder import volume as cinder_volume
 from cinder.volume import utils as volume_utils
@@ -270,8 +270,11 @@ class VolumeController(wsgi.Controller):
         search_opts.pop('limit', None)
         search_opts.pop('offset', None)
 
-        if 'metadata' in search_opts:
-            search_opts['metadata'] = ast.literal_eval(search_opts['metadata'])
+        for k, v in search_opts.iteritems():
+            try:
+                search_opts[k] = ast.literal_eval(v)
+            except (ValueError, SyntaxError):
+                LOG.debug('Could not evaluate value %s, assuming string', v)
 
         context = req.environ['cinder.context']
         utils.remove_invalid_filter_options(context,

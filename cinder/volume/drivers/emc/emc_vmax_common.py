@@ -15,7 +15,7 @@
 
 import os.path
 
-from oslo.config import cfg
+from oslo_config import cfg
 import six
 
 from cinder import exception
@@ -113,7 +113,7 @@ class EMCVMAXCommon(object):
         :raises: VolumeBackendAPIException
         """
         volumeSize = int(self.utils.convert_gb_to_bits(volume['size']))
-        volumeName = volume['name']
+        volumeName = volume['id']
 
         extraSpecs = self._initial_setup(volume)
         self.conn = self._get_ecom_connection()
@@ -279,41 +279,82 @@ class EMCVMAXCommon(object):
         deviceInfoDict = self._wrap_find_device_number(volume, connector)
         if ('hostlunid' in deviceInfoDict and
                 deviceInfoDict['hostlunid'] is not None):
-            # Device is already mapped so we will leave the state as is
-            deviceNumber = deviceInfoDict['hostlunid']
-            LOG.info(_LI("Volume %(volume)s is already mapped. "
-                         "The device number is %(deviceNumber)s ")
-                     % {'volume': volumeName,
-                        'deviceNumber': deviceNumber})
+            isSameHost = self._is_same_host(connector, deviceInfoDict)
+            if isSameHost:
+                # Device is already mapped so we will leave the state as is.
+                deviceNumber = deviceInfoDict['hostlunid']
+                LOG.info(_LI("Volume %(volume)s is already mapped. "
+                             "The device number is %(deviceNumber)s.")
+                         % {'volume': volumeName,
+                            'deviceNumber': deviceNumber})
+            else:
+                deviceInfoDict = self._attach_volume(volume, connector,
+                                                     extraSpecs, True)
         else:
-            maskingViewDict = self._populate_masking_dict(
-                volume, connector, extraSpecs)
-            rollbackDict = self.masking.get_or_create_masking_view_and_map_lun(
-                self.conn, maskingViewDict)
-
-            # Find host lun id again after the volume is exported to the host
-            deviceInfoDict = self.find_device_number(volume, connector)
-            if 'hostlunid' not in deviceInfoDict:
-                # Did not successfully attach to host,
-                # so a rollback for FAST is required
-                LOG.error(_LE("Error Attaching volume %(vol)s ")
-                          % {'vol': volumeName})
-                if rollbackDict['fastPolicyName'] is not None:
-                    (
-                        self.masking
-                        ._check_if_rollback_action_for_masking_required(
-                            self.conn,
-                            rollbackDict['controllerConfigService'],
-                            rollbackDict['volumeInstance'],
-                            rollbackDict['volumeName'],
-                            rollbackDict['fastPolicyName'],
-                            rollbackDict['defaultStorageGroupInstanceName']))
-                exception_message = ("Error Attaching volume %(vol)s"
-                                     % {'vol': volumeName})
-                raise exception.VolumeBackendAPIException(
-                    data=exception_message)
+            deviceInfoDict = self._attach_volume(volume, connector, extraSpecs)
 
         return deviceInfoDict
+
+    def _attach_volume(self, volume, connector, extraSpecs,
+                       isLiveMigration=None):
+        """Attach a volume to a host.
+
+        If live migration is being undertaken then the volume
+        remains attached to the source host.
+
+        :params volume: the volume object
+        :params connector: the connector object
+        :params extraSpecs: the volume extra specs
+        :param isLiveMigration: boolean, can be None
+        :returns: deviceInfoDict
+        """
+        volumeName = volume['name']
+        maskingViewDict = self._populate_masking_dict(
+            volume, connector, extraSpecs)
+        if isLiveMigration:
+            maskingViewDict['isLiveMigration'] = True
+        else:
+            maskingViewDict['isLiveMigration'] = False
+
+        rollbackDict = self.masking.get_or_create_masking_view_and_map_lun(
+            self.conn, maskingViewDict)
+
+        # Find host lun id again after the volume is exported to the host.
+        deviceInfoDict = self.find_device_number(volume, connector)
+        if 'hostlunid' not in deviceInfoDict:
+            # Did not successfully attach to host,
+            # so a rollback for FAST is required.
+            LOG.error(_LE("Error Attaching volume %(vol)s.")
+                      % {'vol': volumeName})
+            if rollbackDict['fastPolicyName'] is not None:
+                (self.masking
+                    .check_if_rollback_action_for_masking_required(
+                        self.conn, rollbackDict))
+            exception_message = ("Error Attaching volume %(vol)s."
+                                 % {'vol': volumeName})
+            raise exception.VolumeBackendAPIException(
+                data=exception_message)
+
+        return deviceInfoDict
+
+    def _is_same_host(self, connector, deviceInfoDict):
+        """Check if the host is the same.
+
+        Check if the host to attach to is the same host
+        that is already attached. This is necessary for
+        live migration.
+
+        :params connector: the connector object
+        :params deviceInfoDict: the device information
+        :returns: boolean True/False
+        """
+        if 'host' in connector:
+            currentHost = connector['host']
+            if ('maskingview' in deviceInfoDict and
+                    deviceInfoDict['maskingview'] is not None):
+                if currentHost in deviceInfoDict['maskingview']:
+                    return True
+        return False
 
     def _wrap_find_device_number(self, volume, connector):
         """Aid for unit testing
@@ -377,8 +418,8 @@ class EMCVMAXCommon(object):
         additionalVolumeSize = self.utils.convert_gb_to_bits(
             additionalVolumeSize)
 
-        # is the volume concatenated
-        isConcatenated = self.utils.check_if_volume_is_concatenated(
+        # Is the volume extendable.
+        isConcatenated = self.utils.check_if_volume_is_extendable(
             self.conn, volumeInstance)
         if 'True' not in isConcatenated:
             exceptionMessage = (_(
@@ -517,7 +558,9 @@ class EMCVMAXCommon(object):
         if self.conn is None:
             self._set_ecom_credentials(emcConfigFileName)
 
-        storageSystemInstanceName = self._find_storageSystem(arrayName)
+        storageSystemInstanceName = (
+            self.utils.find_storageSystem(self.conn, arrayName))
+
         isTieringPolicySupported = (
             self.fast.is_tiering_policy_enabled_on_storage_system(
                 self.conn, storageSystemInstanceName))
@@ -773,7 +816,7 @@ class EMCVMAXCommon(object):
             self.utils.find_controller_configuration_service(
                 conn, storageSystemName))
 
-        # check to see what SG it is in
+        # Check to see what SG it is in
         assocStorageGroupInstanceName = (
             self.utils.get_storage_group_from_volume(conn,
                                                      volumeInstance.path))
@@ -1107,32 +1150,6 @@ class EMCVMAXCommon(object):
 
         return conn
 
-    def _find_storageSystem(self, arrayStr):
-        """Find an array instance name given the array name.
-
-        :param arrayStr: the array Serial number (String)
-        :returns: foundPoolInstanceName, the CIM Instance Name of the Pool
-        """
-        foundStorageSystemInstanceName = None
-        storageSystemInstanceNames = self.conn.EnumerateInstanceNames(
-            'EMC_StorageSystem')
-        for storageSystemInstanceName in storageSystemInstanceNames:
-            arrayName = storageSystemInstanceName['Name']
-            index = arrayName.find(arrayStr)
-            if index > -1:
-                foundStorageSystemInstanceName = storageSystemInstanceName
-
-        if foundStorageSystemInstanceName is None:
-            exceptionMessage = (_("StorageSystem %(array)s is not found.")
-                                % {'storage_array': arrayStr})
-            LOG.error(exceptionMessage)
-            raise exception.VolumeBackendAPIException(data=exceptionMessage)
-
-        LOG.debug("Array Found: %(array)s.."
-                  % {'array': arrayStr})
-
-        return foundStorageSystemInstanceName
-
     def _find_pool_in_array(self, arrayStr, poolNameInStr):
         """Find a pool based on the pool name on a given array.
 
@@ -1143,7 +1160,8 @@ class EMCVMAXCommon(object):
         foundPoolInstanceName = None
         systemNameStr = None
 
-        storageSystemInstanceName = self._find_storageSystem(arrayStr)
+        storageSystemInstanceName = self.utils.find_storageSystem(self.conn,
+                                                                  arrayStr)
 
         vpools = self.conn.AssociatorNames(
             storageSystemInstanceName,
@@ -1196,7 +1214,9 @@ class EMCVMAXCommon(object):
             instancename = self.utils.get_instance_name(
                 name['classname'], name['keybindings'])
 
-            foundVolumeinstance = self.conn.GetInstance(instancename)
+            # Handle the case where volume cannot be found.
+            foundVolumeinstance = self.utils.get_existing_instance(
+                self.conn, instancename)
 
         if foundVolumeinstance is None:
             LOG.debug("Volume %(volumename)s not found on the array."
@@ -1299,6 +1319,15 @@ class EMCVMAXCommon(object):
                 numDeviceNumber = int(unitinstance['DeviceNumber'],
                                       16)
                 foundNumDeviceNumber = numDeviceNumber
+                controllerInstance = self.conn.GetInstance(controller,
+                                                           LocalOnly=False)
+                propertiesList = controllerInstance.properties.items()
+                for properties in propertiesList:
+                    if properties[0] == 'ElementName':
+                        cimProperties = properties[1]
+                        foundMaskingViewName = cimProperties.value
+                        break
+
                 break
 
         if foundNumDeviceNumber is None:
@@ -1309,7 +1338,8 @@ class EMCVMAXCommon(object):
                    'volumeInstance': volumeInstance.path})
 
         data = {'hostlunid': foundNumDeviceNumber,
-                'storagesystem': storageSystemName}
+                'storagesystem': storageSystemName,
+                'maskingview': foundMaskingViewName}
 
         LOG.debug("Device info: %(data)s." % {'data': data})
 
@@ -1381,26 +1411,32 @@ class EMCVMAXCommon(object):
                                             management service
         :returns: foundInstances, the list of storage hardware ID instances
         """
-        foundInstances = []
+        foundHardwareIdList = []
         wwpns = self._find_initiator_names(connector)
 
-        hardwareIdInstanceNames = (
-            self.utils.get_hardware_id_instance_names_from_array(
+        hardwareIdInstances = (
+            self.utils.get_hardware_id_instances_from_array(
                 self.conn, hardwareIdManagementService))
-        for hardwareIdInstanceName in hardwareIdInstanceNames:
-            hardwareIdInstance = self.conn.GetInstance(hardwareIdInstanceName)
+        for hardwareIdInstance in hardwareIdInstances:
             storageId = hardwareIdInstance['StorageID']
             for wwpn in wwpns:
                 if wwpn.lower() == storageId.lower():
-                    foundInstances.append(hardwareIdInstance.path)
+                    # Check that the found hardwareId has not been
+                    # deleted. If it has, we don't want to add it to the list.
+                    instance = self.utils.get_existing_instance(
+                        self.conn, hardwareIdInstance.path)
+                    if instance is None:
+                        # hardwareId doesn't exist any more. Skip it.
+                        break
+                    foundHardwareIdList.append(hardwareIdInstance.path)
                     break
 
         LOG.debug("Storage Hardware IDs for %(wwpns)s is "
                   "%(foundInstances)s."
                   % {'wwpns': wwpns,
-                     'foundInstances': foundInstances})
+                     'foundInstances': foundHardwareIdList})
 
-        return foundInstances
+        return foundHardwareIdList
 
     def _register_config_file_from_config_group(self, configGroupName):
         """Given the config group name register the file.
@@ -1483,7 +1519,6 @@ class EMCVMAXCommon(object):
                 extraSpecs[MEMBERCOUNT] = memberCount
                 extraSpecs[COMPOSITETYPE] = CONCATENATED
                 LOG.debug("StripedMetaCount is not in the extra specs")
-                pass
 
             poolName = self.utils.parse_pool_name_from_file(configurationFile)
             if poolName is None:
@@ -2139,49 +2174,72 @@ class EMCVMAXCommon(object):
 
     def _find_lunmasking_scsi_protocol_controller(self, storageSystemName,
                                                   connector):
-        """Find LunMaskingSCSIProtocolController for the local host
+        """Find LunMaskingSCSIProtocolController for the local host.
 
         Find out how many volumes are mapped to a host
-        associated to the LunMaskingSCSIProtocolController
+        associated to the LunMaskingSCSIProtocolController.
 
-        :param connector: volume object to be deleted
         :param storageSystemName: the storage system name
-        :returns: foundCtrl
+        :param connector: volume object to be deleted
+        :returns: foundControllerInstanceName
         """
 
-        foundCtrl = None
+        foundControllerInstanceName = None
         initiators = self._find_initiator_names(connector)
-        controllers = self.conn.EnumerateInstanceNames(
-            'EMC_LunMaskingSCSIProtocolController')
-        for ctrl in controllers:
-            if storageSystemName != ctrl['SystemName']:
-                continue
-            associators = self.conn.Associators(
-                ctrl, ResultClass='EMC_StorageHardwareID')
-            for assoc in associators:
-                # if EMC_StorageHardwareID matches the initiator,
-                # we found the existing EMC_LunMaskingSCSIProtocolController
-                # (Storage Group for VNX)
-                # we can use for masking a new LUN
-                hardwareid = assoc['StorageID']
-                for initiator in initiators:
-                    if hardwareid.lower() == initiator.lower():
-                        foundCtrl = ctrl
-                        break
 
-                if foundCtrl is not None:
+        storageSystemInstanceName = self.utils.find_storageSystem(
+            self.conn, storageSystemName)
+        controllerInstanceNames = self.conn.AssociatorNames(
+            storageSystemInstanceName,
+            ResultClass='EMC_LunMaskingSCSIProtocolController')
+
+        for controllerInstanceName in controllerInstanceNames:
+            try:
+                # This is a check to see if the controller has
+                # been deleted.
+                self.conn.GetInstance(controllerInstanceName)
+                storageHardwareIdInstances = self.conn.Associators(
+                    controllerInstanceName,
+                    ResultClass='EMC_StorageHardwareID')
+
+                for storageHardwareIdInstance in storageHardwareIdInstances:
+                    # If EMC_StorageHardwareID matches the initiator, we
+                    # found the existing EMC_LunMaskingSCSIProtocolController.
+                    hardwareid = storageHardwareIdInstance['StorageID']
+                    for initiator in initiators:
+                        if hardwareid.lower() == initiator.lower():
+                            # This is a check to see if the controller
+                            # has been deleted.
+                            instance = self.utils.get_existing_instance(
+                                self.conn, controllerInstanceName)
+                            if instance is None:
+                                # Skip this controller as it doesn't exist
+                                # any more
+                                pass
+                            else:
+                                foundControllerInstanceName = (
+                                    controllerInstanceName)
+                            break
+
+                if foundControllerInstanceName is not None:
                     break
+            except pywbem.cim_operations.CIMError as arg:
+                instance = self.utils.process_exception_args(
+                    arg, controllerInstanceName)
+                if instance is None:
+                    # Skip this controller as it doesn't exist any more.
+                    pass
 
-            if foundCtrl is not None:
+            if foundControllerInstanceName is not None:
                 break
 
         LOG.debug("LunMaskingSCSIProtocolController for storage system "
-                  "%(storage_system)s and initiator %(initiator)s is  "
+                  "%(storage_system)s and initiator %(initiator)s is "
                   "%(ctrl)s."
                   % {'storage_system': storageSystemName,
                      'initiator': initiators,
-                     'ctrl': foundCtrl})
-        return foundCtrl
+                     'ctrl': foundControllerInstanceName})
+        return foundControllerInstanceName
 
     def get_num_volumes_mapped(self, volume, connector):
         """Returns how many volumes are in the same zone as the connector.

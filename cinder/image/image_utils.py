@@ -25,13 +25,14 @@ we should look at maybe pushing this up to Oslo
 
 
 import contextlib
+import math
 import os
 import tempfile
 
-from oslo.concurrency import processutils
-from oslo.config import cfg
-from oslo.utils import timeutils
-from oslo.utils import units
+from oslo_concurrency import processutils
+from oslo_config import cfg
+from oslo_utils import timeutils
+from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _
@@ -192,10 +193,6 @@ def fetch_to_volume_format(context, image_service,
                            image_id, dest, volume_format, blocksize,
                            user_id=None, project_id=None, size=None,
                            run_as_root=True):
-    if (CONF.image_conversion_dir and not
-            os.path.exists(CONF.image_conversion_dir)):
-        os.makedirs(CONF.image_conversion_dir)
-
     qemu_img = True
     image_meta = image_service.show(context, image_id)
 
@@ -242,7 +239,8 @@ def fetch_to_volume_format(context, image_service,
             LOG.debug('Copying image from %(tmp)s to volume %(dest)s - '
                       'size: %(size)s' % {'tmp': tmp, 'dest': dest,
                                           'size': image_meta['size']})
-            volume_utils.copy_volume(tmp, dest, image_meta['size'], blocksize)
+            image_size_m = math.ceil(image_meta['size'] / units.Mi)
+            volume_utils.copy_volume(tmp, dest, image_size_m, blocksize)
             return
 
         data = qemu_img_info(tmp, run_as_root=run_as_root)
@@ -308,13 +306,7 @@ def upload_volume(context, image_service, image_meta, volume_path,
                     image_service.update(context, image_id, {}, image_file)
         return
 
-    if (CONF.image_conversion_dir and not
-            os.path.exists(CONF.image_conversion_dir)):
-        os.makedirs(CONF.image_conversion_dir)
-
-    fd, tmp = tempfile.mkstemp(dir=CONF.image_conversion_dir)
-    os.close(fd)
-    with fileutils.remove_path_on_error(tmp):
+    with temporary_file() as tmp:
         LOG.debug("%s was %s, converting to %s" %
                   (image_id, volume_format, image_meta['disk_format']))
         convert_image(volume_path, tmp, image_meta['disk_format'],
@@ -330,7 +322,6 @@ def upload_volume(context, image_service, image_meta, volume_path,
 
         with fileutils.file_open(tmp, 'rb') as image_file:
             image_service.update(context, image_id, {}, image_file)
-        fileutils.delete_if_exists(tmp)
 
 
 def is_xenserver_image(context, image_service, image_id):
@@ -343,10 +334,6 @@ def is_xenserver_format(image_meta):
         image_meta['disk_format'] == 'vhd'
         and image_meta['container_format'] == 'ovf'
     )
-
-
-def file_exist(fpath):
-    return os.path.exists(fpath)
 
 
 def set_vhd_parent(vhd_path, parentpath):
@@ -387,10 +374,6 @@ def create_temporary_file(*args, **kwargs):
     return tmp
 
 
-def rename_file(src, dst):
-    os.rename(src, dst)
-
-
 @contextlib.contextmanager
 def temporary_file(*args, **kwargs):
     tmp = None
@@ -403,6 +386,10 @@ def temporary_file(*args, **kwargs):
 
 
 def temporary_dir():
+    if (CONF.image_conversion_dir and not
+            os.path.exists(CONF.image_conversion_dir)):
+        os.makedirs(CONF.image_conversion_dir)
+
     return utils.tempdir(dir=CONF.image_conversion_dir)
 
 
@@ -424,7 +411,7 @@ def discover_vhd_chain(directory):
 
     while True:
         fpath = os.path.join(directory, '%d.vhd' % counter)
-        if file_exist(fpath):
+        if os.path.exists(fpath):
             chain.append(fpath)
         else:
             break
@@ -440,4 +427,4 @@ def replace_xenserver_image_with_coalesced_vhd(image_file):
         fix_vhd_chain(chain)
         coalesced = coalesce_chain(chain)
         fileutils.delete_if_exists(image_file)
-        rename_file(coalesced, image_file)
+        os.rename(coalesced, image_file)

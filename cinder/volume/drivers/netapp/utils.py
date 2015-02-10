@@ -25,7 +25,7 @@ import decimal
 import platform
 import socket
 
-from oslo.concurrency import processutils as putils
+from oslo_concurrency import processutils as putils
 import six
 
 from cinder import context
@@ -224,7 +224,7 @@ class OpenStackInfo(object):
     def _update_info_from_rpm(self):
         LOG.debug('Trying rpm command.')
         try:
-            out, err = putils.execute("rpm", "-qa", "--queryformat",
+            out, err = putils.execute("rpm", "-q", "--queryformat",
                                       "'%{version}\t%{release}\t%{vendor}'",
                                       self.PACKAGE_NAME)
             if not out:

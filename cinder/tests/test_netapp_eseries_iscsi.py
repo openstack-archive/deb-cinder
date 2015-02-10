@@ -35,6 +35,7 @@ from cinder.volume.drivers.netapp.eseries.iscsi import LOG as driver_log
 from cinder.volume.drivers.netapp.eseries import utils
 from cinder.volume.drivers.netapp.options import netapp_basicauth_opts
 from cinder.volume.drivers.netapp.options import netapp_eseries_opts
+import cinder.volume.drivers.netapp.utils as na_utils
 
 
 LOG = logging.getLogger(__name__)
@@ -639,6 +640,7 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
         self._custom_setup()
 
     def _custom_setup(self):
+        self.mock_object(na_utils, 'OpenStackInfo')
         configuration = self._set_config(create_configuration())
         self.driver = common.NetAppDriver(configuration=configuration)
         self.mock_object(requests, 'Session', FakeEseriesHTTPSession)
@@ -851,10 +853,10 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
         fake_pool['volumeGroupRef'] = 'foo'
         fake_pools = [fake_pool]
         storage_pools.return_value = fake_pools
-        drv = self.driver
-        storage_vol = drv.driver._create_volume(self.fake_eseries_pool_label,
-                                                self.fake_eseries_volume_label,
-                                                self.fake_size_gb)
+        storage_vol = self.driver._create_volume(
+            self.fake_eseries_pool_label,
+            self.fake_eseries_volume_label,
+            self.fake_size_gb)
         log_info.assert_called_once_with("Created volume with label %s.",
                                          self.fake_eseries_volume_label)
         self.assertEqual('CorrectVolume', storage_vol)

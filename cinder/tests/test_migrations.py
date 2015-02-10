@@ -24,9 +24,9 @@ import uuid
 
 from migrate.versioning import api as migration_api
 from migrate.versioning import repository
-from oslo.db.sqlalchemy import test_base
-from oslo.db.sqlalchemy import test_migrations
-from oslo.db.sqlalchemy import utils as db_utils
+from oslo_db.sqlalchemy import test_base
+from oslo_db.sqlalchemy import test_migrations
+from oslo_db.sqlalchemy import utils as db_utils
 import sqlalchemy
 
 from cinder.db import migration
@@ -704,6 +704,24 @@ class MigrationsMixin(test_migrations.WalkVersionsMixin):
         volume_types = db_utils.get_table(engine, 'volume_types')
         self.assertNotIn('description', volume_types.c)
 
+    def _check_035(self, engine, data):
+        volumes = db_utils.get_table(engine, 'volumes')
+        self.assertIsInstance(volumes.c.provider_id.type,
+                              sqlalchemy.types.VARCHAR)
+
+    def _post_downgrade_035(self, engine):
+        volumes = db_utils.get_table(engine, 'volumes')
+        self.assertNotIn('provider_id', volumes.c)
+
+    def _check_036(self, engine, data):
+        snapshots = db_utils.get_table(engine, 'snapshots')
+        self.assertIsInstance(snapshots.c.provider_id.type,
+                              sqlalchemy.types.VARCHAR)
+
+    def _post_downgrade_036(self, engine):
+        snapshots = db_utils.get_table(engine, 'snapshots')
+        self.assertNotIn('provider_id', snapshots.c)
+
     def test_walk_versions(self):
         self.walk_versions(True, False)
 
@@ -741,3 +759,8 @@ class TestMysqlMigrations(test_base.MySQLOpportunisticTestCase,
             "and TABLE_NAME!='migrate_version'")
         count = noninnodb.scalar()
         self.assertEqual(count, 0, "%d non InnoDB tables created" % count)
+
+
+class TestPostgresqlMigrations(test_base.PostgreSQLOpportunisticTestCase,
+                               MigrationsMixin):
+    TIME_TYPE = sqlalchemy.types.TIMESTAMP

@@ -18,9 +18,9 @@ import math
 
 import mock
 import mox
-from oslo.config import cfg
-from oslo.serialization import jsonutils
-from oslo.utils import units
+from oslo_config import cfg
+from oslo_serialization import jsonutils
+from oslo_utils import units
 
 from cinder.brick.initiator import connector
 from cinder import exception

@@ -12,8 +12,10 @@
 
 import abc
 
-from oslo.concurrency import processutils as putils
+from oslo_config import cfg
 import six
+
+CONF = cfg.CONF
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -33,18 +35,17 @@ class Target(object):
     def __init__(self, *args, **kwargs):
         self.db = kwargs.get('db')
         self.configuration = kwargs.get('configuration')
-        self._execute = kwargs.get('executor', putils.execute)
-        self._root_helper = kwargs.get('root_helper')
+        self._root_helper = kwargs.get('root_helper',
+                                       'sudo cinder-rootwrap %s' %
+                                       CONF.rootwrap_config)
 
     @abc.abstractmethod
-    def ensure_export(self, context, volume,
-                      iscsi_name, volume_path,
-                      volume_group, config):
+    def ensure_export(self, context, volume, volume_path):
         """Synchronously recreates an export for a volume."""
         pass
 
     @abc.abstractmethod
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, volume_path):
         """Exports a Target/Volume.
 
         Can optionally return a Dict of changes to
@@ -58,15 +59,10 @@ class Target(object):
         pass
 
     @abc.abstractmethod
-    def detach_volume(self, context, volume):
-        """Callback for volume detached from instance or host."""
-        pass
-
-    @abc.abstractmethod
-    def initialize_connection(self, volume, **kwargs):
+    def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
         pass
 
-    def terminate_connection(self, volume, **kwargs):
+    def terminate_connection(self, volume, connector, **kwargs):
         """Disallow connection from connector."""
         pass

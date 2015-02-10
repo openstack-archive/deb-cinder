@@ -22,13 +22,14 @@ import math
 import re
 import time
 
-from oslo.concurrency import processutils as putils
-from oslo.utils import excutils
+from oslo_concurrency import processutils as putils
+from oslo_utils import excutils
 
 from cinder.brick import exception
 from cinder.brick import executor
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.openstack.common import log as logging
+from cinder import utils
 
 
 LOG = logging.getLogger(__name__)
@@ -58,7 +59,6 @@ class LVM(executor.Executor):
         super(LVM, self).__init__(execute=executor, root_helper=root_helper)
         self.vg_name = vg_name
         self.pv_list = []
-        self.lv_list = []
         self.vg_size = 0.0
         self.vg_free_space = 0.0
         self.vg_lv_count = 0
@@ -68,6 +68,7 @@ class LVM(executor.Executor):
         self.vg_thin_pool_free_space = 0.0
         self._supports_snapshot_lv_activation = None
         self._supports_lvchange_ignoreskipactivation = None
+        self.vg_provisioned_capacity = 0.0
 
         if create_vg and physical_volumes is not None:
             self.pv_list = physical_volumes
@@ -287,10 +288,9 @@ class LVM(executor.Executor):
         :returns: List of Dictionaries with LV info
 
         """
-        self.lv_list = self.get_lv_info(self._root_helper,
-                                        self.vg_name,
-                                        lv_name)
-        return self.lv_list
+        return self.get_lv_info(self._root_helper,
+                                self.vg_name,
+                                lv_name)
 
     def get_volume(self, name):
         """Get reference object of volume specified by name.
@@ -313,10 +313,12 @@ class LVM(executor.Executor):
         :returns: List of Dictionaries with PV info
 
         """
+        field_sep = '|'
+
         cmd = ['env', 'LC_ALL=C', 'pvs', '--noheadings',
                '--unit=g',
                '-o', 'vg_name,name,size,free',
-               '--separator', ':',
+               '--separator', field_sep,
                '--nosuffix']
 
         (out, _err) = putils.execute(*cmd,
@@ -325,11 +327,11 @@ class LVM(executor.Executor):
 
         pvs = out.split()
         if vg_name is not None:
-            pvs = [pv for pv in pvs if vg_name == pv.split(':')[0]]
+            pvs = [pv for pv in pvs if vg_name == pv.split(field_sep)[0]]
 
         pv_list = []
         for pv in pvs:
-            fields = pv.split(':')
+            fields = pv.split(field_sep)
             pv_list.append({'vg': fields[0],
                             'name': fields[1],
                             'size': float(fields[2]),
@@ -404,15 +406,50 @@ class LVM(executor.Executor):
         self.vg_lv_count = int(vg_list[0]['lv_count'])
         self.vg_uuid = vg_list[0]['uuid']
 
+        total_vols_size = 0.0
         if self.vg_thin_pool is not None:
+            # NOTE(xyang): If providing only self.vg_name,
+            # get_lv_info will output info on the thin pool and all
+            # individual volumes.
+            # get_lv_info(self._root_helper, 'stack-vg')
+            # sudo lvs --noheadings --unit=g -o vg_name,name,size
+            # --nosuffix stack-vg
+            # stack-vg stack-pool               9.51
+            # stack-vg volume-13380d16-54c3-4979-9d22-172082dbc1a1  1.00
+            # stack-vg volume-629e13ab-7759-46a5-b155-ee1eb20ca892  1.00
+            # stack-vg volume-e3e6281c-51ee-464c-b1a7-db6c0854622c  1.00
+            #
+            # If providing both self.vg_name and self.vg_thin_pool,
+            # get_lv_info will output only info on the thin pool, but not
+            # individual volumes.
+            # get_lv_info(self._root_helper, 'stack-vg', 'stack-pool')
+            # sudo lvs --noheadings --unit=g -o vg_name,name,size
+            # --nosuffix stack-vg/stack-pool
+            # stack-vg stack-pool               9.51
+            #
+            # We need info on both the thin pool and the volumes,
+            # therefore we should provide only self.vg_name, but not
+            # self.vg_thin_pool here.
             for lv in self.get_lv_info(self._root_helper,
-                                       self.vg_name,
-                                       self.vg_thin_pool):
+                                       self.vg_name):
+                lvsize = lv['size']
+                # get_lv_info runs "lvs" command with "--nosuffix".
+                # This removes "g" from "1.00g" and only outputs "1.00".
+                # Running "lvs" command without "--nosuffix" will output
+                # "1.00g" if "g" is the unit.
+                # Remove the unit if it is in lv['size'].
+                if not lv['size'][-1].isdigit():
+                    lvsize = lvsize[:-1]
                 if lv['name'] == self.vg_thin_pool:
-                    self.vg_thin_pool_size = lv['size']
+                    self.vg_thin_pool_size = lvsize
                     tpfs = self._get_thin_pool_free_space(self.vg_name,
                                                           self.vg_thin_pool)
                     self.vg_thin_pool_free_space = tpfs
+                else:
+                    total_vols_size = total_vols_size + float(lvsize)
+            total_vols_size = round(total_vols_size, 2)
+
+        self.vg_provisioned_capacity = total_vols_size
 
     def _calculate_thin_pool_size(self):
         """Calculates the correct size for a thin pool.
@@ -511,6 +548,7 @@ class LVM(executor.Executor):
             LOG.error(_LE('StdErr  :%s') % err.stderr)
             raise
 
+    @utils.retry(putils.ProcessExecutionError)
     def create_lv_snapshot(self, name, source_lv_name, lv_type='default'):
         """Creates a snapshot of a logical volume.
 

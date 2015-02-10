@@ -24,7 +24,7 @@ SHOULD include dedicated exception logging.
 
 import sys
 
-from oslo.config import cfg
+from oslo_config import cfg
 import six
 import webob.exc
 
@@ -229,6 +229,19 @@ class InvalidUUID(Invalid):
     message = _("Expected a uuid but received %(uuid)s.")
 
 
+class APIException(CinderException):
+    message = _("Error while requesting %(service)s API.")
+
+    def __init__(self, message=None, **kwargs):
+        if 'service' not in kwargs:
+            kwargs['service'] = 'unknown'
+        super(APIException, self).__init__(message, **kwargs)
+
+
+class APITimeout(APIException):
+    message = _("Timeout while requesting %(service)s API.")
+
+
 class NotFound(CinderException):
     message = _("Resource could not be found.")
     code = 404
@@ -288,6 +301,10 @@ class VolumeTypeInUse(CinderException):
 
 class SnapshotNotFound(NotFound):
     message = _("Snapshot %(snapshot_id)s could not be found.")
+
+
+class ServerNotFound(NotFound):
+    message = _("Instance %(uuid)s could not be found.")
 
 
 class VolumeIsBusy(CinderException):
@@ -475,6 +492,10 @@ class FailedCmdWithDump(VolumeDriverException):
     message = _("Operation failed with status=%(status)s. Full dump: %(data)s")
 
 
+class InvalidConnectorException(VolumeDriverException):
+    message = _("Connector doesn't have required information: %(missing)s")
+
+
 class GlanceMetadataExists(Invalid):
     message = _("Glance metadata cannot be updated, key %(key)s"
                 " exists for volume id %(volume_id)s")
@@ -633,6 +654,10 @@ class ExtendVolumeError(CinderException):
     message = _("Error extending volume: %(reason)s")
 
 
+class EvaluatorParseException(Exception):
+    message = _("Error during evaluator parsing: %(reason)s")
+
+
 # Driver specific exceptions
 # Coraid
 class CoraidException(VolumeDriverException):
@@ -666,10 +691,6 @@ class CoraidESMNotAvailable(CoraidException):
 # Pure Storage
 class PureDriverException(VolumeDriverException):
     message = _("Pure Storage Cinder driver failure: %(reason)s")
-
-
-class PureAPIException(VolumeBackendAPIException):
-    message = _("Bad response from Pure Storage REST API: %(reason)s")
 
 
 # Zadara
@@ -822,33 +843,9 @@ class NetAppDriverException(VolumeDriverException):
     message = _("NetApp Cinder Driver exception.")
 
 
-# Quobyte USP
-class QuobyteException(VolumeDriverException):
-    message = _("Unknown Quobyte exception")
-
-
-class QuobyteVolumeNotMounted(NotFound):
-    message = _("No mounted Quobyte volumes found")
-
-
 class EMCVnxCLICmdError(VolumeBackendAPIException):
-    def __init__(self, cmd=None, rc=None, out='',
-                 log_as_error=True, **kwargs):
-        self.cmd = cmd
-        self.rc = rc
-        self.out = out
-        msg = _("EMCVnxCLICmdError : %(cmd)s "
-                "(Return Code: %(rc)s) "
-                "(Output: %(out)s) ") % \
-            {'cmd': cmd,
-             'rc': rc,
-             'out': out.split('\n')}
-        kwargs["data"] = msg
-        super(EMCVnxCLICmdError, self).__init__(**kwargs)
-        if log_as_error:
-            LOG.error(msg)
-        else:
-            LOG.warn(msg)
+    message = _("EMC VNX Cinder Driver CLI exception: %(cmd)s "
+                "(Return Code: %(rc)s) (Output: %(out)s).")
 
 
 # ConsistencyGroup
@@ -891,6 +888,10 @@ class HBSDNotFound(NotFound):
     message = _("Storage resource could not be found.")
 
 
+class HBSDVolumeIsBusy(VolumeIsBusy):
+    message = _("Volume %(volume_name)s is busy.")
+
+
 # Datera driver
 class DateraAPIException(VolumeBackendAPIException):
     message = _("Bad response from Datera API")
@@ -907,6 +908,10 @@ class ISCSITargetRemoveFailed(CinderException):
 
 class ISCSITargetAttachFailed(CinderException):
     message = _("Failed to attach iSCSI target for volume %(volume_id)s.")
+
+
+class ISCSITargetDetachFailed(CinderException):
+    message = _("Failed to detach iSCSI target for volume %(volume_id)s.")
 
 
 # X-IO driver exception.
@@ -933,3 +938,10 @@ class ViolinBackendErrExists(CinderException):
 
 class ViolinBackendErrNotFound(CinderException):
     message = _("Backend reports: item not found")
+
+
+# ZFSSA NFS driver exception.
+class WebDAVClientError(CinderException):
+        message = _("The WebDAV request failed. Reason: %(msg)s, "
+                    "Return code/reason: %(code)s, Source Volume: %(src)s, "
+                    "Destination Volume: %(dst)s, Method: %(method)s.")

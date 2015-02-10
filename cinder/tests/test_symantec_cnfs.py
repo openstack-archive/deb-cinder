@@ -1,5 +1,4 @@
 # Copyright (c) 2014 Symantec Corporation
-# Copyright (c) 2014 Red Hat, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -18,7 +17,7 @@
 import os
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
 
 from cinder import context
 from cinder import exception

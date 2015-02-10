@@ -16,7 +16,7 @@ import StringIO
 import sys
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
 import rtslib
 
 from cinder.cmd import all as cinder_all
@@ -312,7 +312,7 @@ class TestCinderManageCmd(test.TestCase):
     def tearDown(self):
         super(TestCinderManageCmd, self).tearDown()
 
-    @mock.patch('cinder.openstack.common.uuidutils.is_uuid_like')
+    @mock.patch('oslo_utils.uuidutils.is_uuid_like')
     def test_param2id(self, is_uuid_like):
         mock_object_id = mock.MagicMock()
         is_uuid_like.return_value = True
@@ -321,7 +321,7 @@ class TestCinderManageCmd(test.TestCase):
         self.assertEqual(mock_object_id, object_id)
         is_uuid_like.assert_called_once_with(mock_object_id)
 
-    @mock.patch('cinder.openstack.common.uuidutils.is_uuid_like')
+    @mock.patch('oslo_utils.uuidutils.is_uuid_like')
     def test_param2id_int_string(self, is_uuid_like):
         object_id_str = '10'
         is_uuid_like.return_value = False
@@ -337,7 +337,7 @@ class TestCinderManageCmd(test.TestCase):
         db_cmds.sync(version=version)
         db_sync.assert_called_once_with(version)
 
-    @mock.patch('oslo.db.sqlalchemy.migration.db_version')
+    @mock.patch('oslo_db.sqlalchemy.migration.db_version')
     def test_db_commands_version(self, db_version):
         db_cmds = cinder_manage.DbCommands()
         db_cmds.version()
@@ -636,7 +636,7 @@ class TestCinderManageCmd(test.TestCase):
             service_get_all.assert_called_with(ctxt)
             service_is_up.assert_called_with(service)
 
-    @mock.patch('oslo.config.cfg.ConfigOpts.register_cli_opt')
+    @mock.patch('oslo_config.cfg.ConfigOpts.register_cli_opt')
     def test_main_argv_lt_2(self, register_cli_opt):
         script_name = 'cinder-manage'
         sys.argv = [script_name]
@@ -647,9 +647,9 @@ class TestCinderManageCmd(test.TestCase):
         self.assertTrue(register_cli_opt.called)
         self.assertEqual(exit.code, 2)
 
-    @mock.patch('oslo.config.cfg.ConfigOpts.__call__')
+    @mock.patch('oslo_config.cfg.ConfigOpts.__call__')
     @mock.patch('cinder.openstack.common.log.setup')
-    @mock.patch('oslo.config.cfg.ConfigOpts.register_cli_opt')
+    @mock.patch('oslo_config.cfg.ConfigOpts.register_cli_opt')
     def test_main_sudo_failed(self, register_cli_opt, log_setup,
                               config_opts_call):
         script_name = 'cinder-manage'
@@ -666,8 +666,8 @@ class TestCinderManageCmd(test.TestCase):
         self.assertFalse(log_setup.called)
         self.assertEqual(exit.code, 2)
 
-    @mock.patch('oslo.config.cfg.ConfigOpts.__call__')
-    @mock.patch('oslo.config.cfg.ConfigOpts.register_cli_opt')
+    @mock.patch('oslo_config.cfg.ConfigOpts.__call__')
+    @mock.patch('oslo_config.cfg.ConfigOpts.register_cli_opt')
     def test_main(self, register_cli_opt, config_opts_call):
         script_name = 'cinder-manage'
         sys.argv = [script_name, 'config', 'list']
@@ -700,7 +700,8 @@ class TestCinderRtstoolCmd(test.TestCase):
                           mock.sentinel.backing_device,
                           mock.sentinel.name,
                           mock.sentinel.userid,
-                          mock.sentinel.password)
+                          mock.sentinel.password,
+                          mock.sentinel.iser_enabled)
 
     def _test_create_rtsllib_error_network_portal(self, ip):
         with contextlib.nested(
@@ -728,12 +729,14 @@ class TestCinderRtstoolCmd(test.TestCase):
                                   mock.sentinel.backing_device,
                                   mock.sentinel.name,
                                   mock.sentinel.userid,
-                                  mock.sentinel.password)
+                                  mock.sentinel.password,
+                                  mock.sentinel.iser_enabled)
             else:
                 cinder_rtstool.create(mock.sentinel.backing_device,
                                       mock.sentinel.name,
                                       mock.sentinel.userid,
-                                      mock.sentinel.password)
+                                      mock.sentinel.password,
+                                      mock.sentinel.iser_enabled)
 
             rts_root.assert_called_once_with()
             block_storage_object.assert_called_once_with(
@@ -788,7 +791,8 @@ class TestCinderRtstoolCmd(test.TestCase):
             cinder_rtstool.create(mock.sentinel.backing_device,
                                   mock.sentinel.name,
                                   mock.sentinel.userid,
-                                  mock.sentinel.password)
+                                  mock.sentinel.password,
+                                  mock.sentinel.iser_enabled)
 
             rts_root.assert_called_once_with()
             block_storage_object.assert_called_once_with(
@@ -844,7 +848,7 @@ class TestCinderRtstoolCmd(test.TestCase):
         target_iqn = mock.MagicMock()
         target_iqn.tpgs.return_value = \
             [{'node_acls': mock.sentinel.initiator_iqn}]
-        acl = {'node_wwn': mock.sentinel.initiator_iqn}
+        acl = mock.MagicMock(node_wwn=mock.sentinel.initiator_iqn)
         tpg = mock.MagicMock(node_acls=[acl])
         tpgs = mock.MagicMock()
         tpgs.next.return_value = tpg
@@ -961,7 +965,8 @@ class TestCinderRtstoolCmd(test.TestCase):
                         mock.sentinel.name,
                         mock.sentinel.userid,
                         mock.sentinel.password,
-                        mock.sentinel.initiator_iqns]
+                        mock.sentinel.initiator_iqns,
+                        mock.sentinel.iser_enabled]
 
             rc = cinder_rtstool.main()
 
@@ -969,7 +974,8 @@ class TestCinderRtstoolCmd(test.TestCase):
                                            mock.sentinel.name,
                                            mock.sentinel.userid,
                                            mock.sentinel.password,
-                                           mock.sentinel.initiator_iqns)
+                                           mock.sentinel.initiator_iqns,
+                                           mock.sentinel.iser_enabled)
             self.assertEqual(0, rc)
 
     def test_main_add_initiator(self):

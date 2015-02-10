@@ -27,9 +27,9 @@ import sys
 import time
 
 import glanceclient.exc
-from oslo.config import cfg
-from oslo.serialization import jsonutils
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_serialization import jsonutils
+from oslo_utils import timeutils
 import six.moves.urllib.parse as urlparse
 
 from cinder import exception

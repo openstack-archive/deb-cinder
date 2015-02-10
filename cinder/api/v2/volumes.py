@@ -18,6 +18,7 @@
 
 import ast
 
+from oslo_utils import uuidutils
 import webob
 from webob import exc
 
@@ -30,7 +31,6 @@ from cinder import exception
 from cinder.i18n import _, _LI
 from cinder.image import glance
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import uuidutils
 from cinder import utils
 from cinder import volume as cinder_volume
 from cinder.volume import utils as volume_utils
@@ -230,8 +230,11 @@ class VolumeController(wsgi.Controller):
             filters['display_name'] = filters['name']
             del filters['name']
 
-        if 'metadata' in filters:
-            filters['metadata'] = ast.literal_eval(filters['metadata'])
+        for k, v in filters.iteritems():
+            try:
+                filters[k] = ast.literal_eval(v)
+            except (ValueError, SyntaxError):
+                LOG.debug('Could not evaluate value %s, assuming string', v)
 
         volumes = self.volume_api.get_all(context, marker, limit, sort_key,
                                           sort_dir, filters,

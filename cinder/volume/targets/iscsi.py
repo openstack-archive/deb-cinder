@@ -10,12 +10,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-
-from oslo.concurrency import processutils
+from oslo_concurrency import processutils
 
 from cinder import exception
 from cinder.i18n import _, _LW, _LE
 from cinder.openstack.common import log as logging
+from cinder import utils
 from cinder.volume.targets import driver
 
 LOG = logging.getLogger(__name__)
@@ -34,6 +34,8 @@ class ISCSITarget(driver.Target):
         super(ISCSITarget, self).__init__(*args, **kwargs)
         self.iscsi_target_prefix = \
             self.configuration.safe_get('iscsi_target_prefix')
+        self.iscsi_protocol = \
+            self.configuration.safe_get('iscsi_protocol')
         self.protocol = 'iSCSI'
 
     def _get_iscsi_properties(self, volume):
@@ -136,10 +138,9 @@ class ISCSITarget(driver.Target):
             # NOTE(griff) We're doing the split straight away which should be
             # safe since using '@' in hostname is considered invalid
 
-            (out, _err) = self._execute('iscsiadm', '-m', 'discovery',
+            (out, _err) = utils.execute('iscsiadm', '-m', 'discovery',
                                         '-t', 'sendtargets', '-p',
                                         volume['host'].split('@')[0],
-                                        root_helper=self._root_helper,
                                         run_as_root=True)
         except processutils.ProcessExecutionError as ex:
             LOG.error(_LE("ISCSI discovery attempt failed for:%s") %
@@ -157,10 +158,7 @@ class ISCSITarget(driver.Target):
         """Get the current chap auth username and password."""
         return None
 
-    def detach_volume(self, context, volume):
-        self._get_iscsi_properties(volume)
-
-    def initialize_connection(self, volume, **kwargs):
+    def initialize_connection(self, volume, connector):
         """Initializes the connection and returns connection info.
 
         The iscsi driver returns a driver_volume_type of 'iscsi'.
@@ -181,15 +179,15 @@ class ISCSITarget(driver.Target):
 
         iscsi_properties = self._get_iscsi_properties(volume)
         return {
-            'driver_volume_type': 'iscsi',
+            'driver_volume_type': self.iscsi_protocol,
             'data': iscsi_properties
         }
 
     def validate_connector(self, connector):
         # NOTE(jdg): api passes in connector which is initiator info
         if 'initiator' not in connector:
-            err_msg = (_('The volume driver requires the iSCSI initiator '
-                         'name in the connector.'))
+            err_msg = (_LE('The volume driver requires the iSCSI initiator '
+                           'name in the connector.'))
             LOG.error(err_msg)
-            raise exception.VolumeBackendAPIException(data=err_msg)
+            raise exception.InvalidConnectorException(missing='initiator')
         return True

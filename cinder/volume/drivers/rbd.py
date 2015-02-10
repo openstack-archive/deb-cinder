@@ -21,9 +21,9 @@ import os
 import tempfile
 import urllib
 
-from oslo.config import cfg
-from oslo.utils import encodeutils
-from oslo.utils import units
+from oslo_config import cfg
+from oslo_utils import encodeutils
+from oslo_utils import units
 import six
 
 from cinder import exception
@@ -66,7 +66,8 @@ rbd_opts = [
                default=None,
                help='Directory where temporary image files are stored '
                     'when the volume driver does not write them directly '
-                    'to the volume.'),
+                    'to the volume.  Warning: this option is now deprecated, '
+                    'please use image_conversion_dir instead.'),
     cfg.IntOpt('rbd_max_clone_depth',
                default=5,
                help='Maximum number of nested volume clones that are '
@@ -481,6 +482,13 @@ class RBDDriver(driver.VolumeDriver):
             finally:
                 src_volume.close()
 
+        if volume['size'] != src_vref['size']:
+            LOG.debug("resize volume '%(dst_vol)s' from %(src_size)d to "
+                      "%(dst_size)d" %
+                      {'dst_vol': volume['name'], 'src_size': src_vref['size'],
+                       'dst_size': volume['size']})
+            self._resize(volume)
+
         LOG.debug("clone created successfully")
 
     def create_volume(self, volume):
@@ -658,6 +666,11 @@ class RBDDriver(driver.VolumeDriver):
                     # Now raise this so that volume stays available so that we
                     # delete can be retried.
                     raise exception.VolumeIsBusy(msg, volume_name=volume_name)
+                except self.rbd.ImageNotFound:
+                    msg = (_LI("RBD volume %s not found, allowing delete "
+                               "operation to proceed.") % volume_name)
+                    LOG.info(msg)
+                    return
 
                 # If it is a clone, walk back up the parent chain deleting
                 # references.
@@ -799,7 +812,9 @@ class RBDDriver(driver.VolumeDriver):
                       dict(loc=image_location, err=e))
             return False
 
-    def clone_image(self, volume, image_location, image_id, image_meta):
+    def clone_image(self, context, volume,
+                    image_location, image_meta,
+                    image_service):
         image_location = image_location[0] if image_location else None
         if image_location is None or not self._is_cloneable(
                 image_location, image_meta):
@@ -809,14 +824,24 @@ class RBDDriver(driver.VolumeDriver):
         self._resize(volume)
         return {'provider_location': None}, True
 
-    def _ensure_tmp_exists(self):
-        tmp_dir = self.configuration.volume_tmp_dir
-        if tmp_dir and not os.path.exists(tmp_dir):
-            os.makedirs(tmp_dir)
+    def _image_conversion_dir(self):
+        tmpdir = (self.configuration.volume_tmp_dir or
+                  CONF.image_conversion_dir or
+                  tempfile.gettempdir())
+
+        if (tmpdir == self.configuration.volume_tmp_dir):
+            LOG.warn(_LW('volume_tmp_dir is now deprecated, please use '
+                         'image_conversion_dir'))
+
+        # ensure temporary directory exists
+        if not os.path.exists(tmpdir):
+            os.makedirs(tmpdir)
+
+        return tmpdir
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
-        self._ensure_tmp_exists()
-        tmp_dir = self.configuration.volume_tmp_dir
+
+        tmp_dir = self._image_conversion_dir()
 
         with tempfile.NamedTemporaryFile(dir=tmp_dir) as tmp:
             image_utils.fetch_to_raw(context, image_service, image_id,
@@ -841,9 +866,7 @@ class RBDDriver(driver.VolumeDriver):
         self._resize(volume)
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
-        self._ensure_tmp_exists()
-
-        tmp_dir = self.configuration.volume_tmp_dir or '/tmp'
+        tmp_dir = self._image_conversion_dir()
         tmp_file = os.path.join(tmp_dir,
                                 volume['name'] + '-' + image_meta['id'])
         with fileutils.remove_path_on_error(tmp_file):

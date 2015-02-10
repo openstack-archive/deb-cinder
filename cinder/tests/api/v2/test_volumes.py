@@ -17,7 +17,8 @@
 import datetime
 
 from lxml import etree
-from oslo.config import cfg
+import mock
+from oslo_config import cfg
 import six
 import six.moves.urllib.parse as urlparse
 import webob
@@ -1540,6 +1541,42 @@ class VolumeApiTest(test.TestCase):
     def test_create_malformed_entity(self):
         body = {'volume': 'string'}
         self._create_volume_bad_request(body=body)
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_string(self, get_all):
+        req = mock.MagicMock()
+        context = mock.Mock()
+        req.environ = {'cinder.context': context}
+        req.params = {'display_name': 'Volume-573108026'}
+        self.controller._view_builder.detail_list = mock.Mock()
+        self.controller._get_volumes(req, True)
+        get_all.assert_called_once_with(
+            context, None, None, 'created_at', 'desc',
+            {'display_name': 'Volume-573108026'}, viewable_admin_meta=True)
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_list(self, get_all):
+        req = mock.MagicMock()
+        context = mock.Mock()
+        req.environ = {'cinder.context': context}
+        req.params = {'id': "['1', '2', '3']"}
+        self.controller._view_builder.detail_list = mock.Mock()
+        self.controller._get_volumes(req, True)
+        get_all.assert_called_once_with(
+            context, None, None, 'created_at', 'desc',
+            {'id': ['1', '2', '3']}, viewable_admin_meta=True)
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_expression(self, get_all):
+        req = mock.MagicMock()
+        context = mock.Mock()
+        req.environ = {'cinder.context': context}
+        req.params = {'name': "d-"}
+        self.controller._view_builder.detail_list = mock.Mock()
+        self.controller._get_volumes(req, True)
+        get_all.assert_called_once_with(
+            context, None, None, 'created_at', 'desc',
+            {'display_name': 'd-'}, viewable_admin_meta=True)
 
 
 class VolumeSerializerTest(test.TestCase):

@@ -19,9 +19,9 @@ Drivers for volumes.
 
 import time
 
-from oslo.concurrency import processutils
-from oslo.config import cfg
-from oslo.utils import excutils
+from oslo_concurrency import processutils
+from oslo_config import cfg
+from oslo_utils import excutils
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
@@ -29,7 +29,6 @@ from cinder.image import image_utils
 from cinder.openstack.common import fileutils
 from cinder.openstack.common import log as logging
 from cinder import utils
-from cinder.volume import iscsi
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import utils as volume_utils
 
@@ -118,6 +117,13 @@ volume_opts = [
                     'perform write-back(on) or write-through(off). '
                     'This parameter is valid if iscsi_helper is set '
                     'to tgtadm or iseradm.'),
+    cfg.StrOpt('iscsi_protocol',
+               default='iscsi',
+               help='Determines the iSCSI protocol for new iSCSI volumes, '
+                    'created with tgtadm or lioadm target helpers. In '
+                    'order to enable RDMA, this parameter should be set '
+                    'with the value "iser". The supported iSCSI protocol '
+                    'values are "iscsi" and "iser".'),
     cfg.StrOpt('driver_client_cert_key',
                default=None,
                help='The path to the client certificate key for verification, '
@@ -142,7 +148,7 @@ iser_opts = [
                default=100,
                help='The maximum number of iSER target IDs per host'),
     cfg.StrOpt('iser_target_prefix',
-               default='iqn.2010-10.org.iser.openstack:',
+               default='iqn.2010-10.org.openstack:',
                help='Prefix for iSER volumes'),
     cfg.StrOpt('iser_ip_address',
                default='$my_ip',
@@ -201,6 +207,16 @@ class VolumeDriver(object):
         self._stats = {}
 
         self.pools = []
+
+        # We set these mappings up in the base driver so they
+        # can be used by children
+        # (intended for LVM and BlockDevice, but others could use as well)
+        self.target_mapping = {
+            'fake': 'cinder.volume.targets.fake.FakeTarget',
+            'ietadm': 'cinder.volume.targets.iet.IetAdm',
+            'iseradm': 'cinder.volume.targets.iser.ISERTgtAdm',
+            'lioadm': 'cinder.volume.targets.lio.LioAdm',
+            'tgtadm': 'cinder.volume.targets.tgt.TgtAdm', }
 
         # set True by manager after successful check_for_setup
         self._initialized = False
@@ -496,7 +512,9 @@ class VolumeDriver(object):
                     LOG.error(err_msg)
                     raise exception.VolumeBackendAPIException(data=ex_msg)
                 raise exception.VolumeBackendAPIException(data=err_msg)
+        return self._connect_device(conn)
 
+    def _connect_device(self, conn):
         # Use Brick's code to do attach/detach
         use_multipath = self.configuration.use_multipath_for_image_xfer
         device_scan_attempts = self.configuration.num_volume_device_scan_tries
@@ -521,21 +539,23 @@ class VolumeDriver(object):
                                                       {'path': host_device}))
         return {'conn': conn, 'device': device, 'connector': connector}
 
-    def clone_image(self, volume, image_location, image_id, image_meta):
+    def clone_image(self, context, volume,
+                    image_location, image_meta,
+                    image_service):
         """Create a volume efficiently from an existing image.
 
         image_location is a string whose format depends on the
         image service backend in use. The driver should use it
         to determine whether cloning is possible.
 
-        image_id is a string which represents id of the image.
-        It can be used by the driver to introspect internal
-        stores or registry to do an efficient image clone.
-
         image_meta is a dictionary that includes 'disk_format' (e.g.
         raw, qcow2) and other image attributes that allow drivers to
         decide whether they can clone the image without first requiring
         conversion.
+
+        image_service is the reference of the image_service to use.
+        Note that this is needed to be passed here for drivers that
+        will want to fetch images from the image service directly.
 
         Returns a dict of volume properties eg. provider_location,
         boolean indicating whether cloning occurred
@@ -867,6 +887,19 @@ class VolumeDriver(object):
         return None
 
 
+class ProxyVD(object):
+    """Proxy Volume Driver to mark proxy drivers
+
+        If a driver uses a proxy class (e.g. by using __setattr__ and
+        __getattr__) without directly inheriting from base volume driver this
+        class can help marking them and retrieve the actual used driver object.
+    """
+    def _get_driver(self):
+        """Returns the actual driver object. Can be overloaded by the proxy.
+        """
+        return getattr(self, "driver", None)
+
+
 class ISCSIDriver(VolumeDriver):
     """Executes commands relating to ISCSI volumes.
 
@@ -1041,6 +1074,10 @@ class ISCSIDriver(VolumeDriver):
             }
 
         """
+        # NOTE(jdg): Yes, this is duplicated in the volume/target
+        # drivers, for now leaving it as there are 3'rd party
+        # drivers that don't use target drivers, but inherit from
+        # this base class and use this init data
         iscsi_properties = self._get_iscsi_properties(volume)
         return {
             'driver_volume_type': 'iscsi',
@@ -1049,11 +1086,12 @@ class ISCSIDriver(VolumeDriver):
 
     def validate_connector(self, connector):
         # iSCSI drivers require the initiator information
-        if 'initiator' not in connector:
-            err_msg = (_('The volume driver requires the iSCSI initiator '
-                         'name in the connector.'))
-            LOG.error(err_msg)
-            raise exception.VolumeBackendAPIException(data=err_msg)
+        required = 'initiator'
+        if required not in connector:
+            err_msg = (_LE('The volume driver requires %(data)s '
+                           'in the connector.'), {'data': required})
+            LOG.error(*err_msg)
+            raise exception.InvalidConnectorException(missing=required)
 
     def terminate_connection(self, volume, connector, **kwargs):
         pass
@@ -1087,6 +1125,7 @@ class ISCSIDriver(VolumeDriver):
                     pool_name=pool,
                     total_capacity_gb=0,
                     free_capacity_gb=0,
+                    provisioned_capacity_gb=0,
                     reserved_percentage=100,
                     QoS_support=False
                 ))
@@ -1098,31 +1137,12 @@ class ISCSIDriver(VolumeDriver):
                 pool_name=data["volume_backend_name"],
                 total_capacity_gb=0,
                 free_capacity_gb=0,
+                provisioned_capacity_gb=0,
                 reserved_percentage=100,
                 QoS_support=False
             ))
             data["pools"].append(single_pool)
         self._stats = data
-
-    def get_target_helper(self, db):
-        root_helper = utils.get_root_helper()
-        # FIXME(jdg): These work because the driver will overide
-        # but we need to move these to use self.configuraiton
-        if CONF.iscsi_helper == 'iseradm':
-            return iscsi.ISERTgtAdm(root_helper, CONF.volumes_dir,
-                                    CONF.iscsi_target_prefix, db=db)
-        elif CONF.iscsi_helper == 'tgtadm':
-            return iscsi.TgtAdm(root_helper,
-                                CONF.volumes_dir,
-                                CONF.iscsi_target_prefix,
-                                db=db)
-        elif CONF.iscsi_helper == 'fake':
-            return iscsi.FakeIscsiHelper()
-        elif CONF.iscsi_helper == 'lioadm':
-            return iscsi.LioAdm(root_helper, CONF.iscsi_target_prefix, db=db)
-        else:
-            return iscsi.IetAdm(root_helper, CONF.iet_conf, CONF.iscsi_iotype,
-                                db=db)
 
 
 class FakeISCSIDriver(ISCSIDriver):
@@ -1280,15 +1300,6 @@ class ISERDriver(ISCSIDriver):
             data["pools"].append(single_pool)
         self._stats = data
 
-    def get_target_helper(self, db):
-        root_helper = utils.get_root_helper()
-
-        if CONF.iser_helper == 'fake':
-            return iscsi.FakeIscsiHelper()
-        else:
-            return iscsi.ISERTgtAdm(root_helper,
-                                    CONF.volumes_dir, db=db)
-
 
 class FakeISERDriver(FakeISCSIDriver):
     """Logs calls instead of executing."""
@@ -1360,8 +1371,9 @@ class FibreChannelDriver(VolumeDriver):
     def validate_connector_has_setting(connector, setting):
         """Test for non-empty setting in connector."""
         if setting not in connector or not connector[setting]:
-            msg = (_(
+            msg = (_LE(
                 "FibreChannelDriver validate_connector failed. "
-                "No '%s'. Make sure HBA state is Online.") % setting)
-            LOG.error(msg)
-            raise exception.VolumeDriverException(message=msg)
+                "No '%(setting)s'. Make sure HBA state is Online."),
+                {'setting': setting})
+            LOG.error(*msg)
+            raise exception.InvalidConnectorException(missing=setting)

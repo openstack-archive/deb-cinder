@@ -11,6 +11,7 @@
 #    under the License.
 
 
+from cinder.i18n import _LW
 from cinder.openstack.common import log as logging
 from cinder.volume.targets.tgt import TgtAdm
 
@@ -21,26 +22,21 @@ LOG = logging.getLogger(__name__)
 class ISERTgtAdm(TgtAdm):
     VERSION = '0.2'
 
-    VOLUME_CONF = """
-                <target %s>
-                    driver iser
-                    backing-store %s
-                </target>
-                  """
-    VOLUME_CONF_WITH_CHAP_AUTH = """
-                                <target %s>
-                                    driver iser
-                                    backing-store %s
-                                    %s
-                                </target>
-                                 """
-
     def __init__(self, *args, **kwargs):
         super(ISERTgtAdm, self).__init__(*args, **kwargs)
+
+        LOG.warning(_LW('ISERTgtAdm is deprecated, you should '
+                        'now just use LVMVolumeDriver and specify '
+                        'target_helper for the target driver you '
+                        'wish to use. In order to enable iser, please '
+                        'set iscsi_protocol=iser with lioadm or tgtadm '
+                        'target helpers.'))
+
         self.volumes_dir = self.configuration.safe_get('volumes_dir')
+        self.iscsi_protocol = 'iser'
         self.protocol = 'iSER'
 
-        # backward compatability mess
+        # backwards compatibility mess
         self.configuration.num_volume_device_scan_tries = \
             self.configuration.num_iser_scan_tries
         self.configuration.iscsi_num_targets = \
@@ -50,3 +46,25 @@ class ISERTgtAdm(TgtAdm):
         self.configuration.iscsi_ip_address = \
             self.configuration.iser_ip_address
         self.configuration.iscsi_port = self.configuration.iser_port
+
+    def initialize_connection(self, volume, connector):
+        """Initializes the connection and returns connection info.
+        The iser driver returns a driver_volume_type of 'iser'.
+        The format of the driver data is defined in _get_iscsi_properties.
+        Example return value::
+            {
+                'driver_volume_type': 'iser'
+                'data': {
+                    'target_discovered': True,
+                    'target_iqn':
+                    'iqn.2010-10.org.openstack:volume-00000001',
+                    'target_portal': '127.0.0.0.1:3260',
+                    'volume_id': 1,
+                }
+            }
+        """
+        iser_properties = self._get_iscsi_properties(volume)
+        return {
+            'driver_volume_type': 'iser',
+            'data': iser_properties
+        }

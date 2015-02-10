@@ -14,7 +14,7 @@
 
 
 from oslo import messaging
-from oslo.utils import strutils
+from oslo_utils import strutils
 import webob
 
 from cinder.api import extensions
@@ -195,6 +195,9 @@ class VolumeActionsController(wsgi.Controller):
             info = self.volume_api.initialize_connection(context,
                                                          volume,
                                                          connector)
+        except exception.InvalidInput as err:
+            raise webob.exc.HTTPBadRequest(
+                explanation=err)
         except exception.VolumeBackendAPIException as error:
             msg = _("Unable to fetch connection information from backend.")
             raise webob.exc.HTTPInternalServerError(explanation=msg)

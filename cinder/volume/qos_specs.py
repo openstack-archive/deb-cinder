@@ -16,8 +16,8 @@
 """The QoS Specs Implementation"""
 
 
-from oslo.config import cfg
-from oslo.db import exception as db_exc
+from oslo_config import cfg
+from oslo_db import exception as db_exc
 
 from cinder import context
 from cinder import db

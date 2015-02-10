@@ -29,19 +29,19 @@ import uuid
 import fixtures
 import mock
 import mox
-from oslo.concurrency import lockutils
-from oslo.config import cfg
-from oslo.config import fixture as config_fixture
-from oslo.i18n import _lazy
 from oslo.messaging import conffixture as messaging_conffixture
-from oslo.utils import strutils
-from oslo.utils import timeutils
+from oslo_concurrency import lockutils
+from oslo_config import cfg
+from oslo_config import fixture as config_fixture
+from oslo_utils import strutils
+from oslo_utils import timeutils
 import stubout
 import testtools
 
 from cinder.common import config  # noqa Need to register global_opts
 from cinder.db import migration
 from cinder.db.sqlalchemy import api as sqla_api
+from cinder import i18n
 from cinder.openstack.common import log as oslo_logging
 from cinder import rpc
 from cinder import service
@@ -107,7 +107,7 @@ class TestCase(testtools.TestCase):
         super(TestCase, self).setUp()
 
         # Unit tests do not need to use lazy gettext
-        _lazy.enable_lazy(enable=False)
+        i18n.enable_lazy(False)
 
         test_timeout = os.environ.get('OS_TEST_TIMEOUT', 0)
         try:
@@ -189,6 +189,7 @@ class TestCase(testtools.TestCase):
             config_fixture.Config(lockutils.CONF))
         self.fixture.config(lock_path=lock_path,
                             group='oslo_concurrency')
+        lockutils.set_defaults(lock_path)
         self.override_config('policy_file',
                              os.path.join(
                                  os.path.abspath(
@@ -258,6 +259,7 @@ class TestCase(testtools.TestCase):
         patcher = mock.patch.object(obj, attr_name, new_attr, **kwargs)
         patcher.start()
         self.addCleanup(patcher.stop)
+        return new_attr
 
     # Useful assertions
     def assertDictMatch(self, d1, d2, approx_equal=False, tolerance=0.001):

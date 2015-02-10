@@ -17,26 +17,17 @@ class IetAdm(object):
     def __init__(self, *args, **kwargs):
         super(IetAdm, self).__init__(*args, **kwargs)
 
-    def ensure_export(self, context, volume,
-                      iscsi_name, volume_path,
-                      volume_group, config):
+    def _get_target_chap_auth(self, name):
         pass
 
-    def create_export(self, context, volume):
+    def ensure_export(self, context, volume, volume_path):
+        pass
+
+    def create_export(self, context, volume, volume_path):
         pass
 
     def remove_export(self, context, volume):
         pass
 
-    def attach_volume(self, context, volume,
-                      instance_uuid, host_name, mountpoint):
-        pass
-
-    def detach_volume(self, context, volume):
-        pass
-
-    def initialize_connection(self, volume, **kwargs):
-        pass
-
-    def terminate_connection(self, volume, **kwargs):
+    def initialize_connection(self, volume, connector):
         pass

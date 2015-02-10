@@ -19,6 +19,8 @@
 """Implementation of SQLAlchemy backend."""
 
 
+from datetime import datetime
+from datetime import timedelta
 import functools
 import sys
 import threading
@@ -26,17 +28,20 @@ import time
 import uuid
 import warnings
 
-from oslo.config import cfg
-from oslo.db import exception as db_exc
-from oslo.db import options
-from oslo.db.sqlalchemy import session as db_session
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+from oslo_db import options
+from oslo_db.sqlalchemy import session as db_session
+from oslo_utils import timeutils
+from oslo_utils import uuidutils
 import osprofiler.sqlalchemy
 import six
 import sqlalchemy
+from sqlalchemy import MetaData
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, joinedload_all
 from sqlalchemy.orm import RelationshipProperty
+from sqlalchemy.schema import Table
 from sqlalchemy.sql.expression import literal_column
 from sqlalchemy.sql.expression import true
 from sqlalchemy.sql import func
@@ -44,9 +49,8 @@ from sqlalchemy.sql import func
 from cinder.common import sqlalchemyutils
 from cinder.db.sqlalchemy import models
 from cinder import exception
-from cinder.i18n import _, _LW
+from cinder.i18n import _, _LW, _LE, _LI
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import uuidutils
 
 
 CONF = cfg.CONF
@@ -387,14 +391,6 @@ def service_get_by_host_and_topic(context, host, topic):
 
 
 @require_admin_context
-def service_get_all_by_host(context, host):
-    return model_query(
-        context, models.Service, read_deleted="no").\
-        filter_by(host=host).\
-        all()
-
-
-@require_admin_context
 def _service_get_all_topic_subquery(context, session, topic, subq, label):
     sort_value = getattr(subq.c, label)
     return model_query(context, models.Service,
@@ -405,24 +401,6 @@ def _service_get_all_topic_subquery(context, session, topic, subq, label):
         outerjoin((subq, models.Service.host == subq.c.host)).\
         order_by(sort_value).\
         all()
-
-
-@require_admin_context
-def service_get_all_volume_sorted(context):
-    session = get_session()
-    with session.begin():
-        topic = CONF.volume_topic
-        label = 'volume_gigabytes'
-        subq = model_query(context, models.Volume.host,
-                           func.sum(models.Volume.size).label(label),
-                           session=session, read_deleted="no").\
-            group_by(models.Volume.host).\
-            subquery()
-        return _service_get_all_topic_subquery(context,
-                                               session,
-                                               topic,
-                                               subq,
-                                               label)
 
 
 @require_admin_context
@@ -514,9 +492,8 @@ def iscsi_target_create_safe(context, values):
         with session.begin():
             session.add(iscsi_target_ref)
             return iscsi_target_ref
-    # TODO(e0ne): Remove check on db_exc.DBError, when
-    #             Cinder will use oslo.db 0.4.0 or higher.
-    except (db_exc.DBError, db_exc.DBDuplicateEntry):
+    except db_exc.DBDuplicateEntry:
+        LOG.debug("Can not add duplicate IscsiTarget.")
         return None
 
 
@@ -996,29 +973,6 @@ def reservation_expire(context):
 
 
 ###################
-
-
-@require_admin_context
-@_retry_on_deadlock
-def volume_allocate_iscsi_target(context, volume_id, host):
-    session = get_session()
-    with session.begin():
-        iscsi_target_ref = model_query(context, models.IscsiTarget,
-                                       session=session, read_deleted="no").\
-            filter_by(volume=None).\
-            filter_by(host=host).\
-            with_lockmode('update').\
-            first()
-
-        # NOTE(vish): if with_lockmode isn't supported, as in sqlite,
-        #             then this has concurrency issues
-        if not iscsi_target_ref:
-            raise exception.NoMoreTargets()
-
-        iscsi_target_ref.volume_id = volume_id
-        session.add(iscsi_target_ref)
-
-    return iscsi_target_ref.target_num
 
 
 @require_admin_context
@@ -3142,12 +3096,6 @@ def consistencygroup_get_all(context):
     return model_query(context, models.ConsistencyGroup).all()
 
 
-@require_admin_context
-def consistencygroup_get_all_by_host(context, host):
-    return model_query(context, models.ConsistencyGroup).\
-        filter_by(host=host).all()
-
-
 @require_context
 def consistencygroup_get_all_by_project(context, project_id):
     authorize_project_context(context, project_id)
@@ -3227,11 +3175,6 @@ def cgsnapshot_get_all(context):
 
 
 @require_admin_context
-def cgsnapshot_get_all_by_host(context, host):
-    return model_query(context, models.Cgsnapshot).filter_by(host=host).all()
-
-
-@require_admin_context
 def cgsnapshot_get_all_by_group(context, group_id):
     return model_query(context, models.Cgsnapshot).\
         filter_by(consistencygroup_id=group_id).all()
@@ -3286,3 +3229,51 @@ def cgsnapshot_destroy(context, cgsnapshot_id):
                     'deleted': True,
                     'deleted_at': timeutils.utcnow(),
                     'updated_at': literal_column('updated_at')})
+
+
+@require_admin_context
+def purge_deleted_rows(context, age_in_days):
+    """Purge deleted rows older than age from cinder tables."""
+    try:
+        age_in_days = int(age_in_days)
+    except ValueError:
+        msg = _LE('Invalid valude for age, %(age)s')
+        LOG.exception(msg, {'age': age_in_days})
+        raise exception.InvalidParameterValue(msg % {'age': age_in_days})
+    if age_in_days <= 0:
+        msg = _LE('Must supply a positive value for age')
+        LOG.exception(msg)
+        raise exception.InvalidParameterValue(msg)
+
+    engine = get_engine()
+    session = get_session()
+    metadata = MetaData()
+    metadata.bind = engine
+    tables = []
+
+    for model_class in models.__dict__.itervalues():
+        if hasattr(model_class, "__tablename__"):
+            tables.append(model_class.__tablename__)
+
+    # Reorder the list so the volumes table is last to avoid FK constraints
+    tables.remove("volumes")
+    tables.append("volumes")
+    for table in tables:
+        t = Table(table, metadata, autoload=True)
+        LOG.info(_LI('Purging deleted rows older than age=%(age)d days '
+                     'from table=%(table)s'), {'age': age_in_days,
+                                               'table': table})
+        deleted_age = datetime.now() - timedelta(days=age_in_days)
+        try:
+            with session.begin():
+                result = session.execute(
+                    t.delete()
+                    .where(t.c.deleted_at < deleted_age))
+        except db_exc.DBReferenceError:
+            LOG.exception(_LE('DBError detected when purging from '
+                              'table=%(table)s'), {'table': table})
+            raise
+
+        rows_purged = result.rowcount
+        LOG.info(_LI("Deleted %(row)d rows from table=%(table)s"),
+                 {'row': rows_purged, 'table': table})

@@ -24,11 +24,11 @@ import functools
 import sys
 import time
 
-from oslo.concurrency import lockutils
-from oslo.concurrency import processutils as putils
-from oslo.config import cfg
-from oslo.utils import excutils
-from oslo.utils import units
+from oslo_concurrency import lockutils
+from oslo_concurrency import processutils as putils
+from oslo_config import cfg
+from oslo_utils import excutils
+from oslo_utils import units
 import six
 
 from cinder.brick.local_dev import lvm
@@ -246,7 +246,7 @@ def handle_process_execution_error(message, info_message, reraise=True):
     the command string, exit code, standard output and error output of the
     process will be logged at `logging.DEBUG` level.
 
-    The `reraise` argument specifies what should happend when a
+    The `reraise` argument specifies what should happen when a
     `putils.ProcessExecutionError` is caught. If it's equal to `True`, the
     exception will be re-raised. If it's some other non-`False` object, this
     object will be raised instead (so you most likely want it to be some
@@ -811,7 +811,8 @@ class SRBISCSIDriver(SRBDriver, driver.ISCSIDriver):
 
     def __init__(self, *args, **kwargs):
         self.db = kwargs.get('db')
-        self.target_helper = self.get_target_helper(self.db)
+        self.target_driver = \
+            self.target_mapping[self.configuration.safe_get('iscsi_helper')]
         super(SRBISCSIDriver, self).__init__(*args, **kwargs)
         self.backend_name =\
             self.configuration.safe_get('volume_backend_name') or 'SRB_iSCSI'
@@ -819,22 +820,15 @@ class SRBISCSIDriver(SRBDriver, driver.ISCSIDriver):
 
     def set_execute(self, execute):
         super(SRBISCSIDriver, self).set_execute(execute)
-        if self.target_helper is not None:
-            self.target_helper.set_execute(execute)
+        if self.target_driver is not None:
+            self.target_driver.set_execute(execute)
 
     def ensure_export(self, context, volume):
-        volume_name = volume['name']
-        iscsi_name = "%s%s" % (self.configuration.iscsi_target_prefix,
-                               volume_name)
         device_path = self._mapper_path(volume)
-        # NOTE(jdg): For TgtAdm case iscsi_name is the ONLY param we need
-        # should clean this all up at some point in the future
-        model_update = self.target_helper.ensure_export(
-            context, volume,
-            iscsi_name,
-            device_path,
-            None,
-            self.configuration)
+
+        model_update = self.target_driver.ensure_export(context,
+                                                        volume,
+                                                        device_path)
         if model_update:
             self.db.volume_update(context, volume['id'], model_update)
 
@@ -847,10 +841,9 @@ class SRBISCSIDriver(SRBDriver, driver.ISCSIDriver):
         # SRB uses the same name as the volume for the VG
         volume_path = self._mapper_path(volume)
 
-        data = self.target_helper.create_export(context,
+        data = self.target_driver.create_export(context,
                                                 volume,
-                                                volume_path,
-                                                self.configuration)
+                                                volume_path)
         return {
             'provider_location': data['location'],
             'provider_auth': data['auth'],
@@ -862,14 +855,14 @@ class SRBISCSIDriver(SRBDriver, driver.ISCSIDriver):
         # an export, and avoid screwing up the device attach refcount.
         try:
             # Raises exception.NotFound if export not provisioned
-            iscsi_target = self.target_helper._get_iscsi_target(context,
+            iscsi_target = self.target_driver._get_iscsi_target(context,
                                                                 volume['id'])
             # Raises an Exception if currently not exported
             location = volume['provider_location'].split(' ')
             iqn = location[1]
-            self.target_helper.show_target(iscsi_target, iqn=iqn)
+            self.target_driver.show_target(iscsi_target, iqn=iqn)
 
-            self.target_helper.remove_export(context, volume)
+            self.target_driver.remove_export(context, volume)
             self._detach_file(volume)
         except exception.NotFound:
             LOG.warning(_LW('Volume %r not found while trying to remove.'),

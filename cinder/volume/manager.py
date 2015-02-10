@@ -39,12 +39,13 @@ intact.
 
 import time
 
-from oslo.config import cfg
 from oslo import messaging
-from oslo.serialization import jsonutils
-from oslo.utils import excutils
-from oslo.utils import importutils
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_serialization import jsonutils
+from oslo_utils import excutils
+from oslo_utils import importutils
+from oslo_utils import timeutils
+from oslo_utils import uuidutils
 from osprofiler import profiler
 
 from cinder import compute
@@ -56,7 +57,6 @@ from cinder.image import glance
 from cinder import manager
 from cinder.openstack.common import log as logging
 from cinder.openstack.common import periodic_task
-from cinder.openstack.common import uuidutils
 from cinder import quota
 from cinder import utils
 from cinder.volume.configuration import Configuration
@@ -91,7 +91,13 @@ volume_manager_opts = [
     cfg.StrOpt('extra_capabilities',
                default='{}',
                help='User defined capabilities, a JSON formatted string '
-                    'specifying key/value pairs.'),
+                    'specifying key/value pairs. The key/value pairs can '
+                    'be used by the CapabilitiesFilter to select between '
+                    'backends when requests specify volume types. For '
+                    'example, specifying a service level or the geographical '
+                    'location of a backend, then creating a volume type to '
+                    'allow the user to select by these different '
+                    'properties.'),
 ]
 
 CONF = cfg.CONF
@@ -101,7 +107,11 @@ MAPPING = {
     'cinder.volume.drivers.huawei.huawei_hvs.HuaweiHVSISCSIDriver':
     'cinder.volume.drivers.huawei.huawei_18000.Huawei18000ISCSIDriver',
     'cinder.volume.drivers.huawei.huawei_hvs.HuaweiHVSFCDriver':
-    'cinder.volume.drivers.huawei.huawei_18000.Huawei18000FCDriver', }
+    'cinder.volume.drivers.huawei.huawei_18000.Huawei18000FCDriver',
+    'cinder.volume.drivers.fujitsu_eternus_dx_fc.FJDXFCDriver':
+    'cinder.volume.drivers.fujitsu.eternus_dx_fc.FJDXFCDriver',
+    'cinder.volume.drivers.fujitsu_eternus_dx_iscsi.FJDXISCSIDriver':
+    'cinder.volume.drivers.fujitsu.eternus_dx_iscsi.FJDXISCSIDriver', }
 
 
 def locked_volume_operation(f):
@@ -357,15 +367,15 @@ class VolumeManager(manager.SchedulerDependentManager):
                 self.scheduler_rpcapi,
                 self.host,
                 volume_id,
+                allow_reschedule,
+                context,
+                request_spec,
+                filter_properties,
                 snapshot_id=snapshot_id,
                 image_id=image_id,
                 source_volid=source_volid,
                 source_replicaid=source_replicaid,
-                consistencygroup_id=consistencygroup_id,
-                allow_reschedule=allow_reschedule,
-                reschedule_context=context,
-                request_spec=request_spec,
-                filter_properties=filter_properties)
+                consistencygroup_id=consistencygroup_id)
         except Exception:
             LOG.exception(_LE("Failed to create manager volume flow"))
             raise exception.CinderException(
@@ -880,8 +890,10 @@ class VolumeManager(manager.SchedulerDependentManager):
         utils.require_driver_initialized(self.driver)
         try:
             self.driver.validate_connector(connector)
+        except exception.InvalidConnectorException as err:
+            raise exception.InvalidInput(reason=err)
         except Exception as err:
-            err_msg = (_('Unable to fetch connection information from '
+            err_msg = (_('Unable to validate connector information in '
                          'backend: %(err)s') % {'err': err})
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
@@ -1103,9 +1115,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         new_volume = self.db.volume_get(ctxt, new_volume_id)
         rpcapi = volume_rpcapi.VolumeAPI()
 
-        status_update = {}
-        if volume['status'] == 'retyping':
-            status_update = {'status': self._get_original_status(volume)}
+        orig_volume_status = self._get_original_status(volume)
 
         if error:
             msg = _("migrate_volume_completion is cleaning up an error "
@@ -1114,9 +1124,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                             'vol2': new_volume['id']})
             new_volume['migration_status'] = None
             rpcapi.delete_volume(ctxt, new_volume)
-            updates = {'migration_status': None}
-            if status_update:
-                updates.update(status_update)
+            updates = {'migration_status': None, 'status': orig_volume_status}
             self.db.volume_update(ctxt, volume_id, updates)
             return volume_id
 
@@ -1125,7 +1133,7 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         # Delete the source volume (if it fails, don't fail the migration)
         try:
-            if status_update.get('status') == 'in-use':
+            if orig_volume_status == 'in-use':
                 self.detach_volume(ctxt, volume_id)
             self.delete_volume(ctxt, volume_id)
         except Exception as ex:
@@ -1140,16 +1148,14 @@ class VolumeManager(manager.SchedulerDependentManager):
                                       new_volume)
         self.db.finish_volume_migration(ctxt, volume_id, new_volume_id)
         self.db.volume_destroy(ctxt, new_volume_id)
-        if status_update.get('status') == 'in-use':
-            updates = {'migration_status': 'completing'}
-            updates.update(status_update)
+        if orig_volume_status == 'in-use':
+            updates = {'migration_status': 'completing',
+                       'status': orig_volume_status}
         else:
             updates = {'migration_status': None}
         self.db.volume_update(ctxt, volume_id, updates)
 
-        if 'in-use' in (status_update.get('status'), volume['status']):
-            # NOTE(jdg): if we're passing the ref here, why are we
-            # also passing in the various fields from that ref?
+        if orig_volume_status == 'in-use':
             rpcapi.attach_volume(ctxt,
                                  volume,
                                  volume['instance_uuid'],

@@ -16,12 +16,13 @@
 import datetime
 import hashlib
 import os
+import time
 import uuid
 
 import mock
-from oslo.concurrency import processutils as putils
-from oslo.config import cfg
-from oslo.utils import timeutils
+from oslo_concurrency import processutils as putils
+from oslo_config import cfg
+from oslo_utils import timeutils
 import paramiko
 import six
 
@@ -353,7 +354,7 @@ class GenericUtilsTestCase(test.TestCase):
                           utils.read_file_as_root,
                           test_filepath)
 
-    @mock.patch('oslo.utils.timeutils.utcnow')
+    @mock.patch('oslo_utils.timeutils.utcnow')
     def test_service_is_up(self, mock_utcnow):
         fts_func = datetime.datetime.fromtimestamp
         fake_now = 1000
@@ -785,7 +786,6 @@ class AuditPeriodTest(test.TestCase):
 
     def setUp(self):
         super(AuditPeriodTest, self).setUp()
-        #a fairly random time to test with
         test_time = datetime.datetime(second=23,
                                       minute=12,
                                       hour=8,
@@ -893,7 +893,7 @@ class AuditPeriodTest(test.TestCase):
                                                 month=2,
                                                 year=2012))
 
-    @mock.patch('oslo.utils.timeutils.utcnow',
+    @mock.patch('oslo_utils.timeutils.utcnow',
                 return_value=datetime.datetime(day=1,
                                                month=1,
                                                year=2012))
@@ -902,7 +902,7 @@ class AuditPeriodTest(test.TestCase):
         self.assertEqual(datetime.datetime(day=1, month=11, year=2011), begin)
         self.assertEqual(datetime.datetime(day=1, month=12, year=2011), end)
 
-    @mock.patch('oslo.utils.timeutils.utcnow',
+    @mock.patch('oslo_utils.timeutils.utcnow',
                 return_value=datetime.datetime(day=2,
                                                month=1,
                                                year=2012))
@@ -1010,13 +1010,15 @@ class FakeTransport(object):
 
 class SSHPoolTestCase(test.TestCase):
     """Unit test for SSH Connection Pool."""
+    @mock.patch('cinder.ssh_utils.CONF')
     @mock.patch('__builtin__.open')
     @mock.patch('paramiko.SSHClient')
     @mock.patch('os.path.isfile', return_value=True)
     def test_ssh_default_hosts_key_file(self, mock_isfile, mock_sshclient,
-                                        mock_open):
+                                        mock_open, mock_conf):
         mock_ssh = mock.MagicMock()
         mock_sshclient.return_value = mock_ssh
+        mock_conf.ssh_hosts_key_file = '/var/lib/cinder/ssh_known_hosts'
 
         # create with customized setting
         sshpool = ssh_utils.SSHPool("127.0.0.1", 22, 10,
@@ -1032,13 +1034,15 @@ class SSHPoolTestCase(test.TestCase):
         mock_ssh.load_host_keys.assert_called_once_with(
             '/var/lib/cinder/ssh_known_hosts')
 
+    @mock.patch('cinder.ssh_utils.CONF')
     @mock.patch('__builtin__.open')
     @mock.patch('paramiko.SSHClient')
     @mock.patch('os.path.isfile', return_value=True)
     def test_ssh_host_key_file_kwargs(self, mock_isfile, mock_sshclient,
-                                      mock_open):
+                                      mock_open, mock_conf):
         mock_ssh = mock.MagicMock()
         mock_sshclient.return_value = mock_ssh
+        mock_conf.ssh_hosts_key_file = '/var/lib/cinder/ssh_known_hosts'
 
         # create with customized setting
         sshpool = ssh_utils.SSHPool("127.0.0.1", 22, 10,
@@ -1059,13 +1063,14 @@ class SSHPoolTestCase(test.TestCase):
 
         mock_ssh.assert_has_calls(expected, any_order=True)
 
+    @mock.patch('cinder.ssh_utils.CONF')
     @mock.patch('__builtin__.open')
     @mock.patch('os.path.isfile', return_value=True)
     @mock.patch('paramiko.RSAKey.from_private_key_file')
     @mock.patch('paramiko.SSHClient')
     def test_single_ssh_connect(self, mock_sshclient, mock_pkey, mock_isfile,
-                                mock_open):
-        CONF.ssh_hosts_key_file = '/var/lib/cinder/ssh_known_hosts'
+                                mock_open, mock_conf):
+        mock_conf.ssh_hosts_key_file = '/var/lib/cinder/ssh_known_hosts'
 
         # create with password
         sshpool = ssh_utils.SSHPool("127.0.0.1", 22, 10,
@@ -1125,12 +1130,14 @@ class SSHPoolTestCase(test.TestCase):
 
         self.assertNotEqual(first_id, third_id)
 
+    @mock.patch('cinder.ssh_utils.CONF')
     @mock.patch('__builtin__.open')
     @mock.patch('paramiko.SSHClient')
-    def test_missing_ssh_hosts_key_config(self, mock_sshclient, mock_open):
+    def test_missing_ssh_hosts_key_config(self, mock_sshclient, mock_open,
+                                          mock_conf):
         mock_sshclient.return_value = FakeSSHClient()
 
-        CONF.ssh_hosts_key_file = None
+        mock_conf.ssh_hosts_key_file = None
         # create with password
         self.assertRaises(exception.ParameterNotFound,
                           ssh_utils.SSHPool,
@@ -1179,14 +1186,15 @@ class SSHPoolTestCase(test.TestCase):
                           min_size=1,
                           max_size=1)
 
+    @mock.patch.multiple('cinder.ssh_utils.CONF',
+                         strict_ssh_host_key_policy=True,
+                         ssh_hosts_key_file='/var/lib/cinder/ssh_known_hosts')
     @mock.patch('__builtin__.open')
     @mock.patch('paramiko.SSHClient')
     @mock.patch('os.path.isfile', return_value=True)
     def test_ssh_strict_host_key_policy(self, mock_isfile, mock_sshclient,
                                         mock_open):
         mock_sshclient.return_value = FakeSSHClient()
-
-        CONF.strict_ssh_host_key_policy = True
 
         # create with customized setting
         sshpool = ssh_utils.SSHPool("127.0.0.1", 22, 10,
@@ -1380,3 +1388,91 @@ class IsBlkDeviceTestCase(test.TestCase):
     def test_fail_is_blk_device(self, mock_os_stat, mock_S_ISBLK):
         dev = 'device_exception'
         self.assertFalse(utils.is_blk_device(dev))
+
+
+class WrongException(Exception):
+        pass
+
+
+class TestRetryDecorator(test.TestCase):
+    def setUp(self):
+        super(TestRetryDecorator, self).setUp()
+
+    def test_no_retry_required(self):
+        self.counter = 0
+
+        with mock.patch.object(time, 'sleep') as mock_sleep:
+            @utils.retry(exception.VolumeBackendAPIException,
+                         interval=2,
+                         retries=3,
+                         backoff_rate=2)
+            def succeeds():
+                self.counter += 1
+                return 'success'
+
+            ret = succeeds()
+            self.assertFalse(mock_sleep.called)
+            self.assertEqual(ret, 'success')
+            self.assertEqual(self.counter, 1)
+
+    def test_retries_once(self):
+        self.counter = 0
+        interval = 2
+        backoff_rate = 2
+        retries = 3
+
+        with mock.patch.object(time, 'sleep') as mock_sleep:
+            @utils.retry(exception.VolumeBackendAPIException,
+                         interval,
+                         retries,
+                         backoff_rate)
+            def fails_once():
+                self.counter += 1
+                if self.counter < 2:
+                    raise exception.VolumeBackendAPIException(data='fake')
+                else:
+                    return 'success'
+
+            ret = fails_once()
+            self.assertEqual(ret, 'success')
+            self.assertEqual(self.counter, 2)
+            self.assertEqual(mock_sleep.call_count, 1)
+            mock_sleep.assert_called_with(interval * backoff_rate)
+
+    def test_limit_is_reached(self):
+        self.counter = 0
+        retries = 3
+        interval = 2
+        backoff_rate = 4
+
+        with mock.patch.object(time, 'sleep') as mock_sleep:
+            @utils.retry(exception.VolumeBackendAPIException,
+                         interval,
+                         retries,
+                         backoff_rate)
+            def always_fails():
+                self.counter += 1
+                raise exception.VolumeBackendAPIException(data='fake')
+
+            self.assertRaises(exception.VolumeBackendAPIException,
+                              always_fails)
+            self.assertEqual(retries, self.counter)
+
+            expected_sleep_arg = []
+
+            for i in xrange(retries):
+                if i > 0:
+                    interval *= backoff_rate
+                    expected_sleep_arg.append(float(interval))
+
+            mock_sleep.assert_has_calls(map(mock.call, expected_sleep_arg))
+
+    def test_wrong_exception_no_retry(self):
+
+        with mock.patch.object(time, 'sleep') as mock_sleep:
+            @utils.retry(exception.VolumeBackendAPIException)
+            def raise_unexpected_error():
+                raise WrongException("wrong exception")
+
+            self.assertRaises(WrongException, raise_unexpected_error)
+            self.assertFalse(mock_sleep.called)

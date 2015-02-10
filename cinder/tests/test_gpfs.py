@@ -18,9 +18,9 @@ import shutil
 import tempfile
 
 import mock
-from oslo.concurrency import processutils
-from oslo.config import cfg
-from oslo.utils import units
+from oslo_concurrency import processutils
+from oslo_config import cfg
+from oslo_utils import units
 
 from cinder import context
 from cinder import exception
@@ -1028,6 +1028,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual(data['data']['name'], 'test')
         self.assertEqual(data['data']['device_path'], os.path.join(
             self.driver.configuration.gpfs_mount_point_base, 'test'))
+        self.assertEqual(data['driver_volume_type'], 'gpfs')
 
     def test_terminate_connection(self):
         self.assertEqual(None, self.driver.terminate_connection('', ''))
@@ -1055,7 +1056,7 @@ class GPFSDriverTestCase(test.TestCase):
 
     @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._clone_image')
     def test_clone_image_pub(self, mock_exec):
-        self.driver.clone_image('', '', '', '')
+        self.driver.clone_image('', '', '', {'id': 1}, '')
 
     @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
     def test_is_cloneable_ok(self, mock_is_gpfs_path):

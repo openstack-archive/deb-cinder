@@ -9,11 +9,13 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+
 import os
 import tempfile
 
 import mock
-from oslo.utils import timeutils
+from oslo_concurrency import processutils as putils
+from oslo_utils import timeutils
 
 from cinder import context
 from cinder import test
@@ -62,7 +64,7 @@ class TestTgtAdmDriver(test.TestCase):
              'target_iqn': 'iqn.2010-10.org.openstack:volume-%s' %
                            self.fake_id_2,
              'target_lun': 0,
-             'target_portal': '10.10.7.1:3260',
+             'target_portal': '10.9.8.7:3260',
              'volume_id': self.fake_id_2}
 
         self.fake_iscsi_scan =\
@@ -108,14 +110,19 @@ class TestTgtAdmDriver(test.TestCase):
     def fake_safe_get(self, value):
         if value == 'volumes_dir':
             return self.fake_volumes_dir
+        elif value == 'iscsi_protocol':
+            return self.configuration.iscsi_protocol
+
+    def test_iscsi_protocol(self):
+        self.assertEqual(self.target.iscsi_protocol, 'iscsi')
 
     def test_get_target(self):
 
         def _fake_execute(*args, **kwargs):
             return self.fake_iscsi_scan, None
 
-        self.stubs.Set(self.target,
-                       '_execute',
+        self.stubs.Set(utils,
+                       'execute',
                        _fake_execute)
 
         self.assertEqual('1',
@@ -128,8 +135,8 @@ class TestTgtAdmDriver(test.TestCase):
         def _fake_execute(*args, **kwargs):
             return self.fake_iscsi_scan, None
 
-        self.stubs.Set(self.target,
-                       '_execute',
+        self.stubs.Set(utils,
+                       'execute',
                        _fake_execute)
 
         self.assertTrue(self.target._verify_backing_lun(
@@ -143,8 +150,8 @@ class TestTgtAdmDriver(test.TestCase):
         def _fake_execute_bad_lun(*args, **kwargs):
             return bad_scan, None
 
-        self.stubs.Set(self.target,
-                       '_execute',
+        self.stubs.Set(utils,
+                       'execute',
                        _fake_execute_bad_lun)
 
         self.assertFalse(self.target._verify_backing_lun(
@@ -156,7 +163,7 @@ class TestTgtAdmDriver(test.TestCase):
         persist_file =\
             '<target iqn.2010-10.org.openstack:volume-83c2e877-feed-46be-8435-77884fe55b45>\n'\
             '    backing-store /dev/stack-volumes-lvmdriver-1/volume-83c2e877-feed-46be-8435-77884fe55b45\n'\
-            '    lld iscsi\n'\
+            '    driver iscsi\n'\
             '    incominguser otzLy2UYbYfnP4zXLG5z 234Zweo38VGBBvrpK9nt\n'\
             '    write-cache on\n'\
             '</target>'
@@ -175,8 +182,8 @@ class TestTgtAdmDriver(test.TestCase):
         def _fake_execute(*args, **kwargs):
             return '', ''
 
-        self.stubs.Set(self.target,
-                       '_execute',
+        self.stubs.Set(utils,
+                       'execute',
                        _fake_execute)
 
         self.stubs.Set(self.target,
@@ -197,13 +204,19 @@ class TestTgtAdmDriver(test.TestCase):
                 0,
                 self.fake_volumes_dir))
 
-    def test_create_create_export(self):
-
+    def test_create_iscsi_target_already_exists(self):
         def _fake_execute(*args, **kwargs):
-            return '', ''
+            if 'update' in args:
+                raise putils.ProcessExecutionError(
+                    exit_code=1,
+                    stdout='',
+                    stderr='target already exists',
+                    cmd='tgtad --lld iscsi --op show --mode target')
+            else:
+                return 'fake out', 'fake err'
 
-        self.stubs.Set(self.target,
-                       '_execute',
+        self.stubs.Set(utils,
+                       'execute',
                        _fake_execute)
 
         self.stubs.Set(self.target,
@@ -214,6 +227,36 @@ class TestTgtAdmDriver(test.TestCase):
                        '_verify_backing_lun',
                        lambda x, y: True)
 
+        test_vol = 'iqn.2010-10.org.openstack:'\
+                   'volume-83c2e877-feed-46be-8435-77884fe55b45'
+        self.assertEqual(
+            1,
+            self.target.create_iscsi_target(
+                test_vol,
+                1,
+                0,
+                self.fake_volumes_dir))
+
+    def test_create_export(self):
+
+        def _fake_execute(*args, **kwargs):
+            return '', ''
+
+        self.stubs.Set(utils,
+                       'execute',
+                       _fake_execute)
+
+        self.stubs.Set(self.target,
+                       '_get_target',
+                       lambda x: 1)
+
+        self.stubs.Set(self.target,
+                       '_verify_backing_lun',
+                       lambda x, y: True)
+
+        self.stubs.Set(self.target,
+                       '_get_target_chap_auth',
+                       lambda x: None)
         self.stubs.Set(vutils,
                        'generate_username',
                        lambda: 'QZJbisGmn9AL954FNF4D')
@@ -231,3 +274,29 @@ class TestTgtAdmDriver(test.TestCase):
                          self.target.create_export(ctxt,
                                                    self.testvol_1,
                                                    self.fake_volumes_dir))
+
+        self.stubs.Set(self.target,
+                       '_get_target_chap_auth',
+                       lambda x: ('otzLy2UYbYfnP4zXLG5z',
+                                  '234Zweo38VGBBvrpK9nt'))
+
+        expected_result['auth'] = ('CHAP '
+                                   'otzLy2UYbYfnP4zXLG5z 234Zweo38VGBBvrpK9nt')
+
+        self.assertEqual(expected_result,
+                         self.target.create_export(ctxt,
+                                                   self.testvol_1,
+                                                   self.fake_volumes_dir))
+
+    def test_ensure_export(self):
+        ctxt = context.get_admin_context()
+        with mock.patch.object(self.target, 'create_iscsi_target'):
+            self.target.ensure_export(ctxt,
+                                      self.testvol_1,
+                                      self.fake_volumes_dir)
+            self.target.create_iscsi_target.assert_called_once_with(
+                'iqn.2010-10.org.openstack:testvol',
+                1, 0, self.fake_volumes_dir, None,
+                iscsi_write_cache='on',
+                check_exit_code=False,
+                old_name=None)

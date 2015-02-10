@@ -16,7 +16,8 @@
 import datetime
 
 from lxml import etree
-from oslo.config import cfg
+import mock
+from oslo_config import cfg
 import webob
 
 from cinder.api import extensions
@@ -760,6 +761,42 @@ class VolumeApiTest(test.TestCase):
         res = self.controller.index(req)
         self.assertIn('volumes', res)
         self.assertEqual(1, len(res['volumes']))
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_string(self, get_all):
+        req = mock.MagicMock()
+        req.GET.copy.return_value = {'display_name': 'Volume-573108026'}
+        context = mock.Mock()
+        req.environ = {'cinder.context': context}
+        self.controller._items(req, mock.Mock)
+        get_all.assert_called_once_with(
+            context, sort_dir='desc', viewable_admin_meta=True,
+            sort_key='created_at', limit=None,
+            filters={'display_name': 'Volume-573108026'}, marker=None)
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_list(self, get_all):
+        req = mock.MagicMock()
+        req.GET.copy.return_value = {'id': "['1', '2', '3']"}
+        context = mock.Mock()
+        req.environ = {'cinder.context': context}
+        self.controller._items(req, mock.Mock)
+        get_all.assert_called_once_with(
+            context, sort_dir='desc', viewable_admin_meta=True,
+            sort_key='created_at', limit=None,
+            filters={'id': ['1', '2', '3']}, marker=None)
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_expression(self, get_all):
+        req = mock.MagicMock()
+        req.GET.copy.return_value = {'id': "d+"}
+        context = mock.Mock()
+        req.environ = {'cinder.context': context}
+        self.controller._items(req, mock.Mock)
+        get_all.assert_called_once_with(
+            context, sort_dir='desc', viewable_admin_meta=True,
+            sort_key='created_at', limit=None, filters={'id': 'd+'},
+            marker=None)
 
 
 class VolumeSerializerTest(test.TestCase):

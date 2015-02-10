@@ -46,6 +46,7 @@ ISCSI = 'iscsi'
 FC = 'fc'
 JOB_RETRIES = 60
 INTERVAL_10_SEC = 10
+CIM_ERR_NOT_FOUND = 6
 
 
 class EMCVMAXUtils(object):
@@ -287,27 +288,30 @@ class EMCVMAXUtils(object):
 
         def _wait_for_job_complete():
             """Called at an interval until the job is finished"""
+            retries = kwargs['retries']
+            wait_for_job_called = kwargs['wait_for_job_called']
             if self._is_job_finished(conn, job):
                 raise loopingcall.LoopingCallDone()
-            if self.retries > JOB_RETRIES:
+            if retries > JOB_RETRIES:
                 LOG.error(_LE("_wait_for_job_complete "
                               "failed after %(retries)d "
-                              "tries") % {'retries': self.retries})
+                              "tries."),
+                          {'retries': retries})
 
                 raise loopingcall.LoopingCallDone()
             try:
-                self.retries += 1
-                if not self.wait_for_job_called:
+                kwargs['retries'] = retries + 1
+                if not wait_for_job_called:
                     if self._is_job_finished(conn, job):
-                        self.wait_for_job_called = True
+                        kwargs['wait_for_job_called'] = True
             except Exception as e:
                 LOG.error(_LE("Exception: %s") % six.text_type(e))
                 exceptionMessage = (_("Issue encountered waiting for job."))
                 LOG.error(exceptionMessage)
                 raise exception.VolumeBackendAPIException(exceptionMessage)
 
-        self.retries = 0
-        self.wait_for_job_called = False
+        kwargs = {'retries': 0,
+                  'wait_for_job_called': False}
         timer = loopingcall.FixedIntervalLoopingCall(_wait_for_job_complete)
         timer.start(interval=INTERVAL_10_SEC).wait()
 
@@ -347,17 +351,20 @@ class EMCVMAXUtils(object):
 
         def _wait_for_sync():
             """Called at an interval until the synchronization is finished."""
+            retries = kwargs['retries']
+            wait_for_sync_called = kwargs['wait_for_sync_called']
             if self._is_sync_complete(conn, syncName):
                 raise loopingcall.LoopingCallDone()
-            if self.retries > JOB_RETRIES:
-                LOG.error(_LE("_wait_for_sync failed after %(retries)d tries.")
-                          % {'retries': self.retries})
+            if retries > JOB_RETRIES:
+                LOG.error(_LE("_wait_for_sync failed after %(retries)d "
+                              "tries."),
+                          {'retries': retries})
                 raise loopingcall.LoopingCallDone()
             try:
-                self.retries += 1
-                if not self.wait_for_sync_called:
+                kwargs['retries'] = retries + 1
+                if not wait_for_sync_called:
                     if self._is_sync_complete(conn, syncName):
-                        self.wait_for_sync_called = True
+                        kwargs['wait_for_sync_called'] = True
             except Exception as e:
                 LOG.error(_LE("Exception: %s") % six.text_type(e))
                 exceptionMessage = (_("Issue encountered waiting for "
@@ -365,8 +372,8 @@ class EMCVMAXUtils(object):
                 LOG.error(exceptionMessage)
                 raise exception.VolumeBackendAPIException(exceptionMessage)
 
-        self.retries = 0
-        self.wait_for_sync_called = False
+        kwargs = {'retries': 0,
+                  'wait_for_sync_called': False}
         timer = loopingcall.FixedIntervalLoopingCall(_wait_for_sync)
         timer.start(interval=INTERVAL_10_SEC).wait()
 
@@ -463,18 +470,23 @@ class EMCVMAXUtils(object):
         :param foundStorageGroup: storage group instance name
         """
         foundStorageMaskingGroupInstanceName = None
+        storageMaskingGroupInstances = (
+            conn.Associators(controllerConfigService,
+                             ResultClass='CIM_DeviceMaskingGroup'))
 
-        storageMaskingGroupInstanceNames = (
-            conn.AssociatorNames(controllerConfigService,
-                                 ResultClass='CIM_DeviceMaskingGroup'))
+        for storageMaskingGroupInstance in \
+                storageMaskingGroupInstances:
 
-        for storageMaskingGroupInstanceName in \
-                storageMaskingGroupInstanceNames:
-            storageMaskingGroupInstance = conn.GetInstance(
-                storageMaskingGroupInstanceName)
             if storageGroupName == storageMaskingGroupInstance['ElementName']:
-                foundStorageMaskingGroupInstanceName = (
-                    storageMaskingGroupInstanceName)
+                # Check that it has not been deleted recently.
+                instance = self.get_existing_instance(
+                    conn, storageMaskingGroupInstance.path)
+                if instance is None:
+                    # Storage group not found.
+                    foundStorageMaskingGroupInstanceName = None
+                else:
+                    foundStorageMaskingGroupInstanceName = (
+                        storageMaskingGroupInstance.path)
                 break
         return foundStorageMaskingGroupInstanceName
 
@@ -764,16 +776,17 @@ class EMCVMAXUtils(object):
             foundPoolInstanceName = foundPoolInstanceNames[0]
         return foundPoolInstanceName
 
-    def check_if_volume_is_concatenated(self, conn, volumeInstance):
-        """Checks if a volume is concatenated or not.
+    def check_if_volume_is_extendable(self, conn, volumeInstance):
+        """Checks if a volume is extendable or not.
 
         Check underlying CIM_StorageExtent to see if the volume is
         concatenated or not.
-        If isConcatenated is true then it is a composite
+        If isConcatenated is true then it is a concatenated and
+        extendable.
         If isConcatenated is False and isVolumeComposite is True then
-            it is a striped
+        it is striped and not extendable.
         If isConcatenated is False and isVolumeComposite is False then
-            it has no composite type and we can proceed.
+        it has one member only but is still extendable.
 
         :param conn: the connection information to the ecom server
         :param volumeInstance: the volume instance
@@ -784,14 +797,12 @@ class EMCVMAXUtils(object):
         isVolumeComposite = self.check_if_volume_is_composite(
             conn, volumeInstance)
 
-        storageExtentInstanceNames = conn.AssociatorNames(
+        storageExtentInstances = conn.Associators(
             volumeInstance.path,
             ResultClass='CIM_StorageExtent')
 
-        if len(storageExtentInstanceNames) > 0:
-            storageExtentInstanceName = storageExtentInstanceNames[0]
-            storageExtentInstance = conn.GetInstance(storageExtentInstanceName)
-
+        if len(storageExtentInstances) > 0:
+            storageExtentInstance = storageExtentInstances[0]
             propertiesList = storageExtentInstance.properties.items()
             for properties in propertiesList:
                 if properties[0] == 'IsConcatenated':
@@ -989,20 +1000,26 @@ class EMCVMAXUtils(object):
         :param storageSystemName: string value of array
         :returns: poolInstanceName - instance name of storage pool
         """
-        poolInstanceName = None
+        foundPoolInstanceName = None
         LOG.debug("storagePoolName: %(poolName)s, storageSystemName: %(array)s"
                   % {'poolName': storagePoolName,
                      'array': storageSystemName})
         poolInstanceNames = conn.EnumerateInstanceNames(
             'EMC_VirtualProvisioningPool')
-        for pool in poolInstanceNames:
+        for poolInstanceName in poolInstanceNames:
             poolName, systemName = (
-                self.parse_pool_instance_id(pool['InstanceID']))
+                self.parse_pool_instance_id(poolInstanceName['InstanceID']))
             if (poolName == storagePoolName and
                     storageSystemName in systemName):
-                poolInstanceName = pool
+                # Check that the pool hasn't been recently deleted.
+                instance = self.get_existing_instance(conn, poolInstanceName)
+                if instance is None:
+                    foundPoolInstanceName = None
+                else:
+                    foundPoolInstanceName = poolInstanceName
+                break
 
-        return poolInstanceName
+        return foundPoolInstanceName
 
     def convert_bits_to_gbs(self, strBitSize):
         """Convert Bits(string) to GB(string).
@@ -1125,20 +1142,19 @@ class EMCVMAXUtils(object):
         else:
             return protocol
 
-    def get_hardware_id_instance_names_from_array(
+    def get_hardware_id_instances_from_array(
             self, conn, hardwareIdManagementService):
         """Get all the hardware ids from an array.
 
         :param conn: connection to the ecom server
         :param: hardwareIdManagementService - hardware id management service
-        :returns: hardwareIdInstanceNames - the list of hardware
-                                            id instance names
+        :returns: hardwareIdInstances - the list of hardware id instances
         """
-        hardwareIdInstanceNames = (
-            conn.AssociatorNames(hardwareIdManagementService,
-                                 ResultClass='SE_StorageHardwareID'))
+        hardwareIdInstances = (
+            conn.Associators(hardwareIdManagementService,
+                             ResultClass='EMC_StorageHardwareID'))
 
-        return hardwareIdInstanceNames
+        return hardwareIdInstances
 
     def find_ip_protocol_endpoint(self, conn, storageSystemName):
         '''Find the IP protocol endpoint for ISCSI.
@@ -1219,3 +1235,69 @@ class EMCVMAXUtils(object):
             volumeSizeInbits = numOfBlocks * blockSize
             capacitiesInBit.append(volumeSizeInbits)
         return capacitiesInBit
+
+    def get_existing_instance(self, conn, instanceName):
+        """Check that the instance name still exists and return the instance.
+
+        :param conn: the connection to the ecom server
+        :param instanceName: the instanceName to be checked
+        :returns: instance or None
+        """
+        instance = None
+        try:
+            instance = conn.GetInstance(instanceName, LocalOnly=False)
+        except pywbem.cim_operations.CIMError as arg:
+            instance = self.process_exception_args(arg, instanceName)
+
+        return instance
+
+    def process_exception_args(self, arg, instanceName):
+        """Process exception arguments.
+
+        :param arg: the arg list
+        :param instanceName: the instance name
+        :returns: None
+        :raises: VolumeBackendAPIException
+        """
+        instance = None
+        code, desc = arg[0], arg[1]
+        if code == CIM_ERR_NOT_FOUND:
+            # Object doesn't exist any more
+            instance = None
+        else:
+            # Something else that we cannot recover from has happened
+            LOG.error(_LE("Exception: %s"), six.text_type(desc))
+            exceptionMessage = (_(
+                "Cannot verify the existence of object:"
+                "%(instanceName)s.")
+                % {'instanceName': instanceName})
+            LOG.error(exceptionMessage)
+            raise exception.VolumeBackendAPIException(
+                data=exceptionMessage)
+        return instance
+
+    def find_storageSystem(self, conn, arrayStr):
+        """Find an array instance name given the array name.
+
+        :param arrayStr: the array Serial number (string)
+        :returns: foundPoolInstanceName, the CIM Instance Name of the Pool
+        """
+        foundStorageSystemInstanceName = None
+        storageSystemInstanceNames = conn.EnumerateInstanceNames(
+            'EMC_StorageSystem')
+        for storageSystemInstanceName in storageSystemInstanceNames:
+            arrayName = storageSystemInstanceName['Name']
+            index = arrayName.find(arrayStr)
+            if index > -1:
+                foundStorageSystemInstanceName = storageSystemInstanceName
+
+        if foundStorageSystemInstanceName is None:
+            exceptionMessage = (_("StorageSystem %(array)s was not found.")
+                                % {'array': arrayStr})
+            LOG.error(exceptionMessage)
+            raise exception.VolumeBackendAPIException(data=exceptionMessage)
+
+        LOG.debug("Array Found: %(array)s."
+                  % {'array': arrayStr})
+
+        return foundStorageSystemInstanceName

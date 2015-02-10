@@ -61,9 +61,10 @@ import warnings
 
 warnings.simplefilter('once', DeprecationWarning)
 
-from oslo.config import cfg
-from oslo.db.sqlalchemy import migration
 from oslo import messaging
+from oslo_config import cfg
+from oslo_db.sqlalchemy import migration
+from oslo_utils import uuidutils
 
 from cinder import i18n
 i18n.enable_lazy()
@@ -76,7 +77,6 @@ from cinder.db import migration as db_migration
 from cinder.db.sqlalchemy import api as db_api
 from cinder.i18n import _
 from cinder.openstack.common import log as logging
-from cinder.openstack.common import uuidutils
 from cinder import rpc
 from cinder import utils
 from cinder import version
@@ -147,13 +147,20 @@ class ShellCommands(object):
                 shell = 'ipython'
         if shell == 'ipython':
             try:
-                import IPython
-                # Explicitly pass an empty list as arguments, because
-                # otherwise IPython would use sys.argv from this script.
-                shell = IPython.Shell.IPShell(argv=[])
-                shell.mainloop()
+                from IPython import embed
+                embed()
             except ImportError:
-                shell = 'python'
+                try:
+                    # Ipython < 0.11
+                    # Explicitly pass an empty list as arguments, because
+                    # otherwise IPython would use sys.argv from this script.
+                    import IPython
+
+                    shell = IPython.Shell.IPShell(argv=[])
+                    shell.mainloop()
+                except ImportError:
+                    # no IPython module
+                    shell = 'python'
 
         if shell == 'python':
             import code
@@ -227,6 +234,17 @@ class DbCommands(object):
         print(migration.db_version(db_api.get_engine(),
                                    db_migration.MIGRATE_REPO_PATH,
                                    db_migration.INIT_VERSION))
+
+    @args('age_in_days', type=int,
+          help='Purge deleted rows older than age in days')
+    def purge(self, age_in_days):
+        """Purge deleted rows older than a given age from cinder tables."""
+        age_in_days = int(age_in_days)
+        if age_in_days <= 0:
+            print(_("Must supply a positive, non-zero value for age"))
+            exit(1)
+        ctxt = context.get_admin_context()
+        db.purge_deleted_rows(ctxt, age_in_days)
 
 
 class VersionCommands(object):

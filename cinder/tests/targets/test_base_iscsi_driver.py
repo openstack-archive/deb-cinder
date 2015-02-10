@@ -10,8 +10,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_utils import timeutils
 
 from cinder import exception
 from cinder import test
@@ -27,9 +27,7 @@ class FakeDriver(iscsi.ISCSITarget):
     def create_export(self, context, vref):
         pass
 
-    def ensure_export(self, context, vref,
-                      iscsi_name, vol_path,
-                      vol_group, cfg):
+    def ensure_export(self, context, vref, vol_path):
         pass
 
     def remove_export(self, context, vref):
@@ -116,8 +114,8 @@ class TestBaseISCSITargetDriver(test.TestCase):
                        'safe_get',
                        _fake_safe_get)
 
-        self.stubs.Set(self.target,
-                       '_execute',
+        self.stubs.Set(utils,
+                       'execute',
                        _fake_execute)
 
         self.assertEqual(target_string,
@@ -127,11 +125,11 @@ class TestBaseISCSITargetDriver(test.TestCase):
         expected = {'driver_volume_type': 'iscsi',
                     'data': self.expected_iscsi_properties}
         self.assertEqual(expected,
-                         self.target.initialize_connection(self.testvol_1))
+                         self.target.initialize_connection(self.testvol_1, {}))
 
     def test_validate_connector(self):
         bad_connector = {'no_initiator': 'nada'}
-        self.assertRaises(exception.VolumeBackendAPIException,
+        self.assertRaises(exception.InvalidConnectorException,
                           self.target.validate_connector,
                           bad_connector)
 

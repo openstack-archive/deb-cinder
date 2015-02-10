@@ -43,7 +43,7 @@ from cinder.volume.drivers.netapp.dataontap import ssc_cmode
 from cinder.volume.drivers.netapp import utils
 
 
-from oslo.config import cfg
+from oslo_config import cfg
 CONF = cfg.CONF
 
 LOG = logging.getLogger(__name__)
@@ -119,6 +119,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         self._custom_setup()
 
     def _custom_setup(self):
+        self.mock_object(utils, 'OpenStackInfo')
         kwargs = {}
         kwargs['netapp_mode'] = 'proxy'
         kwargs['configuration'] = create_configuration()
@@ -477,7 +478,10 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         drv._post_clone_image(volume)
 
         mox.ReplayAll()
-        drv.clone_image(volume, ('image_location', None), 'image_id', {})
+        drv.clone_image('',
+                        volume,
+                        ('image_location', None),
+                        {'id': 'image_id'}, '')
         mox.VerifyAll()
 
     def get_img_info(self, format):
@@ -500,8 +504,12 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         drv._is_share_vol_compatible(IgnoreArg(), IgnoreArg()).AndReturn(False)
 
         mox.ReplayAll()
-        (prop, cloned) = drv. clone_image(
-            volume, ('nfs://127.0.0.1:/share/img-id', None), 'image_id', {})
+        (prop, cloned) = drv.clone_image(
+            '',
+            volume,
+            ('nfs://127.0.0.1:/share/img-id', None),
+            {'id': 'image_id'},
+            '')
         mox.VerifyAll()
         if not cloned and not prop['provider_location']:
             pass
@@ -536,8 +544,12 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         drv._resize_image_file({'name': 'vol'}, IgnoreArg())
 
         mox.ReplayAll()
-        drv. clone_image(
-            volume, ('nfs://127.0.0.1:/share/img-id', None), 'image_id', {})
+        drv.clone_image(
+            '',
+            volume,
+            ('nfs://127.0.0.1:/share/img-id', None),
+            {'id': 'image_id'},
+            '')
         mox.VerifyAll()
 
     def test_clone_image_cloneableshare_notraw(self):
@@ -575,7 +587,11 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
         mox.ReplayAll()
         drv.clone_image(
-            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id', {})
+            '',
+            volume,
+            ('nfs://127.0.0.1/share/img-id', None),
+            {'id': 'image_id'},
+            '')
         mox.VerifyAll()
 
     def test_clone_image_file_not_discovered(self):
@@ -614,8 +630,12 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         drv._delete_file('/mnt/vol')
 
         mox.ReplayAll()
-        vol_dict, result = drv. clone_image(
-            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id', {})
+        vol_dict, result = drv.clone_image(
+            '',
+            volume,
+            ('nfs://127.0.0.1/share/img-id', None),
+            {'id': 'image_id'},
+            '')
         mox.VerifyAll()
         self.assertFalse(result)
         self.assertFalse(vol_dict['bootable'])
@@ -662,8 +682,12 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         drv._delete_file('/mnt/vol')
 
         mox.ReplayAll()
-        vol_dict, result = drv. clone_image(
-            volume, ('nfs://127.0.0.1/share/img-id', None), 'image_id', {})
+        vol_dict, result = drv.clone_image(
+            '',
+            volume,
+            ('nfs://127.0.0.1/share/img-id', None),
+            {'id': 'image_id'},
+            '')
         mox.VerifyAll()
         self.assertFalse(result)
         self.assertFalse(vol_dict['bootable'])
@@ -880,6 +904,7 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
         self._custom_setup()
 
     def _custom_setup(self):
+        self.mock_object(utils, 'OpenStackInfo')
         kwargs = {}
         kwargs['netapp_mode'] = 'proxy'
         kwargs['configuration'] = create_configuration()
@@ -1108,8 +1133,8 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
         image_service.show.return_value = {'size': 1,
                                            'disk_format': 'raw'}
 
-        drv._check_get_nfs_path_segs = mock.Mock(return_value=
-                                                 ('ip1', '/openstack'))
+        drv._check_get_nfs_path_segs =\
+            mock.Mock(return_value=('ip1', '/openstack'))
         drv._get_ip_verify_on_cluster = mock.Mock(return_value='ip1')
         drv._get_host_ip = mock.Mock(return_value='ip2')
         drv._get_export_path = mock.Mock(return_value='/exp_path')
@@ -1149,8 +1174,8 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
                                                    None)
         image_service.show.return_value = {'size': 1,
                                            'disk_format': 'qcow2'}
-        drv._check_get_nfs_path_segs = mock.Mock(return_value=
-                                                 ('ip1', '/openstack'))
+        drv._check_get_nfs_path_segs =\
+            mock.Mock(return_value=('ip1', '/openstack'))
 
         drv._get_ip_verify_on_cluster = mock.Mock(return_value='ip1')
         drv._get_host_ip = mock.Mock(return_value='ip2')
@@ -1183,6 +1208,7 @@ class NetApp7modeNfsDriverTestCase(NetAppCmodeNfsDriverTestCase):
     """Test direct NetApp C Mode driver."""
 
     def _custom_setup(self):
+        self.mock_object(utils, 'OpenStackInfo')
         self._driver = netapp_nfs_7mode.NetApp7modeNfsDriver(
             configuration=create_configuration())
         self._driver.zapi_client = mock.Mock()
