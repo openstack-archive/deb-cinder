@@ -1,4 +1,4 @@
-cinder (2015.1~b2-1) UNRELEASED; urgency=medium
+cinder (2015.1~b2+git20150317+33b8853816-1) UNRELEASED; urgency=medium
 
   * New upstream release.
   * Updated (build-)depends for this release.
