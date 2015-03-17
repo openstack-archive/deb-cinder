@@ -1,4 +1,4 @@
-# Copyright 2014 Datera
+# Copyright 2015 Datera
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -14,10 +14,10 @@
 #    under the License.
 
 import mock
+from oslo_log import log as logging
 
 from cinder import context
 from cinder import exception
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume import configuration as conf
 from cinder.volume.drivers import datera
@@ -37,6 +37,8 @@ class DateraVolumeTestCase(test.TestCase):
         self.cfg.datera_api_port = '7717'
         self.cfg.datera_api_version = '1'
         self.cfg.datera_num_replicas = '2'
+        self.cfg.san_login = 'user'
+        self.cfg.san_password = 'pass'
 
         mock_exec = mock.Mock()
         mock_exec.return_value = ('', '')
@@ -244,39 +246,37 @@ class DateraVolumeTestCase(test.TestCase):
         self.assertRaises(exception.DateraAPIException,
                           self.driver.extend_volume, volume, 2)
 
+    def test_login_successful(self):
+        self.mock_api.return_value = {
+            'key': 'dd2469de081346c28ac100e071709403'
+        }
+        self.assertIsNone(self.driver._login())
+        self.assertEqual(1, self.mock_api.call_count)
+
+    def test_login_unsuccessful(self):
+        self.mock_api.side_effect = exception.NotAuthorized
+        self.assertRaises(exception.NotAuthorized, self.driver._login)
+        self.assertEqual(1, self.mock_api.call_count)
 
 stub_export = {
-    u'_ipColl': [u'172.28.121.10', u'172.28.120.10'],
-    u'acls': {},
-    u'activeServers': {u'4594953e-f97f-e111-ad85-001e6738c0f0': u'1'},
-    u'ctype': u'TC_BLOCK_ISCSI',
-    u'endpointsExt1': {
-        u'4594953e-f97f-e111-ad85-001e6738c0f0': {
-            u'ipHigh': 0,
-            u'ipLow': u'192421036',
-            u'ipStr': u'172.28.120.11',
-            u'ipV': 4,
-            u'name': u'',
-            u'network': 24
+    '_ipColl': ['172.28.121.10'],
+    'active_servers': {'44454c4c-4d00-1048-8031-b4c04f4d4e31': True},
+    'auth': {
+        'atype': 'T_AUTH_NONE',
+        'info': {
+            'mpassword': '',
+            'muserid': '',
+            'password': '',
+            'userid': ''
         }
     },
-    u'endpointsExt2': {
-        u'4594953e-f97f-e111-ad85-001e6738c0f0': {
-            u'ipHigh': 0,
-            u'ipLow': u'192486572',
-            u'ipStr': u'172.28.121.11',
-            u'ipV': 4,
-            u'name': u'',
-            u'network': 24
-        }
-    },
-    u'inodes': {u'c20aba21-6ef6-446b-b374-45733b4883ba': u'1'},
-    u'name': u'',
-    u'networkPort': 0,
-    u'serverAllocation': u'TS_ALLOC_COMPLETED',
-    u'servers': {u'4594953e-f97f-e111-ad85-001e6738c0f0': u'1'},
-    u'targetAllocation': u'TS_ALLOC_COMPLETED',
-    u'targetIds': {
+    'endpoint_addrs': {'172.28.121.10': True},
+    'endpoint_idents': {
+        'iqn.2013-05.com.daterainc::01:sn:fc372bc0490b2dbe': True},
+    'name': 'OpenStack-a4e692e8-7f95-4f87-8fe6-cbcbab624012',
+    'server_allocation': 'TS_ALLOC_COMPLETED',
+    'servers': {'44454c4c-4d00-1048-8031-b4c04f4d4e31': True},
+    'targetIds': {
         u'4594953e-f97f-e111-ad85-001e6738c0f0': {
             u'ids': [{
                 u'dev': None,
@@ -284,8 +284,11 @@ stub_export = {
             }]
         }
     },
-    u'typeName': u'TargetIscsiConfig',
-    u'uuid': u'7071efd7-9f22-4996-8f68-47e9ab19d0fd'
+    'target_allocation': 'TS_ALLOC_COMPLETED',
+    'target_ids': {'44454c4c-4d00-1048-8031-b4c04f4d4e31': True},
+    'type': 'iscsi',
+    'uuid': 'f11c2386-71d4-4352-a718-71c3e22f5888',
+    'volumes': {'a4e692e8-7f95-4f87-8fe6-cbcbab624012': True}
 }
 
 

@@ -27,9 +27,7 @@ from cinder import exception
 from cinder import test
 from cinder.tests.volume.drivers.netapp.dataontap import fakes as fake
 from cinder.volume.drivers.netapp.dataontap import block_base
-from cinder.volume.drivers.netapp.dataontap.block_base import \
-    NetAppBlockStorageLibrary as block_lib
-from cinder.volume.drivers.netapp.dataontap.client.api import NaApiError
+from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp import utils as na_utils
 
 
@@ -39,7 +37,8 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         super(NetAppBlockStorageLibraryTestCase, self).setUp()
 
         kwargs = {'configuration': mock.Mock()}
-        self.library = block_lib('driver', 'protocol', **kwargs)
+        self.library = block_base.NetAppBlockStorageLibrary(
+            'driver', 'protocol', **kwargs)
         self.library.zapi_client = mock.Mock()
         self.zapi_client = self.library.zapi_client
         self.mock_request = mock.Mock()
@@ -47,31 +46,38 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
     def tearDown(self):
         super(NetAppBlockStorageLibraryTestCase, self).tearDown()
 
-    @mock.patch.object(block_lib, '_get_lun_attr',
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr',
                        mock.Mock(return_value={'Volume': 'vol1'}))
     def test_get_pool(self):
         pool = self.library.get_pool({'name': 'volume-fake-uuid'})
         self.assertEqual(pool, 'vol1')
 
-    @mock.patch.object(block_lib, '_get_lun_attr',
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr',
                        mock.Mock(return_value=None))
     def test_get_pool_no_metadata(self):
         pool = self.library.get_pool({'name': 'volume-fake-uuid'})
         self.assertEqual(pool, None)
 
-    @mock.patch.object(block_lib, '_get_lun_attr',
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr',
                        mock.Mock(return_value=dict()))
     def test_get_pool_volume_unknown(self):
         pool = self.library.get_pool({'name': 'volume-fake-uuid'})
         self.assertEqual(pool, None)
 
-    @mock.patch.object(block_lib, '_create_lun', mock.Mock())
-    @mock.patch.object(block_lib, '_create_lun_handle', mock.Mock())
-    @mock.patch.object(block_lib, '_add_lun_to_table', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_create_lun', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_create_lun_handle', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_add_lun_to_table', mock.Mock())
     @mock.patch.object(na_utils, 'get_volume_extra_specs',
                        mock.Mock(return_value=None))
     @mock.patch.object(block_base, 'LOG', mock.Mock())
     def test_create_volume(self):
+        self.library.zapi_client.get_lun_by_args.return_value = ['lun']
         self.library.create_volume({'name': 'lun1', 'size': 100,
                                     'id': uuid.uuid4(),
                                     'host': 'hostname@backend#vol1'})
@@ -85,8 +91,10 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
                            'id': uuid.uuid4(),
                            'host': 'hostname@backend'})  # missing pool
 
-    @mock.patch.object(block_lib, '_get_lun_attr')
-    @mock.patch.object(block_lib, '_get_or_create_igroup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_or_create_igroup')
     def test_map_lun(self, mock_get_or_create_igroup, mock_get_lun_attr):
         os = 'linux'
         protocol = 'fcp'
@@ -104,9 +112,12 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         self.zapi_client.map_lun.assert_called_once_with(
             fake.LUN1, fake.IGROUP1_NAME, lun_id=None)
 
-    @mock.patch.object(block_lib, '_get_lun_attr')
-    @mock.patch.object(block_lib, '_get_or_create_igroup')
-    @mock.patch.object(block_lib, '_find_mapped_lun_igroup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_or_create_igroup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_find_mapped_lun_igroup')
     def test_map_lun_preexisting(self, mock_find_mapped_lun_igroup,
                                  mock_get_or_create_igroup, mock_get_lun_attr):
         os = 'linux'
@@ -114,7 +125,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         mock_get_lun_attr.return_value = {'Path': fake.LUN1, 'OsType': os}
         mock_get_or_create_igroup.return_value = fake.IGROUP1_NAME
         mock_find_mapped_lun_igroup.return_value = (fake.IGROUP1_NAME, '2')
-        self.zapi_client.map_lun.side_effect = NaApiError
+        self.zapi_client.map_lun.side_effect = netapp_api.NaApiError
 
         lun_id = self.library._map_lun(
             'fake_volume', fake.FC_FORMATTED_INITIATORS, protocol, None)
@@ -123,9 +134,12 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         mock_find_mapped_lun_igroup.assert_called_once_with(
             fake.LUN1, fake.FC_FORMATTED_INITIATORS)
 
-    @mock.patch.object(block_lib, '_get_lun_attr')
-    @mock.patch.object(block_lib, '_get_or_create_igroup')
-    @mock.patch.object(block_lib, '_find_mapped_lun_igroup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_or_create_igroup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_find_mapped_lun_igroup')
     def test_map_lun_api_error(self, mock_find_mapped_lun_igroup,
                                mock_get_or_create_igroup, mock_get_lun_attr):
         os = 'linux'
@@ -133,12 +147,14 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         mock_get_lun_attr.return_value = {'Path': fake.LUN1, 'OsType': os}
         mock_get_or_create_igroup.return_value = fake.IGROUP1_NAME
         mock_find_mapped_lun_igroup.return_value = (None, None)
-        self.zapi_client.map_lun.side_effect = NaApiError
+        self.zapi_client.map_lun.side_effect = netapp_api.NaApiError
 
-        self.assertRaises(NaApiError, self.library._map_lun, 'fake_volume',
-                          fake.FC_FORMATTED_INITIATORS, protocol, None)
+        self.assertRaises(netapp_api.NaApiError, self.library._map_lun,
+                          'fake_volume', fake.FC_FORMATTED_INITIATORS,
+                          protocol, None)
 
-    @mock.patch.object(block_lib, '_find_mapped_lun_igroup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_find_mapped_lun_igroup')
     def test_unmap_lun(self, mock_find_mapped_lun_igroup):
         mock_find_mapped_lun_igroup.return_value = (fake.IGROUP1_NAME, 1)
 
@@ -187,8 +203,10 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         self.assertRaises(NotImplementedError,
                           self.library._get_fc_target_wwpns)
 
-    @mock.patch.object(block_lib, '_build_initiator_target_map')
-    @mock.patch.object(block_lib, '_map_lun')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_build_initiator_target_map')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_map_lun')
     def test_initialize_connection_fc(self, mock_map_lun,
                                       mock_build_initiator_target_map):
         self.maxDiff = None
@@ -203,8 +221,10 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         mock_map_lun.assert_called_once_with(
             'fake_volume', fake.FC_FORMATTED_INITIATORS, 'fcp', None)
 
-    @mock.patch.object(block_lib, '_build_initiator_target_map')
-    @mock.patch.object(block_lib, '_map_lun')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_build_initiator_target_map')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_map_lun')
     def test_initialize_connection_fc_no_wwpns(
             self, mock_map_lun, mock_build_initiator_target_map):
 
@@ -215,9 +235,12 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
                           fake.FC_VOLUME,
                           fake.FC_CONNECTOR)
 
-    @mock.patch.object(block_lib, '_has_luns_mapped_to_initiators')
-    @mock.patch.object(block_lib, '_unmap_lun')
-    @mock.patch.object(block_lib, '_get_lun_attr')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_has_luns_mapped_to_initiators')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_unmap_lun')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr')
     def test_terminate_connection_fc(self, mock_get_lun_attr, mock_unmap_lun,
                                      mock_has_luns_mapped_to_initiators):
 
@@ -232,10 +255,14 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         mock_unmap_lun.assert_called_once_with(fake.LUN1,
                                                fake.FC_FORMATTED_INITIATORS)
 
-    @mock.patch.object(block_lib, '_build_initiator_target_map')
-    @mock.patch.object(block_lib, '_has_luns_mapped_to_initiators')
-    @mock.patch.object(block_lib, '_unmap_lun')
-    @mock.patch.object(block_lib, '_get_lun_attr')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_build_initiator_target_map')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_has_luns_mapped_to_initiators')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_unmap_lun')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_lun_attr')
     def test_terminate_connection_fc_no_more_luns(
             self, mock_get_lun_attr, mock_unmap_lun,
             mock_has_luns_mapped_to_initiators,
@@ -252,7 +279,8 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
 
         self.assertDictEqual(target_info, fake.FC_TARGET_INFO_UNMAP)
 
-    @mock.patch.object(block_lib, '_get_fc_target_wwpns')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_fc_target_wwpns')
     def test_build_initiator_target_map_no_lookup_service(
             self, mock_get_fc_target_wwpns):
 
@@ -266,7 +294,8 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         self.assertDictEqual(fake.FC_I_T_MAP_COMPLETE, init_targ_map)
         self.assertEqual(0, num_paths)
 
-    @mock.patch.object(block_lib, '_get_fc_target_wwpns')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_fc_target_wwpns')
     def test_build_initiator_target_map_with_lookup_service(
             self, mock_get_fc_target_wwpns):
 
@@ -282,13 +311,17 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         self.assertDictEqual(fake.FC_I_T_MAP, init_targ_map)
         self.assertEqual(4, num_paths)
 
-    @mock.patch.object(block_lib, '_create_lun', mock.Mock())
-    @mock.patch.object(block_lib, '_create_lun_handle', mock.Mock())
-    @mock.patch.object(block_lib, '_add_lun_to_table', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_create_lun', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_create_lun_handle', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_add_lun_to_table', mock.Mock())
     @mock.patch.object(na_utils, 'LOG', mock.Mock())
     @mock.patch.object(na_utils, 'get_volume_extra_specs',
                        mock.Mock(return_value={'netapp:raid_type': 'raid4'}))
     def test_create_volume_obsolete_extra_spec(self):
+        self.library.zapi_client.get_lun_by_args.return_value = ['lun']
 
         self.library.create_volume({'name': 'lun1', 'size': 100,
                                     'id': uuid.uuid4(),
@@ -298,14 +331,18 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
                    'Use netapp_raid_type instead.'
         na_utils.LOG.warning.assert_called_once_with(warn_msg)
 
-    @mock.patch.object(block_lib, '_create_lun', mock.Mock())
-    @mock.patch.object(block_lib, '_create_lun_handle', mock.Mock())
-    @mock.patch.object(block_lib, '_add_lun_to_table', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_create_lun', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_create_lun_handle', mock.Mock())
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_add_lun_to_table', mock.Mock())
     @mock.patch.object(na_utils, 'LOG', mock.Mock())
     @mock.patch.object(na_utils, 'get_volume_extra_specs',
                        mock.Mock(return_value={'netapp_thick_provisioned':
                                                'true'}))
     def test_create_volume_deprecated_extra_spec(self):
+        self.library.zapi_client.get_lun_by_args.return_value = ['lun']
 
         self.library.create_volume({'name': 'lun1', 'size': 100,
                                     'id': uuid.uuid4(),
@@ -320,3 +357,87 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         self.library.do_setup(mock.Mock())
 
         self.assertTrue(mock_check_flags.called)
+
+    def test_get_existing_vol_manage_missing_id_path(self):
+        self.assertRaises(exception.ManageExistingInvalidReference,
+                          self.library._get_existing_vol_with_manage_ref,
+                          {})
+
+    def test_get_existing_vol_manage_not_found(self):
+        self.zapi_client.get_lun_by_args.return_value = []
+        self.assertRaises(exception.ManageExistingInvalidReference,
+                          self.library._get_existing_vol_with_manage_ref,
+                          {'source-id': 'src_id',
+                           'source-name': 'lun_path'})
+        self.assertEqual(1, self.zapi_client.get_lun_by_args.call_count)
+
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_extract_lun_info',
+                       mock.Mock(return_value=block_base.NetAppLun(
+                                 'lun0', 'lun0', '3', {'UUID': 'src_id'})))
+    def test_get_existing_vol_manage_lun(self):
+        self.zapi_client.get_lun_by_args.return_value = ['lun0', 'lun1']
+        lun = self.library._get_existing_vol_with_manage_ref(
+            {'source-id': 'src_id', 'path': 'lun_path'})
+        self.assertEqual(1, self.zapi_client.get_lun_by_args.call_count)
+        self.library._extract_lun_info.assert_called_once_with('lun0')
+        self.assertEqual('lun0', lun.name)
+
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       '_get_existing_vol_with_manage_ref',
+                       mock.Mock(return_value=block_base.NetAppLun(
+                                 'handle', 'name', '1073742824', {})))
+    def test_manage_existing_get_size(self):
+        size = self.library.manage_existing_get_size(
+            {'id': 'vol_id'}, {'ref': 'ref'})
+        self.assertEqual(2, size)
+        self.library._get_existing_vol_with_manage_ref.assert_called_once_with(
+            {'ref': 'ref'})
+
+    @mock.patch.object(block_base.LOG, 'info')
+    def test_unmanage(self, log):
+        mock_lun = block_base.NetAppLun('handle', 'name', '1',
+                                        {'Path': 'p', 'UUID': 'uuid'})
+        self.library._get_lun_from_table = mock.Mock(return_value=mock_lun)
+        self.library.unmanage({'name': 'vol'})
+        self.library._get_lun_from_table.assert_called_once_with('vol')
+        self.assertEqual(1, log.call_count)
+
+    def test_manage_existing_lun_same_name(self):
+        mock_lun = block_base.NetAppLun('handle', 'name', '1',
+                                        {'Path': '/vol/vol1/name'})
+        self.library._get_existing_vol_with_manage_ref = mock.Mock(
+            return_value=mock_lun)
+        self.library._check_volume_type_for_lun = mock.Mock()
+        self.library._add_lun_to_table = mock.Mock()
+        self.zapi_client.move_lun = mock.Mock()
+        self.library.manage_existing({'name': 'name'}, {'ref': 'ref'})
+        self.library._get_existing_vol_with_manage_ref.assert_called_once_with(
+            {'ref': 'ref'})
+        self.assertEqual(1, self.library._check_volume_type_for_lun.call_count)
+        self.assertEqual(1, self.library._add_lun_to_table.call_count)
+        self.assertEqual(0, self.zapi_client.move_lun.call_count)
+
+    def test_manage_existing_lun_new_path(self):
+        mock_lun = block_base.NetAppLun(
+            'handle', 'name', '1', {'Path': '/vol/vol1/name'})
+        self.library._get_existing_vol_with_manage_ref = mock.Mock(
+            return_value=mock_lun)
+        self.library._check_volume_type_for_lun = mock.Mock()
+        self.library._add_lun_to_table = mock.Mock()
+        self.zapi_client.move_lun = mock.Mock()
+        self.library.manage_existing({'name': 'volume'}, {'ref': 'ref'})
+        self.assertEqual(
+            2, self.library._get_existing_vol_with_manage_ref.call_count)
+        self.assertEqual(1, self.library._check_volume_type_for_lun.call_count)
+        self.assertEqual(1, self.library._add_lun_to_table.call_count)
+        self.zapi_client.move_lun.assert_called_once_with(
+            '/vol/vol1/name', '/vol/vol1/volume')
+
+    def test_check_vol_type_for_lun(self):
+        self.assertRaises(NotImplementedError,
+                          self.library._check_volume_type_for_lun,
+                          'vol', 'lun', 'existing_ref')
+
+    def test_is_lun_valid_on_storage(self):
+        self.assertTrue(self.library._is_lun_valid_on_storage('lun'))

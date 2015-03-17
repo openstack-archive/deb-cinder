@@ -19,14 +19,12 @@ Mock unit tests for the NetApp block storage C-mode library
 
 import mock
 
+from cinder import exception
 from cinder import test
 import cinder.tests.volume.drivers.netapp.dataontap.fakes as fake
 import cinder.tests.volume.drivers.netapp.fakes as na_fakes
-from cinder.volume.drivers.netapp.dataontap.block_base import \
-    NetAppBlockStorageLibrary as block_lib
+from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap import block_cmode
-from cinder.volume.drivers.netapp.dataontap.block_cmode import \
-    NetAppBlockStorageCmodeLibrary as block_lib_cmode
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap.client import client_base
 from cinder.volume.drivers.netapp.dataontap import ssc_cmode
@@ -40,7 +38,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         super(NetAppBlockStorageCmodeLibraryTestCase, self).setUp()
 
         kwargs = {'configuration': self.get_config_cmode()}
-        self.library = block_lib_cmode('driver', 'protocol', **kwargs)
+        self.library = block_cmode.NetAppBlockStorageCmodeLibrary(
+            'driver', 'protocol', **kwargs)
 
         self.library.zapi_client = mock.Mock()
         self.zapi_client = self.library.zapi_client
@@ -64,7 +63,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.MagicMock(return_value=(1, 20)))
     @mock.patch.object(na_utils, 'check_flags')
-    @mock.patch.object(block_lib, 'do_setup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary, 'do_setup')
     def test_do_setup(self, super_do_setup, mock_check_flags):
         context = mock.Mock()
 
@@ -73,7 +72,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         super_do_setup.assert_called_once_with(context)
         self.assertEqual(1, mock_check_flags.call_count)
 
-    @mock.patch.object(block_lib, 'check_for_setup_error')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary,
+                       'check_for_setup_error')
     @mock.patch.object(ssc_cmode, 'check_ssc_api_permissions')
     def test_check_for_setup_error(self, mock_check_ssc_api_permissions,
                                    super_check_for_setup_error):
@@ -217,3 +217,47 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.zapi_client.create_lun.assert_called_once_with(
             fake.VOLUME, fake.LUN, fake.SIZE, fake.METADATA, None)
         self.assertEqual(1, self.library._update_stale_vols.call_count)
+
+    @mock.patch.object(ssc_cmode, 'get_volumes_for_specs')
+    @mock.patch.object(ssc_cmode, 'get_cluster_latest_ssc')
+    @mock.patch.object(na_utils, 'get_volume_extra_specs')
+    def test_check_volume_type_for_lun_fail(
+            self, get_specs, get_ssc, get_vols):
+        self.library.ssc_vols = ['vol']
+        get_specs.return_value = {'specs': 's'}
+        get_vols.return_value = [ssc_cmode.NetAppVolume(name='name',
+                                                        vserver='vs')]
+        mock_lun = block_base.NetAppLun('handle', 'name', '1',
+                                        {'Volume': 'fake', 'Path': '/vol/lun'})
+        self.assertRaises(exception.ManageExistingVolumeTypeMismatch,
+                          self.library._check_volume_type_for_lun,
+                          {'vol': 'vol'}, mock_lun, {'ref': 'ref'})
+        get_specs.assert_called_once_with({'vol': 'vol'})
+        get_vols.assert_called_with(['vol'], {'specs': 's'})
+        self.assertEqual(1, get_ssc.call_count)
+
+    @mock.patch.object(block_cmode.LOG, 'error')
+    @mock.patch.object(ssc_cmode, 'get_volumes_for_specs')
+    @mock.patch.object(ssc_cmode, 'get_cluster_latest_ssc')
+    @mock.patch.object(na_utils, 'get_volume_extra_specs')
+    def test_check_volume_type_for_lun_qos_fail(
+            self, get_specs, get_ssc, get_vols, driver_log):
+        self.zapi_client.connection.set_api_version(1, 20)
+        self.library.ssc_vols = ['vol']
+        get_specs.return_value = {'specs': 's',
+                                  'netapp:qos_policy_group': 'qos'}
+        get_vols.return_value = [ssc_cmode.NetAppVolume(name='name',
+                                                        vserver='vs')]
+        mock_lun = block_base.NetAppLun('handle', 'name', '1',
+                                        {'Volume': 'name', 'Path': '/vol/lun'})
+        self.zapi_client.set_lun_qos_policy_group = mock.Mock(
+            side_effect=netapp_api.NaApiError)
+        self.assertRaises(exception.ManageExistingVolumeTypeMismatch,
+                          self.library._check_volume_type_for_lun,
+                          {'vol': 'vol'}, mock_lun, {'ref': 'ref'})
+        get_specs.assert_called_once_with({'vol': 'vol'})
+        get_vols.assert_called_with(['vol'], {'specs': 's'})
+        self.assertEqual(0, get_ssc.call_count)
+        self.zapi_client.set_lun_qos_policy_group.assert_called_once_with(
+            '/vol/lun', 'qos')
+        self.assertEqual(1, driver_log.call_count)

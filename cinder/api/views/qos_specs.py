@@ -13,8 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_log import log as logging
+
 from cinder.api import common
-from cinder.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class ViewBuilder(common.ViewBuilder):
 
     def detail(self, request, qos_spec):
         """Detailed view of a single qos_spec."""
-        #TODO(zhiteng) Add associations to detailed view
+        # TODO(zhiteng) Add associations to detailed view
         return {
             'qos_specs': qos_spec,
             'links': self._get_links(request,

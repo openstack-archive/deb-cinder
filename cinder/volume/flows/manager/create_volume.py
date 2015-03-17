@@ -14,6 +14,7 @@ import traceback
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import timeutils
 import taskflow.engines
 from taskflow.patterns import linear_flow
@@ -23,7 +24,7 @@ from cinder import exception
 from cinder import flow_utils
 from cinder.i18n import _, _LE, _LI
 from cinder.image import glance
-from cinder.openstack.common import log as logging
+from cinder import objects
 from cinder import utils
 from cinder.volume.flows import common
 from cinder.volume import utils as volume_utils
@@ -394,6 +395,11 @@ class CreateVolumeFromSpecTask(flow_utils.CinderTask):
                                           'vol_id': volume_id})
                 self._capture_volume_image_metadata(context, volume_id,
                                                     image_id, image_meta)
+        except exception.GlanceMetadataNotFound:
+            # If volume is not created from image, No glance metadata
+            # would be available for that volume in
+            # volume glance metadata table
+            pass
         except exception.CinderException as ex:
             LOG.exception(exception_template % {'src_type': src_type,
                                                 'src_id': src_id,
@@ -403,16 +409,16 @@ class CreateVolumeFromSpecTask(flow_utils.CinderTask):
     def _create_from_snapshot(self, context, volume_ref, snapshot_id,
                               **kwargs):
         volume_id = volume_ref['id']
-        snapshot_ref = self.db.snapshot_get(context, snapshot_id)
+        snapshot = objects.Snapshot.get_by_id(context, snapshot_id)
         model_update = self.driver.create_volume_from_snapshot(volume_ref,
-                                                               snapshot_ref)
+                                                               snapshot)
         # NOTE(harlowja): Subtasks would be useful here since after this
         # point the volume has already been created and further failures
         # will not destroy the volume (although they could in the future).
         make_bootable = False
         try:
             originating_vref = self.db.volume_get(context,
-                                                  snapshot_ref['volume_id'])
+                                                  snapshot.volume_id)
             make_bootable = originating_vref.bootable
         except exception.CinderException as ex:
             LOG.exception(_LE("Failed fetching snapshot %(snapshot_id)s "
@@ -420,7 +426,7 @@ class CreateVolumeFromSpecTask(flow_utils.CinderTask):
                               " flag using the provided glance snapshot "
                               "%(snapshot_ref_id)s volume reference") %
                           {'snapshot_id': snapshot_id,
-                           'snapshot_ref_id': snapshot_ref['volume_id']})
+                           'snapshot_ref_id': snapshot.volume_id})
             raise exception.MetadataUpdateFailure(reason=ex)
         if make_bootable:
             self._handle_bootable_volume_glance_meta(context, volume_id,
@@ -711,7 +717,7 @@ def get_flow(context, db, driver, scheduler_rpcapi, host, volume_id,
              allow_reschedule, reschedule_context, request_spec,
              filter_properties, snapshot_id=None, image_id=None,
              source_volid=None, source_replicaid=None,
-             consistencygroup_id=None):
+             consistencygroup_id=None, cgsnapshot_id=None):
     """Constructs and returns the manager entrypoint flow.
 
     This flow will do the following:
@@ -743,6 +749,7 @@ def get_flow(context, db, driver, scheduler_rpcapi, host, volume_id,
         'volume_id': volume_id,
         'source_replicaid': source_replicaid,
         'consistencygroup_id': consistencygroup_id,
+        'cgsnapshot_id': cgsnapshot_id,
     }
 
     volume_flow.add(ExtractVolumeRefTask(db, host))

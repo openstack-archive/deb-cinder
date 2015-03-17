@@ -15,6 +15,7 @@
 
 """The volumes snapshots api."""
 
+from oslo_log import log as logging
 from oslo_utils import strutils
 import webob
 from webob import exc
@@ -24,7 +25,6 @@ from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
 from cinder import exception
 from cinder.i18n import _, _LI
-from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder import volume
 
@@ -53,12 +53,8 @@ def _translate_snapshot_summary_view(context, snapshot):
     d['status'] = snapshot['status']
     d['size'] = snapshot['volume_size']
 
-    if snapshot.get('snapshot_metadata'):
-        metadata = snapshot.get('snapshot_metadata')
-        d['metadata'] = dict((item['key'], item['value']) for item in metadata)
-    # avoid circular ref when vol is a Volume instance
-    elif snapshot.get('metadata') and isinstance(snapshot.get('metadata'),
-                                                 dict):
+    if snapshot.get('metadata') and isinstance(snapshot.get('metadata'),
+                                               dict):
         d['metadata'] = snapshot['metadata']
     else:
         d['metadata'] = {}
@@ -140,12 +136,12 @@ class SnapshotsController(wsgi.Controller):
         """Returns a list of snapshots, transformed through entity_maker."""
         context = req.environ['cinder.context']
 
-        #pop out limit and offset , they are not search_opts
+        # pop out limit and offset , they are not search_opts
         search_opts = req.GET.copy()
         search_opts.pop('limit', None)
         search_opts.pop('offset', None)
 
-        #filter out invalid option
+        # filter out invalid option
         allowed_search_options = ('status', 'volume_id', 'display_name')
         utils.remove_invalid_filter_options(context, search_opts,
                                             allowed_search_options)

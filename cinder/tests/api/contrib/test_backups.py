@@ -21,6 +21,7 @@ import json
 from xml.dom import minidom
 
 import mock
+from oslo_log import log as logging
 from oslo_utils import timeutils
 import webob
 
@@ -30,7 +31,6 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.i18n import _
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests import utils
@@ -58,6 +58,9 @@ class BackupsAPITestCase(test.TestCase):
                        display_description='this is a test backup',
                        container='volumebackups',
                        status='creating',
+                       snapshot=False,
+                       incremental=False,
+                       parent_id=None,
                        size=0, object_count=0, host='testhost'):
         """Create a backup object."""
         backup = {}
@@ -73,6 +76,9 @@ class BackupsAPITestCase(test.TestCase):
         backup['fail_reason'] = ''
         backup['size'] = size
         backup['object_count'] = object_count
+        backup['snapshot'] = snapshot
+        backup['incremental'] = incremental
+        backup['parent_id'] = parent_id
         return db.backup_create(context.get_admin_context(), backup)['id']
 
     @staticmethod
@@ -407,6 +413,36 @@ class BackupsAPITestCase(test.TestCase):
         db.volume_destroy(context.get_admin_context(), volume_id)
 
     @mock.patch('cinder.db.service_get_all_by_topic')
+    def test_create_backup_snapshot_json(self, _mock_service_get_all_by_topic):
+        _mock_service_get_all_by_topic.return_value = [
+            {'availability_zone': "fake_az", 'host': 'test_host',
+             'disabled': 0, 'updated_at': timeutils.utcnow()}]
+
+        volume_id = utils.create_volume(self.context, size=5,
+                                        status='available')['id']
+
+        body = {"backup": {"display_name": "nightly001",
+                           "display_description":
+                           "Nightly Backup 03-Sep-2012",
+                           "volume_id": volume_id,
+                           "container": "nightlybackups",
+                           }
+                }
+        req = webob.Request.blank('/v2/fake/backups')
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+
+        res_dict = json.loads(res.body)
+        LOG.info(res_dict)
+        self.assertEqual(res.status_int, 202)
+        self.assertIn('id', res_dict['backup'])
+        self.assertTrue(_mock_service_get_all_by_topic.called)
+
+        db.volume_destroy(context.get_admin_context(), volume_id)
+
+    @mock.patch('cinder.db.service_get_all_by_topic')
     def test_create_backup_xml(self, _mock_service_get_all_by_topic):
         _mock_service_get_all_by_topic.return_value = [
             {'availability_zone': "fake_az", 'host': 'test_host',
@@ -429,6 +465,72 @@ class BackupsAPITestCase(test.TestCase):
         self.assertTrue(backup.item(0).hasAttribute('id'))
         self.assertTrue(_mock_service_get_all_by_topic.called)
 
+        db.volume_destroy(context.get_admin_context(), volume_id)
+
+    @mock.patch('cinder.db.service_get_all_by_topic')
+    def test_create_backup_delta(self, _mock_service_get_all_by_topic):
+        _mock_service_get_all_by_topic.return_value = [
+            {'availability_zone': "fake_az", 'host': 'test_host',
+             'disabled': 0, 'updated_at': timeutils.utcnow()}]
+
+        volume_id = utils.create_volume(self.context, size=5)['id']
+
+        backup_id = self._create_backup(volume_id, status="available")
+        body = {"backup": {"display_name": "nightly001",
+                           "display_description":
+                           "Nightly Backup 03-Sep-2012",
+                           "volume_id": volume_id,
+                           "container": "nightlybackups",
+                           "incremental": True,
+                           }
+                }
+        req = webob.Request.blank('/v2/fake/backups')
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+        LOG.info(res_dict)
+
+        self.assertEqual(202, res.status_int)
+        self.assertIn('id', res_dict['backup'])
+        self.assertTrue(_mock_service_get_all_by_topic.called)
+
+        db.backup_destroy(context.get_admin_context(), backup_id)
+        db.volume_destroy(context.get_admin_context(), volume_id)
+
+    @mock.patch('cinder.db.service_get_all_by_topic')
+    def test_create_incremental_backup_invalid_status(
+            self, _mock_service_get_all_by_topic):
+        _mock_service_get_all_by_topic.return_value = [
+            {'availability_zone': "fake_az", 'host': 'test_host',
+             'disabled': 0, 'updated_at': timeutils.utcnow()}]
+
+        volume_id = utils.create_volume(self.context, size=5)['id']
+
+        backup_id = self._create_backup(volume_id)
+        body = {"backup": {"display_name": "nightly001",
+                           "display_description":
+                           "Nightly Backup 03-Sep-2012",
+                           "volume_id": volume_id,
+                           "container": "nightlybackups",
+                           "incremental": True,
+                           }
+                }
+        req = webob.Request.blank('/v2/fake/backups')
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+        LOG.info(res_dict)
+
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        self.assertEqual('Invalid backup: The parent backup must be '
+                         'available for incremental backup.',
+                         res_dict['badRequest']['message'])
+
+        db.backup_destroy(context.get_admin_context(), backup_id)
         db.volume_destroy(context.get_admin_context(), volume_id)
 
     def test_create_backup_with_no_body(self):
@@ -511,6 +613,30 @@ class BackupsAPITestCase(test.TestCase):
                          'Invalid volume: Volume to be backed up must'
                          ' be available')
 
+    def test_create_backup_with_InvalidVolume2(self):
+        # need to create the volume referenced below first
+        volume_id = utils.create_volume(self.context, size=5,
+                                        status='in-use')['id']
+        body = {"backup": {"display_name": "nightly001",
+                           "display_description":
+                           "Nightly Backup 03-Sep-2012",
+                           "volume_id": volume_id,
+                           "container": "nightlybackups",
+                           }
+                }
+        req = webob.Request.blank('/v2/fake/backups')
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+
+        self.assertEqual(res.status_int, 400)
+        self.assertEqual(res_dict['badRequest']['code'], 400)
+        self.assertEqual(res_dict['badRequest']['message'],
+                         'Invalid volume: Volume to be backed up must'
+                         ' be available')
+
     @mock.patch('cinder.db.service_get_all_by_topic')
     def test_create_backup_WithOUT_enabled_backup_service(
             self,
@@ -543,31 +669,64 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(volume['status'], 'available')
 
     @mock.patch('cinder.db.service_get_all_by_topic')
+    def test_create_incremental_backup_invalid_no_full(
+            self, _mock_service_get_all_by_topic):
+        _mock_service_get_all_by_topic.return_value = [
+            {'availability_zone': "fake_az", 'host': 'test_host',
+             'disabled': 0, 'updated_at': timeutils.utcnow()}]
+
+        volume_id = utils.create_volume(self.context, size=5,
+                                        status='available')['id']
+
+        body = {"backup": {"display_name": "nightly001",
+                           "display_description":
+                           "Nightly Backup 03-Sep-2012",
+                           "volume_id": volume_id,
+                           "container": "nightlybackups",
+                           "incremental": True,
+                           }
+                }
+        req = webob.Request.blank('/v2/fake/backups')
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = json.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+        LOG.info(res_dict)
+
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        self.assertEqual('Invalid backup: No backups available to do '
+                         'an incremental backup.',
+                         res_dict['badRequest']['message'])
+
+        db.volume_destroy(context.get_admin_context(), volume_id)
+
+    @mock.patch('cinder.db.service_get_all_by_topic')
     def test_is_backup_service_enabled(self, _mock_service_get_all_by_topic):
 
         test_host = 'test_host'
         alt_host = 'strange_host'
         empty_service = []
-        #service host not match with volume's host
+        # service host not match with volume's host
         host_not_match = [{'availability_zone': "fake_az", 'host': alt_host,
                            'disabled': 0, 'updated_at': timeutils.utcnow()}]
-        #service az not match with volume's az
+        # service az not match with volume's az
         az_not_match = [{'availability_zone': "strange_az", 'host': test_host,
                          'disabled': 0, 'updated_at': timeutils.utcnow()}]
-        #service disabled
+        # service disabled
         disabled_service = []
 
-        #dead service that last reported at 20th century
+        # dead service that last reported at 20th century
         dead_service = [{'availability_zone': "fake_az", 'host': alt_host,
                          'disabled': 0, 'updated_at': '1989-04-16 02:55:44'}]
 
-        #first service's host not match but second one works.
+        # first service's host not match but second one works.
         multi_services = [{'availability_zone': "fake_az", 'host': alt_host,
                            'disabled': 0, 'updated_at': timeutils.utcnow()},
                           {'availability_zone': "fake_az", 'host': test_host,
                            'disabled': 0, 'updated_at': timeutils.utcnow()}]
 
-        #Setup mock to run through the following service cases
+        # Setup mock to run through the following service cases
         _mock_service_get_all_by_topic.side_effect = [empty_service,
                                                       host_not_match,
                                                       az_not_match,
@@ -579,32 +738,32 @@ class BackupsAPITestCase(test.TestCase):
                                         host=test_host)['id']
         volume = self.volume_api.get(context.get_admin_context(), volume_id)
 
-        #test empty service
+        # test empty service
         self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
                                                                     test_host),
                          False)
 
-        #test host not match service
+        # test host not match service
         self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
                                                                     test_host),
                          False)
 
-        #test az not match service
+        # test az not match service
         self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
                                                                     test_host),
                          False)
 
-        #test disabled service
+        # test disabled service
         self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
                                                                     test_host),
                          False)
 
-        #test dead service
+        # test dead service
         self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
                                                                     test_host),
                          False)
 
-        #test multi services and the last service matches
+        # test multi services and the last service matches
         self.assertEqual(self.backup_api._is_backup_service_enabled(volume,
                                                                     test_host),
                          True)
@@ -621,6 +780,23 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(self._get_backup_attrib(backup_id, 'status'),
                          'deleting')
 
+        db.backup_destroy(context.get_admin_context(), backup_id)
+
+    def test_delete_delta_backup(self):
+        backup_id = self._create_backup(status='available')
+        delta_id = self._create_backup(status='available',
+                                       incremental=True)
+        req = webob.Request.blank('/v2/fake/backups/%s' %
+                                  delta_id)
+        req.method = 'DELETE'
+        req.headers['Content-Type'] = 'application/json'
+        res = req.get_response(fakes.wsgi_app())
+
+        self.assertEqual(202, res.status_int)
+        self.assertEqual('deleting',
+                         self._get_backup_attrib(delta_id, 'status'))
+
+        db.backup_destroy(context.get_admin_context(), delta_id)
         db.backup_destroy(context.get_admin_context(), backup_id)
 
     def test_delete_backup_error(self):
@@ -664,6 +840,28 @@ class BackupsAPITestCase(test.TestCase):
                          'Invalid backup: Backup status must be '
                          'available or error')
 
+        db.backup_destroy(context.get_admin_context(), backup_id)
+
+    def test_delete_backup_with_InvalidBackup2(self):
+        volume_id = utils.create_volume(self.context, size=5)['id']
+        backup_id = self._create_backup(volume_id, status="available")
+        delta_backup_id = self._create_backup(status='available',
+                                              incremental=True,
+                                              parent_id=backup_id)
+
+        req = webob.Request.blank('/v2/fake/backups/%s' %
+                                  backup_id)
+        req.method = 'DELETE'
+        req.headers['Content-Type'] = 'application/json'
+        res = req.get_response(fakes.wsgi_app())
+        res_dict = json.loads(res.body)
+        self.assertEqual(400, res.status_int)
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        self.assertEqual('Invalid backup: Incremental backups '
+                         'exist for this backup.',
+                         res_dict['badRequest']['message'])
+
+        db.backup_destroy(context.get_admin_context(), delta_backup_id)
         db.backup_destroy(context.get_admin_context(), backup_id)
 
     def test_restore_backup_volume_id_specified_json(self):
@@ -908,7 +1106,7 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(res_dict['overLimit']['code'], 413)
         self.assertEqual(res_dict['overLimit']['message'],
                          'Requested volume or snapshot exceeds allowed '
-                         'Gigabytes quota. Requested 2G, quota is 3G and '
+                         'gigabytes quota. Requested 2G, quota is 3G and '
                          '2G has been consumed.')
 
     @mock.patch('cinder.backup.API.restore')
@@ -1071,7 +1269,7 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(export.item(0).getAttribute('backup_url'),
                          backup_url)
 
-        #db.backup_destroy(context.get_admin_context(), backup_id)
+        # db.backup_destroy(context.get_admin_context(), backup_id)
 
     def test_export_record_with_bad_backup_id(self):
 
@@ -1266,7 +1464,7 @@ class BackupsAPITestCase(test.TestCase):
         backup_service = 'fake'
         backup_url = 'fake'
 
-        #test with no backup_service
+        # test with no backup_service
         req = webob.Request.blank('/v2/fake/backups/import_record')
         body = {'backup-record': {'backup_url': backup_url}}
         req.body = json.dumps(body)
@@ -1279,7 +1477,7 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(res_dict['badRequest']['message'],
                          'Incorrect request body format.')
 
-        #test with no backup_url
+        # test with no backup_url
         req = webob.Request.blank('/v2/fake/backups/import_record')
         body = {'backup-record': {'backup_service': backup_service}}
         req.body = json.dumps(body)
@@ -1293,7 +1491,7 @@ class BackupsAPITestCase(test.TestCase):
         self.assertEqual(res_dict['badRequest']['message'],
                          'Incorrect request body format.')
 
-        #test with no backup_url and backup_url
+        # test with no backup_url and backup_url
         req = webob.Request.blank('/v2/fake/backups/import_record')
         body = {'backup-record': {}}
         req.body = json.dumps(body)

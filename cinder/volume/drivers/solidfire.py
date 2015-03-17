@@ -21,17 +21,17 @@ import string
 import time
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import timeutils
 from oslo_utils import units
 import requests
-from six import wraps
+import six
 
 from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
-from cinder.openstack.common import log as logging
-from cinder.volume.drivers.san.san import SanISCSIDriver
+from cinder.volume.drivers.san import san
 from cinder.volume import qos_specs
 from cinder.volume import volume_types
 
@@ -56,7 +56,7 @@ sf_opts = [
     cfg.StrOpt('sf_template_account_name',
                default='openstack-vtemplate',
                help='Account name on the SolidFire Cluster to use as owner of '
-                    'template/cache volumes (created if doesnt exist).'),
+                    'template/cache volumes (created if does not exist).'),
 
     cfg.BoolOpt('sf_allow_template_caching',
                 default=True,
@@ -76,7 +76,7 @@ CONF.register_opts(sf_opts)
 
 def retry(exc_tuple, tries=5, delay=1, backoff=2):
     def retry_dec(f):
-        @wraps(f)
+        @six.wraps(f)
         def func_retry(*args, **kwargs):
             _tries, _delay = tries, delay
             while _tries > 1:
@@ -100,7 +100,7 @@ def retry(exc_tuple, tries=5, delay=1, backoff=2):
     return retry_dec
 
 
-class SolidFireDriver(SanISCSIDriver):
+class SolidFireDriver(san.SanISCSIDriver):
     """OpenStack driver to enable SolidFire cluster.
 
     Version history:
@@ -147,6 +147,23 @@ class SolidFireDriver(SanISCSIDriver):
             self._update_cluster_status()
         except exception.SolidFireAPIException:
             pass
+        if self.configuration.sf_allow_template_caching:
+            account = self.configuration.sf_template_account_name
+            self._create_template_account(account)
+
+    def _create_template_account(self, account_name):
+        chap_secret = self._generate_random_string(12)
+        params = {'username': account_name,
+                  'initiatorSecret': chap_secret,
+                  'targetSecret': chap_secret,
+                  'attributes': {}}
+        try:
+            self._issue_api_request('AddAccount', params)
+        except exception.SolidFireAPIException as ex:
+            if 'DuplicateUsername' in ex.msg:
+                pass
+            else:
+                raise
 
     def _build_endpoint_info(self, **kwargs):
         endpoint = {}
@@ -238,7 +255,7 @@ class SolidFireDriver(SanISCSIDriver):
     def _create_sfaccount(self, project_id):
         """Create account on SolidFire device if it doesn't already exist.
 
-        We're first going to check if the account already exits, if it does
+        We're first going to check if the account already exists, if it does
         just return it.  If not, then create it.
 
         """
@@ -481,10 +498,9 @@ class SolidFireDriver(SanISCSIDriver):
             if uuid in v['name'] or uuid in alt_id:
                 found_count += 1
                 sf_volref = v
-                LOG.debug("Mapped SolidFire volumeID %(sfid)s "
-                          "to cinder ID %(uuid)s." %
-                          {'sfid': v['volumeID'],
-                           'uuid': uuid})
+                LOG.debug("Mapped SolidFire volumeID %s "
+                          "to cinder ID %s.",
+                          v['volumeID'], uuid)
 
         if found_count == 0:
             # NOTE(jdg): Previously we would raise here, but there are cases
@@ -564,20 +580,21 @@ class SolidFireDriver(SanISCSIDriver):
 
         self._detach_volume(context, attach_info, tvol, properties)
         sf_vol = self._get_sf_volume(image_id, params)
-        LOG.debug('Successfully created SolidFire Image Template ',
+        LOG.debug('Successfully created SolidFire Image Template '
                   'for image-id: %s', image_id)
         return sf_vol
 
     def _verify_image_volume(self, context, image_meta, image_service):
         # This method just verifies that IF we have a cache volume that
         # it's still up to date and current WRT the image in Glance
-        # ie an image-update hasn't occured since we grabbed it
+        # ie an image-update hasn't occurred since we grabbed it
 
         # If it's out of date, just delete it and we'll create a new one
         # Any other case we don't care and just return without doing anything
 
-        account = self.configuration.sf_template_account_name
-        sfaccount = self._get_sfaccount(account)
+        sfaccount = self._get_sfaccount(
+            self.configuration.sf_template_account_name)
+
         params = {'accountID': sfaccount['accountID']}
         sf_vol = self._get_sf_volume(image_meta['id'], params)
         if sf_vol is None:
@@ -906,7 +923,7 @@ class SolidFireDriver(SanISCSIDriver):
         if 'result' not in data:
             raise exception.SolidFireAPIDataException(data=data)
 
-    def detach_volume(self, context, volume):
+    def detach_volume(self, context, volume, attachment=None):
 
         LOG.debug("Entering SolidFire attach_volume...")
         sfaccount = self._get_sfaccount(volume['project_id'])

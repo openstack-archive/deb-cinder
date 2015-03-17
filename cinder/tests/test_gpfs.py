@@ -14,25 +14,22 @@
 # under the License.
 
 import os
-import shutil
 import tempfile
 
 import mock
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import units
 
 from cinder import context
 from cinder import exception
-from cinder.image import image_utils
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.ibm import gpfs
 from cinder.volume import volume_types
 
-from mock import patch
 
 LOG = logging.getLogger(__name__)
 
@@ -98,24 +95,24 @@ class GPFSDriverTestCase(test.TestCase):
     def test_sizestr(self):
         self.assertEqual(gpfs._sizestr('10'), '10G')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_state_ok(self, mock_exec):
         mock_exec.return_value = ('mmgetstate::HEADER:version:reserved:'
                                   'reserved:nodeName:nodeNumber:state:quorum:'
                                   'nodesUp:totalNodes:remarks:cnfsState:\n'
                                   'mmgetstate::0:1:::devstack:3:active:2:3:3:'
                                   'quorum node:(undefined):', '')
-        self.assertEqual(True, self.driver._get_gpfs_state().splitlines()[1].
-                         startswith('mmgetstate::0:1:::devstack'))
+        self.assertTrue(self.driver._get_gpfs_state().splitlines()[1].
+                        startswith('mmgetstate::0:1:::devstack'))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_state_fail_mmgetstate(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_gpfs_state)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_state')
     def test_check_gpfs_state_ok(self, mock_get_gpfs_state):
         mock_get_gpfs_state.return_value = ('mmgetstate::HEADER:version:'
                                             'reserved:reserved:nodeName:'
@@ -126,7 +123,7 @@ class GPFSDriverTestCase(test.TestCase):
                                             'quorum node:(undefined):')
         self.driver._check_gpfs_state()
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_state')
     def test_check_gpfs_state_fail_not_active(self, mock_get_gpfs_state):
         mock_get_gpfs_state.return_value = ('mmgetstate::HEADER:version:'
                                             'reserved:reserved:nodeName:'
@@ -138,7 +135,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._check_gpfs_state)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_fs_from_path_ok(self, mock_exec):
         mock_exec.return_value = ('Filesystem           1K-blocks      '
                                   'Used Available Use%% Mounted on\n'
@@ -148,7 +145,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual(self.driver._gpfs_device,
                          self.driver._get_filesystem_from_path('/gpfs0'))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_fs_from_path_fail_path(self, mock_exec):
         mock_exec.return_value = ('Filesystem           1K-blocks      '
                                   'Used Available Use% Mounted on\n'
@@ -157,14 +154,14 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertNotEqual(self.driver._gpfs_device,
                             self.driver._get_filesystem_from_path('/gpfs0'))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_fs_from_path_fail_raise(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_filesystem_from_path, '/gpfs0')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_cluster_id_ok(self, mock_exec):
         mock_exec.return_value = ('mmlsconfig::HEADER:version:reserved:'
                                   'reserved:configParameter:value:nodeList:\n'
@@ -173,7 +170,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual(self.driver._cluster_id,
                          self.driver._get_gpfs_cluster_id())
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_cluster_id_fail_id(self, mock_exec):
         mock_exec.return_value = ('mmlsconfig::HEADER.:version:reserved:'
                                   'reserved:configParameter:value:nodeList:\n'
@@ -181,14 +178,14 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertNotEqual(self.driver._cluster_id,
                             self.driver._get_gpfs_cluster_id())
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_cluster_id_fail_raise(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_gpfs_cluster_id)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_fileset_from_path_ok(self, mock_exec):
         mock_exec.return_value = ('file name:            /gpfs0\n'
                                   'metadata replication: 1 max 2\n'
@@ -202,14 +199,14 @@ class GPFSDriverTestCase(test.TestCase):
                                   'Windows attributes:   DIRECTORY', '')
         self.driver._get_fileset_from_path('')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_fileset_from_path_fail_mmlsattr(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_fileset_from_path, '')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_fileset_from_path_fail_find_fileset(self, mock_exec):
         mock_exec.return_value = ('file name:            /gpfs0\n'
                                   'metadata replication: 1 max 2\n'
@@ -224,7 +221,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_fileset_from_path, '')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_verify_gpfs_pool_ok(self, mock_exec):
         mock_exec.return_value = ('Storage pools in file system at \'/gpfs0\':'
                                   '\n'
@@ -239,7 +236,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertTrue(self.driver._gpfs_device,
                         self.driver._verify_gpfs_pool('/dev/gpfs'))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_verify_gpfs_pool_fail_pool(self, mock_exec):
         mock_exec.return_value = ('Storage pools in file system at \'/gpfs0\':'
                                   '\n'
@@ -254,28 +251,28 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertTrue(self.driver._gpfs_device,
                         self.driver._verify_gpfs_pool('/dev/gpfs'))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_verify_gpfs_pool_fail_raise(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertFalse(self.driver._verify_gpfs_pool('/dev/gpfs'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.utils.execute')
     def test_update_volume_storage_pool_ok(self, mock_exec, mock_verify_pool):
         mock_verify_pool.return_value = True
         self.assertTrue(self.driver._update_volume_storage_pool('', 'system'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.utils.execute')
     def test_update_volume_storage_pool_ok_pool_none(self,
                                                      mock_exec,
                                                      mock_verify_pool):
         mock_verify_pool.return_value = True
         self.assertTrue(self.driver._update_volume_storage_pool('', None))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.utils.execute')
     def test_update_volume_storage_pool_fail_pool(self,
                                                   mock_exec,
                                                   mock_verify_pool):
@@ -285,8 +282,8 @@ class GPFSDriverTestCase(test.TestCase):
                           '',
                           'system')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.utils.execute')
     def test_update_volume_storage_pool_fail_mmchattr(self,
                                                       mock_exec,
                                                       mock_verify_pool):
@@ -295,9 +292,9 @@ class GPFSDriverTestCase(test.TestCase):
         mock_verify_pool.return_value = True
         self.assertFalse(self.driver._update_volume_storage_pool('', 'system'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_filesystem_from_path')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_filesystem_from_path')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_fs_release_level_ok(self,
                                           mock_exec,
                                           mock_fs_from_path):
@@ -317,9 +314,9 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual(('/dev/gpfs', 1403),
                          self.driver._get_gpfs_fs_release_level(''))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_filesystem_from_path')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_filesystem_from_path')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_fs_release_level_fail_mmlsfs(self,
                                                    mock_exec,
                                                    mock_fs_from_path):
@@ -329,7 +326,7 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_gpfs_fs_release_level, '')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_cluster_release_level_ok(self, mock_exec):
         mock_exec.return_value = ('mmlsconfig::HEADER:version:reserved:'
                                   'reserved:configParameter:value:nodeList:\n'
@@ -337,22 +334,23 @@ class GPFSDriverTestCase(test.TestCase):
                                   '')
         self.assertEqual(1403, self.driver._get_gpfs_cluster_release_level())
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_gpfs_cluster_release_level_fail_mmlsconfig(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._get_gpfs_cluster_release_level)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_is_gpfs_path_fail_mmlsattr(self, mock_exec):
         mock_exec.side_effect = processutils.ProcessExecutionError(
             stdout='test', stderr='test')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._is_gpfs_path, '/dummy/path')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_fileset_from_path')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_fileset_from_path')
+    @mock.patch('cinder.utils.execute')
     def test_is_same_fileset_ok(self,
                                 mock_exec,
                                 mock_get_fileset_from_path):
@@ -361,8 +359,9 @@ class GPFSDriverTestCase(test.TestCase):
         mock_get_fileset_from_path.side_effect = [True, False]
         self.assertFalse(self.driver._is_same_fileset('', ''))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_available_capacity')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_available_capacity')
+    @mock.patch('cinder.utils.execute')
     def test_same_cluster_ok(self, mock_exec, mock_avail_capacity):
         mock_avail_capacity.return_value = (10192683008, 10737418240)
         stats = self.driver.get_volume_stats()
@@ -377,11 +376,11 @@ class GPFSDriverTestCase(test.TestCase):
         host = {'host': 'foo', 'capabilities': cap}
         self.assertFalse(self.driver._same_cluster(host))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_set_rw_permission(self, mock_exec):
         self.driver._set_rw_permission('')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_can_migrate_locally(self, mock_exec):
         host = {'host': 'foo', 'capabilities': ''}
         self.assertEqual(self.driver._can_migrate_locally(host), None)
@@ -406,11 +405,12 @@ class GPFSDriverTestCase(test.TestCase):
         host = {'host': 'foo', 'capabilities': cap}
         self.assertEqual(self.driver._can_migrate_locally(host), 'testpath')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_filesystem_from_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_cluster_id')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_filesystem_from_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_gpfs_cluster_id')
+    @mock.patch('cinder.utils.execute')
     def test_do_setup_ok(self,
                          mock_exec,
                          mock_get_gpfs_cluster_id,
@@ -422,11 +422,12 @@ class GPFSDriverTestCase(test.TestCase):
         mock_verify_gpfs_pool.return_value = True
         self.driver.do_setup(ctxt)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_filesystem_from_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_cluster_id')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_filesystem_from_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_gpfs_cluster_id')
+    @mock.patch('cinder.utils.execute')
     def test_do_setup_fail_get_cluster_id(self,
                                           mock_exec,
                                           mock_get_gpfs_cluster_id,
@@ -440,11 +441,12 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.do_setup, ctxt)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_filesystem_from_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_cluster_id')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_filesystem_from_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_gpfs_cluster_id')
+    @mock.patch('cinder.utils.execute')
     def test_do_setup_fail_get_fs_from_path(self,
                                             mock_exec,
                                             mock_get_gpfs_cluster_id,
@@ -458,11 +460,12 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.do_setup, ctxt)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_filesystem_from_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._get_gpfs_cluster_id')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_filesystem_from_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_gpfs_cluster_id')
+    @mock.patch('cinder.utils.execute')
     def test_do_setup_fail_volume(self,
                                   mock_exec,
                                   mock_get_gpfs_cluster_id,
@@ -475,10 +478,10 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.do_setup, ctxt)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._check_gpfs_state')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_get_gpfs_fs_release_level')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._check_gpfs_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_gpfs_fs_release_level')
     def test_check_for_setup_error_fail_conf(self,
                                              mock_get_gpfs_fs_rel_lev,
                                              mock_is_gpfs_path,
@@ -628,23 +631,24 @@ class GPFSDriverTestCase(test.TestCase):
         CONF.gpfs_images_dir = org_value_dir
         fake_fs_release = org_fake_fs_release
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_create_sparse_file(self, mock_exec):
         self.driver._create_sparse_file('', 100)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_allocate_file_blocks(self, mock_exec):
         self.driver._allocate_file_blocks(os.path.join(self.images_dir,
                                                        'test'), 1)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_gpfs_change_attributes(self, mock_exec):
         options = []
         options.extend(['-T', 'test'])
         self.driver._gpfs_change_attributes(options, self.images_dir)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._mkfs')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_change_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._mkfs')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_gpfs_change_attributes')
     def test_set_volume_attributes(self, mock_change_attributes, mock_mkfs):
         metadata = [dict([('key', 'data_pool_name'), ('value', 'test')]),
                     dict([('key', 'replicas'), ('value', 'test')]),
@@ -664,7 +668,8 @@ class GPFSDriverTestCase(test.TestCase):
 
         self.driver._set_volume_attributes('', '', metadata)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_change_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_gpfs_change_attributes')
     def test_set_volume_attributes_no_attributes(self, mock_change_attributes):
         metadata = []
         org_value = self.driver.configuration.gpfs_storage_pool
@@ -673,7 +678,8 @@ class GPFSDriverTestCase(test.TestCase):
         self.flags(volume_driver=self.driver_name,
                    gpfs_storage_pool=org_value)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_change_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_gpfs_change_attributes')
     def test_set_volume_attributes_no_options(self, mock_change_attributes):
         metadata = []
         org_value = self.driver.configuration.gpfs_storage_pool
@@ -682,13 +688,18 @@ class GPFSDriverTestCase(test.TestCase):
         self.flags(volume_driver=self.driver_name,
                    gpfs_storage_pool=org_value)
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._allocate_file_blocks')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_sparse_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_allocate_file_blocks')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_create_sparse_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_create_volume(self,
                            mock_gpfs_path_state,
                            mock_local_path,
@@ -698,8 +709,7 @@ class GPFSDriverTestCase(test.TestCase):
                            mock_allocate_file_blocks,
                            mock_exec):
         mock_local_path.return_value = 'test'
-        volume = {}
-        volume['size'] = 1000
+        volume = self._fake_volume()
         value = {}
         value['value'] = 'test'
 
@@ -709,13 +719,18 @@ class GPFSDriverTestCase(test.TestCase):
         self.flags(volume_driver=self.driver_name,
                    gpfs_sparse_volumes=org_value)
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._allocate_file_blocks')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_sparse_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_allocate_file_blocks')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_create_sparse_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_create_volume_no_sparse_volume(self,
                                             mock_gpfs_path_state,
                                             mock_local_path,
@@ -725,8 +740,7 @@ class GPFSDriverTestCase(test.TestCase):
                                             mock_allocate_file_blocks,
                                             mock_exec):
         mock_local_path.return_value = 'test'
-        volume = {}
-        volume['size'] = 1000
+        volume = self._fake_volume()
         value = {}
         value['value'] = 'test'
 
@@ -736,13 +750,18 @@ class GPFSDriverTestCase(test.TestCase):
         self.flags(volume_driver=self.driver_name,
                    gpfs_sparse_volumes=org_value)
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._allocate_file_blocks')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_sparse_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_allocate_file_blocks')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_create_sparse_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_create_volume_with_metadata(self,
                                          mock_gpfs_path_state,
                                          mock_local_path,
@@ -752,8 +771,7 @@ class GPFSDriverTestCase(test.TestCase):
                                          mock_allocate_file_blocks,
                                          mock_exec):
         mock_local_path.return_value = 'test'
-        volume = {}
-        volume['size'] = 1000
+        volume = self._fake_volume()
         value = {}
         value['value'] = 'test'
         mock_set_volume_attributes.return_value = True
@@ -762,94 +780,130 @@ class GPFSDriverTestCase(test.TestCase):
         org_value = self.driver.configuration.gpfs_sparse_volumes
         self.flags(volume_driver=self.driver_name, gpfs_sparse_volumes=False)
         self.driver.create_volume(volume)
-        self.assertEqual(True, self.driver._set_volume_attributes(volume,
-                         'test', metadata))
+        self.assertTrue(self.driver._set_volume_attributes(volume, 'test',
+                                                           metadata))
         self.flags(volume_driver=self.driver_name,
                    gpfs_sparse_volumes=org_value)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_full_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.'
+                'GPFSDriver._get_snapshot_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_create_volume_from_snapshot(self,
                                          mock_local_path,
+                                         mock_snapshot_path,
+                                         mock_gpfs_full_copy,
                                          mock_create_gpfs_copy,
                                          mock_rw_permission,
                                          mock_gpfs_redirect,
                                          mock_set_volume_attributes,
                                          mock_resize_volume_file):
         mock_resize_volume_file.return_value = 5 * units.Gi
-        volume = {}
-        volume['size'] = 1000
-        self.assertEqual(self.driver.create_volume_from_snapshot(volume, ''),
+        volume = self._fake_volume()
+        volume['consistencygroup_id'] = None
+        snapshot = self._fake_snapshot()
+        mock_snapshot_path.return_value = "/tmp/fakepath"
+        self.assertEqual(self.driver.create_volume_from_snapshot(
+                         volume,
+                         snapshot
+                         ),
                          {'size': 5.0})
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_full_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_snapshot_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_create_volume_from_snapshot_metadata(self,
                                                   mock_local_path,
+                                                  mock_snapshot_path,
+                                                  mock_gpfs_full_copy,
                                                   mock_create_gpfs_copy,
                                                   mock_rw_permission,
                                                   mock_gpfs_redirect,
                                                   mock_set_volume_attributes,
                                                   mock_resize_volume_file):
         mock_resize_volume_file.return_value = 5 * units.Gi
-        volume = {}
-        volume['size'] = 1000
+        volume = self._fake_volume()
+        volume['consistencygroup_id'] = None
+        snapshot = self._fake_snapshot()
+        mock_snapshot_path.return_value = "/tmp/fakepath"
         mock_set_volume_attributes.return_value = True
         metadata = [{'key': 'fake_key', 'value': 'fake_value'}]
 
-        self.assertEqual(True, self.driver._set_volume_attributes(volume,
-                         'test', metadata))
-        self.assertEqual(self.driver.create_volume_from_snapshot(volume, ''),
+        self.assertTrue(self.driver._set_volume_attributes(volume, 'test',
+                                                           metadata))
+        self.assertEqual(self.driver.create_volume_from_snapshot(volume,
+                                                                 snapshot),
                          {'size': 5.0})
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_clone')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_create_gpfs_clone')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_full_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_create_cloned_volume(self,
                                   mock_local_path,
+                                  mock_gpfs_full_copy,
                                   mock_create_gpfs_clone,
                                   mock_rw_permission,
                                   mock_set_volume_attributes,
                                   mock_resize_volume_file):
         mock_resize_volume_file.return_value = 5 * units.Gi
-        volume = {}
-        volume['size'] = 1000
-        self.assertEqual(self.driver.create_cloned_volume(volume, ''),
+        volume = self._fake_volume()
+        src_volume = self._fake_volume()
+        self.assertEqual(self.driver.create_cloned_volume(volume, src_volume),
                          {'size': 5.0})
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_volume_attributes')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_clone')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_volume_attributes')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_create_gpfs_clone')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_full_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_create_cloned_volume_with_metadata(self,
                                                 mock_local_path,
+                                                mock_gpfs_full_copy,
                                                 mock_create_gpfs_clone,
                                                 mock_rw_permission,
                                                 mock_set_volume_attributes,
                                                 mock_resize_volume_file):
         mock_resize_volume_file.return_value = 5 * units.Gi
-        volume = {}
-        volume['size'] = 1000
+        volume = self._fake_volume()
+        src_volume = self._fake_volume()
         mock_set_volume_attributes.return_value = True
         metadata = [{'key': 'fake_key', 'value': 'fake_value'}]
 
-        self.assertEqual(True, self.driver._set_volume_attributes(volume,
-                         'test', metadata))
-        self.assertEqual(self.driver.create_cloned_volume(volume, ''),
+        self.assertTrue(self.driver._set_volume_attributes(volume, 'test',
+                                                           metadata))
+        self.assertEqual(self.driver.create_cloned_volume(volume, src_volume),
                          {'size': 5.0})
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_delete_gpfs_file_ok(self, mock_exec):
         mock_exec.side_effect = [('Parent  Depth   Parent inode   File name\n'
                                   '------  -----  --------------  ---------\n'
@@ -867,8 +921,8 @@ class GPFSDriverTestCase(test.TestCase):
                                  ('', '')]
         self.driver._delete_gpfs_file(self.images_dir)
 
-    @patch('os.path.exists')
-    @patch('cinder.utils.execute')
+    @mock.patch('os.path.exists')
+    @mock.patch('cinder.utils.execute')
     def test_delete_gpfs_file_ok_parent(self, mock_exec, mock_path_exists):
         mock_path_exists.side_effect = [True, False, False,
                                         True, False, False,
@@ -895,16 +949,17 @@ class GPFSDriverTestCase(test.TestCase):
                                  ('', '')]
         self.driver._delete_gpfs_file(self.images_dir)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._delete_gpfs_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._delete_gpfs_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_delete_volume(self,
                            mock_verify_gpfs_path_state,
                            mock_local_path,
                            mock_delete_gpfs_file):
         self.driver.delete_volume('')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_gpfs_redirect_ok(self, mock_exec):
         org_value = self.driver.configuration.gpfs_max_clone_depth
         self.flags(volume_driver=self.driver_name, gpfs_max_clone_depth=1)
@@ -913,18 +968,18 @@ class GPFSDriverTestCase(test.TestCase):
                                   '    no      2          148488  '
                                   '/gpfs0/test.txt', ''),
                                  ('', '')]
-        self.assertEqual(True, self.driver._gpfs_redirect(''))
+        self.assertTrue(self.driver._gpfs_redirect(''))
         self.flags(volume_driver=self.driver_name, gpfs_max_clone_depth=1)
         mock_exec.side_effect = [('Parent  Depth   Parent inode   File name\n'
                                   '------  -----  --------------  ---------\n'
                                   '    no      1          148488  '
                                   '/gpfs0/test.txt', ''),
                                  ('', '')]
-        self.assertEqual(False, self.driver._gpfs_redirect(''))
+        self.assertFalse(self.driver._gpfs_redirect(''))
         self.flags(volume_driver=self.driver_name,
                    gpfs_max_clone_depth=org_value)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_gpfs_redirect_fail_depth(self, mock_exec):
         org_value = self.driver.configuration.gpfs_max_clone_depth
         self.flags(volume_driver=self.driver_name, gpfs_max_clone_depth=0)
@@ -933,11 +988,11 @@ class GPFSDriverTestCase(test.TestCase):
                                   '    no      2          148488  '
                                   '/gpfs0/test.txt', ''),
                                  ('', '')]
-        self.assertEqual(False, self.driver._gpfs_redirect(''))
+        self.assertFalse(self.driver._gpfs_redirect(''))
         self.flags(volume_driver=self.driver_name,
                    gpfs_max_clone_depth=org_value)
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_gpfs_redirect_fail_match(self, mock_exec):
         org_value = self.driver.configuration.gpfs_max_clone_depth
         self.flags(volume_driver=self.driver_name, gpfs_max_clone_depth=1)
@@ -946,14 +1001,14 @@ class GPFSDriverTestCase(test.TestCase):
                                   '                       148488  '
                                   '/gpfs0/test.txt', ''),
                                  ('', '')]
-        self.assertEqual(False, self.driver._gpfs_redirect(''))
+        self.assertFalse(self.driver._gpfs_redirect(''))
         self.flags(volume_driver=self.driver_name,
                    gpfs_max_clone_depth=org_value)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
+    @mock.patch('cinder.utils.execute')
     def test_create_gpfs_clone(self,
                                mock_exec,
                                mock_redirect,
@@ -964,16 +1019,16 @@ class GPFSDriverTestCase(test.TestCase):
         mock_redirect.side_effect = [True, False]
         self.driver._create_gpfs_clone('', '')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_create_gpfs_copy(self, mock_exec):
         self.driver._create_gpfs_copy('', '')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_create_gpfs_snap(self, mock_exec):
         self.driver._create_gpfs_snap('')
         self.driver._create_gpfs_snap('', '')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_is_gpfs_parent_file_ok(self, mock_exec):
         mock_exec.side_effect = [('Parent  Depth   Parent inode   File name\n'
                                   '------  -----  --------------  ---------\n'
@@ -983,19 +1038,24 @@ class GPFSDriverTestCase(test.TestCase):
                                   '------  -----  --------------  ---------\n'
                                   '    no      2          148488  '
                                   '/gpfs0/test.txt', '')]
-        self.assertEqual(True, self.driver._is_gpfs_parent_file(''))
-        self.assertEqual(False, self.driver._is_gpfs_parent_file(''))
+        self.assertTrue(self.driver._is_gpfs_parent_file(''))
+        self.assertFalse(self.driver._is_gpfs_parent_file(''))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_snapshot_path')
     def test_create_snapshot(self,
+                             mock_get_snapshot_path,
                              mock_local_path,
                              mock_create_gpfs_snap,
                              mock_set_rw_permission,
                              mock_gpfs_redirect):
         org_value = self.driver.configuration.gpfs_mount_point_base
+        mock_get_snapshot_path.return_value = "/tmp/fakepath"
         self.flags(volume_driver=self.driver_name,
                    gpfs_mount_point_base=self.volumes_path)
         snapshot = {}
@@ -1004,13 +1064,21 @@ class GPFSDriverTestCase(test.TestCase):
         self.flags(volume_driver=self.driver_name,
                    gpfs_mount_point_base=org_value)
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_get_snapshot_path')
     def test_delete_snapshot(self,
-                             mock_local_path,
+                             mock_snapshot_path,
                              mock_exec):
-        snapshot = {}
+        snapshot = self._fake_snapshot()
+        snapshot_path = "/tmp/fakepath"
+        mock_snapshot_path.return_value = snapshot_path
+        snapshot_ts_path = '%s.ts' % snapshot_path
         self.driver.delete_snapshot(snapshot)
+        mock_exec.assert_any_call('mv', snapshot_path,
+                                  snapshot_ts_path)
+        mock_exec.assert_any_call('rm', '-f', snapshot_ts_path,
+                                  check_exit_code=False)
 
     def test_ensure_export(self):
         self.assertEqual(None, self.driver.ensure_export('', ''))
@@ -1021,13 +1089,13 @@ class GPFSDriverTestCase(test.TestCase):
     def test_remove_export(self):
         self.assertEqual(None, self.driver.remove_export('', ''))
 
-    def test_initialize_connection(self):
-        volume = {}
-        volume['name'] = 'test'
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    def test_initialize_connection(self, mock_local_path):
+        volume = self._fake_volume()
+        mock_local_path.return_value = "/tmp/fakepath"
         data = self.driver.initialize_connection(volume, '')
         self.assertEqual(data['data']['name'], 'test')
-        self.assertEqual(data['data']['device_path'], os.path.join(
-            self.driver.configuration.gpfs_mount_point_base, 'test'))
+        self.assertEqual(data['data']['device_path'], "/tmp/fakepath")
         self.assertEqual(data['driver_volume_type'], 'gpfs')
 
     def test_terminate_connection(self):
@@ -1046,7 +1114,8 @@ class GPFSDriverTestCase(test.TestCase):
             self.assertEqual(stats['volume_backend_name'], 'GPFS')
             self.assertEqual(stats['storage_protocol'], 'file')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._update_volume_stats')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_update_volume_stats')
     def test_get_volume_stats_none_stats(self, mock_upd_vol_stats):
         _stats_org = self.driver._stats
         self.driver._stats = mock.Mock()
@@ -1054,11 +1123,11 @@ class GPFSDriverTestCase(test.TestCase):
         self.driver.get_volume_stats()
         self.driver._stats = _stats_org
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._clone_image')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._clone_image')
     def test_clone_image_pub(self, mock_exec):
         self.driver.clone_image('', '', '', {'id': 1}, '')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
     def test_is_cloneable_ok(self, mock_is_gpfs_path):
         self.flags(volume_driver=self.driver_name,
                    gpfs_images_share_mode='test')
@@ -1068,7 +1137,7 @@ class GPFSDriverTestCase(test.TestCase):
                                                    '12345')),
                          self.driver._is_cloneable('12345'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
     def test_is_cloneable_fail_config(self, mock_is_gpfs_path):
         self.flags(volume_driver=self.driver_name, gpfs_images_share_mode='')
         CONF.gpfs_images_dir = ''
@@ -1077,7 +1146,7 @@ class GPFSDriverTestCase(test.TestCase):
                                                       '12345')),
                             self.driver._is_cloneable('12345'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
     def test_is_cloneable_fail_path(self, mock_is_gpfs_path):
         self.flags(volume_driver=self.driver_name,
                    gpfs_images_share_mode='test')
@@ -1088,16 +1157,20 @@ class GPFSDriverTestCase(test.TestCase):
                                                       '12345')),
                             self.driver._is_cloneable('12345'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.image.image_utils.convert_image')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
-    @patch('cinder.image.image_utils.qemu_img_info')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_parent_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.image.image_utils.convert_image')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
+    @mock.patch('cinder.image.image_utils.qemu_img_info')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_is_gpfs_parent_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_clone_image_clonable(self,
                                   mock_verify_gpfs_path_state,
                                   mock_is_cloneable,
@@ -1112,33 +1185,34 @@ class GPFSDriverTestCase(test.TestCase):
         mock_is_cloneable.return_value = (True, 'test', self.images_dir)
         mock_is_gpfs_parent_file.return_value = False
         mock_qemu_img_info.return_value = self._fake_qemu_qcow2_image_info('')
-        volume = {}
-        volume['id'] = 'test'
-        volume['size'] = 1000
+        volume = self._fake_volume()
         self.assertEqual(({'provider_location': None}, True),
                          self.driver._clone_image(volume, '', 1))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver'
+                '._verify_gpfs_path_state')
     def test_clone_image_not_cloneable(self,
                                        mock_verify_gpfs_path_state,
                                        mock_is_cloneable):
         mock_is_cloneable.return_value = (False, 'test', self.images_dir)
-        volume = {}
-        volume['id'] = 'test'
-        volume['size'] = 1000
+        volume = self._fake_volume()
         self.assertEqual((None, False),
                          self.driver._clone_image(volume, '', 1))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
-    @patch('cinder.image.image_utils.qemu_img_info')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_parent_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_copy')
+    @mock.patch('cinder.image.image_utils.qemu_img_info')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_snap')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_is_gpfs_parent_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_clone_image_format_raw_copy_on_write(self,
                                                   mock_verify_gpfs_path_state,
                                                   mock_is_cloneable,
@@ -1153,27 +1227,29 @@ class GPFSDriverTestCase(test.TestCase):
         mock_local_path.return_value = self.volumes_path
         mock_is_gpfs_parent_file.return_value = False
         mock_qemu_img_info.return_value = self._fake_qemu_raw_image_info('')
-        volume = {}
-        volume['id'] = 'test'
-        volume['size'] = 1000
+        volume = self._fake_volume()
         org_value = self.driver.configuration.gpfs_images_share_mode
         self.flags(volume_driver=self.driver_name,
                    gpfs_images_share_mode='copy_on_write')
         self.assertEqual(({'provider_location': None}, True),
                          self.driver._clone_image(volume, '', 1))
-        self.driver._create_gpfs_snap.assert_called_once_with(self.images_dir)
+        mock_create_gpfs_snap.assert_called_once_with(self.images_dir)
 
         self.flags(volume_driver=self.driver_name,
                    gpfs_images_share_mode=org_value)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('shutil.copyfile')
-    @patch('cinder.image.image_utils.qemu_img_info')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_parent_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('shutil.copyfile')
+    @mock.patch('cinder.image.image_utils.qemu_img_info')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_is_gpfs_parent_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_clone_image_format_raw_copy(self,
                                          mock_verify_gpfs_path_state,
                                          mock_is_cloneable,
@@ -1186,28 +1262,29 @@ class GPFSDriverTestCase(test.TestCase):
         mock_is_cloneable.return_value = (True, 'test', self.images_dir)
         mock_local_path.return_value = self.volumes_path
         mock_qemu_img_info.return_value = self._fake_qemu_raw_image_info('')
-        volume = {}
-        volume['id'] = 'test'
-        volume['size'] = 1000
+        volume = self._fake_volume()
         org_value = self.driver.configuration.gpfs_images_share_mode
 
         self.flags(volume_driver=self.driver_name,
                    gpfs_images_share_mode='copy')
         self.assertEqual(({'provider_location': None}, True),
                          self.driver._clone_image(volume, '', 1))
-        shutil.copyfile.assert_called_once_with(self.images_dir,
-                                                self.volumes_path)
+        mock_copyfile.assert_called_once_with(self.images_dir,
+                                              self.volumes_path)
 
         self.flags(volume_driver=self.driver_name,
                    gpfs_images_share_mode=org_value)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._set_rw_permission')
-    @patch('cinder.image.image_utils.convert_image')
-    @patch('cinder.image.image_utils.qemu_img_info')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_set_rw_permission')
+    @mock.patch('cinder.image.image_utils.convert_image')
+    @mock.patch('cinder.image.image_utils.qemu_img_info')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_cloneable')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_clone_image_format_qcow2(self,
                                       mock_verify_gpfs_path_state,
                                       mock_is_cloneable,
@@ -1219,76 +1296,72 @@ class GPFSDriverTestCase(test.TestCase):
         mock_is_cloneable.return_value = (True, 'test', self.images_dir)
         mock_local_path.return_value = self.volumes_path
         mock_qemu_img_info.return_value = self._fake_qemu_qcow2_image_info('')
-        volume = {}
-        volume['id'] = 'test'
-        volume['size'] = 1000
+        volume = self._fake_volume()
         self.assertEqual(({'provider_location': None}, True),
                          self.driver._clone_image(volume, '', 1))
-        image_utils.convert_image.assert_called_once_with(self.images_dir,
-                                                          self.volumes_path,
-                                                          'raw')
+        mock_conv_image.assert_called_once_with(self.images_dir,
+                                                self.volumes_path,
+                                                'raw')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.image.image_utils.fetch_to_raw')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.image.image_utils.fetch_to_raw')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
     def test_copy_image_to_volume(self,
                                   mock_verify_gpfs_path_state,
                                   mock_fetch_to_raw,
                                   mock_local_path,
                                   mock_resize_volume_file):
-        volume = {}
-        volume['id'] = 'test'
-        volume['size'] = 1000
+        volume = self._fake_volume()
         self.driver.copy_image_to_volume('', volume, '', 1)
 
-    @patch('cinder.image.image_utils.qemu_img_info')
-    @patch('cinder.image.image_utils.resize_image')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.image.image_utils.qemu_img_info')
+    @mock.patch('cinder.image.image_utils.resize_image')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_resize_volume_file_ok(self,
                                    mock_local_path,
                                    mock_resize_image,
                                    mock_qemu_img_info):
-        volume = {}
-        volume['id'] = 'test'
+        volume = self._fake_volume()
         mock_qemu_img_info.return_value = self._fake_qemu_qcow2_image_info('')
         self.assertEqual(self._fake_qemu_qcow2_image_info('').virtual_size,
                          self.driver._resize_volume_file(volume, 2000))
 
-    @patch('cinder.image.image_utils.qemu_img_info')
-    @patch('cinder.image.image_utils.resize_image')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.image.image_utils.qemu_img_info')
+    @mock.patch('cinder.image.image_utils.resize_image')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_resize_volume_file_fail(self,
                                      mock_local_path,
                                      mock_resize_image,
                                      mock_qemu_img_info):
-        volume = {}
-        volume['id'] = 'test'
+        volume = self._fake_volume()
         mock_resize_image.side_effect = (
             processutils.ProcessExecutionError(stdout='test', stderr='test'))
         mock_qemu_img_info.return_value = self._fake_qemu_qcow2_image_info('')
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._resize_volume_file, volume, 2000)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._resize_volume_file')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_resize_volume_file')
     def test_extend_volume(self, mock_resize_volume_file):
-        volume = {}
-        volume['id'] = 'test'
+        volume = self._fake_volume()
         self.driver.extend_volume(volume, 2000)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
-    @patch('cinder.image.image_utils.upload_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.image.image_utils.upload_volume')
     def test_copy_volume_to_image(self, mock_upload_volume, mock_local_path):
-        volume = {}
-        volume['id'] = 'test'
+        volume = self._fake_volume()
         self.driver.copy_volume_to_image('', volume, '', '')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._delete_gpfs_file')
-    @patch('cinder.openstack.common.fileutils.file_open')
-    @patch('cinder.utils.temporary_chown')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._create_gpfs_clone')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._delete_gpfs_file')
+    @mock.patch('cinder.openstack.common.fileutils.file_open')
+    @mock.patch('cinder.utils.temporary_chown')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._gpfs_redirect')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_create_gpfs_clone')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_backup_volume(self,
                            mock_local_path,
                            mock_create_gpfs_clone,
@@ -1296,8 +1369,7 @@ class GPFSDriverTestCase(test.TestCase):
                            mock_temp_chown,
                            mock_file_open,
                            mock_delete_gpfs_file):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         self.driver.db = mock.Mock()
         self.driver.db.volume_get = mock.Mock()
         self.driver.db.volume_get.return_value = volume
@@ -1308,26 +1380,25 @@ class GPFSDriverTestCase(test.TestCase):
         mock_local_path.return_value = self.volumes_path
         self.driver.backup_volume('', backup, backup_service)
 
-    @patch('cinder.openstack.common.fileutils.file_open')
-    @patch('cinder.utils.temporary_chown')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    @mock.patch('cinder.openstack.common.fileutils.file_open')
+    @mock.patch('cinder.utils.temporary_chown')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
     def test_restore_backup(self,
                             mock_local_path,
                             mock_temp_chown,
                             mock_file_open):
-        volume = {}
-        volume['id'] = '123456'
+        volume = self._fake_volume()
         backup = {}
         backup['id'] = '123456'
         backup_service = mock.Mock()
         mock_local_path.return_value = self.volumes_path
         self.driver.restore_backup('', backup, volume, backup_service)
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._can_migrate_locally')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_can_migrate_locally')
     def test_migrate_volume_ok(self, mock_local, mock_exec):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         host = {}
         host = {'host': 'foo', 'capabilities': {}}
         mock_local.return_value = (self.driver.configuration.
@@ -1335,22 +1406,22 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual((True, None),
                          self.driver._migrate_volume(volume, host))
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._can_migrate_locally')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_can_migrate_locally')
     def test_migrate_volume_fail_dest_path(self, mock_local, mock_exec):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         host = {}
         host = {'host': 'foo', 'capabilities': {}}
         mock_local.return_value = None
         self.assertEqual((False, None),
                          self.driver._migrate_volume(volume, host))
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._can_migrate_locally')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_can_migrate_locally')
     def test_migrate_volume_fail_mpb(self, mock_local, mock_exec):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         host = {}
         host = {'host': 'foo', 'capabilities': {}}
         mock_local.return_value = (self.driver.configuration.
@@ -1360,11 +1431,11 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual((True, None),
                          self.driver._migrate_volume(volume, host))
 
-    @patch('cinder.utils.execute')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._can_migrate_locally')
+    @mock.patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_can_migrate_locally')
     def test_migrate_volume_fail_mv(self, mock_local, mock_exec):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         host = {}
         host = {'host': 'foo', 'capabilities': {}}
         mock_local.return_value = (
@@ -1374,14 +1445,14 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual((False, None),
                          self.driver._migrate_volume(volume, host))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
     def test_migrate_volume_ok_pub(self, mock_migrate_volume):
         self.driver.migrate_volume('', '', '')
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_update_volume_storage_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs._different')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_update_volume_storage_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs._different')
     def test_retype_ok(self, mock_different, mock_strg_pool, mock_migrate_vol):
         ctxt = self.context
         (volume, new_type, diff, host) = self._fake_retype_arguments()
@@ -1391,10 +1462,10 @@ class GPFSDriverTestCase(test.TestCase):
         mock_migrate_vol.return_value = (True, True)
         self.assertTrue(self.driver.retype(ctxt, volume, new_type, diff, host))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_update_volume_storage_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs._different')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_update_volume_storage_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs._different')
     def test_retype_diff_backend(self,
                                  mock_different,
                                  mock_strg_pool,
@@ -1407,10 +1478,10 @@ class GPFSDriverTestCase(test.TestCase):
                                             new_type,
                                             diff, host))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_update_volume_storage_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs._different')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_update_volume_storage_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs._different')
     def test_retype_diff_pools_migrated(self,
                                         mock_different,
                                         mock_strg_pool,
@@ -1423,10 +1494,10 @@ class GPFSDriverTestCase(test.TestCase):
         mock_migrate_vol.return_value = (True, True)
         self.assertTrue(self.driver.retype(ctxt, volume, new_type, diff, host))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_update_volume_storage_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs._different')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_update_volume_storage_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs._different')
     def test_retype_diff_pools(self,
                                mock_different,
                                mock_strg_pool,
@@ -1442,10 +1513,10 @@ class GPFSDriverTestCase(test.TestCase):
                                             diff,
                                             host))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
-           '_update_volume_storage_pool')
-    @patch('cinder.volume.drivers.ibm.gpfs._different')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._migrate_volume')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_update_volume_storage_pool')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs._different')
     def test_retype_no_diff_hit(self,
                                 mock_different,
                                 mock_strg_pool,
@@ -1459,25 +1530,23 @@ class GPFSDriverTestCase(test.TestCase):
                                             diff,
                                             host))
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_mkfs_ok(self, mock_exec):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         self.driver._mkfs(volume, 'swap')
         self.driver._mkfs(volume, 'swap', 'test')
         self.driver._mkfs(volume, 'ext3', 'test')
         self.driver._mkfs(volume, 'vfat', 'test')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_mkfs_fail_mk(self, mock_exec):
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         mock_exec.side_effect = (
             processutils.ProcessExecutionError(stdout='test', stderr='test'))
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._mkfs, volume, 'swap', 'test')
 
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.utils.execute')
     def test_get_available_capacity_ok(self, mock_exec):
         mock_exec.return_value = ('Filesystem         1-blocks      Used '
                                   'Available Capacity Mounted on\n'
@@ -1486,8 +1555,9 @@ class GPFSDriverTestCase(test.TestCase):
         self.assertEqual((10192683008, 10737418240),
                          self.driver._get_available_capacity('/gpfs0'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._verify_gpfs_path_state')
-    @patch('cinder.utils.execute')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.'
+                '_verify_gpfs_path_state')
+    @mock.patch('cinder.utils.execute')
     def test_get_available_capacity_fail_mounted(self,
                                                  mock_exec,
                                                  mock_path_state):
@@ -1499,16 +1569,219 @@ class GPFSDriverTestCase(test.TestCase):
                                   '10192683008       6%% /gpfs0', '')
         self.assertEqual((0, 0), self.driver._get_available_capacity('/gpfs0'))
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
     def test_verify_gpfs_path_state_ok(self, mock_is_gpfs_path):
         self.driver._verify_gpfs_path_state(self.images_dir)
 
-    @patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver._is_gpfs_path')
     def test_verify_gpfs_path_state_fail_path(self, mock_is_gpfs_path):
         mock_is_gpfs_path.side_effect = (
             processutils.ProcessExecutionError(stdout='test', stderr='test'))
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver._verify_gpfs_path_state, self.images_dir)
+
+    @mock.patch('cinder.utils.execute')
+    def test_create_consistencygroup(self, mock_exec):
+        ctxt = self.context
+        group = self._fake_group()
+        self.driver.create_consistencygroup(ctxt, group)
+        fsdev = self.driver._gpfs_device
+        cgname = "consisgroup-%s" % group['id']
+        cgpath = os.path.join(self.driver.configuration.gpfs_mount_point_base,
+                              cgname)
+        cmd = ['mmcrfileset', fsdev, cgname, '--inode-space', 'new']
+        mock_exec.assert_any_call(*cmd)
+        cmd = ['mmlinkfileset', fsdev, cgname, '-J', cgpath]
+        mock_exec.assert_any_call(*cmd)
+        cmd = ['chmod', '770', cgpath]
+        mock_exec.assert_any_call(*cmd)
+
+    @mock.patch('cinder.utils.execute')
+    def test_create_consistencygroup_fail(self, mock_exec):
+        ctxt = self.context
+        group = self._fake_group()
+        mock_exec.side_effect = (
+            processutils.ProcessExecutionError(stdout='test', stderr='test'))
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_consistencygroup, ctxt, group)
+
+    @mock.patch('cinder.utils.execute')
+    def test_delete_consistencygroup(self, mock_exec):
+        ctxt = self.context
+        group = self._fake_group()
+        group['status'] = 'available'
+        volume = self._fake_volume()
+        volume['status'] = 'available'
+        volumes = []
+        volumes.append(volume)
+        self.driver.db = mock.Mock()
+        self.driver.db.volume_get_all_by_group = mock.Mock()
+        self.driver.db.volume_get_all_by_group.return_value = volumes
+
+        self.driver.delete_consistencygroup(ctxt, group)
+        fsdev = self.driver._gpfs_device
+        cgname = "consisgroup-%s" % group['id']
+        cmd = ['mmunlinkfileset', fsdev, cgname, '-f']
+        mock_exec.assert_any_call(*cmd)
+        cmd = ['mmdelfileset', fsdev, cgname, '-f']
+        mock_exec.assert_any_call(*cmd)
+
+    @mock.patch('cinder.utils.execute')
+    def test_delete_consistencygroup_fail(self, mock_exec):
+        ctxt = self.context
+        group = self._fake_group()
+        group['status'] = 'available'
+        self.driver.db = mock.Mock()
+        self.driver.db.volume_get_all_by_group = mock.Mock()
+        self.driver.db.volume_get_all_by_group.return_value = []
+
+        mock_exec.side_effect = (
+            processutils.ProcessExecutionError(stdout='test', stderr='test'))
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.delete_consistencygroup, ctxt, group)
+
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.create_snapshot')
+    def test_create_cgsnapshot(self, mock_create_snap):
+        ctxt = self.context
+        cgsnap = self._fake_cgsnapshot()
+        self.driver.db = mock.Mock()
+        self.driver.db.snapshot_get_all_for_cgsnapshot = mock.Mock()
+        snapshot1 = self._fake_snapshot()
+        snapshots = [snapshot1]
+        self.driver.db.snapshot_get_all_for_cgsnapshot.return_value = snapshots
+        model_update, snapshots = self.driver.create_cgsnapshot(ctxt, cgsnap)
+        self.driver.create_snapshot.assert_called_once_with(snapshot1)
+        self.assertEqual({'status': cgsnap['status']}, model_update)
+        self.assertEqual(snapshot1['status'], 'available')
+        self.driver.db.snapshot_get_all_for_cgsnapshot.\
+            assert_called_once_with(ctxt, cgsnap['id'])
+
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.create_snapshot')
+    def test_create_cgsnapshot_empty(self, mock_create_snap):
+        ctxt = self.context
+        cgsnap = self._fake_cgsnapshot()
+        self.driver.db = mock.Mock()
+        self.driver.db.snapshot_get_all_for_cgsnapshot = mock.Mock()
+        snapshots = []
+        self.driver.db.snapshot_get_all_for_cgsnapshot.return_value = snapshots
+        model_update, snapshots = self.driver.create_cgsnapshot(ctxt, cgsnap)
+        self.assertFalse(self.driver.create_snapshot.called)
+        self.assertEqual({'status': cgsnap['status']}, model_update)
+        self.driver.db.snapshot_get_all_for_cgsnapshot.\
+            assert_called_once_with(ctxt, cgsnap['id'])
+
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.delete_snapshot')
+    def test_delete_cgsnapshot(self, mock_delete_snap):
+        ctxt = self.context
+        cgsnap = self._fake_cgsnapshot()
+        self.driver.db = mock.Mock()
+        self.driver.db.snapshot_get_all_for_cgsnapshot = mock.Mock()
+        snapshot1 = self._fake_snapshot()
+        snapshots = [snapshot1]
+        self.driver.db.snapshot_get_all_for_cgsnapshot.return_value = snapshots
+        model_update, snapshots = self.driver.delete_cgsnapshot(ctxt, cgsnap)
+        self.driver.delete_snapshot.assert_called_once_with(snapshot1)
+        self.assertEqual({'status': cgsnap['status']}, model_update)
+        self.assertEqual(snapshot1['status'], 'deleted')
+        self.driver.db.snapshot_get_all_for_cgsnapshot.\
+            assert_called_once_with(ctxt, cgsnap['id'])
+
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.delete_snapshot')
+    def test_delete_cgsnapshot_empty(self, mock_delete_snap):
+        ctxt = self.context
+        cgsnap = self._fake_cgsnapshot()
+        self.driver.db = mock.Mock()
+        self.driver.db.snapshot_get_all_for_cgsnapshot = mock.Mock()
+        snapshots = []
+        self.driver.db.snapshot_get_all_for_cgsnapshot.return_value = snapshots
+        model_update, snapshots = self.driver.delete_cgsnapshot(ctxt, cgsnap)
+        self.assertFalse(self.driver.delete_snapshot.called)
+        self.assertEqual({'status': cgsnap['status']}, model_update)
+        self.driver.db.snapshot_get_all_for_cgsnapshot.\
+            assert_called_once_with(ctxt, cgsnap['id'])
+
+    def test_local_path_volume_not_in_cg(self):
+        volume = self._fake_volume()
+        volume['consistencygroup_id'] = None
+        volume_path = os.path.join(
+            self.driver.configuration.gpfs_mount_point_base,
+            volume['name']
+        )
+        ret = self.driver.local_path(volume)
+        self.assertEqual(ret, volume_path)
+
+    def test_local_path_volume_in_cg(self):
+        volume = self._fake_volume()
+        cgname = "consisgroup-%s" % volume['consistencygroup_id']
+        volume_path = os.path.join(
+            self.driver.configuration.gpfs_mount_point_base,
+            cgname,
+            volume['name']
+        )
+        ret = self.driver.local_path(volume)
+        self.assertEqual(ret, volume_path)
+
+    @mock.patch('cinder.context.get_admin_context')
+    @mock.patch('cinder.volume.drivers.ibm.gpfs.GPFSDriver.local_path')
+    def test_get_snapshot_path(self, mock_local_path, mock_admin_context):
+        volume = self._fake_volume()
+        self.driver.db = mock.Mock()
+        self.driver.db.volume_get = mock.Mock()
+        self.driver.db.volume_get.return_value = volume
+        volume_path = self.volumes_path
+        mock_local_path.return_value = volume_path
+        snapshot = self._fake_snapshot()
+        ret = self.driver._get_snapshot_path(snapshot)
+        self.assertEqual(
+            ret, os.path.join(os.path.dirname(volume_path), snapshot['name'])
+        )
+
+    @mock.patch('cinder.utils.execute')
+    def test_gpfs_full_copy(self, mock_exec):
+        src = "/tmp/vol1"
+        dest = "/tmp/vol2"
+        self.driver._gpfs_full_copy(src, dest)
+        mock_exec.assert_called_once_with('cp', src, dest,
+                                          check_exit_code=True)
+
+    def _fake_volume(self):
+        volume = {}
+        volume['id'] = '123456'
+        volume['name'] = 'test'
+        volume['size'] = 1000
+        volume['consistencygroup_id'] = 'cg-1234'
+        return volume
+
+    def _fake_snapshot(self):
+        snapshot = {}
+        snapshot['id'] = '12345'
+        snapshot['name'] = 'test-snap'
+        snapshot['size'] = 1000
+        snapshot['volume_id'] = '123456'
+        snapshot['status'] = 'available'
+        return snapshot
+
+    def _fake_volume_in_cg(self):
+        volume = {}
+        volume['id'] = '123456'
+        volume['name'] = 'test'
+        volume['size'] = 1000
+        volume['consistencygroup_id'] = 'fakecg'
+        return volume
+
+    def _fake_group(self):
+        group = {}
+        group['name'] = 'test_group'
+        group['id'] = '123456'
+        return group
+
+    def _fake_cgsnapshot(self):
+        cgsnap = {}
+        cgsnap['id'] = '123456'
+        cgsnap['name'] = 'testsnap'
+        cgsnap['consistencygroup_id'] = '123456'
+        cgsnap['status'] = 'available'
+        return cgsnap
 
     def _fake_qemu_qcow2_image_info(self, path):
         data = FakeQemuImgInfo()
@@ -1543,9 +1816,7 @@ class GPFSDriverTestCase(test.TestCase):
                                                       old_type_ref['id'],
                                                       new_type_ref['id'])
 
-        volume = {}
-        volume['name'] = 'test'
+        volume = self._fake_volume()
         volume['host'] = host
-        volume['id'] = '123456'
 
         return (volume, new_type, diff, host)

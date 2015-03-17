@@ -18,11 +18,11 @@ import ast
 import base64
 
 from oslo_config import cfg
+from oslo_log import log
 from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
-from cinder.openstack.common import log
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
 from cinder.volume.drivers.zfssa import zfssarest
@@ -37,13 +37,17 @@ ZFSSA_OPTS = [
     cfg.StrOpt('zfssa_project',
                help='Project name.'),
     cfg.StrOpt('zfssa_lun_volblocksize', default='8k',
-               help='Block size: 512, 1k, 2k, 4k, 8k, 16k, 32k, 64k, 128k.'),
+               choices=['512', '1k', '2k', '4k', '8k', '16k', '32k', '64k',
+                        '128k'],
+               help='Block size.'),
     cfg.BoolOpt('zfssa_lun_sparse', default=False,
                 help='Flag to enable sparse (thin-provisioned): True, False.'),
-    cfg.StrOpt('zfssa_lun_compression', default='',
-               help='Data compression-off, lzjb, gzip-2, gzip, gzip-9.'),
-    cfg.StrOpt('zfssa_lun_logbias', default='',
-               help='Synchronous write bias-latency, throughput.'),
+    cfg.StrOpt('zfssa_lun_compression', default='off',
+               choices=['off', 'lzjb', 'gzip-2', 'gzip', 'gzip-9'],
+               help='Data compression.'),
+    cfg.StrOpt('zfssa_lun_logbias', default='latency',
+               choices=['latency', 'throughput'],
+               help='Synchronous write bias.'),
     cfg.StrOpt('zfssa_initiator_group', default='',
                help='iSCSI initiator group.'),
     cfg.StrOpt('zfssa_initiator', default='',
@@ -51,7 +55,7 @@ ZFSSA_OPTS = [
     cfg.StrOpt('zfssa_initiator_user', default='',
                help='iSCSI initiator CHAP user.'),
     cfg.StrOpt('zfssa_initiator_password', default='',
-               help='iSCSI initiator CHAP password.'),
+               help='iSCSI initiator CHAP password.', secret=True),
     cfg.StrOpt('zfssa_initiator_config', default='',
                help='iSCSI initiators configuration.'),
     cfg.StrOpt('zfssa_target_group', default='tgt-grp',
@@ -59,7 +63,7 @@ ZFSSA_OPTS = [
     cfg.StrOpt('zfssa_target_user', default='',
                help='iSCSI target CHAP user.'),
     cfg.StrOpt('zfssa_target_password', default='',
-               help='iSCSI target CHAP password.'),
+               help='iSCSI target CHAP password.', secret=True),
     cfg.StrOpt('zfssa_target_portal',
                help='iSCSI target portal (Data-IP:Port, w.x.y.z:3260).'),
     cfg.StrOpt('zfssa_target_interfaces',

@@ -29,7 +29,8 @@ Guidelines for writing new hacking checks
 
 """
 
-UNDERSCORE_IMPORT_FILES = []
+# NOTE(thangp): Ignore N323 pep8 error caused by importing cinder objects
+UNDERSCORE_IMPORT_FILES = ['./cinder/objects/__init__.py']
 
 translated_log = re.compile(
     r"(.)*LOG\.(audit|error|info|warn|warning|critical|exception)"
@@ -44,7 +45,7 @@ no_audit_log = re.compile(r"(.)*LOG\.audit(.)*")
 # NOTE(jsbryant): When other oslo libraries switch over non-namespaced
 # imports, we will need to add them to the regex below.
 oslo_namespace_imports = re.compile(r"from[\s]*oslo[.](concurrency|db"
-                                    "|config|utils|serialization)")
+                                    "|config|utils|serialization|log)")
 
 
 def no_vi_headers(physical_line, line_number, lines):
@@ -137,6 +138,15 @@ def check_oslo_namespace_imports(logical_line):
         yield(0, msg)
 
 
+def check_no_contextlib_nested(logical_line):
+    msg = ("N339: contextlib.nested is deprecated. With Python 2.7 and later "
+           "the with-statement supports multiple nested objects. See https://"
+           "docs.python.org/2/library/contextlib.html#contextlib.nested "
+           "for more information.")
+    if "with contextlib.nested" in logical_line:
+        yield(0, msg)
+
+
 def factory(register):
     register(no_vi_headers)
     register(no_translate_debug_logs)
@@ -145,3 +155,4 @@ def factory(register):
     register(check_no_log_audit)
     register(check_assert_called_once)
     register(check_oslo_namespace_imports)
+    register(check_no_contextlib_nested)

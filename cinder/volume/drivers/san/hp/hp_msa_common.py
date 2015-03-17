@@ -20,10 +20,10 @@ import base64
 import uuid
 
 from oslo_config import cfg
+from oslo_log import log as logging
 
 from cinder import exception
 from cinder.i18n import _LE
-from cinder.openstack.common import log as logging
 from cinder.volume.drivers.san.hp import hp_msa_client as msa
 
 LOG = logging.getLogger(__name__)
@@ -226,7 +226,7 @@ class HPMSACommon(object):
                 return
             raise exception.Invalid(ex)
 
-    def get_volume_stats(self, refresh):
+    def get_volume_stats(self, refresh=False):
         if refresh:
             self._update_volume_stats()
 

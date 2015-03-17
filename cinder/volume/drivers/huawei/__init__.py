@@ -19,11 +19,11 @@ The product type and the protocol should be specified in config file before.
 """
 
 from oslo_config import cfg
+from oslo_log import log as logging
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LI, _LW
-from cinder.openstack.common import log as logging
 from cinder.volume.drivers.huawei import huawei_18000
 from cinder.volume.drivers.huawei import huawei_dorado
 from cinder.volume.drivers.huawei import huawei_t
@@ -70,7 +70,7 @@ class HuaweiVolumeDriver(object):
             'Huawei OceanStor %(product)s series storage arrays.')
             % {'protocol': protocol,
                'product': product})
-        #Map HVS to 18000
+        # Map HVS to 18000
         if product in MAPPING:
             LOG.warn(_LW("Product name %s is deprecated, update your "
                          "configuration to the new product name."), product)

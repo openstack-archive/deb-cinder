@@ -22,9 +22,10 @@
 .. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
 """
 
+from oslo_log import log as logging
+
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
-from cinder.openstack.common import log as logging
 from cinder.volume import driver
 from cinder.volume.drivers import nexenta
 from cinder.volume.drivers.nexenta import jsonrpc
@@ -511,8 +512,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         if not self._is_lu_shared(zvol_name):
             try:
                 self.nms.scsidisk.add_lun_mapping_entry(zvol_name, {
-                    'target_group': target_group_name,
-                    'lun': '0'})
+                    'target_group': target_group_name})
             except nexenta.NexentaException as exc:
                 if not ensure or 'view entry exists' not in exc.args[0]:
                     raise

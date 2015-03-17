@@ -10,16 +10,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_log import log as logging
 
 from cinder.i18n import _LW
-from cinder.openstack.common import log as logging
-from cinder.volume.targets.tgt import TgtAdm
+from cinder.volume.targets import tgt
 
 
 LOG = logging.getLogger(__name__)
 
 
-class ISERTgtAdm(TgtAdm):
+class ISERTgtAdm(tgt.TgtAdm):
     VERSION = '0.2'
 
     def __init__(self, *args, **kwargs):

@@ -12,7 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
 import copy
 import os
 
@@ -239,28 +238,28 @@ class SmbFsTestCase(test.TestCase):
         fake_volume_size = 2
         ret_value = self._test_is_share_eligible(fake_capacity_info,
                                                  fake_volume_size)
-        self.assertEqual(ret_value, False)
+        self.assertFalse(ret_value)
 
     def test_eligible_share(self):
         fake_capacity_info = (4, 4, 0)
         fake_volume_size = 1
         ret_value = self._test_is_share_eligible(fake_capacity_info,
                                                  fake_volume_size)
-        self.assertEqual(ret_value, True)
+        self.assertTrue(ret_value)
 
     def test_share_volume_above_oversub_ratio(self):
         fake_capacity_info = (4, 4, 7)
         fake_volume_size = 2
         ret_value = self._test_is_share_eligible(fake_capacity_info,
                                                  fake_volume_size)
-        self.assertEqual(ret_value, False)
+        self.assertFalse(ret_value)
 
     def test_share_reserved_above_oversub_ratio(self):
         fake_capacity_info = (4, 4, 10)
         fake_volume_size = 1
         ret_value = self._test_is_share_eligible(fake_capacity_info,
                                                  fake_volume_size)
-        self.assertEqual(ret_value, False)
+        self.assertFalse(ret_value)
 
     def test_parse_options(self):
         (opt_list,
@@ -321,10 +320,9 @@ class SmbFsTestCase(test.TestCase):
             return_value=mock.Mock(file_format=image_format))
         drv._delete = mock.Mock()
 
-        with contextlib.nested(
-                mock.patch.object(image_utils, 'resize_image'),
-                mock.patch.object(image_utils, 'convert_image')) as (
-                    fake_resize, fake_convert):
+        with mock.patch.object(image_utils, 'resize_image') as fake_resize, \
+                mock.patch.object(image_utils, 'convert_image') as \
+                fake_convert:
             if extend_failed:
                 self.assertRaises(exception.ExtendVolumeError,
                                   drv._extend_volume,
@@ -473,13 +471,9 @@ class SmbFsTestCase(test.TestCase):
             mock.sentinel.block_size)
 
         exc = None
-        with contextlib.nested(
-            mock.patch.object(image_utils,
-                              'fetch_to_volume_format'),
-            mock.patch.object(image_utils,
-                              'qemu_img_info')) as (
-                fake_fetch,
-                fake_qemu_img_info):
+        with mock.patch.object(image_utils, 'fetch_to_volume_format') as \
+                fake_fetch, mock.patch.object(image_utils, 'qemu_img_info') as \
+                fake_qemu_img_info:
 
             if wrong_size_after_fetch:
                 exc = exception.ImageUnacceptable

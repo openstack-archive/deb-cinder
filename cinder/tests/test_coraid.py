@@ -19,13 +19,13 @@ import math
 import mock
 import mox
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_serialization import jsonutils
 from oslo_utils import units
 
 from cinder.brick.initiator import connector
 from cinder import exception
 from cinder.image import image_utils
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder import utils
 from cinder.volume import configuration as conf
@@ -243,6 +243,7 @@ class CoraidDriverTestCase(test.TestCase):
         configuration.snapshot_name_template = "snapshot-%s"
         configuration.coraid_repository_key = fake_coraid_repository_key
         configuration.use_multipath_for_image_xfer = False
+        configuration.enforce_multipath_for_image_xfer = False
         configuration.num_volume_device_scan_tries = 3
         configuration.volume_dd_blocksize = '1M'
         self.fake_rpc = FakeRpc()
@@ -815,7 +816,7 @@ class CoraidDriverImageTestCases(CoraidDriverTestCase):
 
         self.mox.StubOutWithMock(connector, 'get_connector_properties')
         connector.get_connector_properties(root_helper,
-                                           CONF.my_ip).\
+                                           CONF.my_ip, False, False).\
             AndReturn({})
 
         self.mox.StubOutWithMock(utils, 'brick_get_connector')

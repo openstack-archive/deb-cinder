@@ -20,9 +20,10 @@ import copy
 import datetime
 import uuid
 
+from oslo_log import log as logging
+
 from cinder import exception
 import cinder.image.glance
-from cinder.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ class _FakeImageService(object):
         self._imagedata = {}
         super(_FakeImageService, self).__init__()
 
-    #TODO(bcwaldon): implement optional kwargs such as limit, sort_dir
+    # TODO(bcwaldon): implement optional kwargs such as limit, sort_dir
     def detail(self, context, **kwargs):
         """Return list of detailed image information."""
         return copy.deepcopy(self.images.values())

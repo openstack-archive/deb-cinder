@@ -22,12 +22,12 @@ import re
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LE
 from cinder.image import image_utils
-from cinder.openstack.common import log as logging
 from cinder.volume import driver
 
 
@@ -50,9 +50,9 @@ class SheepdogDriver(driver.VolumeDriver):
     def check_for_setup_error(self):
         """Return error if prerequisites aren't met."""
         try:
-            #NOTE(francois-charlier) Since 0.24 'collie cluster info -r'
-            #  gives short output, but for compatibility reason we won't
-            #  use it and just check if 'running' is in the output.
+            # NOTE(francois-charlier) Since 0.24 'collie cluster info -r'
+            # gives short output, but for compatibility reason we won't
+            # use it and just check if 'running' is in the output.
             (out, _err) = self._execute('collie', 'cluster', 'info')
             if 'status: running' not in out:
                 exception_message = (_("Sheepdog is not working: %s") % out)

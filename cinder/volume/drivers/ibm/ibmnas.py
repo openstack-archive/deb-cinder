@@ -34,15 +34,15 @@ import re
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LI, _LW
 from cinder.image import image_utils
-from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.drivers import nfs
-from cinder.volume.drivers.remotefs import nas_opts
+from cinder.volume.drivers import remotefs
 from cinder.volume.drivers.san import san
 
 VERSION = '1.1.0'
@@ -52,6 +52,7 @@ LOG = logging.getLogger(__name__)
 platform_opts = [
     cfg.StrOpt('ibmnas_platform_type',
                default='v7ku',
+               choices=['v7ku', 'sonas', 'gpfs-nas'],
                help=('IBMNAS platform type to be used as backend storage; '
                      'valid values are - '
                      'v7ku : for using IBM Storwize V7000 Unified, '
@@ -78,7 +79,7 @@ class IBMNAS_NFSDriver(nfs.NfsDriver, san.SanDriver):
     def __init__(self, execute=utils.execute, *args, **kwargs):
         self._context = None
         super(IBMNAS_NFSDriver, self).__init__(*args, **kwargs)
-        self.configuration.append_config_values(nas_opts)
+        self.configuration.append_config_values(remotefs.nas_opts)
         self.configuration.append_config_values(platform_opts)
         self.configuration.san_ip = self.configuration.nas_ip
         self.configuration.san_login = self.configuration.nas_login

@@ -12,8 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
-
 import mock
 
 from cinder.compute import nova
@@ -44,28 +42,38 @@ class NovaClientTestCase(test.TestCase):
     def test_nova_client_regular(self, p_client):
         nova.novaclient(self.ctx)
         p_client.assert_called_once_with(
-            'regularuser', 'token', None,
+            'regularuser', 'token', None, region_name=None,
             auth_url='http://novahost:8774/v2/e3f0833dc08b4cea',
-            insecure=False, cacert=None, timeout=None,
-            extensions=nova.nova_extensions)
+            insecure=False, endpoint_type='publicURL', cacert=None,
+            timeout=None, extensions=nova.nova_extensions)
 
     @mock.patch('novaclient.v1_1.client.Client')
     def test_nova_client_admin_endpoint(self, p_client):
         nova.novaclient(self.ctx, admin_endpoint=True)
         p_client.assert_called_once_with(
-            'regularuser', 'token', None,
+            'regularuser', 'token', None, region_name=None,
             auth_url='http://novaadmhost:4778/v2/e3f0833dc08b4cea',
-            insecure=False, cacert=None, timeout=None,
-            extensions=nova.nova_extensions)
+            insecure=False, endpoint_type='adminURL', cacert=None,
+            timeout=None, extensions=nova.nova_extensions)
 
     @mock.patch('novaclient.v1_1.client.Client')
     def test_nova_client_privileged_user(self, p_client):
         nova.novaclient(self.ctx, privileged_user=True)
         p_client.assert_called_once_with(
-            'adminuser', 'strongpassword', None,
+            'adminuser', 'strongpassword', None, region_name=None,
             auth_url='http://keystonehost:5000/v2.0',
-            insecure=False, cacert=None, timeout=None,
-            extensions=nova.nova_extensions)
+            insecure=False, endpoint_type='publicURL', cacert=None,
+            timeout=None, extensions=nova.nova_extensions)
+
+    @mock.patch('novaclient.v1_1.client.Client')
+    def test_nova_client_custom_region(self, p_client):
+        self.override_config('os_region_name', 'farfaraway')
+        nova.novaclient(self.ctx)
+        p_client.assert_called_once_with(
+            'regularuser', 'token', None, region_name='farfaraway',
+            auth_url='http://novahost:8774/v2/e3f0833dc08b4cea',
+            insecure=False, endpoint_type='publicURL', cacert=None,
+            timeout=None, extensions=nova.nova_extensions)
 
 
 class FakeNovaClient(object):
@@ -92,11 +100,10 @@ class NovaApiTestCase(test.TestCase):
         self.ctx = context.get_admin_context()
 
     def test_update_server_volume(self):
-        with contextlib.nested(
-                mock.patch.object(nova, 'novaclient'),
+        with mock.patch.object(nova, 'novaclient') as mock_novaclient, \
                 mock.patch.object(self.novaclient.volumes,
-                                  'update_server_volume')
-        ) as (mock_novaclient, mock_update_server_volume):
+                                  'update_server_volume') as \
+                mock_update_server_volume:
             mock_novaclient.return_value = self.novaclient
 
             self.api.update_server_volume(self.ctx, 'server_id',

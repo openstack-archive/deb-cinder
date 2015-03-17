@@ -25,13 +25,13 @@ import string
 import urllib2
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import units
 from suds import client
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI
-from cinder.openstack.common import log as logging
-from cinder.volume.drivers.san.san import SanISCSIDriver
+from cinder.volume.drivers.san import san
 
 
 DRIVER_VERSION = '1.0'
@@ -67,7 +67,7 @@ class NimbleAPIException(exception.VolumeBackendAPIException):
     message = _("Unexpected response from Nimble API")
 
 
-class NimbleISCSIDriver(SanISCSIDriver):
+class NimbleISCSIDriver(san.SanISCSIDriver):
 
     """OpenStack driver to enable Nimble Controller.
 

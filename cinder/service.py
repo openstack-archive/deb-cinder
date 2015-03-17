@@ -22,10 +22,11 @@ import inspect
 import os
 import random
 
-from oslo import messaging
 from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_db import exception as db_exc
+from oslo_log import log as logging
+import oslo_messaging as messaging
 from oslo_utils import importutils
 import osprofiler.notifier
 from osprofiler import profiler
@@ -35,7 +36,7 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.i18n import _
-from cinder.openstack.common import log as logging
+from cinder.objects import base as objects_base
 from cinder.openstack.common import loopingcall
 from cinder.openstack.common import service
 from cinder import rpc
@@ -154,8 +155,11 @@ class Service(service.Service):
         target = messaging.Target(topic=self.topic, server=self.host)
         endpoints = [self.manager]
         endpoints.extend(self.manager.additional_endpoints)
-        self.rpcserver = rpc.get_server(target, endpoints)
+        serializer = objects_base.CinderObjectSerializer()
+        self.rpcserver = rpc.get_server(target, endpoints, serializer)
         self.rpcserver.start()
+
+        self.manager.init_host_with_rpc()
 
         if self.report_interval:
             pulse = loopingcall.FixedIntervalLoopingCall(

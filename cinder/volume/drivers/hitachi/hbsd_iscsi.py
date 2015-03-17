@@ -16,16 +16,15 @@ iSCSI Cinder volume driver for Hitachi storage.
 
 """
 
-from contextlib import nested
 import os
 import threading
 
 from oslo_config import cfg
+from oslo_log import log as logging
 import six
 
 from cinder import exception
 from cinder.i18n import _LE
-from cinder.openstack.common import log as logging
 from cinder import utils
 import cinder.volume.driver
 from cinder.volume.drivers.hitachi import hbsd_basiclib as basic_lib
@@ -47,7 +46,7 @@ volume_opts = [
                help='iSCSI authentication username'),
     cfg.StrOpt('hitachi_auth_password',
                default='%sCHAP-password' % basic_lib.NAME_PREFIX,
-               help='iSCSI authentication password'),
+               help='iSCSI authentication password', secret=True),
 ]
 
 CONF = cfg.CONF
@@ -348,8 +347,8 @@ class HBSDISCSIDriver(cinder.volume.driver.ISCSIDriver):
             msg = basic_lib.output_err(619, volume_id=volume['id'])
             raise exception.HBSDError(message=msg)
         self.common.add_volinfo(ldev, volume['id'])
-        with nested(self.common.volume_info[ldev]['lock'],
-                    self.common.volume_info[ldev]['in_use']):
+        with self.common.volume_info[ldev]['lock'],\
+                self.common.volume_info[ldev]['in_use']:
             hostgroups = self._initialize_connection(ldev, connector)
             protocol = 'iscsi'
             properties = self._get_properties(volume, hostgroups)
@@ -390,8 +389,8 @@ class HBSDISCSIDriver(cinder.volume.driver.ISCSIDriver):
             raise exception.HBSDError(message=msg)
 
         self.common.add_volinfo(ldev, volume['id'])
-        with nested(self.common.volume_info[ldev]['lock'],
-                    self.common.volume_info[ldev]['in_use']):
+        with self.common.volume_info[ldev]['lock'],\
+                self.common.volume_info[ldev]['in_use']:
             self._terminate_connection(ldev, connector, hostgroups)
 
     def create_export(self, context, volume):

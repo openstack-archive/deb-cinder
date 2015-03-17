@@ -21,6 +21,7 @@ import tempfile
 
 import mock
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import importutils
 from oslo_utils import timeutils
 
@@ -28,10 +29,8 @@ from cinder.backup import manager
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.openstack.common import log as logging
 from cinder import test
-from cinder.tests.backup.fake_service_with_verify import\
-    get_backup_driver
+from cinder.tests.backup import fake_service_with_verify as fake_service
 
 
 CONF = cfg.CONF
@@ -81,6 +80,8 @@ class BaseBackupTest(test.TestCase):
         backup['status'] = status
         backup['fail_reason'] = ''
         backup['service'] = CONF.backup_driver
+        backup['snapshot'] = False
+        backup['parent_id'] = None
         backup['size'] = size
         backup['object_count'] = object_count
         return db.backup_create(self.ctxt, backup)['id']
@@ -103,6 +104,13 @@ class BaseBackupTest(test.TestCase):
         vol['display_description'] = display_description
         vol['attach_status'] = 'detached'
         return db.volume_create(self.ctxt, vol)['id']
+
+    def _create_volume_attach(self, volume_id):
+        values = {'volume_id': volume_id,
+                  'attach_status': 'attached', }
+        attachment = db.volume_attach(self.ctxt, values)
+        db.volume_attached(self.ctxt, attachment['id'], None, 'testhost',
+                           '/dev/vd0')
 
     def _create_exported_record_entry(self, vol_size=1):
         """Create backup metadata export entry."""
@@ -137,8 +145,12 @@ class BackupTestCase(BaseBackupTest):
         """Make sure stuck volumes and backups are reset to correct
         states when backup_manager.init_host() is called
         """
-        vol1_id = self._create_volume_db_entry(status='backing-up')
-        vol2_id = self._create_volume_db_entry(status='restoring-backup')
+        vol1_id = self._create_volume_db_entry()
+        self._create_volume_attach(vol1_id)
+        db.volume_update(self.ctxt, vol1_id, {'status': 'backing-up'})
+        vol2_id = self._create_volume_db_entry()
+        self._create_volume_attach(vol2_id)
+        db.volume_update(self.ctxt, vol2_id, {'status': 'restoring-backup'})
         backup1_id = self._create_backup_db_entry(status='creating')
         backup2_id = self._create_backup_db_entry(status='restoring')
         backup3_id = self._create_backup_db_entry(status='deleting')
@@ -527,7 +539,7 @@ class BackupTestCase(BaseBackupTest):
         export['backup_service'] = 'cinder.tests.backup.bad_service'
         imported_record = self._create_export_record_db_entry()
 
-        #Test the case where the additional hosts list is empty
+        # Test the case where the additional hosts list is empty
         backup_hosts = []
         self.assertRaises(exception.ServiceNotFound,
                           self.backup_mgr.import_record,
@@ -537,8 +549,8 @@ class BackupTestCase(BaseBackupTest):
                           export['backup_url'],
                           backup_hosts)
 
-        #Test that the import backup keeps calling other hosts to find a
-        #suitable host for the backup service
+        # Test that the import backup keeps calling other hosts to find a
+        # suitable host for the backup service
         backup_hosts = ['fake1', 'fake2']
         BackupAPI_import = 'cinder.backup.rpcapi.BackupAPI.import_record'
         with mock.patch(BackupAPI_import) as _mock_backup_import:
@@ -646,7 +658,7 @@ class BackupTestCaseWithVerify(BaseBackupTest):
                                '_map_service_to_driver') as \
                 mock_map_service_to_driver:
             mock_map_service_to_driver.return_value = \
-                get_backup_driver(self.ctxt)
+                fake_service.get_backup_driver(self.ctxt)
             self.backup_mgr.reset_status(self.ctxt,
                                          backup_id,
                                          'available')

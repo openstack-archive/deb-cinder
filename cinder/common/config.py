@@ -28,12 +28,14 @@ stepping stone.
 import socket
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import netutils
 
 from cinder.i18n import _
 
 
 CONF = cfg.CONF
+logging.register_options(CONF)
 
 core_opts = [
     cfg.StrOpt('api_paste_config',
@@ -166,6 +168,7 @@ global_opts = [
                help='The full class name of the volume backup API class'),
     cfg.StrOpt('auth_strategy',
                default='noauth',
+               choices=['noauth', 'keystone', 'deprecated'],
                help='The strategy to use for auth. Supports noauth, keystone, '
                     'and deprecated.'),
     cfg.ListOpt('enabled_backends',
@@ -175,7 +178,7 @@ global_opts = [
                      'with its options'),
     cfg.BoolOpt('no_snapshot_gb_quota',
                 default=False,
-                help='Whether snapshots count against GigaByte quota'),
+                help='Whether snapshots count against gigabyte quota'),
     cfg.StrOpt('transfer_api_class',
                default='cinder.transfer.api.API',
                help='The full class name of the volume transfer API class'),
@@ -193,7 +196,8 @@ global_opts = [
     cfg.StrOpt('os_privileged_user_password',
                default=None,
                help='Password associated with the OpenStack privileged '
-                    'account.'),
+                    'account.',
+               secret=True),
     cfg.StrOpt('os_privileged_user_tenant',
                default=None,
                help='Tenant name associated with the OpenStack privileged '

@@ -15,16 +15,16 @@
 ZFS Storage Appliance NFS Cinder Volume Driver
 """
 import base64
-from datetime import datetime
+import datetime as dt
 import errno
 
 from oslo_config import cfg
+from oslo_log import log
 from oslo_utils import excutils
 from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI
-from cinder.openstack.common import log
 from cinder.volume.drivers import nfs
 from cinder.volume.drivers.san import san
 from cinder.volume.drivers.zfssa import zfssarest
@@ -44,8 +44,10 @@ ZFSSA_OPTS = [
     cfg.StrOpt('zfssa_nfs_share', default='nfs_share',
                help='Share name.'),
     cfg.StrOpt('zfssa_nfs_share_compression', default='off',
-               help='Data compression-off, lzjb, gzip-2, gzip, gzip-9.'),
+               choices=['off', 'lzjb', 'gzip-2', 'gzip', 'gzip-9'],
+               help='Data compression.'),
     cfg.StrOpt('zfssa_nfs_share_logbias', default='latency',
+               choices=['latency', 'throughput'],
                help='Synchronous write bias-latency, throughput.'),
     cfg.IntOpt('zfssa_rest_timeout',
                help='REST connection timeout. (seconds)')
@@ -261,7 +263,7 @@ class ZFSSANFSDriver(nfs.NfsDriver):
 
     def _create_snapshot_name(self):
         """Creates a snapshot name from the date and time."""
-        return 'cinder-zfssa-nfs-snapshot-%s' % datetime.now().isoformat()
+        return 'cinder-zfssa-nfs-snapshot-%s' % dt.datetime.now().isoformat()
 
     def _get_share_capacity_info(self):
         """Get available and used capacity info for the NFS share."""

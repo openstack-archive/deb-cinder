@@ -16,12 +16,9 @@
 
 import errno
 import os
-import random
 
 import mock
 import mox as mox_lib
-from mox import IgnoreArg
-from mox import IsA
 from mox import stubout
 from oslo_utils import units
 
@@ -165,14 +162,14 @@ class RemoteFsDriverTestCase(test.TestCase):
             secure_file_permissions,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'true')
+        self.assertEqual('true', nas_option)
 
         secure_file_operations = 'auto'
         nas_option = drv._determine_nas_security_option_setting(
             secure_file_operations,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'true')
+        self.assertEqual('true', nas_option)
 
     @mock.patch('os.path.join')
     @mock.patch('os.path.isfile')
@@ -201,14 +198,14 @@ class RemoteFsDriverTestCase(test.TestCase):
             secure_file_permissions,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'true')
+        self.assertEqual('true', nas_option)
 
         secure_file_operations = 'auto'
         nas_option = drv._determine_nas_security_option_setting(
             secure_file_operations,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'true')
+        self.assertEqual('true', nas_option)
 
     @mock.patch('os.path.join')
     @mock.patch('os.path.isfile')
@@ -236,14 +233,14 @@ class RemoteFsDriverTestCase(test.TestCase):
             secure_file_permissions,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'false')
+        self.assertEqual('false', nas_option)
 
         secure_file_operations = 'auto'
         nas_option = drv._determine_nas_security_option_setting(
             secure_file_operations,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'false')
+        self.assertEqual('false', nas_option)
 
     def test_determine_nas_security_options_when_admin_set_true(self):
         """Test the setting of the NAS Security Option
@@ -263,14 +260,14 @@ class RemoteFsDriverTestCase(test.TestCase):
             secure_file_permissions,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'true')
+        self.assertEqual('true', nas_option)
 
         secure_file_operations = 'true'
         nas_option = drv._determine_nas_security_option_setting(
             secure_file_operations,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'true')
+        self.assertEqual('true', nas_option)
 
     def test_determine_nas_security_options_when_admin_set_false(self):
         """Test the setting of the NAS Security Option
@@ -290,14 +287,14 @@ class RemoteFsDriverTestCase(test.TestCase):
             secure_file_permissions,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'false')
+        self.assertEqual('false', nas_option)
 
         secure_file_operations = 'false'
         nas_option = drv._determine_nas_security_option_setting(
             secure_file_operations,
             nas_mount, is_new_install)
 
-        self.assertEqual(nas_option, 'false')
+        self.assertEqual('false', nas_option)
 
     @mock.patch.object(remotefs, 'LOG')
     def test_set_nas_security_options(self, LOG):
@@ -311,9 +308,9 @@ class RemoteFsDriverTestCase(test.TestCase):
 
         drv.set_nas_security_options(is_new_install)
 
-        self.assertEqual(drv.configuration.nas_secure_file_operations, 'false')
-        self.assertEqual(drv.configuration.nas_secure_file_permissions,
-                         'false')
+        self.assertEqual('false', drv.configuration.nas_secure_file_operations)
+        self.assertEqual('false',
+                         drv.configuration.nas_secure_file_permissions)
         self.assertTrue(LOG.warn.called)
 
     def test_secure_file_operations_enabled_true(self):
@@ -342,7 +339,9 @@ class RemoteFsDriverTestCase(test.TestCase):
 class NfsDriverTestCase(test.TestCase):
     """Test case for NFS driver."""
 
-    TEST_NFS_EXPORT1 = 'nfs-host1:/export'
+    TEST_NFS_HOST = 'nfs-host1'
+    TEST_NFS_SHARE_PATH = '/export'
+    TEST_NFS_EXPORT1 = '%s:%s' % (TEST_NFS_HOST, TEST_NFS_SHARE_PATH)
     TEST_NFS_EXPORT2 = 'nfs-host2:/export'
     TEST_NFS_EXPORT2_OPTIONS = '-o intr'
     TEST_SIZE_IN_GB = 1
@@ -367,8 +366,12 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_mount_point_base = self.TEST_MNT_POINT_BASE
         self.configuration.nfs_mount_options = None
         self.configuration.nfs_mount_attempts = 3
+        self.configuration.nfs_qcow2_volumes = False
         self.configuration.nas_secure_file_permissions = 'false'
         self.configuration.nas_secure_file_operations = 'false'
+        self.configuration.nas_ip = None
+        self.configuration.nas_share_path = None
+        self.configuration.nas_mount_options = None
         self.configuration.volume_dd_blocksize = '1M'
         self._driver = nfs.NfsDriver(configuration=self.configuration)
         self._driver.shares = {}
@@ -526,10 +529,29 @@ class NfsDriverTestCase(test.TestCase):
 
         self.assertIn(self.TEST_NFS_EXPORT1, drv.shares)
         self.assertIn(self.TEST_NFS_EXPORT2, drv.shares)
-        self.assertEqual(len(drv.shares), 2)
+        self.assertEqual(2, len(drv.shares))
 
-        self.assertEqual(drv.shares[self.TEST_NFS_EXPORT2],
-                         self.TEST_NFS_EXPORT2_OPTIONS)
+        self.assertEqual(self.TEST_NFS_EXPORT2_OPTIONS,
+                         drv.shares[self.TEST_NFS_EXPORT2])
+
+        mox.VerifyAll()
+
+    def test_load_shares_config_nas_opts(self):
+        mox = self._mox
+        drv = self._driver
+
+        mox.StubOutWithMock(drv, '_read_config_file')  # ensure not called
+
+        drv.configuration.nas_ip = self.TEST_NFS_HOST
+        drv.configuration.nas_share_path = self.TEST_NFS_SHARE_PATH
+        drv.configuration.nfs_shares_config = self.TEST_SHARES_CONFIG_FILE
+
+        mox.ReplayAll()
+
+        drv._load_shares_config(drv.configuration.nfs_shares_config)
+
+        self.assertIn(self.TEST_NFS_EXPORT1, drv.shares)
+        self.assertEqual(len(drv.shares), 1)
 
         mox.VerifyAll()
 
@@ -588,7 +610,7 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_shares_config = self.TEST_SHARES_CONFIG_FILE
 
         self.assertRaises(exception.NfsException,
-                          drv.do_setup, IsA(context.RequestContext))
+                          drv.do_setup, mox_lib.IsA(context.RequestContext))
 
     def test_setup_should_throw_error_if_oversub_ratio_less_than_zero(self):
         """do_setup should throw error if nfs_oversub_ratio is less than 0."""
@@ -596,7 +618,7 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_oversub_ratio = -1
         self.assertRaises(exception.NfsException,
                           drv.do_setup,
-                          IsA(context.RequestContext))
+                          mox_lib.IsA(context.RequestContext))
 
     def test_setup_should_throw_error_if_used_ratio_less_than_zero(self):
         """do_setup should throw error if nfs_used_ratio is less than 0."""
@@ -604,7 +626,7 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_used_ratio = -1
         self.assertRaises(exception.NfsException,
                           drv.do_setup,
-                          IsA(context.RequestContext))
+                          mox_lib.IsA(context.RequestContext))
 
     def test_setup_should_throw_error_if_used_ratio_greater_than_one(self):
         """do_setup should throw error if nfs_used_ratio is greater than 1."""
@@ -612,7 +634,7 @@ class NfsDriverTestCase(test.TestCase):
         self.configuration.nfs_used_ratio = 2
         self.assertRaises(exception.NfsException,
                           drv.do_setup,
-                          IsA(context.RequestContext))
+                          mox_lib.IsA(context.RequestContext))
 
     def test_setup_should_throw_exception_if_nfs_client_is_not_installed(self):
         """do_setup should throw error if nfs client is not installed."""
@@ -628,7 +650,7 @@ class NfsDriverTestCase(test.TestCase):
         mox.ReplayAll()
 
         self.assertRaises(exception.NfsException,
-                          drv.do_setup, IsA(context.RequestContext))
+                          drv.do_setup, mox_lib.IsA(context.RequestContext))
 
         mox.VerifyAll()
 
@@ -708,8 +730,8 @@ class NfsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, '_create_sparsed_file')
         mox.StubOutWithMock(drv, '_set_rw_permissions')
 
-        drv._create_sparsed_file(IgnoreArg(), IgnoreArg())
-        drv._set_rw_permissions(IgnoreArg())
+        drv._create_sparsed_file(mox_lib.IgnoreArg(), mox_lib.IgnoreArg())
+        drv._set_rw_permissions(mox_lib.IgnoreArg())
 
         mox.ReplayAll()
 
@@ -728,8 +750,8 @@ class NfsDriverTestCase(test.TestCase):
         mox.StubOutWithMock(drv, '_create_regular_file')
         mox.StubOutWithMock(drv, '_set_rw_permissions')
 
-        drv._create_regular_file(IgnoreArg(), IgnoreArg())
-        drv._set_rw_permissions(IgnoreArg())
+        drv._create_regular_file(mox_lib.IgnoreArg(), mox_lib.IgnoreArg())
+        drv._set_rw_permissions(mox_lib.IgnoreArg())
 
         mox.ReplayAll()
 
@@ -835,7 +857,7 @@ class NfsDriverTestCase(test.TestCase):
         with mock.patch.object(drv, '_execute') as mock_execute:
             drv.delete_volume(volume)
 
-            self.assertEqual(mock_execute.call_count, 0)
+            self.assertEqual(0, mock_execute.call_count)
 
     def test_get_volume_stats(self):
         """get_volume_stats must fill the correct values."""
@@ -859,8 +881,8 @@ class NfsDriverTestCase(test.TestCase):
         mox.ReplayAll()
 
         drv.get_volume_stats()
-        self.assertEqual(drv._stats['total_capacity_gb'], 30.0)
-        self.assertEqual(drv._stats['free_capacity_gb'], 5.0)
+        self.assertEqual(30.0, drv._stats['total_capacity_gb'])
+        self.assertEqual(5.0, drv._stats['free_capacity_gb'])
 
         mox.VerifyAll()
 
@@ -1014,8 +1036,8 @@ class NfsDriverTestCase(test.TestCase):
 
         drv.set_nas_security_options(is_new_install)
 
-        self.assertEqual(drv.configuration.nas_secure_file_operations, 'true')
-        self.assertEqual(drv.configuration.nas_secure_file_permissions, 'true')
+        self.assertEqual('true', drv.configuration.nas_secure_file_operations)
+        self.assertEqual('true', drv.configuration.nas_secure_file_permissions)
         self.assertFalse(LOG.warn.called)
 
     @mock.patch.object(nfs, 'LOG')
@@ -1037,9 +1059,9 @@ class NfsDriverTestCase(test.TestCase):
 
         drv.set_nas_security_options(is_new_install)
 
-        self.assertEqual(drv.configuration.nas_secure_file_operations, 'false')
-        self.assertEqual(drv.configuration.nas_secure_file_permissions,
-                         'false')
+        self.assertEqual('false', drv.configuration.nas_secure_file_operations)
+        self.assertEqual('false',
+                         drv.configuration.nas_secure_file_permissions)
         self.assertTrue(LOG.warn.called)
 
     def test_set_nas_security_options_exception_if_no_mounted_shares(self):
@@ -1057,10 +1079,9 @@ class NfsDriverTestCase(test.TestCase):
     def test_ensure_share_mounted(self):
         """Case where the mount works the first time."""
 
-        num_attempts = random.randint(1, 5)
         self.mock_object(self._driver._remotefsclient, 'mount')
         drv = self._driver
-        drv.configuration.nfs_mount_attempts = num_attempts
+        drv.configuration.nfs_mount_attempts = 3
         drv.shares = {self.TEST_NFS_EXPORT1: ''}
 
         drv._ensure_share_mounted(self.TEST_NFS_EXPORT1)
@@ -1070,7 +1091,8 @@ class NfsDriverTestCase(test.TestCase):
     def test_ensure_share_mounted_exception(self):
         """Make the configured number of attempts when mounts fail."""
 
-        num_attempts = random.randint(1, 5)
+        num_attempts = 3
+
         self.mock_object(self._driver._remotefsclient, 'mount',
                          mock.Mock(side_effect=Exception))
         drv = self._driver

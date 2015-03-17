@@ -23,40 +23,52 @@ from eventlet import greenthread
 import greenlet
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import excutils
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW, _LI
-from cinder.openstack.common import log as logging
 from cinder import ssh_utils
 from cinder import utils
-from cinder.volume.drivers.san import SanISCSIDriver
+from cinder.volume.drivers import san
 
 LOG = logging.getLogger(__name__)
 
 eqlx_opts = [
     cfg.StrOpt('eqlx_group_name',
                default='group-0',
-               help='Group name to use for creating volumes'),
+               help='Group name to use for creating volumes. Defaults to '
+                    '"group-0".'),
     cfg.IntOpt('eqlx_cli_timeout',
                default=30,
-               help='Timeout for the Group Manager cli command execution'),
+               help='Timeout for the Group Manager cli command execution. '
+                    'Default is 30.'),
     cfg.IntOpt('eqlx_cli_max_retries',
                default=5,
-               help='Maximum retry count for reconnection'),
+               help='Maximum retry count for reconnection. Default is 5.'),
     cfg.BoolOpt('eqlx_use_chap',
                 default=False,
-                help='Use CHAP authentication for targets?'),
+                help='Use CHAP authentication for targets. Note that this '
+                     'option is deprecated in favour of "use_chap_auth" as '
+                     'specified in cinder/volume/driver.py and will be '
+                     'removed in next release.'),
     cfg.StrOpt('eqlx_chap_login',
                default='admin',
-               help='Existing CHAP account name'),
+               help='Existing CHAP account name. Note that this '
+                    'option is deprecated in favour of "chap_username" as '
+                    'specified in cinder/volume/driver.py and will be '
+                    'removed in next release.'),
     cfg.StrOpt('eqlx_chap_password',
                default='password',
-               help='Password for specified CHAP account name',
+               help='Password for specified CHAP account name. Note that this '
+                    'option is deprecated in favour of "chap_password" as '
+                    'specified in cinder/volume/driver.py and will be '
+                    'removed in the next release',
                secret=True),
     cfg.StrOpt('eqlx_pool',
                default='default',
-               help='Pool in which volumes will be created')
+               help='Pool in which volumes will be created. Defaults '
+                    'to "default".')
 ]
 
 
@@ -85,7 +97,7 @@ def with_timeout(f):
     return __inner
 
 
-class DellEQLSanISCSIDriver(SanISCSIDriver):
+class DellEQLSanISCSIDriver(san.SanISCSIDriver):
     """Implements commands for Dell EqualLogic SAN ISCSI management.
 
     To enable the driver add the following line to the cinder configuration:
@@ -112,9 +124,9 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
     In order to use target CHAP authentication (which is disabled by default)
     SAN administrator must create a local CHAP user and specify the following
     flags for the driver:
-        eqlx_use_chap=true
-        eqlx_chap_login=<chap_login>
-        eqlx_chap_password=<chap_password>
+        use_chap_auth=True
+        chap_login=<chap_login>
+        chap_password=<chap_password>
 
     eqlx_group_name parameter actually represents the CLI prompt message
     without '>' ending. E.g. if prompt looks like 'group-0>', then the
@@ -124,13 +136,27 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         eqlx_cli_timeout=<seconds>
     """
 
-    VERSION = "1.0.0"
+    VERSION = "1.1.0"
 
     def __init__(self, *args, **kwargs):
         super(DellEQLSanISCSIDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(eqlx_opts)
         self._group_ip = None
         self.sshpool = None
+
+        if self.configuration.eqlx_use_chap is True:
+            LOG.warning(_LW(
+                'Configuration options eqlx_use_chap, '
+                'eqlx_chap_login and eqlx_chap_password are deprecated. Use '
+                'use_chap_auth, chap_username and chap_password '
+                'respectively for the same.'))
+
+            self.configuration.use_chap_auth = \
+                self.configuration.eqlx_use_chap
+            self.configuration.chap_username = \
+                self.configuration.eqlx_chap_login
+            self.configuration.chap_password = \
+                self.configuration.eqlx_chap_password
 
     def _get_output(self, chan):
         out = ''
@@ -251,10 +277,10 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         lun_id = "%s:%s,1 %s 0" % (self._group_ip, '3260', target_name)
         model_update = {}
         model_update['provider_location'] = lun_id
-        if self.configuration.eqlx_use_chap:
+        if self.configuration.use_chap_auth:
             model_update['provider_auth'] = 'CHAP %s %s' % \
-                (self.configuration.eqlx_chap_login,
-                 self.configuration.eqlx_chap_password)
+                (self.configuration.chap_username,
+                 self.configuration.chap_password)
         return model_update
 
     def _get_space_in_gb(self, val):
@@ -284,8 +310,8 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         data['reserved_percentage'] = 0
         data['QoS_support'] = False
 
-        data['total_capacity_gb'] = 'infinite'
-        data['free_capacity_gb'] = 'infinite'
+        data['total_capacity_gb'] = 0
+        data['free_capacity_gb'] = 0
 
         for line in self._eql_execute('pool', 'select',
                                       self.configuration.eqlx_pool, 'show'):
@@ -455,9 +481,9 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
         try:
             cmd = ['volume', 'select', volume['name'], 'access', 'create',
                    'initiator', connector['initiator']]
-            if self.configuration.eqlx_use_chap:
+            if self.configuration.use_chap_auth:
                 cmd.extend(['authmethod', 'chap', 'username',
-                            self.configuration.eqlx_chap_login])
+                            self.configuration.chap_username])
             self._eql_execute(*cmd)
             iscsi_properties = self._get_iscsi_properties(volume)
             return {

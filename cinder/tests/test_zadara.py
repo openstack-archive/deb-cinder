@@ -20,12 +20,12 @@ Tests for Zadara VPSA volume driver
 import copy
 import httplib
 
+from oslo_log import log as logging
+
 from cinder import exception
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume import configuration as conf
-from cinder.volume.drivers.zadara import zadara_opts
-from cinder.volume.drivers.zadara import ZadaraVPSAISCSIDriver
+from cinder.volume.drivers import zadara
 
 LOG = logging.getLogger("cinder.volume.driver")
 
@@ -193,7 +193,7 @@ class FakeRequest(object):
             if vol_name == vol:
                 attachments = params['attachments']
                 if srv in attachments:
-                    #already attached - ok
+                    # already attached - ok
                     return RUNTIME_VARS['good']
                 else:
                     attachments.append(srv)
@@ -247,7 +247,7 @@ class FakeRequest(object):
             if params['cg-name'] == cg_name:
                 snapshots = params['snapshots']
                 if snap_name in snapshots:
-                    #already attached
+                    # already attached
                     return RUNTIME_VARS['bad_volume']
                 else:
                     snapshots.append(snap_name)
@@ -482,13 +482,14 @@ class ZadaraVPSADriverTestCase(test.TestCase):
         RUNTIME_VARS = copy.deepcopy(DEFAULT_RUNTIME_VARS)
 
         self.configuration = conf.Configuration(None)
-        self.configuration.append_config_values(zadara_opts)
+        self.configuration.append_config_values(zadara.zadara_opts)
         self.configuration.reserved_percentage = 10
         self.configuration.zadara_user = 'test'
         self.configuration.zadara_password = 'test_password'
         self.configuration.zadara_vpsa_poolname = 'pool-0001'
 
-        self.driver = ZadaraVPSAISCSIDriver(configuration=self.configuration)
+        self.driver = zadara.ZadaraVPSAISCSIDriver(
+            configuration=self.configuration)
         self.stubs.Set(httplib, 'HTTPConnection', FakeHTTPConnection)
         self.stubs.Set(httplib, 'HTTPSConnection', FakeHTTPSConnection)
         self.driver.do_setup(None)

@@ -14,7 +14,6 @@
 #    under the License.
 """ Tests for Ceph backup service."""
 
-import contextlib
 import hashlib
 import os
 import tempfile
@@ -22,6 +21,7 @@ import uuid
 
 import mock
 from oslo_concurrency import processutils
+from oslo_log import log as logging
 from oslo_serialization import jsonutils
 import six
 
@@ -31,7 +31,6 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.i18n import _
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume.drivers import rbd as rbddriver
 
@@ -481,10 +480,9 @@ class BackupCephTestCase(test.TestCase):
         self.mock_rbd.RBD.list = mock.Mock()
         self.mock_rbd.RBD.list.return_value = [backup_name]
 
-        with contextlib.nested(
-                mock.patch.object(self.service, 'get_backup_snaps'),
-                mock.patch.object(self.service, '_rbd_diff_transfer')
-        ) as (_unused, mock_rbd_diff_transfer):
+        with mock.patch.object(self.service, 'get_backup_snaps'), \
+                mock.patch.object(self.service, '_rbd_diff_transfer') as \
+                mock_rbd_diff_transfer:
             def mock_rbd_diff_transfer_side_effect(src_name, src_pool,
                                                    dest_name, dest_pool,
                                                    src_user, src_conf,
@@ -495,10 +493,11 @@ class BackupCephTestCase(test.TestCase):
             # Raise a pseudo exception.BackupRBDOperationFailed.
             mock_rbd_diff_transfer.side_effect \
                 = mock_rbd_diff_transfer_side_effect
-            with contextlib.nested(
-                    mock.patch.object(self.service, '_full_backup'),
-                    mock.patch.object(self.service, '_try_delete_base_image')
-            ) as (_unused, mock_try_delete_base_image):
+
+            with mock.patch.object(self.service, '_full_backup'), \
+                    mock.patch.object(self.service,
+                                      '_try_delete_base_image') as \
+                    mock_try_delete_base_image:
                 def mock_try_delete_base_image_side_effect(backup_id,
                                                            volume_id,
                                                            base_name):
@@ -556,12 +555,11 @@ class BackupCephTestCase(test.TestCase):
         self.mock_rbd.RBD.list = mock.Mock()
         self.mock_rbd.RBD.list.return_value = [backup_name]
 
-        with contextlib.nested(
-                mock.patch.object(self.service, 'get_backup_snaps'),
-                mock.patch.object(self.service, '_rbd_diff_transfer'),
-                mock.patch.object(self.service, '_full_backup'),
-                mock.patch.object(self.service, '_backup_metadata')
-        ) as (_unused1, _u2, _u3, mock_backup_metadata):
+        with mock.patch.object(self.service, 'get_backup_snaps'), \
+                mock.patch.object(self.service, '_rbd_diff_transfer'), \
+                mock.patch.object(self.service, '_full_backup'), \
+                mock.patch.object(self.service, '_backup_metadata') as \
+                mock_backup_metadata:
 
             def mock_backup_metadata_side_effect(backup):
                 raise exception.BackupOperationError(_('mock'))
@@ -643,6 +641,8 @@ class BackupCephTestCase(test.TestCase):
 
     @common_mocks
     def test_discard_bytes(self):
+        # Lower the chunksize to a memory managable number
+        self.service.chunk_size = 1024
         image = self.mock_rbd.Image.return_value
         wrapped_rbd = self._get_wrapped_rbd_io(image)
 
@@ -716,7 +716,6 @@ class BackupCephTestCase(test.TestCase):
             self.service.delete(self.backup)
             self.assertTrue(mock_del_backup_snap.called)
 
-        #self.assertFalse(self.mock_rbd.ImageNotFound.called)
         self.assertTrue(self.mock_rbd.RBD.return_value.list.called)
         self.assertTrue(self.mock_rbd.RBD.return_value.remove.called)
 

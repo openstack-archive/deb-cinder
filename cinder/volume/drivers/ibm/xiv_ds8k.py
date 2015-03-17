@@ -23,10 +23,10 @@ Unified Volume driver for IBM XIV and DS8K Storage Systems.
 """
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import importutils
 
 from cinder import exception
-from cinder.openstack.common import log as logging
 from cinder.volume.drivers.san import san
 
 xiv_ds8k_opts = [
@@ -37,11 +37,12 @@ xiv_ds8k_opts = [
     cfg.StrOpt(
         'xiv_ds8k_connection_type',
         default='iscsi',
-        help='Connection type to the IBM Storage Array'
-        ' (fibre_channel|iscsi)'),
+        choices=['fibre_channel', 'iscsi'],
+        help='Connection type to the IBM Storage Array'),
     cfg.StrOpt(
         'xiv_chap',
         default='disabled',
+        choices=['disabled', 'enabled'],
         help='CHAP authentication mode, effective only for iscsi'
         ' (disabled|enabled)'),
 ]
@@ -226,3 +227,23 @@ class XIVDS8KDriver(san.SanDriver):
         """Convert the volume to be of the new type."""
 
         return self.xiv_ds8k_proxy.retype(ctxt, volume, new_type, diff, host)
+
+    def create_consistencygroup(self, context, group):
+        """Creates a consistency group."""
+
+        return self.xiv_ds8k_proxy.create_consistencygroup(context, group)
+
+    def delete_consistencygroup(self, context, group):
+        """Deletes a consistency group."""
+
+        return self.xiv_ds8k_proxy.delete_consistencygroup(context, group)
+
+    def create_cgsnapshot(self, context, cgsnapshot):
+        """Creates a consistency group snapshot."""
+
+        return self.xiv_ds8k_proxy.create_cgsnapshot(context, cgsnapshot)
+
+    def delete_cgsnapshot(self, context, cgsnapshot):
+        """Deletes a consistency group snapshot."""
+
+        return self.xiv_ds8k_proxy.delete_cgsnapshot(context, cgsnapshot)

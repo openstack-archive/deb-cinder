@@ -26,6 +26,7 @@ for more details.
 import uuid
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import importutils
 from oslo_utils import units
 import six
@@ -33,7 +34,6 @@ import six
 
 from cinder import exception
 from cinder.i18n import _, _LW
-from cinder.openstack.common import log as logging
 from cinder.volume import driver
 
 try:
@@ -113,12 +113,13 @@ class DrbdManageDriver(driver.VolumeDriver):
         try once to reconnect.
         """
         try:
-            return apply(fn, args)
+            return fn(*args)
         except dbus.DBusException as e:
             LOG.warn(_LW("got disconnected; trying to reconnect. (%s)") %
                      six.text_type(e))
             self.dbus_connect()
-            return apply(fn, args)
+            # Old function object is invalid, get new one.
+            return getattr(self.odm, fn._method_name)(*args)
 
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""

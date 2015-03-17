@@ -38,6 +38,7 @@ from xml.sax import saxutils
 from oslo_concurrency import lockutils
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import importutils
 from oslo_utils import timeutils
 import retrying
@@ -46,7 +47,6 @@ import six
 from cinder.brick.initiator import connector
 from cinder import exception
 from cinder.i18n import _, _LE
-from cinder.openstack.common import log as logging
 
 
 CONF = cfg.CONF
@@ -275,37 +275,6 @@ def last_completed_audit_period(unit=None):
         begin = end - datetime.timedelta(hours=1)
 
     return (begin, end)
-
-
-class LazyPluggable(object):
-    """A pluggable backend loaded lazily based on some value."""
-
-    def __init__(self, pivot, **backends):
-        self.__backends = backends
-        self.__pivot = pivot
-        self.__backend = None
-
-    def __get_backend(self):
-        if not self.__backend:
-            backend_name = CONF[self.__pivot]
-            if backend_name not in self.__backends:
-                raise exception.Error(_('Invalid backend: %s') % backend_name)
-
-            backend = self.__backends[backend_name]
-            if isinstance(backend, tuple):
-                name = backend[0]
-                fromlist = backend[1]
-            else:
-                name = backend
-                fromlist = backend
-
-            self.__backend = __import__(name, None, None, fromlist)
-            LOG.debug('backend %s', self.__backend)
-        return self.__backend
-
-    def __getattr__(self, key):
-        backend = self.__get_backend()
-        return getattr(backend, key)
 
 
 class ProtectedExpatParser(expatreader.ExpatParser):
@@ -574,14 +543,23 @@ def get_root_helper():
     return 'sudo cinder-rootwrap %s' % CONF.rootwrap_config
 
 
-def brick_get_connector_properties():
+def brick_get_connector_properties(multipath=False, enforce_multipath=False):
     """wrapper for the brick calls to automatically set
     the root_helper needed for cinder.
+
+    :param multipath:         A boolean indicating whether the connector can
+                              support multipath.
+    :param enforce_multipath: If True, it raises exception when multipath=True
+                              is specified but multipathd is not running.
+                              If False, it falls back to multipath=False
+                              when multipathd is not running.
     """
 
     root_helper = get_root_helper()
     return connector.get_connector_properties(root_helper,
-                                              CONF.my_ip)
+                                              CONF.my_ip,
+                                              multipath,
+                                              enforce_multipath)
 
 
 def brick_get_connector(protocol, driver=None,
@@ -627,6 +605,11 @@ def get_file_mode(path):
 def get_file_gid(path):
     """This primarily exists to make unit testing easier."""
     return os.stat(path).st_gid
+
+
+def get_file_size(path):
+    """Returns the file size."""
+    return os.stat(path).st_size
 
 
 def _get_disk_of_partition(devpath, st=None):
@@ -803,3 +786,29 @@ def retry(exceptions, interval=1, retries=3, backoff_rate=2):
         return _wrapper
 
     return _decorator
+
+
+def convert_version_to_int(version):
+    try:
+        if isinstance(version, six.string_types):
+            version = convert_version_to_tuple(version)
+        if isinstance(version, tuple):
+            return reduce(lambda x, y: (x * 1000) + y, version)
+    except Exception:
+        msg = _("Version %s is invalid.") % version
+        raise exception.CinderException(msg)
+
+
+def convert_version_to_str(version_int):
+    version_numbers = []
+    factor = 1000
+    while version_int != 0:
+        version_number = version_int - (version_int // factor * factor)
+        version_numbers.insert(0, six.text_type(version_number))
+        version_int = version_int / factor
+
+    return reduce(lambda x, y: "%s.%s" % (x, y), version_numbers)
+
+
+def convert_version_to_tuple(version_str):
+    return tuple(int(part) for part in version_str.split('.'))

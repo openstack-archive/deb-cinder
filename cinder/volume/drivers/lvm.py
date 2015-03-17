@@ -21,6 +21,7 @@ import socket
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import importutils
 from oslo_utils import units
 
@@ -30,7 +31,6 @@ from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
-from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume import utils as volutils
@@ -51,7 +51,14 @@ volume_opts = [
                     'this requires lvm_mirrors + 2 PVs with available space'),
     cfg.StrOpt('lvm_type',
                default='default',
-               help='Type of LVM volumes to deploy; (default or thin)'),
+               choices=['default', 'thin'],
+               help='Type of LVM volumes to deploy'),
+    cfg.StrOpt('lvm_conf_file',
+               default='/etc/cinder/lvm.conf',
+               help='LVM conf file to use for the LVM driver in Cinder; '
+                    'this setting is ignored if the specified file does '
+                    'not exist (You can also specify \'None\' to not use '
+                    'a conf file even if one exists).')
 ]
 
 CONF = cfg.CONF
@@ -130,7 +137,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-        size_in_g = volume.get('size', volume.get('volume_size', None))
+        size_in_g = volume.get('volume_size') or volume.get('size')
         if size_in_g is None:
             msg = (_LE("Size for volume: %s not found, "
                    "cannot secure delete.") % volume['id'])
@@ -184,6 +191,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
 
         total_capacity = 0
         free_capacity = 0
+
         if self.configuration.lvm_mirrors > 0:
             total_capacity =\
                 self.vg.vg_mirror_size(self.configuration.lvm_mirrors)
@@ -209,6 +217,12 @@ class LVMVolumeDriver(driver.VolumeDriver):
               'lvm_type': self.configuration.lvm_type,
               'lvm_mirrors': self.configuration.lvm_mirrors})
 
+        thin_enabled = self.configuration.lvm_type == 'thin'
+
+        # Calculate the total volumes used by the VG group.
+        # This includes volumes and snapshots.
+        total_volumes = len(self.vg.get_volumes())
+
         # Skip enabled_pools setting, treat the whole backend as one pool
         # XXX FIXME if multipool support is added to LVM driver.
         single_pool = {}
@@ -216,10 +230,17 @@ class LVMVolumeDriver(driver.VolumeDriver):
             pool_name=data["volume_backend_name"],
             total_capacity_gb=total_capacity,
             free_capacity_gb=free_capacity,
-            provisioned_capacity_gb=provisioned_capacity,
             reserved_percentage=self.configuration.reserved_percentage,
             location_info=location_info,
             QoS_support=False,
+            provisioned_capacity_gb=provisioned_capacity,
+            max_over_subscription_ratio=(
+                self.configuration.max_over_subscription_ratio),
+            thin_provisioning_support=thin_enabled,
+            thick_provisioning_support=not thin_enabled,
+            total_volumes=total_volumes,
+            filter_function=self.get_filter_function(),
+            goodness_function=self.get_goodness_function()
         ))
         data["pools"].append(single_pool)
 
@@ -229,11 +250,18 @@ class LVMVolumeDriver(driver.VolumeDriver):
         """Verify that requirements are in place to use LVM driver."""
         if self.vg is None:
             root_helper = utils.get_root_helper()
+
+            lvm_conf_file = self.configuration.lvm_conf_file
+            if lvm_conf_file.lower() == 'none':
+                lvm_conf_file = None
+
             try:
                 self.vg = lvm.LVM(self.configuration.volume_group,
                                   root_helper,
                                   lvm_type=self.configuration.lvm_type,
-                                  executor=self._execute)
+                                  executor=self._execute,
+                                  lvm_conf=lvm_conf_file)
+
             except brick_exception.VolumeGroupNotFound:
                 message = (_("Volume Group %s does not exist") %
                            self.configuration.volume_group)
@@ -313,7 +341,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
             raise exception.VolumeIsBusy(volume_name=volume['name'])
 
         self._delete_volume(volume)
-        LOG.info(_LI('Succesfully deleted volume: %s'), volume['id'])
+        LOG.info(_LI('Successfully deleted volume: %s'), volume['id'])
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
@@ -328,7 +356,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
             # If the snapshot isn't present, then don't attempt to delete
             LOG.warning(_LW("snapshot: %s not found, "
                             "skipping delete operations") % snapshot['name'])
-            LOG.info(_LI('Succesfully deleted snapshot: %s'), snapshot['id'])
+            LOG.info(_LI('Successfully deleted snapshot: %s'), snapshot['id'])
             return True
 
         # TODO(yamahata): zeroing out the whole snapshot triggers COW.
@@ -519,9 +547,16 @@ class LVMVolumeDriver(driver.VolumeDriver):
                 return false_ret
 
             helper = utils.get_root_helper()
+
+            lvm_conf_file = self.configuration.lvm_conf_file
+            if lvm_conf_file.lower() == 'none':
+                lvm_conf_file = None
+
             dest_vg_ref = lvm.LVM(dest_vg, helper,
                                   lvm_type=lvm_type,
-                                  executor=self._execute)
+                                  executor=self._execute,
+                                  lvm_conf=lvm_conf_file)
+
             self.remove_export(ctxt, volume)
             self._create_volume(volume['name'],
                                 self._sizestr(volume['size']),

@@ -31,11 +31,11 @@ import stat
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
+from oslo_log import log as logging
 
-from cinder.backup.driver import BackupDriver
+from cinder.backup import driver
 from cinder import exception
 from cinder.i18n import _LE, _
-from cinder.openstack.common import log as logging
 from cinder import utils
 
 LOG = logging.getLogger(__name__)
@@ -46,7 +46,8 @@ tsm_opts = [
                help='Volume prefix for the backup id when backing up to TSM'),
     cfg.StrOpt('backup_tsm_password',
                default='password',
-               help='TSM password for the running username'),
+               help='TSM password for the running username',
+               secret=True),
     cfg.BoolOpt('backup_tsm_compression',
                 default=True,
                 help='Enable or Disable compression for backups'),
@@ -260,7 +261,7 @@ def _cleanup_device_hardlink(hardlink_path, volume_path, volume_id):
         LOG.error(err)
 
 
-class TSMBackupDriver(BackupDriver):
+class TSMBackupDriver(driver.BackupDriver):
     """Provides backup, restore and delete of volumes backup for TSM."""
 
     DRIVER_VERSION = '1.0.0'

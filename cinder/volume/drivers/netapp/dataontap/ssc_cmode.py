@@ -19,14 +19,14 @@ Storage service catalog utility functions and classes for NetApp systems.
 """
 
 import copy
-from threading import Timer
+import threading
 
+from oslo_log import log as logging
 from oslo_utils import timeutils
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LI, _LW
-from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp import utils as na_utils
@@ -511,8 +511,8 @@ def refresh_cluster_ssc(backend, na_server, vserver, synchronous=False):
         if synchronous:
             get_cluster_latest_ssc(backend, na_server, vserver)
         else:
-            t = Timer(0, get_cluster_latest_ssc,
-                      args=[backend, na_server, vserver])
+            t = threading.Timer(0, get_cluster_latest_ssc,
+                                args=[backend, na_server, vserver])
             t.start()
     elif getattr(backend, 'refresh_stale_running', None):
         LOG.warning(_LW('refresh stale ssc job in progress. Returning... '))
@@ -522,8 +522,8 @@ def refresh_cluster_ssc(backend, na_server, vserver, synchronous=False):
             if synchronous:
                 refresh_cluster_stale_ssc(backend, na_server, vserver)
             else:
-                t = Timer(0, refresh_cluster_stale_ssc,
-                          args=[backend, na_server, vserver])
+                t = threading.Timer(0, refresh_cluster_stale_ssc,
+                                    args=[backend, na_server, vserver])
                 t.start()
 
 

@@ -1,4 +1,7 @@
 # Copyright (c) 2014 NetApp, Inc.  All Rights Reserved.
+# Copyright (c) 2015 Alex Meade.  All Rights Reserved.
+# Copyright (c) 2015 Rushil Chugh.  All Rights Reserved.
+# Copyright (c) 2015 Navneet Singh.  All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -15,26 +18,26 @@
 iSCSI driver for NetApp E-series storage systems.
 """
 
+import copy
+import math
 import socket
 import time
 import uuid
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import units
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
-from cinder.openstack.common import log as logging
+from cinder.openstack.common import loopingcall
 from cinder import utils as cinder_utils
 from cinder.volume import driver
 from cinder.volume.drivers.netapp.eseries import client
 from cinder.volume.drivers.netapp.eseries import utils
-from cinder.volume.drivers.netapp.options import netapp_basicauth_opts
-from cinder.volume.drivers.netapp.options import netapp_connection_opts
-from cinder.volume.drivers.netapp.options import netapp_eseries_opts
-from cinder.volume.drivers.netapp.options import netapp_transport_opts
+from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume import utils as volume_utils
 
@@ -43,10 +46,10 @@ LOG = logging.getLogger(__name__)
 
 
 CONF = cfg.CONF
-CONF.register_opts(netapp_basicauth_opts)
-CONF.register_opts(netapp_connection_opts)
-CONF.register_opts(netapp_eseries_opts)
-CONF.register_opts(netapp_transport_opts)
+CONF.register_opts(na_opts.netapp_basicauth_opts)
+CONF.register_opts(na_opts.netapp_connection_opts)
+CONF.register_opts(na_opts.netapp_eseries_opts)
+CONF.register_opts(na_opts.netapp_transport_opts)
 
 
 class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
@@ -78,19 +81,32 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
                   'windows_clustered':
                   'Windows 2000/Server 2003/Server 2008 Clustered'
                   }
+    # NOTE(ameade): This maps what is reported by the e-series api to a
+    # consistent set of values that are reported by all NetApp drivers
+    # to the cinder scheduler.
+    SSC_DISK_TYPE_MAPPING = {
+        'scsi': 'SCSI',
+        'fibre': 'FCAL',
+        'sas': 'SAS',
+        'sata': 'SATA',
+    }
+    SSC_UPDATE_INTERVAL = 60  # seconds
+    WORLDWIDENAME = 'worldWideName'
 
     def __init__(self, *args, **kwargs):
         super(NetAppEseriesISCSIDriver, self).__init__(*args, **kwargs)
         na_utils.validate_instantiation(**kwargs)
-        self.configuration.append_config_values(netapp_basicauth_opts)
-        self.configuration.append_config_values(netapp_connection_opts)
-        self.configuration.append_config_values(netapp_transport_opts)
-        self.configuration.append_config_values(netapp_eseries_opts)
-        self._backend_name = self.configuration.safe_get("volume_backend_name")\
-            or "NetApp_ESeries"
+        self.configuration.append_config_values(na_opts.netapp_basicauth_opts)
+        self.configuration.append_config_values(
+            na_opts.netapp_connection_opts)
+        self.configuration.append_config_values(na_opts.netapp_transport_opts)
+        self.configuration.append_config_values(na_opts.netapp_eseries_opts)
+        self._backend_name = self.configuration.safe_get(
+            "volume_backend_name") or "NetApp_ESeries"
         self._objects = {'disk_pool_refs': [], 'pools': [],
                          'volumes': {'label_ref': {}, 'ref_vol': {}},
                          'snapshots': {'label_ref': {}, 'ref_snap': {}}}
+        self._ssc_stats = {}
 
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""
@@ -114,11 +130,17 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
             password=self.configuration.netapp_password)
         self._check_mode_get_or_register_storage_system()
 
+    def _start_periodic_tasks(self):
+        ssc_periodic_task = loopingcall.FixedIntervalLoopingCall(
+            self._update_ssc_info)
+        ssc_periodic_task.start(interval=self.SSC_UPDATE_INTERVAL)
+
     def check_for_setup_error(self):
         self._check_host_type()
         self._check_multipath()
         self._check_storage_system()
         self._populate_system_objects()
+        self._start_periodic_tasks()
 
     def _check_host_type(self):
         self.host_type =\
@@ -170,8 +192,8 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
             system = self._client.list_storage_system()
         except exception.NetAppDriverException:
             with excutils.save_and_reraise_exception():
-                msg = _("System with controller addresses [%s] is not"
-                        " registered with web service.")
+                msg = _LI("System with controller addresses [%s] is not"
+                          " registered with web service.")
                 LOG.info(msg % self.configuration.netapp_controller_ips)
         password_not_in_sync = False
         if system.get('status', '').lower() == 'passwordoutofsync':
@@ -231,7 +253,9 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
     def _cache_volume(self, obj):
         """Caches volumes for further reference."""
         if (obj.get('volumeUse') == 'standardVolume' and obj.get('label')
-                and obj.get('volumeRef')):
+                and obj.get('volumeRef')
+                and obj.get('volumeGroupRef') in
+                self._objects['disk_pool_refs']):
             self._objects['volumes']['label_ref'][obj['label']]\
                 = obj['volumeRef']
             self._objects['volumes']['ref_vol'][obj['volumeRef']] = obj
@@ -293,19 +317,26 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
 
     def _get_volume(self, uid):
         label = utils.convert_uuid_to_es_fmt(uid)
+        return self._get_volume_with_label_wwn(label)
+
+    def _get_volume_with_label_wwn(self, label=None, wwn=None):
+        """Searches volume with label or wwn or both."""
+        if not (label or wwn):
+            raise exception.InvalidInput(_('Either volume label or wwn'
+                                           ' is required as input.'))
         try:
             return self._get_cached_volume(label)
         except KeyError:
-            return self._get_latest_volume(uid)
-
-    def _get_latest_volume(self, uid):
-        label = utils.convert_uuid_to_es_fmt(uid)
-        for vol in self._client.list_volumes():
-            if vol.get('label') == label:
+            wwn = wwn.replace(':', '').upper() if wwn else None
+            for vol in self._client.list_volumes():
+                if label and vol.get('label') != label:
+                    continue
+                if wwn and vol.get(self.WORLDWIDENAME).upper() != wwn:
+                    continue
                 self._cache_volume(vol)
-                return self._get_cached_volume(label)
-        raise exception.NetAppDriverException(_("Volume %(uid)s not found.")
-                                              % {'uid': uid})
+                label = vol.get('label')
+                break
+            return self._get_cached_volume(label)
 
     def _get_cached_volume(self, label):
         vol_id = self._objects['volumes']['label_ref'][label]
@@ -554,7 +585,7 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
         initiator_name = connector['initiator']
-        vol = self._get_latest_volume(volume['name_id'])
+        vol = self._get_volume(volume['name_id'])
         iscsi_details = self._get_iscsi_service_details()
         iscsi_portal = self._get_iscsi_portal_for_vol(vol, iscsi_details)
         mapping = self._map_volume_to_host(vol, initiator_name)
@@ -723,7 +754,10 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
     def get_volume_stats(self, refresh=False):
         """Return the current state of the volume service."""
         if refresh:
+            if not self._ssc_stats:
+                self._update_ssc_info()
             self._update_volume_stats()
+
         return self._stats
 
     def _update_volume_stats(self):
@@ -748,10 +782,71 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
                 cinder_pool["free_capacity_gb"] = ((tot_bytes - used_bytes) /
                                                    units.Gi)
                 cinder_pool["total_capacity_gb"] = tot_bytes / units.Gi
+
+                pool_ssc_stats = self._ssc_stats.get(pool["volumeGroupRef"])
+
+                if pool_ssc_stats:
+                    cinder_pool.update(pool_ssc_stats)
                 data["pools"].append(cinder_pool)
 
         self._stats = data
         self._garbage_collect_tmp_vols()
+
+    @cinder_utils.synchronized("netapp_update_ssc_info", external=False)
+    def _update_ssc_info(self):
+        """Periodically runs to update ssc information from the backend.
+
+        The self._ssc_stats attribute is updated with the following format.
+        {<volume_group_ref> : {<ssc_key>: <ssc_value>}}
+        """
+        LOG.info(_LI("Updating storage service catalog information for "
+                     "backend '%s'") % self._backend_name)
+        self._ssc_stats = \
+            self._update_ssc_disk_encryption(self._objects["disk_pool_refs"])
+        self._ssc_stats = \
+            self._update_ssc_disk_types(self._objects["disk_pool_refs"])
+
+    def _update_ssc_disk_types(self, volume_groups):
+        """Updates the given ssc dictionary with new disk type information.
+
+        :param volume_groups: The volume groups this driver cares about
+        """
+        ssc_stats = copy.deepcopy(self._ssc_stats)
+        all_disks = self._client.list_drives()
+        relevant_disks = filter(lambda x: x.get('currentVolumeGroupRef') in
+                                volume_groups, all_disks)
+        for drive in relevant_disks:
+            current_vol_group = drive.get('currentVolumeGroupRef')
+            if current_vol_group not in ssc_stats:
+                ssc_stats[current_vol_group] = {}
+
+            if drive.get("driveMediaType") == 'ssd':
+                ssc_stats[current_vol_group]['netapp_disk_type'] = 'SSD'
+            else:
+                disk_type = drive.get('interfaceType').get('driveType')
+                ssc_stats[current_vol_group]['netapp_disk_type'] = \
+                    self.SSC_DISK_TYPE_MAPPING.get(disk_type, 'unknown')
+
+        return ssc_stats
+
+    def _update_ssc_disk_encryption(self, volume_groups):
+        """Updates the given ssc dictionary with new disk encryption information.
+
+        :param volume_groups: The volume groups this driver cares about
+        """
+        ssc_stats = copy.deepcopy(self._ssc_stats)
+        all_pools = self._client.list_storage_pools()
+        relevant_pools = filter(lambda x: x.get('volumeGroupRef') in
+                                volume_groups, all_pools)
+        for pool in relevant_pools:
+            current_vol_group = pool.get('volumeGroupRef')
+            if current_vol_group not in ssc_stats:
+                ssc_stats[current_vol_group] = {}
+
+            ssc_stats[current_vol_group]['netapp_disk_encryption'] = 'true' \
+                if pool['securityType'] == 'enabled' else 'false'
+
+        return ssc_stats
 
     def _get_sorted_avl_storage_pools(self, size_gb):
         """Returns storage pools sorted on available capacity."""
@@ -812,3 +907,53 @@ class NetAppEseriesISCSIDriver(driver.ISCSIDriver):
                                   label)
         finally:
             na_utils.set_safe_attr(self, 'clean_job_running', False)
+
+    @cinder_utils.synchronized('manage_existing')
+    def manage_existing(self, volume, existing_ref):
+        """Brings an existing storage object under Cinder management."""
+        vol = self._get_existing_vol_with_manage_ref(volume, existing_ref)
+        label = utils.convert_uuid_to_es_fmt(volume['id'])
+        if label == vol['label']:
+            LOG.info(_LI("Volume with given ref %s need not be renamed during"
+                         " manage operation."), existing_ref)
+            managed_vol = vol
+        else:
+            managed_vol = self._client.update_volume(vol['id'], label)
+            self._del_volume_frm_cache(vol['label'])
+        self._cache_volume(managed_vol)
+        LOG.info(_LI("Manage operation completed for volume with new label"
+                     " %(label)s and wwn %(wwn)s."),
+                 {'label': label, 'wwn': managed_vol[self.WORLDWIDENAME]})
+
+    def manage_existing_get_size(self, volume, existing_ref):
+        """Return size of volume to be managed by manage_existing.
+
+        When calculating the size, round up to the next GB.
+        """
+        vol = self._get_existing_vol_with_manage_ref(volume, existing_ref)
+        return int(math.ceil(float(vol['capacity']) / units.Gi))
+
+    def _get_existing_vol_with_manage_ref(self, volume, existing_ref):
+        try:
+            return self._get_volume_with_label_wwn(
+                existing_ref.get('source-name'), existing_ref.get('source-id'))
+        except exception.InvalidInput:
+            reason = _('Reference must contain either source-name'
+                       ' or source-id element.')
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref, reason=reason)
+        except KeyError:
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref,
+                reason=_('Volume not found on configured storage pools.'))
+
+    def unmanage(self, volume):
+        """Removes the specified volume from Cinder management.
+
+           Does not delete the underlying backend storage object. Logs a
+           message to indicate the volume is no longer under Cinder's control.
+        """
+        managed_vol = self._get_volume(volume['id'])
+        LOG.info(_LI("Unmanaged volume with current label %(label)s and wwn "
+                     "%(wwn)s."), {'label': managed_vol['label'],
+                                   'wwn': managed_vol[self.WORLDWIDENAME]})

@@ -16,17 +16,16 @@ Fibre channel Cinder volume driver for Hitachi storage.
 
 """
 
-from contextlib import nested
 import os
 import threading
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import excutils
 import six
 
 from cinder import exception
 from cinder.i18n import _LW
-from cinder.openstack.common import log as logging
 from cinder import utils
 import cinder.volume.driver
 from cinder.volume.drivers.hitachi import hbsd_basiclib as basic_lib
@@ -416,8 +415,8 @@ class HBSDFCDriver(cinder.volume.driver.FibreChannelDriver):
             msg = basic_lib.output_err(619, volume_id=volume['id'])
             raise exception.HBSDError(message=msg)
         self.common.add_volinfo(ldev, volume['id'])
-        with nested(self.common.volume_info[ldev]['lock'],
-                    self.common.volume_info[ldev]['in_use']):
+        with self.common.volume_info[ldev]['lock'],\
+                self.common.volume_info[ldev]['in_use']:
             hostgroups = self._initialize_connection(ldev, connector)
             properties = self._get_properties(volume, hostgroups)
             LOG.debug('Initialize volume_info: %s'
@@ -457,8 +456,8 @@ class HBSDFCDriver(cinder.volume.driver.FibreChannelDriver):
             raise exception.HBSDError(message=msg)
 
         self.common.add_volinfo(ldev, volume['id'])
-        with nested(self.common.volume_info[ldev]['lock'],
-                    self.common.volume_info[ldev]['in_use']):
+        with self.common.volume_info[ldev]['lock'],\
+                self.common.volume_info[ldev]['in_use']:
             self._terminate_connection(ldev, connector, hostgroups)
             properties = self._get_properties(volume, hostgroups,
                                               terminate=True)

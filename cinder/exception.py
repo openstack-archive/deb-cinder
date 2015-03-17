@@ -25,11 +25,11 @@ SHOULD include dedicated exception logging.
 import sys
 
 from oslo_config import cfg
+from oslo_log import log as logging
 import six
 import webob.exc
 
 from cinder.i18n import _, _LE
-from cinder.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -252,6 +252,11 @@ class VolumeNotFound(NotFound):
     message = _("Volume %(volume_id)s could not be found.")
 
 
+class VolumeAttachmentNotFound(NotFound):
+    message = _("Volume attachment could not be found with "
+                "filter: %(filter)s .")
+
+
 class VolumeMetadataNotFound(NotFound):
     message = _("Volume %(volume_id)s has no metadata with "
                 "key %(metadata_key)s.")
@@ -389,7 +394,6 @@ class FileNotFound(NotFound):
     message = _("File %(file_path)s could not be found.")
 
 
-#TODO(bcwaldon): EOL this exception!
 class Duplicate(CinderException):
     pass
 
@@ -444,13 +448,13 @@ class QuotaError(CinderException):
 
 
 class VolumeSizeExceedsAvailableQuota(QuotaError):
-    message = _("Requested volume or snapshot exceeds allowed Gigabytes "
+    message = _("Requested volume or snapshot exceeds allowed gigabytes "
                 "quota. Requested %(requested)sG, quota is %(quota)sG and "
                 "%(consumed)sG has been consumed.")
 
 
 class VolumeBackupSizeExceedsAvailableQuota(QuotaError):
-    message = _("Requested backup exceeds allowed Backup Gigabytes "
+    message = _("Requested backup exceeds allowed Backup gigabytes "
                 "quota. Requested %(requested)sG, quota is %(quota)sG and "
                 "%(consumed)sG has been consumed.")
 
@@ -658,6 +662,30 @@ class EvaluatorParseException(Exception):
     message = _("Error during evaluator parsing: %(reason)s")
 
 
+class ObjectActionError(CinderException):
+    msg_fmt = _('Object action %(action)s failed because: %(reason)s')
+
+
+class ObjectFieldInvalid(CinderException):
+    msg_fmt = _('Field %(field)s of %(objname)s is not an instance of Field')
+
+
+class UnsupportedObjectError(CinderException):
+    msg_fmt = _('Unsupported object type %(objtype)s')
+
+
+class OrphanedObjectError(CinderException):
+    msg_fmt = _('Cannot call %(method)s on orphaned %(objtype)s object')
+
+
+class IncompatibleObjectVersion(CinderException):
+    msg_fmt = _('Version %(objver)s of %(objname)s is not supported')
+
+
+class ReadOnlyFieldError(CinderException):
+    msg_fmt = _('Cannot modify readonly field %(field)s')
+
+
 # Driver specific exceptions
 # Coraid
 class CoraidException(VolumeDriverException):
@@ -722,7 +750,7 @@ class BadHTTPResponseStatus(ZadaraException):
     message = _("Bad HTTP response status %(status)s")
 
 
-#SolidFire
+# SolidFire
 class SolidFireAPIException(VolumeBackendAPIException):
     message = _("Bad response from SolidFire API")
 
@@ -914,6 +942,10 @@ class ISCSITargetDetachFailed(CinderException):
     message = _("Failed to detach iSCSI target for volume %(volume_id)s.")
 
 
+class ISCSITargetHelperCommandFailed(CinderException):
+    message = _("%(error_message)s")
+
+
 # X-IO driver exception.
 class XIODriverException(VolumeDriverException):
     message = _("X-IO Volume Driver exception!")
@@ -945,3 +977,8 @@ class WebDAVClientError(CinderException):
         message = _("The WebDAV request failed. Reason: %(msg)s, "
                     "Return code/reason: %(code)s, Source Volume: %(src)s, "
                     "Destination Volume: %(dst)s, Method: %(method)s.")
+
+
+# XtremIO Drivers
+class XtremIOAlreadyMappedError(CinderException):
+    message = _("Volume to Initiator Group mapping already exists")

@@ -31,7 +31,6 @@ VOLUMEUUID = 'a000000000000000000000000000001'
 INITIATOR = 'iqn.2013-08.org.debian:01:aaaaaaaa'
 DATA_IN_VOLUME = {'id': VOLUMEUUID}
 DATA_IN_CONNECTOR = {'initiator': INITIATOR}
-## dpl.getpool
 DATA_SERVER_INFO = 0, {
     'metadata': {'vendor': 'ProphetStor',
                  'version': '1.5'}}
@@ -67,7 +66,6 @@ DATA_POOLINFO = 0, {
     'objectType': 'application/cdmi-container',
     'percentComplete': 100}
 
-## dpl.assignvdev
 DATA_ASSIGNVDEV = 0, {
     'children': [],
     'childrenrange': '',
@@ -462,7 +460,7 @@ class TestProphetStorDPLDriver(test.TestCase):
         self.assertEqual(4, pool['total_capacity_gb'])
         self.assertEqual(4, pool['free_capacity_gb'])
         self.assertEqual(0, pool['reserved_percentage'])
-        self.assertEqual(False, pool['QoS_support'])
+        self.assertFalse(pool['QoS_support'])
 
     def test_create_volume(self):
         self.DPL_MOCK.create_vdev.return_value = DATA_OUTPUT
@@ -578,7 +576,7 @@ class TestProphetStorDPLDriver(test.TestCase):
                                                    DATA_IN_CONNECTOR)
         self.assertEqual('iscsi', res['driver_volume_type'])
         self.assertEqual('101', res['data']['target_lun'])
-        self.assertEqual(True, res['data']['target_discovered'])
+        self.assertTrue(res['data']['target_discovered'])
         self.assertEqual('172.31.1.210:3260', res['data']['target_portal'])
         self.assertEqual(
             'iqn.2013-09.com.prophetstor:hypervisor.886423051816',

@@ -18,13 +18,13 @@ import re
 
 from oslo_concurrency import processutils as putils
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import units
 
 from cinder.brick.remotefs import remotefs
 from cinder import exception
 from cinder.i18n import _, _LI, _LW
 from cinder.image import image_utils
-from cinder.openstack.common import log as logging
 from cinder import utils
 from cinder.volume.drivers import remotefs as remotefs_drv
 
@@ -39,9 +39,9 @@ volume_opts = [
                help='File with the list of available smbfs shares.'),
     cfg.StrOpt('smbfs_default_volume_format',
                default='qcow2',
+               choices=['raw', 'qcow2', 'vhd', 'vhdx'],
                help=('Default format that will be used when creating volumes '
-                     'if no volume format is specified. Can be set to: '
-                     'raw, qcow2, vhd or vhdx.')),
+                     'if no volume format is specified.')),
     cfg.BoolOpt('smbfs_sparsed_volumes',
                 default=True,
                 help=('Create volumes as sparsed files which take no space '

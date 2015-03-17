@@ -1,4 +1,4 @@
-# Copyright (c) 2012 - 2014 EMC Corporation, Inc.
+# Copyright (c) 2012 - 2015 EMC Corporation, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -17,7 +17,8 @@ iSCSI Drivers for EMC VNX array based on CLI.
 
 """
 
-from cinder.openstack.common import log as logging
+from oslo_log import log as logging
+
 from cinder.volume import driver
 from cinder.volume.drivers.emc import emc_vnx_cli
 
@@ -48,6 +49,9 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
                 Initiator Auto Deregistration,
                 Force Deleting LUN in Storage Groups,
                 robust enhancement
+        5.1.0 - iSCSI multipath enhancement
+        5.2.0 - Pool-aware scheduler support
+        5.3.0 - Consistency group modification support
     """
 
     def __init__(self, *args, **kwargs):
@@ -117,7 +121,7 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
 
         The iscsi driver returns a driver_volume_type of 'iscsi'.
         the format of the driver data is defined in vnx_get_iscsi_properties.
-        Example return value::
+        Example return value (multipath is not enabled)::
 
             {
                 'driver_volume_type': 'iscsi'
@@ -126,6 +130,20 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
                     'target_iqn': 'iqn.2010-10.org.openstack:volume-00000001',
                     'target_portal': '127.0.0.0.1:3260',
                     'target_lun': 1,
+                    'access_mode': 'rw'
+                }
+            }
+
+        Example return value (multipath is enabled)::
+
+            {
+                'driver_volume_type': 'iscsi'
+                'data': {
+                    'target_discovered': True,
+                    'target_iqns': ['iqn.2010-10.org.openstack:volume-00001',
+                                    'iqn.2010-10.org.openstack:volume-00002'],
+                    'target_portals': ['127.0.0.1:3260', '127.0.1.1:3260'],
+                    'target_luns': [1, 1],
                     'access_mode': 'rw'
                 }
             }
@@ -197,3 +215,19 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
     def delete_cgsnapshot(self, context, cgsnapshot):
         """Deletes a cgsnapshot."""
         return self.cli.delete_cgsnapshot(self, context, cgsnapshot)
+
+    def get_pool(self, volume):
+        """Returns the pool name of a volume."""
+        return self.cli.get_pool(volume)
+
+    def update_consistencygroup(self, context, group,
+                                add_volumes,
+                                remove_volumes):
+        """Updates LUNs in consistency group."""
+        return self.cli.update_consistencygroup(context, group,
+                                                add_volumes,
+                                                remove_volumes)
+
+    def unmanage(self, volume):
+        """Unmanages a volume."""
+        self.cli.unmanage(volume)

@@ -25,13 +25,10 @@ from cinder import test
 import cinder.tests.volume.drivers.netapp.dataontap.fakes as fake
 import cinder.tests.volume.drivers.netapp.fakes as na_fakes
 from cinder.volume.drivers.netapp.dataontap import block_7mode
-from cinder.volume.drivers.netapp.dataontap.block_7mode import \
-    NetAppBlockStorage7modeLibrary as block_lib_7mode
-from cinder.volume.drivers.netapp.dataontap.block_base import \
-    NetAppBlockStorageLibrary as block_lib
+from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
-from cinder.volume.drivers.netapp.dataontap.client.api import NaApiError
 from cinder.volume.drivers.netapp.dataontap.client import client_base
+from cinder.volume.drivers.netapp import utils as na_utils
 
 
 class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
@@ -41,7 +38,8 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
         super(NetAppBlockStorage7modeLibraryTestCase, self).setUp()
 
         kwargs = {'configuration': self.get_config_7mode()}
-        self.library = block_lib_7mode('driver', 'protocol', **kwargs)
+        self.library = block_7mode.NetAppBlockStorage7modeLibrary(
+            'driver', 'protocol', **kwargs)
 
         self.library.zapi_client = mock.Mock()
         self.zapi_client = self.library.zapi_client
@@ -62,9 +60,11 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
 
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.MagicMock(return_value=(1, 20)))
-    @mock.patch.object(block_lib_7mode, '_get_root_volume_name')
-    @mock.patch.object(block_lib_7mode, '_do_partner_setup')
-    @mock.patch.object(block_lib, 'do_setup')
+    @mock.patch.object(block_7mode.NetAppBlockStorage7modeLibrary,
+                       '_get_root_volume_name')
+    @mock.patch.object(block_7mode.NetAppBlockStorage7modeLibrary,
+                       '_do_partner_setup')
+    @mock.patch.object(block_base.NetAppBlockStorageLibrary, 'do_setup')
     def test_do_setup(self, super_do_setup, mock_do_partner_setup,
                       mock_get_root_volume_name):
         mock_get_root_volume_name.return_value = 'vol0'
@@ -93,7 +93,8 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
 
         self.assertFalse(hasattr(self.library, 'partner_zapi_client'))
 
-    @mock.patch.object(block_lib, 'check_for_setup_error')
+    @mock.patch.object(
+        block_base.NetAppBlockStorageLibrary, 'check_for_setup_error')
     def test_check_for_setup_error(self, super_check_for_setup_error):
         self.zapi_client.get_ontapi_version.return_value = (1, 9)
 
@@ -199,9 +200,9 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
         self.assertIsNone(lun_id)
 
     def test_find_mapped_lun_igroup_raises(self):
-        self.zapi_client.get_lun_map.side_effect = NaApiError
+        self.zapi_client.get_lun_map.side_effect = netapp_api.NaApiError
         initiators = fake.FC_FORMATTED_INITIATORS
-        self.assertRaises(NaApiError,
+        self.assertRaises(netapp_api.NaApiError,
                           self.library._find_mapped_lun_igroup,
                           'path',
                           initiators)
@@ -352,3 +353,14 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
         self.library.zapi_client.create_lun.assert_called_once_with(
             fake.VOLUME, fake.LUN, fake.SIZE, fake.METADATA, None)
         self.assertTrue(self.library.vol_refresh_voluntary)
+
+    @mock.patch.object(na_utils, 'get_volume_extra_specs')
+    def test_check_volume_type_for_lun_qos_not_supported(self, get_specs):
+        get_specs.return_value = {'specs': 's',
+                                  'netapp:qos_policy_group': 'qos'}
+        mock_lun = block_base.NetAppLun('handle', 'name', '1',
+                                        {'Volume': 'name', 'Path': '/vol/lun'})
+        self.assertRaises(exception.ManageExistingVolumeTypeMismatch,
+                          self.library._check_volume_type_for_lun,
+                          {'vol': 'vol'}, mock_lun, {'ref': 'ref'})
+        get_specs.assert_called_once_with({'vol': 'vol'})

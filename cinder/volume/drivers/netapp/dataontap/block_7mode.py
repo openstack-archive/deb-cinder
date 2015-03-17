@@ -21,14 +21,14 @@
 Volume driver library for NetApp 7-mode block storage systems.
 """
 
+from oslo_log import log as logging
 from oslo_utils import timeutils
 from oslo_utils import units
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LW
-from cinder.openstack.common import log as logging
-from cinder.volume.configuration import Configuration
+from cinder.volume import configuration
 from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap.client import client_7mode
 from cinder.volume.drivers.netapp import options as na_opts
@@ -79,7 +79,8 @@ class NetAppBlockStorage7modeLibrary(block_base.
     def _do_partner_setup(self):
         partner_backend = self.configuration.netapp_partner_backend_name
         if partner_backend:
-            config = Configuration(na_opts.netapp_7mode_opts, partner_backend)
+            config = configuration.Configuration(na_opts.netapp_7mode_opts,
+                                                 partner_backend)
             config.append_config_values(na_opts.netapp_connection_opts)
             config.append_config_values(na_opts.netapp_basicauth_opts)
             config.append_config_values(na_opts.netapp_transport_opts)
@@ -207,6 +208,7 @@ class NetAppBlockStorage7modeLibrary(block_base.
         meta_dict['OsType'] = lun.get_child_content('multiprotocol-type')
         meta_dict['SpaceReserved'] = lun.get_child_content(
             'is-space-reservation-enabled')
+        meta_dict['UUID'] = lun.get_child_content('uuid')
         return meta_dict
 
     def _get_fc_target_wwpns(self, include_partner=True):
@@ -320,3 +322,19 @@ class NetAppBlockStorage7modeLibrary(block_base.
         """Driver entry point for destroying existing volumes."""
         super(NetAppBlockStorage7modeLibrary, self).delete_volume(volume)
         self.vol_refresh_voluntary = True
+
+    def _is_lun_valid_on_storage(self, lun):
+        """Validate LUN specific to storage system."""
+        if self.volume_list:
+            lun_vol = lun.get_metadata_property('Volume')
+            if lun_vol not in self.volume_list:
+                return False
+        return True
+
+    def _check_volume_type_for_lun(self, volume, lun, existing_ref):
+        """Check if lun satisfies volume type."""
+        extra_specs = na_utils.get_volume_extra_specs(volume)
+        if extra_specs and extra_specs.pop('netapp:qos_policy_group', None):
+            raise exception.ManageExistingVolumeTypeMismatch(
+                reason=_("Setting LUN QoS policy group is not supported"
+                         " on this storage family and ONTAP version."))

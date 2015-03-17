@@ -92,6 +92,9 @@ class GlusterFsDriverTestCase(test.TestCase):
         self._configuration.glusterfs_qcow2_volumes = False
         self._configuration.nas_secure_file_permissions = 'false'
         self._configuration.nas_secure_file_operations = 'false'
+        self._configuration.nas_ip = None
+        self._configuration.nas_share_path = None
+        self._configuration.nas_mount_options = None
 
         self._driver =\
             glusterfs.GlusterfsDriver(configuration=self._configuration,
@@ -760,8 +763,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             cmd = ['umount', test_hashpath]
             self.assertEqual(cmd[0], mock_execute.call_args[0][0])
             self.assertEqual(cmd[1], mock_execute.call_args[0][1])
-            self.assertEqual(True,
-                             mock_execute.call_args[1]['run_as_root'])
+            self.assertTrue(mock_execute.call_args[1]['run_as_root'])
 
             mock_get_mntp_share.reset_mock()
             mock_get_mntp_share.return_value = test_hashpath
@@ -775,8 +777,7 @@ class GlusterFsDriverTestCase(test.TestCase):
             cmd = ['umount', test_hashpath]
             self.assertEqual(cmd[0], mock_execute.call_args[0][0])
             self.assertEqual(cmd[1], mock_execute.call_args[0][1])
-            self.assertEqual(True,
-                             mock_execute.call_args[1]['run_as_root'])
+            self.assertTrue(mock_execute.call_args[1]['run_as_root'])
 
     def test_do_umount_with_excp1(self):
         test_share = '127.7.7.7:/gluster1'

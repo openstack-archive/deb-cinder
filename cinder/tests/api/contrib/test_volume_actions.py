@@ -17,14 +17,14 @@ import json
 import uuid
 
 import mock
-from oslo import messaging
 from oslo_config import cfg
+import oslo_messaging as messaging
 from oslo_serialization import jsonutils
 import webob
 
 from cinder.api.contrib import volume_actions
 from cinder import exception
-from cinder.image.glance import GlanceImageService
+from cinder.image import glance
 from cinder import test
 from cinder.tests.api import fakes
 from cinder.tests.api.v2 import stubs
@@ -37,7 +37,7 @@ CONF = cfg.CONF
 
 class VolumeActionsTest(test.TestCase):
 
-    _actions = ('os-detach', 'os-reserve', 'os-unreserve')
+    _actions = ('os-reserve', 'os-unreserve')
 
     _methods = ('attach', 'detach', 'reserve_volume', 'unreserve_volume')
 
@@ -178,6 +178,16 @@ class VolumeActionsTest(test.TestCase):
 
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(res.status_int, 202)
+
+    def test_detach(self):
+        body = {'os-detach': {'attachment_id': 'fakeuuid'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(202, res.status_int)
 
     def test_attach_with_invalid_arguments(self):
         # Invalid request to attach volume an invalid target
@@ -672,7 +682,7 @@ class VolumeImageActionsTest(test.TestCase):
             mock_get_volume_image_metadata.side_effect = \
                 fake_get_volume_image_metadata
 
-            with mock.patch.object(GlanceImageService, "create") \
+            with mock.patch.object(glance.GlanceImageService, "create") \
                     as mock_create:
                 mock_create.side_effect = self.fake_image_service_create
 
@@ -728,7 +738,7 @@ class VolumeImageActionsTest(test.TestCase):
             mock_get_volume_image_metadata.side_effect = \
                 fake_get_volume_image_metadata_raise
 
-            with mock.patch.object(GlanceImageService, "create") \
+            with mock.patch.object(glance.GlanceImageService, "create") \
                     as mock_create:
                 mock_create.side_effect = self.fake_image_service_create
 
@@ -780,7 +790,7 @@ class VolumeImageActionsTest(test.TestCase):
             mock_get_volume_image_metadata.side_effect = \
                 fake_get_volume_image_metadata
 
-            with mock.patch.object(GlanceImageService, "create") \
+            with mock.patch.object(glance.GlanceImageService, "create") \
                     as mock_create:
                 mock_create.side_effect = self.fake_image_service_create
 
@@ -824,7 +834,7 @@ class VolumeImageActionsTest(test.TestCase):
         id = 1
 
         # Need to mock create, update, copy_volume_to_image
-        with mock.patch.object(GlanceImageService, "create") \
+        with mock.patch.object(glance.GlanceImageService, "create") \
                 as mock_create:
             mock_create.side_effect = self.fake_image_service_create
 

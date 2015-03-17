@@ -29,10 +29,11 @@ import uuid
 import fixtures
 import mock
 import mox
-from oslo.messaging import conffixture as messaging_conffixture
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_config import fixture as config_fixture
+from oslo_log import log
+from oslo_messaging import conffixture as messaging_conffixture
 from oslo_utils import strutils
 from oslo_utils import timeutils
 import stubout
@@ -42,7 +43,7 @@ from cinder.common import config  # noqa Need to register global_opts
 from cinder.db import migration
 from cinder.db.sqlalchemy import api as sqla_api
 from cinder import i18n
-from cinder.openstack.common import log as oslo_logging
+from cinder import objects
 from cinder import rpc
 from cinder import service
 from cinder.tests import conf_fixture
@@ -56,7 +57,7 @@ test_opts = [
 CONF = cfg.CONF
 CONF.register_opts(test_opts)
 
-LOG = oslo_logging.getLogger(__name__)
+LOG = log.getLogger(__name__)
 
 _DB_CACHE = None
 
@@ -105,6 +106,9 @@ class TestCase(testtools.TestCase):
     def setUp(self):
         """Run before each test method to initialize test environment."""
         super(TestCase, self).setUp()
+
+        # Import cinder objects for test cases
+        objects.register_all()
 
         # Unit tests do not need to use lazy gettext
         i18n.enable_lazy(False)

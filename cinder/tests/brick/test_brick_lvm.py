@@ -15,10 +15,10 @@
 
 import mox
 from oslo_concurrency import processutils
+from oslo_log import log as logging
 
 from cinder.brick import exception
 from cinder.brick.local_dev import lvm as brick
-from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume import configuration as conf
 
@@ -38,7 +38,7 @@ class BrickLvmTestCase(test.TestCase):
         self.configuration.volume_group_name = 'fake-vg'
         super(BrickLvmTestCase, self).setUp()
 
-        #Stub processutils.execute for static methods
+        # Stub processutils.execute for static methods
         self.stubs.Set(processutils, 'execute',
                        self.fake_execute)
         self.vg = brick.LVM(self.configuration.volume_group_name,
@@ -73,7 +73,7 @@ class BrickLvmTestCase(test.TestCase):
             data = "  fake-vg\n"
         elif 'env, LC_ALL=C, vgs, --version' in cmd_string:
             data = "  LVM version:     2.02.95(2) (2012-03-06)\n"
-        elif ('env, LC_ALL=C, vgs, --noheadings, -o uuid, fake-vg' in
+        elif ('env, LC_ALL=C, vgs, --noheadings, -o, uuid, fake-vg' in
               cmd_string):
             data = "  kVxztV-dKpG-Rz7E-xtKY-jeju-QsYU-SLG6Z1\n"
         elif 'env, LC_ALL=C, vgs, --noheadings, --unit=g, ' \

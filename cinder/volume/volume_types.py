@@ -22,13 +22,13 @@
 
 from oslo_config import cfg
 from oslo_db import exception as db_exc
+from oslo_log import log as logging
 import six
 
 from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.i18n import _, _LE
-from cinder.openstack.common import log as logging
 
 
 CONF = cfg.CONF
@@ -58,7 +58,7 @@ def create(context,
     return type_ref
 
 
-def update(context, id, description):
+def update(context, id, name, description):
     """Update volume type by id."""
     if id is None:
         msg = _("id cannot be None")
@@ -66,7 +66,8 @@ def update(context, id, description):
     try:
         type_updated = db.volume_type_update(context,
                                              id,
-                                             dict(description=description))
+                                             dict(name=name,
+                                                  description=description))
     except db_exc.DBError as e:
         LOG.exception(_LE('DB error: %s') % six.text_type(e))
         raise exception.VolumeTypeUpdateFailed(id=id)
@@ -160,7 +161,7 @@ def get_default_volume_type():
         except exception.VolumeTypeNotFoundByName as e:
             # Couldn't find volume type with the name in default_volume_type
             # flag, record this issue and move on
-            #TODO(zhiteng) consider add notification to warn admin
+            # TODO(zhiteng) consider add notification to warn admin
             LOG.exception(_LE('Default volume type is not found,'
                           'please check default_volume_type config: %s') %
                           six.text_type(e))
