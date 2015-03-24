@@ -1,4 +1,4 @@
-# Copyright 2011 Nexenta Systems, Inc.
+# Copyright 2014 Violin Memory, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -12,15 +12,34 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-"""
-:mod:`nexenta` -- Package contains Nexenta-specific modules
-=====================================================================
 
-.. automodule:: nexenta
-.. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
-.. moduleauthor:: Mikhail Khodos <mikhail.khodos@nexenta.com>
+"""
+Fake VMEM REST client for testing drivers.
 """
 
+import sys
 
-class NexentaException(Exception):
-    pass
+import mock
+
+vmemclient = mock.Mock()
+vmemclient.__version__ = "unknown"
+
+sys.modules['vmemclient'] = vmemclient
+
+mock_client_conf = [
+    'basic',
+    'basic.login',
+    'basic.get_node_values',
+    'basic.save_config',
+    'lun',
+    'lun.export_lun',
+    'lun.unexport_lun',
+    'snapshot',
+    'snapshot.export_lun_snapshot',
+    'snapshot.unexport_lun_snapshot',
+    'iscsi',
+    'iscsi.bind_ip_to_target',
+    'iscsi.create_iscsi_target',
+    'iscsi.delete_iscsi_target',
+    'igroup',
+]

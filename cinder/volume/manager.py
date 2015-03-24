@@ -48,6 +48,7 @@ from oslo_utils import importutils
 from oslo_utils import timeutils
 from oslo_utils import uuidutils
 from osprofiler import profiler
+from taskflow import exceptions as tfe
 
 from cinder import compute
 from cinder import context
@@ -439,15 +440,30 @@ class VolumeManager(manager.SchedulerDependentManager):
         def _run_flow_locked():
             _run_flow()
 
-        if locked_action is None:
-            _run_flow()
-        else:
-            _run_flow_locked()
+        # NOTE(dulek): Flag to indicate if volume was rescheduled. Used to
+        # decide if allocated_capacity should be incremented.
+        rescheduled = False
 
-        # Fetch created volume from storage
-        vol_ref = flow_engine.storage.fetch('volume')
-        # Update volume stats
-        self._update_allocated_capacity(vol_ref)
+        try:
+            if locked_action is None:
+                _run_flow()
+            else:
+                _run_flow_locked()
+        except exception.CinderException as e:
+            if hasattr(e, 'rescheduled'):
+                rescheduled = e.rescheduled
+            raise
+        finally:
+            try:
+                vol_ref = flow_engine.storage.fetch('volume_ref')
+            except tfe.NotFound as e:
+                # Flow was reverted, fetching volume_ref from the DB.
+                vol_ref = self.db.volume_get(context, volume_id)
+
+            if not rescheduled:
+                # NOTE(dulek): Volume wasn't rescheduled so we need to update
+                # volume stats as these are decremented on delete.
+                self._update_allocated_capacity(vol_ref)
 
         return vol_ref['id']
 
@@ -1888,6 +1904,9 @@ class VolumeManager(manager.SchedulerDependentManager):
                                     'valid': VALID_CREATE_CG_SRC_SNAP_STATUS})
                             raise exception.InvalidConsistencyGroup(reason=msg)
 
+            # Sort source snapshots so that they are in the same order as their
+            # corresponding target volumes.
+            sorted_snapshots = self._sort_snapshots(volumes, snapshots)
             self._notify_about_consistencygroup_usage(
                 context, group_ref, "create.start")
 
@@ -1899,7 +1918,8 @@ class VolumeManager(manager.SchedulerDependentManager):
                       'snap': cgsnapshot_id})
             model_update, volumes_model_update = (
                 self.driver.create_consistencygroup_from_src(
-                    context, group_ref, volumes, cgsnapshot, snapshots))
+                    context, group_ref, volumes, cgsnapshot,
+                    sorted_snapshots))
 
             if volumes_model_update:
                 for update in volumes_model_update:
@@ -1945,6 +1965,29 @@ class VolumeManager(manager.SchedulerDependentManager):
             context, group_ref, "create.end")
 
         return group_ref['id']
+
+    def _sort_snapshots(self, volumes, snapshots):
+        # Sort source snapshots so that they are in the same order as their
+        # corresponding target volumes. Each source snapshot in the snapshots
+        # list should have a corresponding target volume in the volumes list.
+        if not volumes or not snapshots or len(volumes) != len(snapshots):
+            msg = _("Input volumes or snapshots are invalid.")
+            LOG.error(msg)
+            raise exception.InvalidInput(reason=msg)
+
+        sorted_snapshots = []
+        for vol in volumes:
+            found_snaps = filter(
+                lambda snap: snap['id'] == vol['snapshot_id'], snapshots)
+            if not found_snaps:
+                LOG.error(_LE("Source snapshot cannot be found for target "
+                              "volume %(volume_id)s."),
+                          {'volume_id': vol['id']})
+                raise exception.SnapshotNotFound(
+                    snapshot_id=vol['snapshot_id'])
+            sorted_snapshots.extend(found_snaps)
+
+        return sorted_snapshots
 
     def _update_volume_from_src(self, context, vol, update, group_id=None):
         try:

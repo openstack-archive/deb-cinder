@@ -75,7 +75,6 @@ CGQUOTAS = quota.CGQUOTAS
 CONF = cfg.CONF
 
 ENCRYPTION_PROVIDER = 'nova.volume.encryptors.cryptsetup.CryptsetupEncryptor'
-PLATFORM = sys.platform
 
 fake_opt = [
     cfg.StrOpt('fake_opt1', default='fake', help='fake opts')
@@ -357,6 +356,25 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         volume = db.volume_get(context.get_admin_context(), volume_id)
         self.assertEqual(volume.status, "error")
+        db.volume_destroy(context.get_admin_context(), volume_id)
+
+    def test_create_driver_not_initialized_rescheduling(self):
+        self.volume.driver._initialized = False
+
+        volume = tests_utils.create_volume(
+            self.context,
+            availability_zone=CONF.storage_availability_zone,
+            **self.volume_params)
+
+        volume_id = volume['id']
+        self.assertRaises(exception.DriverNotInitialized,
+                          self.volume.create_volume,
+                          self.context, volume_id,
+                          {'volume_properties': self.volume_params})
+        # NOTE(dulek): Volume should be rescheduled as we passed request_spec,
+        # assert that it wasn't counted in allocated_capacity tracking.
+        self.assertEqual(self.volume.stats['pools'], {})
+
         db.volume_destroy(context.get_admin_context(), volume_id)
 
     @mock.patch.object(QUOTAS, 'rollback')
@@ -2408,8 +2426,7 @@ class VolumeTestCase(BaseVolumeTestCase):
             self.assertNotIn(iscsi_target, targets)
             targets.append(iscsi_target)
 
-        total_slots = CONF.iscsi_num_targets
-        for _index in xrange(total_slots):
+        for _index in xrange(100):
             tests_utils.create_volume(self.context, **self.volume_params)
         for volume_id in volume_ids:
             self.volume.delete_volume(self.context, volume_id)
@@ -2956,14 +2973,17 @@ class VolumeTestCase(BaseVolumeTestCase):
                                               **self.volume_params)['id']
         # creating volume testdata
         try:
+            request_spec = {'volume_properties': self.volume_params}
             self.volume.create_volume(self.context,
                                       volume_id,
+                                      request_spec,
                                       image_id=image_id)
         finally:
             # cleanup
             os.unlink(dst_path)
             volume = db.volume_get(self.context, volume_id)
-            return volume
+
+        return volume
 
     def test_create_volume_from_image_cloned_status_available(self):
         """Test create volume from image via cloning.
@@ -3018,6 +3038,25 @@ class VolumeTestCase(BaseVolumeTestCase):
         # cleanup
         db.volume_destroy(self.context, volume_id)
         os.unlink(dst_path)
+
+    def test_create_volume_from_image_copy_exception_rescheduling(self):
+        """Test create volume with ImageCopyFailure
+
+        This exception should not trigger rescheduling and allocated_capacity
+        should be incremented so we're having assert for that here.
+        """
+        def fake_copy_image_to_volume(context, volume, image_service,
+                                      image_id):
+            raise exception.ImageCopyFailure()
+
+        self.stubs.Set(self.volume.driver, 'copy_image_to_volume',
+                       fake_copy_image_to_volume)
+        self.assertRaises(exception.ImageCopyFailure,
+                          self._create_volume_from_image)
+        # NOTE(dulek): Rescheduling should not occur, so lets assert that
+        # allocated_capacity is incremented.
+        self.assertDictEqual(self.volume.stats['pools'],
+                             {'_pool0': {'allocated_capacity_gb': 1}})
 
     def test_create_volume_from_exact_sized_image(self):
         """Verify that an image which is exactly the same size as the
@@ -4203,6 +4242,51 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.volume.delete_cgsnapshot(self.context, cgsnapshot_id)
         self.volume.delete_consistencygroup(self.context, group_id)
 
+    def test_sort_snapshots(self):
+        vol1 = {'id': '1', 'name': 'volume 1',
+                'snapshot_id': '1',
+                'consistencygroup_id': '1'}
+        vol2 = {'id': '2', 'name': 'volume 2',
+                'snapshot_id': '2',
+                'consistencygroup_id': '1'}
+        vol3 = {'id': '3', 'name': 'volume 3',
+                'snapshot_id': '3',
+                'consistencygroup_id': '1'}
+        snp1 = {'id': '1', 'name': 'snap 1',
+                'cgsnapshot_id': '1'}
+        snp2 = {'id': '2', 'name': 'snap 2',
+                'cgsnapshot_id': '1'}
+        snp3 = {'id': '3', 'name': 'snap 3',
+                'cgsnapshot_id': '1'}
+        volumes = []
+        snapshots = []
+        volumes.append(vol1)
+        volumes.append(vol2)
+        volumes.append(vol3)
+        snapshots.append(snp2)
+        snapshots.append(snp3)
+        snapshots.append(snp1)
+        i = 0
+        for vol in volumes:
+            snap = snapshots[i]
+            i += 1
+            self.assertNotEqual(vol['snapshot_id'], snap['id'])
+        sorted_snaps = self.volume._sort_snapshots(volumes, snapshots)
+        i = 0
+        for vol in volumes:
+            snap = sorted_snaps[i]
+            i += 1
+            self.assertEqual(vol['snapshot_id'], snap['id'])
+
+        snapshots[2]['id'] = '9999'
+        self.assertRaises(exception.SnapshotNotFound,
+                          self.volume._sort_snapshots,
+                          volumes, snapshots)
+
+        self.assertRaises(exception.InvalidInput,
+                          self.volume._sort_snapshots,
+                          volumes, [])
+
     @staticmethod
     def _create_cgsnapshot(group_id, volume_id, size='0'):
         """Create a cgsnapshot object."""
@@ -4741,7 +4825,7 @@ class GenericVolumeDriverTestCase(DriverTestCase):
             get_connector_properties(root_helper, CONF.my_ip, False, False).\
             AndReturn(properties)
         self.volume.driver._attach_volume(self.context, vol, properties).\
-            AndReturn(attach_info)
+            AndReturn((attach_info, vol))
         os.getuid()
         utils.execute('chown', None, '/dev/null', run_as_root=True)
         f = fileutils.file_open('/dev/null').AndReturn(file('/dev/null'))
@@ -4774,7 +4858,7 @@ class GenericVolumeDriverTestCase(DriverTestCase):
             get_connector_properties(root_helper, CONF.my_ip, False, False).\
             AndReturn(properties)
         self.volume.driver._attach_volume(self.context, vol, properties).\
-            AndReturn(attach_info)
+            AndReturn((attach_info, vol))
         os.getuid()
         utils.execute('chown', None, '/dev/null', run_as_root=True)
         f = fileutils.file_open('/dev/null', 'wb').AndReturn(file('/dev/null'))
@@ -5170,7 +5254,6 @@ class ISCSITestCase(DriverTestCase):
     def setUp(self):
         super(ISCSITestCase, self).setUp()
         self.configuration = mox.MockObject(conf.Configuration)
-        self.configuration.iscsi_num_targets = 100
         self.configuration.iscsi_target_prefix = 'iqn.2010-10.org.openstack:'
         self.configuration.iscsi_ip_address = '0.0.0.0'
         self.configuration.iscsi_port = 3260
@@ -5304,7 +5387,6 @@ class ISERTestCase(DriverTestCase):
         self.configuration = mock.Mock(conf.Configuration)
         self.configuration.safe_get.return_value = None
         self.configuration.num_iser_scan_tries = 3
-        self.configuration.iser_num_targets = 100
         self.configuration.iser_target_prefix = 'iqn.2010-10.org.openstack:'
         self.configuration.iser_ip_address = '0.0.0.0'
         self.configuration.iser_port = 3260

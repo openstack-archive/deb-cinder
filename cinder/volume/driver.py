@@ -50,8 +50,9 @@ volume_opts = [
                default=0,
                help='The percentage of backend capacity is reserved'),
     cfg.IntOpt('iscsi_num_targets',
-               default=100,
-               help='The maximum number of iSCSI target IDs per host'),
+               default=None,
+               help='This option is deprecated and unused. '
+                    'It will be removed in the Liberty release.'),
     cfg.StrOpt('iscsi_target_prefix',
                default='iqn.2010-10.org.openstack:',
                help='Prefix for iSCSI volumes'),
@@ -219,8 +220,9 @@ iser_opts = [
                help='The maximum number of times to rescan iSER target'
                     'to find volume'),
     cfg.IntOpt('iser_num_targets',
-               default=100,
-               help='The maximum number of iSER target IDs per host'),
+               default=None,
+               help='This option is deprecated and unused. '
+                    'It will be removed in the Liberty release.'),
     cfg.StrOpt('iser_target_prefix',
                default='iqn.2010-10.org.openstack:',
                help='Prefix for iSER volumes'),
@@ -490,10 +492,11 @@ class BaseVD(object):
         dest_remote = True if remote in ['dest', 'both'] else False
         dest_orig_status = dest_vol['status']
         try:
-            dest_attach_info = self._attach_volume(context,
-                                                   dest_vol,
-                                                   properties,
-                                                   remote=dest_remote)
+            dest_attach_info, dest_vol = self._attach_volume(
+                context,
+                dest_vol,
+                properties,
+                remote=dest_remote)
         except Exception:
             with excutils.save_and_reraise_exception():
                 msg = _("Failed to attach volume %(vol)s")
@@ -504,10 +507,10 @@ class BaseVD(object):
         src_remote = True if remote in ['src', 'both'] else False
         src_orig_status = src_vol['status']
         try:
-            src_attach_info = self._attach_volume(context,
-                                                  src_vol,
-                                                  properties,
-                                                  remote=src_remote)
+            src_attach_info, src_vol = self._attach_volume(context,
+                                                           src_vol,
+                                                           properties,
+                                                           remote=src_remote)
         except Exception:
             with excutils.save_and_reraise_exception():
                 msg = _("Failed to attach volume %(vol)s")
@@ -547,7 +550,7 @@ class BaseVD(object):
         enforce_multipath = self.configuration.enforce_multipath_for_image_xfer
         properties = utils.brick_get_connector_properties(use_multipath,
                                                           enforce_multipath)
-        attach_info = self._attach_volume(context, volume, properties)
+        attach_info, volume = self._attach_volume(context, volume, properties)
 
         try:
             image_utils.fetch_to_raw(context,
@@ -567,7 +570,7 @@ class BaseVD(object):
         enforce_multipath = self.configuration.enforce_multipath_for_image_xfer
         properties = utils.brick_get_connector_properties(use_multipath,
                                                           enforce_multipath)
-        attach_info = self._attach_volume(context, volume, properties)
+        attach_info, volume = self._attach_volume(context, volume, properties)
 
         try:
             image_utils.upload_volume(context,
@@ -673,7 +676,7 @@ class BaseVD(object):
                     LOG.error(err_msg)
                     raise exception.VolumeBackendAPIException(data=ex_msg)
                 raise exception.VolumeBackendAPIException(data=err_msg)
-        return self._connect_device(conn)
+        return (self._connect_device(conn), volume)
 
     def _connect_device(self, conn):
         # Use Brick's code to do attach/detach
@@ -716,7 +719,7 @@ class BaseVD(object):
         enforce_multipath = self.configuration.enforce_multipath_for_image_xfer
         properties = utils.brick_get_connector_properties(use_multipath,
                                                           enforce_multipath)
-        attach_info = self._attach_volume(context, volume, properties)
+        attach_info, volume = self._attach_volume(context, volume, properties)
 
         try:
             volume_path = attach_info['device']['path']
@@ -744,7 +747,7 @@ class BaseVD(object):
         enforce_multipath = self.configuration.enforce_multipath_for_image_xfer
         properties = utils.brick_get_connector_properties(use_multipath,
                                                           enforce_multipath)
-        attach_info = self._attach_volume(context, volume, properties)
+        attach_info, volume = self._attach_volume(context, volume, properties)
 
         try:
             volume_path = attach_info['device']['path']
@@ -1212,9 +1215,8 @@ class VolumeDriver(ConsistencyGroupVD, TransferVD, ManageableVD, ExtendVD,
         msg = _("Unmanage volume not implemented.")
         raise NotImplementedError(msg)
 
-    def retype(self, volume):
-        msg = _("Retype existing volume not implemented.")
-        raise NotImplementedError(msg)
+    def retype(self, context, volume, new_type, diff, host):
+        return False, None
 
     def reenable_replication(self, context, volume):
         msg = _("sync_replica not implemented.")
@@ -1697,8 +1699,6 @@ class ISERDriver(ISCSIDriver):
         # for backward compatibility
         self.configuration.num_volume_device_scan_tries = \
             self.configuration.num_iser_scan_tries
-        self.configuration.iscsi_num_targets = \
-            self.configuration.iser_num_targets
         self.configuration.iscsi_target_prefix = \
             self.configuration.iser_target_prefix
         self.configuration.iscsi_ip_address = \

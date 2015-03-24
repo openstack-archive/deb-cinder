@@ -38,6 +38,7 @@ except ImportError:
 
 STORAGEGROUPTYPE = 4
 POSTGROUPTYPE = 3
+CLONE_REPLICATION_TYPE = 10
 
 EMC_ROOT = 'root/emc'
 CONCATENATED = 'concatenated'
@@ -343,7 +344,7 @@ class EMCVMAXUtils(object):
         :param extraSpecs: extraSpecs dict
         :returns: JOB_RETRIES or user defined
         """
-        if extraSpecs:
+        if extraSpecs and RETRIES in extraSpecs:
             jobRetries = extraSpecs[RETRIES]
         else:
             jobRetries = JOB_RETRIES
@@ -355,7 +356,7 @@ class EMCVMAXUtils(object):
         :param extraSpecs: extraSpecs dict
         :returns: INTERVAL_10_SEC or user defined
         """
-        if extraSpecs:
+        if extraSpecs and INTERVAL in extraSpecs:
             intervalInSecs = extraSpecs[INTERVAL]
         else:
             intervalInSecs = INTERVAL_10_SEC
@@ -827,13 +828,13 @@ class EMCVMAXUtils(object):
         If it is not there then the default will be used.
 
         :param fileName: the path and name of the file
-        :returns: string -- interval - the interval in seconds
+        :returns: interval - the interval in seconds
         """
         interval = self._parse_from_file(fileName, 'Interval')
         if interval:
             return interval
         else:
-            LOG.debug("Interval not found in config file.")
+            LOG.debug("Interval not overridden, default of 10 assumed.")
             return None
 
     def parse_retries_from_file(self, fileName):
@@ -842,13 +843,13 @@ class EMCVMAXUtils(object):
         If it is not there then the default will be used.
 
         :param fileName: the path and name of the file
-        :returns: string -- retries - the max number of retries
+        :returns: retries - the max number of retries
         """
         retries = self._parse_from_file(fileName, 'Retries')
         if retries:
             return retries
         else:
-            LOG.debug("Retries not found in config file.")
+            LOG.debug("Retries not overridden, default of 60 assumed.")
             return None
 
     def parse_pool_instance_id(self, poolInstanceId):
@@ -1524,7 +1525,7 @@ class EMCVMAXUtils(object):
 
         for srpPoolInstanceName in srpPoolInstanceNames:
             poolInstanceID = srpPoolInstanceName['InstanceID']
-            poolnameStr, _ = (
+            poolnameStr, _systemName = (
                 self.parse_pool_instance_id_v3(poolInstanceID))
 
             if six.text_type(poolName) == six.text_type(poolnameStr):
@@ -1838,3 +1839,52 @@ class EMCVMAXUtils(object):
             raise exception.VolumeBackendAPIException(
                 data=exceptionMessage)
         return instance
+
+    def find_replication_service_capabilities(self, conn, storageSystemName):
+        """Find the replication service capabilities instance name.
+
+        :param conn: the connection to the ecom server
+        :param storageSystemName: the storage system name
+        :returns: foundRepServCapability
+        """
+        foundRepServCapability = None
+        repservices = conn.EnumerateInstanceNames(
+            'CIM_ReplicationServiceCapabilities')
+        for repservCap in repservices:
+            if storageSystemName in repservCap['InstanceID']:
+                foundRepServCapability = repservCap
+                LOG.debug("Found Replication Service Capabilities: "
+                          "%(repservCap)s",
+                          {'repservCap': repservCap})
+                break
+        if foundRepServCapability is None:
+            exceptionMessage = (_("Replication Service Capability not found "
+                                  "on %(storageSystemName)s.")
+                                % {'storageSystemName': storageSystemName})
+            LOG.error(exceptionMessage)
+            raise exception.VolumeBackendAPIException(data=exceptionMessage)
+
+        return foundRepServCapability
+
+    def is_clone_licensed(self, conn, capabilityInstanceName):
+        """Check if the clone feature is licensed and enabled.
+
+        :param conn: the connection to the ecom server
+        :param capabilityInstanceName: the replication service capabilities
+        instance name
+        :returns: True if licensed and enabled; False otherwise.
+        """
+        capabilityInstance = conn.GetInstance(capabilityInstanceName)
+        propertiesList = capabilityInstance.properties.items()
+        for properties in propertiesList:
+            if properties[0] == 'SupportedReplicationTypes':
+                cimProperties = properties[1]
+                repTypes = cimProperties.value
+                LOG.debug("Found supported replication types: "
+                          "%(repTypes)s",
+                          {'repTypes': repTypes})
+                if CLONE_REPLICATION_TYPE in repTypes:
+                    # Clone is a supported replication type.
+                    LOG.debug("Clone is licensed and enabled.")
+                    return True
+        return False
