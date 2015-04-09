@@ -9,7 +9,7 @@ CINDER_CONF=/etc/cinder/cinder.conf
 
 pkgos_var_user_group cinder
 pkgos_dbc_read_conf -pkg cinder-common ${CINDER_CONF} database connection cinder $@
-pkgos_rabbit_read_conf ${CINDER_CONF} DEFAULT cinder
+pkgos_rabbit_read_conf ${CINDER_CONF} oslo_messaging_rabbit cinder
 pkgos_read_admin_creds ${CINDER_CONF} keystone_authtoken cinder
 
 pkgos_inifile get ${CINDER_CONF} DEFAULT volume_group
