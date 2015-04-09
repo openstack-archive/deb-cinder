@@ -15,7 +15,7 @@
 """
 Volume driver for Pure Storage FlashArray storage system.
 
-This driver requires Purity version 3.4.0 or later.
+This driver requires Purity version 4.0.0 or later.
 """
 
 import math
@@ -270,8 +270,7 @@ class PureISCSIDriver(san.SanISCSIDriver):
         if initiator_update:
             properties["initiator_update"] = initiator_update
 
-        LOG.debug("Leave PureISCSIDriver.initialize_connection. "
-                  "Return value: %s", str(properties))
+        LOG.debug("Leave PureISCSIDriver.initialize_connection.")
         return properties
 
     def _get_target_iscsi_port(self):

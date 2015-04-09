@@ -187,7 +187,7 @@ class Server(object):
                                {'host': host, 'port': port})
 
         (self._host, self._port) = self._socket.getsockname()[0:2]
-        LOG.info(_LI("%(name)s listening on %(_host)s:%(_port)s") %
+        LOG.info(_LI("%(name)s listening on %(_host)s:%(_port)s"),
                  {'name': self.name, '_host': self._host, '_port': self._port})
 
     def start(self):
@@ -234,7 +234,7 @@ class Server(object):
                 with excutils.save_and_reraise_exception():
                     LOG.error(_LE("Failed to start %(name)s on %(_host)s:"
                                   "%(_port)s with SSL "
-                                  "support.") % self.__dict__)
+                                  "support."), self.__dict__)
 
         wsgi_kwargs = {
             'func': eventlet.wsgi.server,
@@ -438,16 +438,16 @@ class Debug(Middleware):
 
     @webob.dec.wsgify(RequestClass=Request)
     def __call__(self, req):
-        print(('*' * 40) + ' REQUEST ENVIRON')
+        print(('*' * 40) + ' REQUEST ENVIRON')  # noqa
         for key, value in req.environ.items():
-            print(key, '=', value)
-        print()
+            print(key, '=', value)  # noqa
+        print()  # noqa
         resp = req.get_response(self.application)
 
-        print(('*' * 40) + ' RESPONSE HEADERS')
+        print(('*' * 40) + ' RESPONSE HEADERS')  # noqa
         for (key, value) in resp.headers.iteritems():
-            print(key, '=', value)
-        print()
+            print(key, '=', value)  # noqa
+        print()  # noqa
 
         resp.app_iter = self.print_generator(resp.app_iter)
 
@@ -456,12 +456,12 @@ class Debug(Middleware):
     @staticmethod
     def print_generator(app_iter):
         """Iterator that prints the contents of a wrapper string."""
-        print(('*' * 40) + ' BODY')
+        print(('*' * 40) + ' BODY')  # noqa
         for part in app_iter:
             sys.stdout.write(part)
             sys.stdout.flush()
             yield part
-        print()
+        print()  # noqa
 
 
 class Router(object):
@@ -544,6 +544,6 @@ class Loader(object):
         """
         try:
             return deploy.loadapp("config:%s" % self.config_path, name=name)
-        except LookupError as err:
-            LOG.error(err)
+        except LookupError:
+            LOG.exception(_LE("Error loading app %s"), name)
             raise exception.PasteAppNotFound(name=name, path=self.config_path)

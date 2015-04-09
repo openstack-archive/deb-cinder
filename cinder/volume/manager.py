@@ -48,6 +48,7 @@ from oslo_utils import importutils
 from oslo_utils import timeutils
 from oslo_utils import uuidutils
 from osprofiler import profiler
+import six
 from taskflow import exceptions as tfe
 
 from cinder import compute
@@ -331,15 +332,33 @@ class VolumeManager(manager.SchedulerDependentManager):
                         self.db.volume_update(ctxt,
                                               volume['id'],
                                               {'status': 'error'})
-                elif volume['status'] == 'downloading':
-                    LOG.info(_LI("volume %s stuck in a downloading state"),
-                             volume['id'])
-                    self.driver.clear_download(ctxt, volume)
+                elif volume['status'] in ('downloading', 'creating'):
+                    LOG.info(_LI("volume %(volume_id)s stuck in "
+                                 "%(volume_stat)s state. "
+                                 "Changing to error state."),
+                             {'volume_id': volume['id'],
+                              'volume_stat': volume['status']})
+
+                    if volume['status'] == 'downloading':
+                        self.driver.clear_download(ctxt, volume)
                     self.db.volume_update(ctxt,
                                           volume['id'],
                                           {'status': 'error'})
                 else:
                     LOG.info(_LI("volume %s: skipping export"), volume['id'])
+            snapshots = self.db.snapshot_get_by_host(ctxt,
+                                                     self.host,
+                                                     {'status': 'creating'})
+            for snapshot in snapshots:
+                LOG.info(_LI("snapshot %(snap_id)s stuck in "
+                             "%(snap_stat)s state. "
+                             "Changing to error state."),
+                         {'snap_id': snapshot['id'],
+                          'snap_stat': snapshot['status']})
+
+                self.db.snapshot_update(ctxt,
+                                        snapshot['id'],
+                                        {'status': 'error'})
         except Exception as ex:
             LOG.error(_LE("Error encountered during "
                           "re-exporting phase of driver initialization: "
@@ -361,8 +380,8 @@ class VolumeManager(manager.SchedulerDependentManager):
                     # Offload all the pending volume delete operations to the
                     # threadpool to prevent the main volume service thread
                     # from being blocked.
-                    self._add_to_threadpool(self.delete_volume(ctxt,
-                                                               volume['id']))
+                    self._add_to_threadpool(self.delete_volume, ctxt,
+                                            volume['id'])
                 else:
                     # By default, delete volumes sequentially
                     self.delete_volume(ctxt, volume['id'])
@@ -449,7 +468,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                 _run_flow()
             else:
                 _run_flow_locked()
-        except exception.CinderException as e:
+        except Exception as e:
             if hasattr(e, 'rescheduled'):
                 rescheduled = e.rescheduled
             raise
@@ -509,6 +528,10 @@ class VolumeManager(manager.SchedulerDependentManager):
             raise exception.InvalidVolume(
                 reason=_("volume is not local to this node"))
 
+        is_migrating = volume_ref['migration_status'] is not None
+        is_migrating_dest = (is_migrating and
+                             volume_ref['migration_status'].startswith(
+                                 'target:'))
         self._notify_about_volume_usage(context, volume_ref, "delete.start")
         try:
             # NOTE(flaper87): Verify the driver is enabled
@@ -526,19 +549,17 @@ class VolumeManager(manager.SchedulerDependentManager):
         except exception.VolumeIsBusy:
             LOG.error(_LE("Cannot delete volume %s: volume is busy"),
                       volume_ref['id'])
-            self.db.volume_update(context, volume_ref['id'],
-                                  {'status': 'available'})
+            # If this is a destination volume, we have to clear the database
+            # record to avoid user confusion.
+            self._clear_db(context, is_migrating_dest, volume_ref,
+                           'available')
             return True
         except Exception:
             with excutils.save_and_reraise_exception():
-                self.db.volume_update(context,
-                                      volume_ref['id'],
-                                      {'status': 'error_deleting'})
-
-        is_migrating = volume_ref['migration_status'] is not None
-        is_migrating_dest = (is_migrating and
-                             volume_ref['migration_status'].startswith(
-                                 'target:'))
+                # If this is a destination volume, we have to clear the
+                # database record to avoid user confusion.
+                self._clear_db(context, is_migrating_dest, volume_ref,
+                               'error_deleting')
 
         # If deleting source/destination volume in a migration, we should
         # skip quotas.
@@ -593,6 +614,21 @@ class VolumeManager(manager.SchedulerDependentManager):
             self.publish_service_capabilities(context)
 
         return True
+
+    def _clear_db(self, context, is_migrating_dest, volume_ref, status):
+        # This method is called when driver.unmanage() or
+        # driver.delete_volume() fails in delete_volume(), so it is already
+        # in the exception handling part.
+        if is_migrating_dest:
+            self.db.volume_destroy(context, volume_ref['id'])
+            LOG.error(_LE("Unable to delete the destination volume %s "
+                          "during volume migration, but the database "
+                          "record needs to be deleted."),
+                      volume_ref['id'])
+        else:
+            self.db.volume_update(context,
+                                  volume_ref['id'],
+                                  {'status': status})
 
     def create_snapshot(self, context, volume_id, snapshot):
         """Creates and exports the snapshot."""
@@ -836,8 +872,14 @@ class VolumeManager(manager.SchedulerDependentManager):
                         " this volume") % {'id': volume_id}
                 LOG.error(msg)
                 raise exception.InvalidVolume(reason=msg)
-            else:
+            elif len(attachments) == 1:
                 attachment = attachments[0]
+            else:
+                # there aren't any attachments for this volume.
+                msg = _("Volume %(id)s doesn't have any attachments "
+                        "to detach") % {'id': volume_id}
+                LOG.error(msg)
+                raise exception.InvalidVolume(reason=msg)
 
         volume = self.db.volume_get(context, volume_id)
         self._notify_about_volume_usage(context, volume, "detach.start")
@@ -918,7 +960,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                 self._delete_image(context, image_meta['id'], image_service)
 
             with excutils.save_and_reraise_exception():
-                payload['message'] = unicode(error)
+                payload['message'] = six.text_type(error)
         finally:
             if not volume['volume_attachment']:
                 self.db.volume_update(context, volume_id,
@@ -1188,6 +1230,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         # I think
         new_vol_values['migration_status'] = 'target:%s' % volume['id']
         new_vol_values['attach_status'] = 'detached'
+        new_vol_values['volume_attachment'] = []
         new_volume = self.db.volume_create(ctxt, new_vol_values)
         rpcapi.create_volume(ctxt, new_volume, host['host'],
                              None, None, allow_reschedule=False)
@@ -1198,13 +1241,19 @@ class VolumeManager(manager.SchedulerDependentManager):
         new_volume = self.db.volume_get(ctxt, new_volume['id'])
         tries = 0
         while new_volume['status'] != 'available':
-            tries = tries + 1
+            tries += 1
             now = time.time()
             if new_volume['status'] == 'error':
                 msg = _("failed to create new_volume on destination host")
+                self._clean_temporary_volume(ctxt, volume['id'],
+                                             new_volume['id'],
+                                             clean_db_only=True)
                 raise exception.VolumeMigrationFailed(reason=msg)
             elif now > deadline:
                 msg = _("timeout creating new_volume on destination host")
+                self._clean_temporary_volume(ctxt, volume['id'],
+                                             new_volume['id'],
+                                             clean_db_only=True)
                 raise exception.VolumeMigrationFailed(reason=msg)
             else:
                 time.sleep(tries ** 2)
@@ -1231,34 +1280,11 @@ class VolumeManager(manager.SchedulerDependentManager):
                                                   new_volume['id'])
         except Exception:
             with excutils.save_and_reraise_exception():
-                msg = _("Failed to copy volume %(vol1)s to %(vol2)s")
-                LOG.error(msg % {'vol1': volume['id'],
-                                 'vol2': new_volume['id']})
-                volume = self.db.volume_get(ctxt, volume['id'])
-
-                # If we're in the migrating phase, we need to cleanup
-                # destination volume because source volume is remaining
-                if volume['migration_status'] == 'migrating':
-                    rpcapi.delete_volume(ctxt, new_volume)
-                else:
-                    # If we're in the completing phase don't delete the
-                    # destination because we may have already deleted the
-                    # source! But the migration_status in database should
-                    # be cleared to handle volume after migration failure
-                    try:
-                        updates = {'migration_status': None}
-                        self.db.volume_update(ctxt, new_volume['id'], updates)
-                    except exception.VolumeNotFound:
-                        LOG.info(_LI("Couldn't find destination volume "
-                                     "%(vol)s in database. The entry might be "
-                                     "successfully deleted during migration "
-                                     "completion phase."),
-                                 {'vol': new_volume['id']})
-
-                    LOG.warn(_LW("Failed to migrate volume. The destination "
-                                 "volume %(vol)s is not deleted since the "
-                                 "source volume may have already deleted."),
-                             {'vol': new_volume['id']})
+                msg = _LE("Failed to copy volume %(vol1)s to %(vol2)s")
+                LOG.error(msg, {'vol1': volume['id'],
+                                'vol2': new_volume['id']})
+                self._clean_temporary_volume(ctxt, volume['id'],
+                                             new_volume['id'])
 
     def _get_original_status(self, volume):
         attachments = volume['volume_attachment']
@@ -1266,6 +1292,47 @@ class VolumeManager(manager.SchedulerDependentManager):
             return 'available'
         else:
             return 'in-use'
+
+    def _clean_temporary_volume(self, ctxt, volume_id, new_volume_id,
+                                clean_db_only=False):
+        volume = self.db.volume_get(ctxt, volume_id)
+        # If we're in the migrating phase, we need to cleanup
+        # destination volume because source volume is remaining
+        if volume['migration_status'] == 'migrating':
+            try:
+                if clean_db_only:
+                    # The temporary volume is not created, only DB data
+                    # is created
+                    self.db.volume_destroy(ctxt, new_volume_id)
+                else:
+                    # The temporary volume is already created
+                    rpcapi = volume_rpcapi.VolumeAPI()
+                    volume = self.db.volume_get(ctxt, new_volume_id)
+                    rpcapi.delete_volume(ctxt, volume)
+            except exception.VolumeNotFound:
+                LOG.info(_LI("Couldn't find the temporary volume "
+                             "%(vol)s in the database. There is no need "
+                             "to clean up this volume."),
+                         {'vol': new_volume_id})
+        else:
+            # If we're in the completing phase don't delete the
+            # destination because we may have already deleted the
+            # source! But the migration_status in database should
+            # be cleared to handle volume after migration failure
+            try:
+                updates = {'migration_status': None}
+                self.db.volume_update(ctxt, new_volume_id, updates)
+            except exception.VolumeNotFound:
+                LOG.info(_LI("Couldn't find destination volume "
+                             "%(vol)s in the database. The entry might be "
+                             "successfully deleted during migration "
+                             "completion phase."),
+                         {'vol': new_volume_id})
+
+                LOG.warning(_LW("Failed to migrate volume. The destination "
+                                "volume %(vol)s is not deleted since the "
+                                "source volume may have been deleted."),
+                            {'vol': new_volume_id})
 
     def migrate_volume_completion(self, ctxt, volume_id, new_volume_id,
                                   error=False):
@@ -1304,7 +1371,9 @@ class VolumeManager(manager.SchedulerDependentManager):
         # Delete the source volume (if it fails, don't fail the migration)
         try:
             if orig_volume_status == 'in-use':
-                self.detach_volume(ctxt, volume_id)
+                attachments = volume['volume_attachment']
+                for attachment in attachments:
+                    self.detach_volume(ctxt, volume_id, attachment['id'])
             self.delete_volume(ctxt, volume_id)
         except Exception as ex:
             msg = _("Failed to delete migration source vol %(vol)s: %(err)s")

@@ -428,7 +428,6 @@ class V6000FCPDriverTestCase(test.TestCase):
     def test_build_initiator_target_map(self):
         """Successfully build a map when zoning is enabled."""
         expected_targ_wwns = FC_TARGET_WWPNS
-        expected_init_targ_map = FC_INITIATOR_TARGET_MAP
 
         self.driver.lookup_service = mock.Mock()
         self.driver.lookup_service.get_device_mapping_from_network.\
@@ -440,7 +439,18 @@ class V6000FCPDriverTestCase(test.TestCase):
         self.driver.lookup_service.get_device_mapping_from_network.\
             assert_called_with(CONNECTOR['wwpns'], self.driver.gateway_fc_wwns)
         self.assertEqual(set(expected_targ_wwns), set(targ_wwns))
-        self.assertEqual(expected_init_targ_map, init_targ_map)
+
+        i = FC_INITIATOR_WWPNS[0]
+        self.assertIn(FC_TARGET_WWPNS[0], init_targ_map[i])
+        self.assertIn(FC_TARGET_WWPNS[1], init_targ_map[i])
+        self.assertEqual(2, len(init_targ_map[i]))
+
+        i = FC_INITIATOR_WWPNS[1]
+        self.assertIn(FC_TARGET_WWPNS[2], init_targ_map[i])
+        self.assertIn(FC_TARGET_WWPNS[3], init_targ_map[i])
+        self.assertEqual(2, len(init_targ_map[i]))
+
+        self.assertEqual(2, len(init_targ_map))
 
     def test_build_initiator_target_map_no_lookup_service(self):
         """Successfully build a map when zoning is disabled."""
@@ -543,6 +553,29 @@ class V6000FCPDriverTestCase(test.TestCase):
         self.assertTrue(self.driver._update_stats() is None)
         self.assertEqual(0, self.driver.stats['total_capacity_gb'])
         self.assertEqual(0, self.driver.stats['free_capacity_gb'])
+        self.assertEqual(backend_name,
+                         self.driver.stats['volume_backend_name'])
+        self.assertEqual(vendor_name, self.driver.stats['vendor_name'])
+
+    def test_update_stats_fails_data_query_but_has_cached_stats(self):
+        """Stats query to backend fails, but cached stats are available. """
+        backend_name = self.conf.volume_backend_name
+        vendor_name = "Violin Memory, Inc."
+        bn0 = '/cluster/state/master_id'
+        response1 = {bn0: '1'}
+        response2 = {}
+
+        # fake cached stats, from a previous stats query
+        self.driver.stats = {'free_capacity_gb': 50, 'total_capacity_gb': 100}
+
+        conf = {
+            'basic.get_node_values.side_effect': [response1, response2],
+        }
+        self.driver.common.vip = self.setup_mock_vshare(m_conf=conf)
+
+        self.assertIsNone(self.driver._update_stats())
+        self.assertEqual(100, self.driver.stats['total_capacity_gb'])
+        self.assertEqual(50, self.driver.stats['free_capacity_gb'])
         self.assertEqual(backend_name,
                          self.driver.stats['volume_backend_name'])
         self.assertEqual(vendor_name, self.driver.stats['vendor_name'])

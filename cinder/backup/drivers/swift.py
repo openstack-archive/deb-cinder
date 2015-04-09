@@ -145,8 +145,8 @@ class SwiftBackupDriver(chunkeddriver.ChunkedBackupDriver):
         LOG.debug("Using swift URL %s", self.swift_url)
         self.swift_attempts = CONF.backup_swift_retry_attempts
         self.swift_backoff = CONF.backup_swift_retry_backoff
-        LOG.debug('Connect to %s in "%s" mode', (CONF.backup_swift_url,
-                                                 CONF.backup_swift_auth))
+        LOG.debug('Connect to %s in "%s" mode', CONF.backup_swift_url,
+                  CONF.backup_swift_auth)
         if CONF.backup_swift_auth == 'single_user':
             if CONF.backup_swift_user is None:
                 LOG.error(_LE("single_user auth mode enabled, "
@@ -167,7 +167,7 @@ class SwiftBackupDriver(chunkeddriver.ChunkedBackupDriver):
                                          preauthtoken=self.context.auth_token,
                                          starting_backoff=self.swift_backoff)
 
-    class SwiftObjectWriter:
+    class SwiftObjectWriter(object):
         def __init__(self, container, object_name, conn):
             self.container = container
             self.object_name = object_name
@@ -203,7 +203,7 @@ class SwiftBackupDriver(chunkeddriver.ChunkedBackupDriver):
                 raise exception.InvalidBackup(reason=err)
             return md5
 
-    class SwiftObjectReader:
+    class SwiftObjectReader(object):
         def __init__(self, container, object_name, conn):
             self.container = container
             self.object_name = object_name

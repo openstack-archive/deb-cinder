@@ -910,6 +910,17 @@ class DBAPIVolumeTestCase(BaseTest):
         metadata.pop('c')
         self.assertEqual(metadata, db.volume_metadata_get(self.ctxt, 1))
 
+    def test_volume_glance_metadata_create(self):
+        volume = db.volume_create(self.ctxt, {'host': 'h1'})
+        db.volume_glance_metadata_create(self.ctxt, volume['id'],
+                                         'image_name',
+                                         u'\xe4\xbd\xa0\xe5\xa5\xbd')
+        glance_meta = db.volume_glance_metadata_get(self.ctxt, volume['id'])
+        for meta_entry in glance_meta:
+            if meta_entry.key == 'image_name':
+                image_name = meta_entry.value
+        self.assertEqual(u'\xe4\xbd\xa0\xe5\xa5\xbd', image_name)
+
 
 class DBAPISnapshotTestCase(BaseTest):
 
@@ -933,6 +944,34 @@ class DBAPISnapshotTestCase(BaseTest):
         self._assertEqualListsOfObjects([snapshot],
                                         db.snapshot_get_all(self.ctxt),
                                         ignored_keys=['metadata', 'volume'])
+
+    def test_snapshot_get_by_host(self):
+        db.volume_create(self.ctxt, {'id': 1, 'host': 'host1'})
+        db.volume_create(self.ctxt, {'id': 2, 'host': 'host2'})
+        snapshot1 = db.snapshot_create(self.ctxt, {'id': 1, 'volume_id': 1})
+        snapshot2 = db.snapshot_create(self.ctxt, {'id': 2, 'volume_id': 2,
+                                                   'status': 'error'})
+
+        self._assertEqualListsOfObjects([snapshot1],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host1'),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([snapshot2],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host2'),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host2', {'status': 'available'}),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([snapshot2],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host2', {'status': 'error'}),
+                                        ignored_keys='volume')
 
     def test_snapshot_metadata_get(self):
         metadata = {'a': 'b', 'c': 'd'}
@@ -996,6 +1035,25 @@ class DBAPIVolumeTypeTestCase(BaseTest):
                           db.volume_type_create,
                           self.ctxt,
                           {'name': 'n2', 'id': vt['id']})
+
+    def test_get_volume_type_extra_specs(self):
+        # Ensure that volume type extra specs can be accessed after
+        # the DB session is closed.
+        vt_extra_specs = {'mock_key': 'mock_value'}
+        vt = db.volume_type_create(self.ctxt,
+                                   {'name': 'n1',
+                                    'extra_specs': vt_extra_specs})
+        volume_ref = db.volume_create(self.ctxt, {'volume_type_id': vt.id})
+
+        session = sqlalchemy_api.get_session()
+        volume = sqlalchemy_api._volume_get(self.ctxt, volume_ref.id,
+                                            session=session)
+        session.close()
+
+        actual_specs = {}
+        for spec in volume.volume_type.extra_specs:
+            actual_specs[spec.key] = spec.value
+        self.assertEqual(vt_extra_specs, actual_specs)
 
 
 class DBAPIEncryptionTestCase(BaseTest):

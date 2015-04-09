@@ -112,8 +112,8 @@ def _list_hosts(req, service=None):
         active = 'enabled'
         if host['disabled']:
             active = 'disabled'
-        LOG.debug('status, active and update: %s, %s, %s' %
-                  (status, active, host['updated_at']))
+        LOG.debug('status, active and update: %s, %s, %s',
+                  status, active, host['updated_at'])
         hosts.append({'host_name': host['host'],
                       'service': host['topic'],
                       'zone': host['availability_zone'],

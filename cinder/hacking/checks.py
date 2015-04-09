@@ -41,11 +41,20 @@ underscore_import_check = re.compile(r"(.)*i18n\s+import\s+_(.)*")
 # We need this for cases where they have created their own _ function.
 custom_underscore_check = re.compile(r"(.)*_\s*=\s*(.)*")
 no_audit_log = re.compile(r"(.)*LOG\.audit(.)*")
+no_print_statements = re.compile(r"\s*print\s*\(.+\).*")
 
 # NOTE(jsbryant): When other oslo libraries switch over non-namespaced
 # imports, we will need to add them to the regex below.
 oslo_namespace_imports = re.compile(r"from[\s]*oslo[.](concurrency|db"
                                     "|config|utils|serialization|log)")
+no_contextlib_nested = re.compile(r"\s*with (contextlib\.)?nested\(")
+
+log_translation_LI = re.compile(
+    r"(.)*LOG\.(info)\(\s*(_\(|'|\")")
+log_translation_LE = re.compile(
+    r"(.)*LOG\.(exception|error)\(\s*(_\(|'|\")")
+log_translation_LW = re.compile(
+    r"(.)*LOG\.(warning|warn)\(\s*(_\(|'|\")")
 
 
 def no_vi_headers(physical_line, line_number, lines):
@@ -106,19 +115,6 @@ def check_explicit_underscore_import(logical_line, filename):
         yield(0, "N323: Found use of _() without explicit import of _ !")
 
 
-def check_no_log_audit(logical_line):
-    """Ensure that we are not using LOG.audit messages
-
-    Plans are in place going forward as discussed in the following
-    spec (https://review.openstack.org/#/c/91446/) to take out
-    LOG.audit messages.  Given that audit was a concept invented
-    for OpenStack we can enforce not using it.
-    """
-
-    if no_audit_log.match(logical_line):
-        yield(0, "N324: Found LOG.audit.  Use LOG.info instead.")
-
-
 def check_assert_called_once(logical_line, filename):
     msg = ("N327: assert_called_once is a no-op. please use assert_called_"
            "once_with to test with explicit parameters or an assertEqual with"
@@ -130,20 +126,43 @@ def check_assert_called_once(logical_line, filename):
             yield (pos, msg)
 
 
+def validate_log_translations(logical_line, filename):
+    # TODO(smcginnis): The following is temporary as a series
+    # of patches are done to address these issues. It should be
+    # removed completely when bug 1433216 is closed.
+    ignore_dirs = [
+        "cinder/brick",
+        "cinder/db",
+        "cinder/openstack",
+        "cinder/scheduler",
+        "cinder/volume",
+        "cinder/zonemanager"]
+    for directory in ignore_dirs:
+        if directory in filename:
+            return
+
+    # Translations are not required in the test directory.
+    # This will not catch all instances of violations, just direct
+    # misuse of the form LOG.info('Message').
+    if "cinder/tests" in filename:
+        return
+    msg = "N328: LOG.info messages require translations `_LI()`!"
+    if log_translation_LI.match(logical_line):
+        yield (0, msg)
+    msg = ("N329: LOG.exception and LOG.error messages require "
+           "translations `_LE()`!")
+    if log_translation_LE.match(logical_line):
+        yield (0, msg)
+    msg = "N330: LOG.warning messages require translations `_LW()`!"
+    if log_translation_LW.match(logical_line):
+        yield (0, msg)
+
+
 def check_oslo_namespace_imports(logical_line):
     if re.match(oslo_namespace_imports, logical_line):
         msg = ("N333: '%s' must be used instead of '%s'.") % (
             logical_line.replace('oslo.', 'oslo_'),
             logical_line)
-        yield(0, msg)
-
-
-def check_no_contextlib_nested(logical_line):
-    msg = ("N339: contextlib.nested is deprecated. With Python 2.7 and later "
-           "the with-statement supports multiple nested objects. See https://"
-           "docs.python.org/2/library/contextlib.html#contextlib.nested "
-           "for more information.")
-    if "with contextlib.nested" in logical_line:
         yield(0, msg)
 
 
@@ -157,13 +176,60 @@ def check_datetime_now(logical_line, noqa):
         yield(0, msg)
 
 
+def check_unicode_usage(logical_line, noqa):
+    if noqa:
+        return
+
+    msg = "C302: Found unicode() call. Please use six.text_type()."
+
+    if 'unicode(' in logical_line:
+        yield(0, msg)
+
+
+def check_no_print_statements(logical_line, filename, noqa):
+    # The files in cinder/cmd do need to use 'print()' so
+    # we don't need to check those files.  Other exemptions
+    # should use '# noqa' to avoid failing here.
+    if "cinder/cmd" not in filename and not noqa:
+        if re.match(no_print_statements, logical_line):
+            msg = ("C303: print() should not be used. "
+                   "Please use LOG.[info|error|warning|exception|debug]. "
+                   "If print() must be used, use '# noqa' to skip this check.")
+            yield(0, msg)
+
+
+def check_no_log_audit(logical_line):
+    """Ensure that we are not using LOG.audit messages
+
+    Plans are in place going forward as discussed in the following
+    spec (https://review.openstack.org/#/c/91446/) to take out
+    LOG.audit messages.  Given that audit was a concept invented
+    for OpenStack we can enforce not using it.
+    """
+
+    if no_audit_log.match(logical_line):
+        yield(0, "C304: Found LOG.audit.  Use LOG.info instead.")
+
+
+def check_no_contextlib_nested(logical_line):
+    msg = ("C305: contextlib.nested is deprecated. With Python 2.7 and later "
+           "the with-statement supports multiple nested objects. See https://"
+           "docs.python.org/2/library/contextlib.html#contextlib.nested "
+           "for more information.")
+    if no_contextlib_nested.match(logical_line):
+        yield(0, msg)
+
+
 def factory(register):
     register(no_vi_headers)
     register(no_translate_debug_logs)
     register(no_mutable_default_args)
     register(check_explicit_underscore_import)
-    register(check_no_log_audit)
     register(check_assert_called_once)
     register(check_oslo_namespace_imports)
-    register(check_no_contextlib_nested)
     register(check_datetime_now)
+    register(validate_log_translations)
+    register(check_unicode_usage)
+    register(check_no_print_statements)
+    register(check_no_log_audit)
+    register(check_no_contextlib_nested)

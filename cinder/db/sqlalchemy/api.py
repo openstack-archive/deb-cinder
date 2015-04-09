@@ -437,6 +437,9 @@ def service_update(context, service_id, values):
     session = get_session()
     with session.begin():
         service_ref = _service_get(context, service_id, session=session)
+        if ('disabled' in values):
+            service_ref['modified_at'] = timeutils.utcnow()
+            service_ref['updated_at'] = literal_column('updated_at')
         service_ref.update(values)
         return service_ref
 
@@ -1212,7 +1215,9 @@ def volume_detached(context, volume_id, attachment_id):
         volume_ref = _volume_get(context, volume_id, session=session)
         if not remain_attachment:
             # Hide status update from user if we're performing volume migration
-            if not volume_ref['migration_status']:
+            # or uploading it to image
+            if (not volume_ref['migration_status'] and
+                    not (volume_ref['status'] == 'uploading')):
                 volume_ref['status'] = 'available'
 
             volume_ref['attach_status'] = 'detached'
@@ -1232,6 +1237,7 @@ def _volume_get_query(context, session=None, project_only=False):
             options(joinedload('volume_metadata')).\
             options(joinedload('volume_admin_metadata')).\
             options(joinedload('volume_type')).\
+            options(joinedload('volume_type.extra_specs')).\
             options(joinedload('volume_attachment')).\
             options(joinedload('consistencygroup'))
     else:
@@ -1239,6 +1245,7 @@ def _volume_get_query(context, session=None, project_only=False):
                            project_only=project_only).\
             options(joinedload('volume_metadata')).\
             options(joinedload('volume_type')).\
+            options(joinedload('volume_type.extra_specs')).\
             options(joinedload('volume_attachment')).\
             options(joinedload('consistencygroup'))
 
@@ -1934,6 +1941,18 @@ def snapshot_get_all_for_volume(context, volume_id):
         filter_by(volume_id=volume_id).\
         options(joinedload('snapshot_metadata')).\
         all()
+
+
+@require_context
+def snapshot_get_by_host(context, host, filters=None):
+    query = model_query(context, models.Snapshot, read_deleted='no',
+                        project_only=True)
+    if filters:
+        query = query.filter_by(**filters)
+
+    return query.join(models.Snapshot.volume).filter(
+        models.Volume.host == host).options(
+            joinedload('snapshot_metadata')).all()
 
 
 @require_context
@@ -3021,8 +3040,7 @@ def volume_glance_metadata_create(context, volume_id, key, value):
         vol_glance_metadata = models.VolumeGlanceMetadata()
         vol_glance_metadata.volume_id = volume_id
         vol_glance_metadata.key = key
-        vol_glance_metadata.value = str(value)
-
+        vol_glance_metadata.value = six.text_type(value)
         session.add(vol_glance_metadata)
 
     return

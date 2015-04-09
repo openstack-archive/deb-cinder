@@ -56,6 +56,7 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         'display_name': fields.StringField(nullable=True),
         'display_description': fields.StringField(nullable=True),
 
+        'provider_id': fields.UUIDField(nullable=True),
         'provider_location': fields.StringField(nullable=True),
         'provider_auth': fields.StringField(nullable=True),
         'provider_geometry': fields.StringField(nullable=True),
@@ -73,6 +74,10 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         'replication_extended_status': fields.StringField(nullable=True),
         'replication_driver_data': fields.StringField(nullable=True),
     }
+
+    # NOTE(thangp): obj_extra_fields is used to hold properties that are not
+    # usually part of the model
+    obj_extra_fields = ['name', 'name_id']
 
     @property
     def name_id(self):
@@ -119,8 +124,8 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         db_volume = db.volume_create(context, updates)
         self._from_db_object(context, self, db_volume)
 
-    def save(self):
-        context = self._context
+    @base.remotable
+    def save(self, context):
         updates = self.obj_get_changes()
         if updates:
             db.volume_update(context, self.id, updates)

@@ -898,53 +898,158 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         vops.delete_backing.assert_called_once_with(backing)
         self.assertFalse(extend_disk.called)
 
+    @mock.patch.object(VMDK_DRIVER, '_copy_temp_virtual_disk')
+    @mock.patch.object(VMDK_DRIVER, '_get_temp_image_folder')
     @mock.patch(
         'cinder.volume.drivers.vmware.volumeops.FlatExtentVirtualDiskPath')
     @mock.patch.object(VMDK_DRIVER, '_copy_image')
     @mock.patch.object(VMDK_DRIVER, 'volumeops')
     def test_create_virtual_disk_from_preallocated_image(
-            self, vops, copy_image, flat_extent_path):
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
         self._test_create_virtual_disk_from_preallocated_image(
-            vops, copy_image, flat_extent_path)
+            vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk)
 
     def _test_create_virtual_disk_from_preallocated_image(
-            self, vops, copy_image, flat_extent_path):
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
         context = mock.Mock()
         image_service = mock.Mock()
         image_id = mock.Mock()
         image_size_in_bytes = 2 * units.Gi
-        dc_ref = mock.Mock()
-        ds_name = "nfs"
-        folder_path = "A/B/"
-        disk_name = "disk-1"
+        dest_dc_ref = mock.sentinel.dest_dc_ref
+        dest_ds_name = "nfs"
+        dest_folder_path = "A/B/"
+        dest_disk_name = "disk-1"
         adapter_type = "ide"
 
-        src_path = mock.Mock()
-        flat_extent_path.return_value = src_path
+        dc_ref = mock.sentinel.dc_ref
+        ds_name = "local-0"
+        folder_path = "cinder_temp"
+        get_temp_image_folder.return_value = (dc_ref, ds_name, folder_path)
+
+        path = mock.Mock()
+        dest_path = mock.Mock()
+        flat_extent_path.side_effect = [path, dest_path]
 
         ret = self._driver._create_virtual_disk_from_preallocated_image(
-            context, image_service, image_id, image_size_in_bytes, dc_ref,
-            ds_name, folder_path, disk_name, adapter_type)
+            context, image_service, image_id, image_size_in_bytes, dest_dc_ref,
+            dest_ds_name, dest_folder_path, dest_disk_name, adapter_type)
 
         create_descriptor = vops.create_flat_extent_virtual_disk_descriptor
         create_descriptor.assert_called_once_with(
-            dc_ref, src_path, image_size_in_bytes / units.Ki, adapter_type,
+            dc_ref, path, image_size_in_bytes / units.Ki, adapter_type,
             vmdk.EAGER_ZEROED_THICK_VMDK_TYPE)
         copy_image.assert_called_once_with(
             context, dc_ref, image_service, image_id, image_size_in_bytes,
-            ds_name, src_path.get_flat_extent_file_path())
-        self.assertEqual(src_path, ret)
+            ds_name, path.get_flat_extent_file_path())
+        copy_temp_virtual_disk.assert_called_once_with(dc_ref, path,
+                                                       dest_dc_ref, dest_path)
+        self.assertEqual(dest_path, ret)
 
-        create_descriptor.reset_mock()
-        copy_image.reset_mock()
+    @mock.patch.object(VMDK_DRIVER, '_copy_temp_virtual_disk')
+    @mock.patch.object(VMDK_DRIVER, '_get_temp_image_folder')
+    @mock.patch(
+        'cinder.volume.drivers.vmware.volumeops.FlatExtentVirtualDiskPath')
+    @mock.patch.object(VMDK_DRIVER, '_copy_image')
+    @mock.patch.object(VMDK_DRIVER, 'volumeops')
+    def test_create_virtual_disk_from_preallocated_image_with_no_disk_copy(
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
+        self._test_create_virtual_disk_from_preallocated_image_with_no_copy(
+            vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk)
+
+    def _test_create_virtual_disk_from_preallocated_image_with_no_copy(
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
+        context = mock.Mock()
+        image_service = mock.Mock()
+        image_id = mock.Mock()
+        image_size_in_bytes = 2 * units.Gi
+        dest_dc_ref = mock.Mock(value=mock.sentinel.dest_dc_ref)
+        dest_ds_name = "nfs"
+        dest_folder_path = "A/B/"
+        dest_disk_name = "disk-1"
+        adapter_type = "ide"
+
+        dc_ref = mock.Mock(value=mock.sentinel.dest_dc_ref)
+        ds_name = dest_ds_name
+        folder_path = "cinder_temp"
+        get_temp_image_folder.return_value = (dc_ref, ds_name, folder_path)
+
+        path = mock.Mock()
+        flat_extent_path.return_value = path
+
+        ret = self._driver._create_virtual_disk_from_preallocated_image(
+            context, image_service, image_id, image_size_in_bytes, dest_dc_ref,
+            dest_ds_name, dest_folder_path, dest_disk_name, adapter_type)
+
+        create_descriptor = vops.create_flat_extent_virtual_disk_descriptor
+        create_descriptor.assert_called_once_with(
+            dc_ref, path, image_size_in_bytes / units.Ki, adapter_type,
+            vmdk.EAGER_ZEROED_THICK_VMDK_TYPE)
+        copy_image.assert_called_once_with(
+            context, dc_ref, image_service, image_id, image_size_in_bytes,
+            ds_name, path.get_flat_extent_file_path())
+        self.assertFalse(copy_temp_virtual_disk.called)
+        self.assertEqual(path, ret)
+
+    @mock.patch.object(VMDK_DRIVER, '_copy_temp_virtual_disk')
+    @mock.patch.object(VMDK_DRIVER, '_get_temp_image_folder')
+    @mock.patch(
+        'cinder.volume.drivers.vmware.volumeops.FlatExtentVirtualDiskPath')
+    @mock.patch.object(VMDK_DRIVER, '_copy_image')
+    @mock.patch.object(VMDK_DRIVER, 'volumeops')
+    def test_create_virtual_disk_from_preallocated_image_with_copy_error(
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
+        self._test_create_virtual_disk_from_preallocated_image_with_copy_error(
+            vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk)
+
+    def _test_create_virtual_disk_from_preallocated_image_with_copy_error(
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
+        context = mock.Mock()
+        image_service = mock.Mock()
+        image_id = mock.Mock()
+        image_size_in_bytes = 2 * units.Gi
+        dest_dc_ref = mock.sentinel.dest_dc_ref
+        dest_ds_name = "nfs"
+        dest_folder_path = "A/B/"
+        dest_disk_name = "disk-1"
+        adapter_type = "ide"
+
+        dc_ref = mock.sentinel.dc_ref
+        ds_name = "local-0"
+        folder_path = "cinder_temp"
+        get_temp_image_folder.return_value = (dc_ref, ds_name, folder_path)
+
+        path = mock.Mock()
+        dest_path = mock.Mock()
+        flat_extent_path.side_effect = [path, dest_path]
+
         copy_image.side_effect = exceptions.VimException("error")
+
         self.assertRaises(
             exceptions.VimException,
             self._driver._create_virtual_disk_from_preallocated_image,
-            context, image_service, image_id, image_size_in_bytes, dc_ref,
-            ds_name, folder_path, disk_name, adapter_type)
+            context, image_service, image_id, image_size_in_bytes, dest_dc_ref,
+            dest_ds_name, dest_folder_path, dest_disk_name, adapter_type)
+
+        create_descriptor = vops.create_flat_extent_virtual_disk_descriptor
+        create_descriptor.assert_called_once_with(
+            dc_ref, path, image_size_in_bytes / units.Ki, adapter_type,
+            vmdk.EAGER_ZEROED_THICK_VMDK_TYPE)
+
+        copy_image.assert_called_once_with(
+            context, dc_ref, image_service, image_id, image_size_in_bytes,
+            ds_name, path.get_flat_extent_file_path())
         vops.delete_file.assert_called_once_with(
-            src_path.get_descriptor_ds_file_path(), dc_ref)
+            path.get_descriptor_ds_file_path(), dc_ref)
+        self.assertFalse(copy_temp_virtual_disk.called)
 
     @mock.patch(
         'cinder.volume.drivers.vmware.volumeops.'
@@ -984,7 +1089,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
             context, dc_ref, image_service, image_id, image_size_in_bytes,
             ds_name, src_path.get_descriptor_file_path())
         copy_temp_virtual_disk.assert_called_once_with(
-            dc_ref, src_path, dest_path)
+            dc_ref, src_path, dc_ref, dest_path)
         self.assertEqual(dest_path, ret)
 
     @mock.patch.object(image_transfer, 'download_stream_optimized_image')
@@ -1125,8 +1230,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         image_meta['disk_format'] = 'novmdk'
         volume = FakeObject()
         volume['name'] = 'vol-name'
-        volume['instance_uuid'] = None
-        volume['attached_host'] = None
+        volume['volume_attachment'] = None
 
         m.ReplayAll()
         self.assertRaises(cinder_exceptions.ImageUnacceptable,
@@ -1140,7 +1244,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         """Test copy_volume_to_image when volume is attached."""
         m = self.mox
         volume = FakeObject()
-        volume['instance_uuid'] = 'my_uuid'
+        volume['volume_attachment'] = [mock.sentinel.volume_attachment]
 
         m.ReplayAll()
         self.assertRaises(cinder_exceptions.InvalidVolume,
@@ -1165,6 +1269,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         image_meta['disk_format'] = 'vmdk'
         image_meta['id'] = image_id
         image_meta['name'] = image_id
+        image_meta['is_public'] = True
         image_service = FakeObject()
         vol_name = 'volume-123456789'
         project_id = 'project-owner-id-123'
@@ -1174,8 +1279,7 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
         size = size_gb * units.Gi
         volume['size'] = size_gb
         volume['project_id'] = project_id
-        volume['instance_uuid'] = None
-        volume['attached_host'] = None
+        volume['volume_attachment'] = None
         # volumeops.get_backing
         backing = FakeMor("VirtualMachine", "my_vm")
         m.StubOutWithMock(self._volumeops, 'get_backing')
@@ -1224,6 +1328,20 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
                           get_volume_group_folder, generate_uuid,
                           delete_temp_backing)
 
+    def test_in_use(self):
+        # Test with in-use volume.
+        vol = {'size': 1, 'status': 'in-use', 'name': 'vol-1',
+               'volume_type_id': 'def'}
+        vol['volume_attachment'] = [mock.sentinel.volume_attachment]
+        self.assertTrue(self._driver._in_use(vol))
+
+        # Test with available volume.
+        vol['status'] = 'available'
+        vol['volume_attachment'] = None
+        self.assertFalse(self._driver._in_use(vol))
+        vol['volume_attachment'] = []
+        self.assertFalse(self._driver._in_use(vol))
+
     def _test_retype(self, ds_sel, vops, get_volume_type_extra_specs,
                      get_volume_group_folder, genereate_uuid,
                      delete_temp_backing):
@@ -1235,13 +1353,14 @@ class VMwareEsxVmdkDriverTestCase(test.TestCase):
 
         # Test with in-use volume.
         vol = {'size': 1, 'status': 'retyping', 'name': 'vol-1',
-               'volume_type_id': 'def', 'instance_uuid': '583a8dbb'}
+               'volume_type_id': 'def'}
+        vol['volume_attachment'] = [mock.sentinel.volume_attachment]
         self.assertFalse(self._driver.retype(context, vol, new_type, diff,
                                              host))
 
         # Test with no backing.
         vops.get_backing.return_value = None
-        vol['instance_uuid'] = None
+        vol['volume_attachment'] = None
         self.assertTrue(self._driver.retype(context, vol, new_type, diff,
                                             host))
 
@@ -2385,14 +2504,44 @@ class VMwareVcVmdkDriverTestCase(VMwareEsxVmdkDriverTestCase):
             generate_uuid,
             extend_disk)
 
+    @mock.patch.object(VMDK_DRIVER, '_copy_temp_virtual_disk')
+    @mock.patch.object(VMDK_DRIVER, '_get_temp_image_folder')
     @mock.patch(
         'cinder.volume.drivers.vmware.volumeops.FlatExtentVirtualDiskPath')
     @mock.patch.object(VMDK_DRIVER, '_copy_image')
     @mock.patch.object(VMDK_DRIVER, 'volumeops')
     def test_create_virtual_disk_from_preallocated_image(
-            self, vops, copy_image, flat_extent_path):
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
         self._test_create_virtual_disk_from_preallocated_image(
-            vops, copy_image, flat_extent_path)
+            vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk)
+
+    @mock.patch.object(VMDK_DRIVER, '_copy_temp_virtual_disk')
+    @mock.patch.object(VMDK_DRIVER, '_get_temp_image_folder')
+    @mock.patch(
+        'cinder.volume.drivers.vmware.volumeops.FlatExtentVirtualDiskPath')
+    @mock.patch.object(VMDK_DRIVER, '_copy_image')
+    @mock.patch.object(VMDK_DRIVER, 'volumeops')
+    def test_create_virtual_disk_from_preallocated_image_with_no_disk_copy(
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
+        self._test_create_virtual_disk_from_preallocated_image_with_no_copy(
+            vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk)
+
+    @mock.patch.object(VMDK_DRIVER, '_copy_temp_virtual_disk')
+    @mock.patch.object(VMDK_DRIVER, '_get_temp_image_folder')
+    @mock.patch(
+        'cinder.volume.drivers.vmware.volumeops.FlatExtentVirtualDiskPath')
+    @mock.patch.object(VMDK_DRIVER, '_copy_image')
+    @mock.patch.object(VMDK_DRIVER, 'volumeops')
+    def test_create_virtual_disk_from_preallocated_image_with_copy_error(
+            self, vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk):
+        self._test_create_virtual_disk_from_preallocated_image_with_copy_error(
+            vops, copy_image, flat_extent_path, get_temp_image_folder,
+            copy_temp_virtual_disk)
 
     @mock.patch(
         'cinder.volume.drivers.vmware.volumeops.'

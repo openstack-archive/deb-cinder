@@ -869,21 +869,23 @@ class EMCVMAXUtils(object):
 
         idarray = poolInstanceId.split('+')
         if len(idarray) > 2:
-            systemName = self._format_system_name(idarray[0], idarray[1])
+            systemName = self._format_system_name(idarray[0], idarray[1], '+')
 
         LOG.debug("Pool name: %(poolName)s  System name: %(systemName)s.",
                   {'poolName': poolName, 'systemName': systemName})
         return poolName, systemName
 
-    def _format_system_name(self, part1, part2):
+    def _format_system_name(self, part1, part2, sep):
         """Join to make up system name
 
         :param part1: the prefix
+        :param sep: the separator
         :param part2: the postfix
         :returns: systemName
         """
-        return ("%(part1)s+%(part2)s"
+        return ("%(part1)s%(sep)s%(part2)s"
                 % {'part1': part1,
+                   'sep': sep,
                    'part2': part2})
 
     def parse_pool_instance_id_v3(self, poolInstanceId):
@@ -903,7 +905,8 @@ class EMCVMAXUtils(object):
 
         idarray = poolInstanceId.split('-+-')
         if len(idarray) > 2:
-            systemName = self._format_system_name(idarray[0], idarray[1])
+            systemName = (
+                self._format_system_name(idarray[0], idarray[1], '-+-'))
 
         LOG.debug("Pool name: %(poolName)s  System name: %(systemName)s.",
                   {'poolName': poolName, 'systemName': systemName})
@@ -1550,7 +1553,7 @@ class EMCVMAXUtils(object):
         return totalCapacityGb, remainingCapacityGb
 
     def isArrayV3(self, conn, arrayName):
-        """Check is the array is V2 or V3.
+        """Check if the array is V2 or V3.
 
         :param conn: the connection to the ecom server
         :param arrayName: the array name
@@ -1888,3 +1891,32 @@ class EMCVMAXUtils(object):
                     LOG.debug("Clone is licensed and enabled.")
                     return True
         return False
+
+    def create_storage_hardwareId_instance_name(
+            self, conn, hardwareIdManagementService, initiator):
+        """Create storage hardware ID instance name based on the given wwpn.
+
+        :param conn: connection to the ecom server
+        :param hardwareIdManagementService: the hardware ID management service
+        :param initiator: initiator(IQN or WWPN) to create the hardware ID
+            instance
+        :returns: hardwareIdList
+        """
+        hardwareIdList = None
+        hardwareIdType = 2
+        rc, ret = conn.InvokeMethod(
+            'CreateStorageHardwareID',
+            hardwareIdManagementService,
+            StorageID=initiator,
+            IDType=self.get_num(hardwareIdType, '16'))
+
+        if 'HardwareID' in ret:
+            LOG.debug("Created hardware ID instance for initiator:"
+                      "%(initiator)s rc=%(rc)d, ret=%(ret)s",
+                      {'initiator': initiator, 'rc': rc, 'ret': ret})
+            hardwareIdList = ret['HardwareID']
+        else:
+            LOG.warn(_LW("CreateStorageHardwareID failed. initiator: "
+                         "%(initiator)s, rc=%(rc)d, ret=%(ret)s."),
+                     {'initiator': initiator, 'rc': rc, 'ret': ret})
+        return hardwareIdList

@@ -33,7 +33,7 @@ FAKE_ERROR_RETURN = ("FAKE ERROR", 255)
 VERSION = emc_vnx_cli.EMCVnxCliBase.VERSION
 
 
-class EMCVNXCLIDriverTestData():
+class EMCVNXCLIDriverTestData(object):
 
     test_volume = {
         'name': 'vol1',
@@ -372,7 +372,7 @@ class EMCVNXCLIDriverTestData():
 
     test_lun_id = 1
     test_existing_ref = {'id': test_lun_id}
-    test_pool_name = 'Pool_02_SASFLASH'
+    test_pool_name = 'unit_test_pool'
     device_map = {
         '1122334455667788': {
             'initiator_port_wwn_list': ['123456789012345', '123456789054321'],
@@ -439,6 +439,26 @@ class EMCVNXCLIDriverTestData():
     NDU_LIST_RESULT_WO_LICENSE = (
         "Name of the software package:   -Unisphere ",
         0)
+    MIGRATE_PROPERTY_MIGRATING = """\
+        Source LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d
+        Source LU ID:  63950
+        Dest LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d_dest
+        Dest LU ID:  136
+        Migration Rate:  high
+        Current State:  MIGRATING
+        Percent Complete:  50
+        Time Remaining:  0 second(s)
+        """
+    MIGRATE_PROPERTY_STOPPED = """\
+        Source LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d
+        Source LU ID:  63950
+        Dest LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d_dest
+        Dest LU ID:  136
+        Migration Rate:  high
+        Current State:  STOPPED - Destination full
+        Percent Complete:  60
+        Time Remaining:  0 second(s)
+        """
 
     def SNAP_MP_CREATE_CMD(self, name='vol1', source='vol1'):
         return ('lun', '-create', '-type', 'snap', '-primaryLunName',
@@ -481,6 +501,9 @@ class EMCVNXCLIDriverTestData():
 
     def MIGRATION_VERIFY_CMD(self, src_id):
         return ("migrate", "-list", "-source", src_id)
+
+    def MIGRATION_CANCEL_CMD(self, src_id):
+        return ("migrate", "-cancel", "-source", src_id, '-o')
 
     def GETPORT_CMD(self):
         return ("connection", "-getport", "-address", "-vlanid")
@@ -777,32 +800,37 @@ Available Capacity (GBs):  3257.851
         "Port Status:         Online\n" +
         "Switch Present:      NO\n", 0)
 
-    def LUN_PROPERTY(self, name, isThin=False, hasSnap=False, size=1):
-        return """\
+    def LUN_PROPERTY(self, name, is_thin=False, has_snap=False, size=1,
+                     state='Ready', faulted='false', operation='None'):
+        return ("""
                LOGICAL UNIT NUMBER 1
-               Name:  %s
+               Name:  %(name)s
                UID:  60:06:01:60:09:20:32:00:13:DF:B4:EF:C2:63:E3:11
                Current Owner:  SP A
                Default Owner:  SP A
                Allocation Owner:  SP A
-               Attached Snapshot: %s
+               Attached Snapshot: %(has_snap)s
                User Capacity (Blocks):  2101346304
-               User Capacity (GBs):  %d
+               User Capacity (GBs):  %(size)d
                Consumed Capacity (Blocks):  2149576704
                Consumed Capacity (GBs):  1024.998
-               Pool Name:  Pool_02_SASFLASH
-               Current State:  Ready
+               Pool Name:  unit_test_pool
+               Current State:  %(state)s
                Status:  OK(0x0)
-               Is Faulted:  false
+               Is Faulted:  %(faulted)s
                Is Transitioning:  false
-               Current Operation:  None
+               Current Operation:  %(operation)s
                Current Operation State:  N/A
                Current Operation Status:  N/A
                Current Operation Percent Completed:  0
-               Is Thin LUN:  %s""" % (name,
-                                      'FakeSnap' if hasSnap else 'N/A',
-                                      size,
-                                      'Yes' if isThin else 'No'), 0
+               Is Thin LUN:  %(is_thin)s""" % {
+            'name': name,
+            'has_snap': 'FakeSnap' if has_snap else 'N/A',
+            'size': size,
+            'state': state,
+            'faulted': faulted,
+            'operation': operation,
+            'is_thin': 'Yes' if is_thin else 'No'}, 0)
 
     def STORAGE_GROUP_NO_MAP(self, sgname):
         return ("""\
@@ -1464,6 +1492,52 @@ Time Remaining:  0 second(s)
                                 poll=True)]
         fake_cli.assert_has_calls(expect_cmd)
 
+    @mock.patch("cinder.volume.drivers.emc.emc_vnx_cli."
+                "CommandLineHelper.create_lun_by_cmd",
+                mock.Mock(
+                    return_value={'lun_id': 1}))
+    @mock.patch(
+        "cinder.volume.drivers.emc.emc_vnx_cli.EMCVnxCliBase.get_lun_id",
+        mock.Mock(
+            side_effect=[1, 1]))
+    @mock.patch(
+        "cinder.volume.drivers.emc.emc_vnx_cli.EMCVnxCliBase."
+        "get_lun_id_by_name",
+        mock.Mock(return_value=1))
+    def test_volume_migration_stopped(self):
+
+        commands = [self.testData.MIGRATION_CMD(),
+                    self.testData.MIGRATION_VERIFY_CMD(1),
+                    self.testData.MIGRATION_CANCEL_CMD(1)]
+
+        results = [SUCCEED, [(self.testData.MIGRATE_PROPERTY_MIGRATING, 0),
+                             (self.testData.MIGRATE_PROPERTY_STOPPED, 0),
+                             ('The specified source LUN is not '
+                              'currently migrating', 23)],
+                   SUCCEED]
+        fake_cli = self.driverSetup(commands, results)
+        fake_host = {'capabilities': {'location_info':
+                                      "unit_test_pool2|fakeSerial",
+                                      'storage_protocol': 'iSCSI'}}
+
+        self.assertRaisesRegexp(exception.VolumeBackendAPIException,
+                                "Migration of LUN 1 has been stopped or"
+                                " faulted.",
+                                self.driver.migrate_volume,
+                                None, self.testData.test_volume, fake_host)
+
+        expect_cmd = [mock.call(*self.testData.MIGRATION_CMD(),
+                                retry_disable=True,
+                                poll=True),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=True),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=False),
+                      mock.call(*self.testData.MIGRATION_CANCEL_CMD(1)),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=False)]
+        fake_cli.assert_has_calls(expect_cmd)
+
     def test_create_destroy_volume_snapshot(self):
         fake_cli = self.driverSetup()
 
@@ -1805,6 +1879,57 @@ Time Remaining:  0 second(s)
             'failed_vol1', 1, 'unit_test_pool', None, None, False))]
         fake_cli.assert_has_calls(expect_cmd)
 
+    @mock.patch('cinder.openstack.common.loopingcall.FixedIntervalLoopingCall',
+                new=utils.ZeroIntervalLoopingCall)
+    def test_create_faulted_volume(self):
+        volume_name = 'faulted_volume'
+        cmd_create = self.testData.LUN_CREATION_CMD(
+            volume_name, 1, 'unit_test_pool', None, None, False)
+        cmd_list_preparing = self.testData.LUN_PROPERTY_ALL_CMD(volume_name)
+        commands = [cmd_create, cmd_list_preparing]
+        results = [SUCCEED,
+                   [self.testData.LUN_PROPERTY(name=volume_name,
+                                               state='Faulted',
+                                               faulted='true',
+                                               operation='Preparing'),
+                    self.testData.LUN_PROPERTY(name=volume_name,
+                                               state='Faulted',
+                                               faulted='true',
+                                               operation='None')]]
+        fake_cli = self.driverSetup(commands, results)
+        faulted_volume = self.testData.test_volume.copy()
+        faulted_volume.update({'name': volume_name})
+        self.driver.create_volume(faulted_volume)
+        expect_cmd = [
+            mock.call(*self.testData.LUN_CREATION_CMD(
+                volume_name, 1, 'unit_test_pool', None, None, False)),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD(volume_name),
+                      poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD(volume_name),
+                      poll=False)]
+        fake_cli.assert_has_calls(expect_cmd)
+
+    @mock.patch('cinder.openstack.common.loopingcall.FixedIntervalLoopingCall',
+                new=utils.ZeroIntervalLoopingCall)
+    def test_create_offline_volume(self):
+        volume_name = 'offline_volume'
+        cmd_create = self.testData.LUN_CREATION_CMD(
+            volume_name, 1, 'unit_test_pool', None, None, False)
+        cmd_list = self.testData.LUN_PROPERTY_ALL_CMD(volume_name)
+        commands = [cmd_create, cmd_list]
+        results = [SUCCEED,
+                   self.testData.LUN_PROPERTY(name=volume_name,
+                                              state='Offline',
+                                              faulted='true')]
+        self.driverSetup(commands, results)
+        offline_volume = self.testData.test_volume.copy()
+        offline_volume.update({'name': volume_name})
+        self.assertRaisesRegexp(exception.VolumeBackendAPIException,
+                                "Volume %s was created in VNX, but in"
+                                " Offline state." % volume_name,
+                                self.driver.create_volume,
+                                offline_volume)
+
     def test_create_volume_snapshot_failed(self):
         commands = [self.testData.SNAP_CREATE_CMD('failed_snapshot')]
         results = [FAKE_ERROR_RETURN]
@@ -1874,11 +1999,17 @@ Time Remaining:  0 second(s)
         cmd_detach_lun = ('lun', '-detach', '-name', 'vol2')
         output_migrate = ("", 0)
         cmd_migrate_verify = self.testData.MIGRATION_VERIFY_CMD(1)
+        output_migrate_verify = (r'The specified source LUN '
+                                 'is not currently migrating', 23)
+        cmd_migrate_cancel = self.testData.MIGRATION_CANCEL_CMD(1)
+        output_migrate_cancel = ("", 0)
 
         commands = [cmd_dest, cmd_dest_np, cmd_migrate,
-                    cmd_migrate_verify]
+                    cmd_migrate_verify, cmd_migrate_cancel]
         results = [output_dest, output_dest, output_migrate,
-                   FAKE_ERROR_RETURN]
+                   [FAKE_ERROR_RETURN, output_migrate_verify],
+                   output_migrate_cancel]
+
         fake_cli = self.driverSetup(commands, results)
 
         self.assertRaises(exception.VolumeBackendAPIException,
@@ -1906,6 +2037,9 @@ Time Remaining:  0 second(s)
                       poll=True),
             mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
                       poll=True),
+            mock.call(*self.testData.MIGRATION_CANCEL_CMD(1)),
+            mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                      poll=False),
             mock.call(*self.testData.LUN_DELETE_CMD('vol2_dest')),
             mock.call(*cmd_detach_lun),
             mock.call(*self.testData.LUN_DELETE_CMD('vol2'))]
@@ -2686,7 +2820,7 @@ Time Remaining:  0 second(s)
         "get_volume_type_extra_specs",
         mock.Mock(return_value={'fast_cache_enabled': 'True'}))
     def test_create_volume_with_fastcache(self):
-        '''enable fastcache when creating volume.'''
+        """Enable fastcache when creating volume."""
         commands = [self.testData.NDU_LIST_CMD,
                     self.testData.POOL_PROPERTY_W_FASTCACHE_CMD,
                     self.testData.LUN_PROPERTY_ALL_CMD('vol_with_type'),
@@ -2733,14 +2867,15 @@ Time Remaining:  0 second(s)
             mock.call('connection', '-getport', '-address', '-vlanid',
                       poll=False),
             mock.call('-np', 'lun', '-create', '-capacity',
-                      1, '-sq', 'gb', '-poolName', 'Pool_02_SASFLASH',
+                      1, '-sq', 'gb', '-poolName',
+                      self.testData.test_pool_name,
                       '-name', 'vol_with_type', '-type', 'NonThin')
         ]
 
         fake_cli.assert_has_calls(expect_cmd)
 
     def test_get_lun_id_provider_location_exists(self):
-        '''test function get_lun_id.'''
+        """Test function get_lun_id."""
         self.driverSetup()
         volume_01 = {
             'name': 'vol_01',
@@ -2761,7 +2896,7 @@ Time Remaining:  0 second(s)
         "get_lun_by_name",
         mock.Mock(return_value={'lun_id': 2}))
     def test_get_lun_id_provider_location_has_no_lun_id(self):
-        '''test function get_lun_id.'''
+        """Test function get_lun_id."""
         self.driverSetup()
         volume_02 = {
             'name': 'vol_02',
@@ -3213,7 +3348,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
         results = [self.testData.LUN_PROPERTY(testVolume['name'], False)]
         fake_cli = self.driverSetup(commands, results)
         pool = self.driver.get_pool(testVolume)
-        self.assertEqual('Pool_02_SASFLASH', pool)
+        self.assertEqual('unit_test_pool', pool)
         fake_cli.assert_has_calls(
             [mock.call(*self.testData.LUN_PROPERTY_POOL_CMD(
                 testVolume['name']), poll=False)])
@@ -3235,7 +3370,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
         fake_cli = self.driverSetup(commands, results)
         pool = self.driver.cli.get_target_storagepool(testNewVolume,
                                                       testSrcVolume)
-        self.assertEqual('Pool_02_SASFLASH', pool)
+        self.assertEqual('unit_test_pool', pool)
         fake_cli.assert_has_calls(
             [mock.call(*self.testData.LUN_PROPERTY_POOL_CMD(
                 testSrcVolume['name']), poll=False)])
@@ -3249,7 +3384,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
         results = [self.testData.LUN_PROPERTY('lun_name', size=test_size)]
         fake_cli = self.driverSetup(commands, results)
         test_volume = self.testData.test_volume2.copy()
-        test_volume['host'] = "host@backendsec#Pool_02_SASFLASH"
+        test_volume['host'] = "host@backendsec#unit_test_pool"
         get_size = self.driver.manage_existing_get_size(
             test_volume,
             self.testData.test_existing_ref)
@@ -3271,7 +3406,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
         ex = self.assertRaises(
             exception.ManageExistingInvalidReference,
             self.driver.manage_existing_get_size,
-            self.testData.test_volume_with_type,
+            test_volume,
             self.testData.test_existing_ref)
         self.assertTrue(
             re.match(r'.*not managed by the host',
@@ -3609,7 +3744,7 @@ class EMCVNXCLIDriverFCTestCase(DriverTestCaseBase):
         fake_cli.assert_has_calls(expect_cmd)
 
 
-class EMCVNXCLIToggleSPTestData():
+class EMCVNXCLIToggleSPTestData(object):
     def FAKE_COMMAND_PREFIX(self, sp_address):
         return ('/opt/Navisphere/bin/naviseccli', '-address', sp_address,
                 '-user', 'sysadmin', '-password', 'sysadmin',

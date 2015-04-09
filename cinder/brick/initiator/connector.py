@@ -403,6 +403,13 @@ class ISCSIConnector(InitiatorConnector):
         if dev_name:
             self._linuxscsi.remove_scsi_device(dev_name)
 
+            # NOTE(jdg): On busy systems we can have a race here
+            # where remove_iscsi_device is called before the device file
+            # has actually been removed.  The result is an orphaned
+            # iscsi session that never gets logged out.  The following
+            # call to wait addresses that issue.
+            self._linuxscsi.wait_for_volume_removal(host_device)
+
         # NOTE(vish): Only disconnect from the target if no luns from the
         #             target are in use.
         device_prefix = ("/dev/disk/by-path/ip-%(portal)s-iscsi-%(iqn)s-lun-" %
@@ -645,7 +652,7 @@ class ISCSIConnector(InitiatorConnector):
                                 check_exit_code=[0, 1, 21, 255])
 
     def _rescan_multipath(self):
-        self._run_multipath('-r', check_exit_code=[0, 1, 21])
+        self._run_multipath(['-r'], check_exit_code=[0, 1, 21])
 
 
 class ISERConnector(ISCSIConnector):

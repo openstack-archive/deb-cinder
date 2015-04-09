@@ -502,7 +502,7 @@ class HnasBackend(object):
         out, err = self.run_cmd(cmd, ip0, user, pw, "console-context",
                                 "--evs", _evsid,
                                 'iscsi-target', 'addlu',
-                                iqn, lun, hlun,
+                                iqn, lun, six.text_type(hlun),
                                 check_exit_code=True)
 
         conn = (int(hlun), lun, initiator, int(hlun), fulliqn, int(hlun),
@@ -593,6 +593,8 @@ class HnasBackend(object):
                                         'iscsi-target', 'add',
                                         targetalias, secret,
                                         check_exit_code=True)
+            if "success" in out:
+                return targetalias
 
         lines = out.split('\n')
         # returns the first iqn

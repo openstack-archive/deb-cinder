@@ -18,6 +18,7 @@
 import mock
 from oslo_log import log as logging
 from oslo_utils import units
+import six
 
 from cinder import context
 from cinder import exception
@@ -37,7 +38,7 @@ FILTER_FUNCTION = \
     "capabilities.total_volumes < 400 && capabilities.capacity_utilization"
 
 
-class HPLeftHandBaseDriver():
+class HPLeftHandBaseDriver(object):
 
     cluster_id = 1
 
@@ -331,7 +332,7 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         def test_paramiko_1_13_0(cliq_args):
 
             # paramiko 1.13.0 now returns unicode
-            output = unicode(
+            output = six.text_type(
                 '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n'
                 '<gauche version="1.0">\n\n  <response description="Operation'
                 ' succeeded." name="CliqSuccess" processingTime="423" '

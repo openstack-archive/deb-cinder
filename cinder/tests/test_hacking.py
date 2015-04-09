@@ -167,6 +167,10 @@ class HackingTestCase(test.TestCase):
     def test_no_contextlib_nested(self):
         self.assertEqual(1, len(list(checks.check_no_contextlib_nested(
             "with contextlib.nested("))))
+        self.assertEqual(1, len(list(checks.check_no_contextlib_nested(
+            "  with nested("))))
+        self.assertEqual(0, len(list(checks.check_no_contextlib_nested(
+            "with my.nested("))))
         self.assertEqual(0, len(list(checks.check_no_contextlib_nested(
             "with foo as bar"))))
 
@@ -179,3 +183,46 @@ class HackingTestCase(test.TestCase):
     def test_check_datetime_now_noqa(self):
         self.assertEqual(0, len(list(checks.check_datetime_now(
                                      "datetime.now()  # noqa", True))))
+
+    def test_validate_log_translations(self):
+        self.assertEqual(1, len(list(checks.validate_log_translations(
+            "LOG.info('foo')", "foo.py"))))
+        self.assertEqual(1, len(list(checks.validate_log_translations(
+            "LOG.warning('foo')", "foo.py"))))
+        self.assertEqual(1, len(list(checks.validate_log_translations(
+            "LOG.error('foo')", "foo.py"))))
+        self.assertEqual(1, len(list(checks.validate_log_translations(
+            "LOG.exception('foo')", "foo.py"))))
+        self.assertEqual(0, len(list(checks.validate_log_translations(
+            "LOG.info('foo')", "cinder/tests/foo.py"))))
+        self.assertEqual(0, len(list(checks.validate_log_translations(
+            "LOG.info(_LI('foo')", "foo.py"))))
+        self.assertEqual(0, len(list(checks.validate_log_translations(
+            "LOG.warning(_LW('foo')", "foo.py"))))
+        self.assertEqual(0, len(list(checks.validate_log_translations(
+            "LOG.error(_LE('foo')", "foo.py"))))
+        self.assertEqual(0, len(list(checks.validate_log_translations(
+            "LOG.exception(_LE('foo')", "foo.py"))))
+
+    def test_check_unicode_usage(self):
+        self.assertEqual(1, len(list(checks.check_unicode_usage(
+            "unicode(msg)", False))))
+        self.assertEqual(0, len(list(checks.check_unicode_usage(
+            "unicode(msg)  # noqa", True))))
+
+    def test_no_print_statements(self):
+        self.assertEqual(0, len(list(checks.check_no_print_statements(
+            "a line with no print statement",
+            "cinder/file.py", False))))
+        self.assertEqual(1, len(list(checks.check_no_print_statements(
+            "print('My print statement')",
+            "cinder/file.py", False))))
+        self.assertEqual(0, len(list(checks.check_no_print_statements(
+            "print('My print statement in cinder/cmd, which is ok.')",
+            "cinder/cmd/file.py", False))))
+        self.assertEqual(0, len(list(checks.check_no_print_statements(
+            "print('My print statement that I just must have.')",
+            "cinder/tests/file.py", True))))
+        self.assertEqual(1, len(list(checks.check_no_print_statements(
+            "print ('My print with space')",
+            "cinder/volume/anotherFile.py", False))))
