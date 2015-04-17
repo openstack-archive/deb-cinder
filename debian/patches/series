@@ -1,1 +1,2 @@
 install-missing-files.patch
+using-assertRaisesRegexp-with-lasting-p.patch
