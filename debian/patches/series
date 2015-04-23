@@ -1,2 +1,3 @@
 install-missing-files.patch
 using-assertRaisesRegexp-with-lasting-p.patch
+Replace_incubator_config_generator_with_oslo-config-generator.patch

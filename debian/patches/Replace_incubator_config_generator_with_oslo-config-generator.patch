@@ -1,0 +1,766 @@
+Description: Replace incubator config generator with oslo-config-generator
+ Part of the clean-up we need to do in oslo-incubator is to remove the old
+ config/generator.py and replace it with the new oslo-config-generator. This
+ frees up a number of other modules in cinder/openstack/common to also be
+ cleaned up.
+ .
+ Using oslo-config-generator works slightly differently than the old generator.
+ Rather than sending a list of files and libraries to search for configuration
+ options, you  need to set an oslo.config.opts entry point in setup.cfg.
+ Rather than list every file with configuration options in setup.cfg, it was
+ decided to import all the files with configuration options into a new
+ cinder/opts.py file. The list_opts function there then surfaces all the
+ configuration options to be put in the /etc/cinder/cinder.conf.sample file.
+ This approach is consistent with what other projects with many configuration
+ options (nova and neutron) are planning to do.
+ .
+ This commit also adds a new hacking rule that processes all
+ CONF.register_opt()/CONF.register_opts() calls to ensure that the registered
+ options and their associated files are included in cinder/opts.py
+ .
+ The old config generator code is removed and the new configuration for
+ oslo-config-generator is added in tools/config-generator/cinder.conf which is
+ consistent with the location being used by other projects that have migrated
+ to using oslo-config-generator.
+Author: Jay S. Bryant <jsbryant@us.ibm.com>
+Date: Tue, 3 Mar 2015 23:53:25 +0000 (-0600)
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fcinder.git;a=commitdiff_plain;h=e1e1bcec03582d0f400ddd0c41b3a0d682b1d630
+Change-Id: Iab1263e34adbf5d96620ba19aab0edfe6c4dff05
+Origin: upstream, https://review.openstack.org/#/c/165431/
+Last-Update: 2015-04-23
+
+diff --git a/cinder/openstack/common/config/__init__.py b/cinder/openstack/common/config/__init__.py
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/cinder/openstack/common/config/generator.py b/cinder/openstack/common/config/generator.py
+deleted file mode 100644
+index bb20dfb..0000000
+--- a/cinder/openstack/common/config/generator.py
++++ /dev/null
+@@ -1,307 +0,0 @@
+-# Copyright 2012 SINA Corporation
+-# Copyright 2014 Cisco Systems, Inc.
+-# All Rights Reserved.
+-#
+-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+-#    not use this file except in compliance with the License. You may obtain
+-#    a copy of the License at
+-#
+-#         http://www.apache.org/licenses/LICENSE-2.0
+-#
+-#    Unless required by applicable law or agreed to in writing, software
+-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+-#    License for the specific language governing permissions and limitations
+-#    under the License.
+-#
+-
+-"""Extracts OpenStack config option info from module(s)."""
+-
+-from __future__ import print_function
+-
+-import argparse
+-import imp
+-import os
+-import re
+-import socket
+-import sys
+-import textwrap
+-
+-from oslo.config import cfg
+-from oslo.utils import importutils
+-import six
+-import stevedore.named
+-
+-from cinder.openstack.common import gettextutils
+-
+-gettextutils.install('cinder')
+-
+-STROPT = "StrOpt"
+-BOOLOPT = "BoolOpt"
+-INTOPT = "IntOpt"
+-FLOATOPT = "FloatOpt"
+-LISTOPT = "ListOpt"
+-DICTOPT = "DictOpt"
+-MULTISTROPT = "MultiStrOpt"
+-
+-OPT_TYPES = {
+-    STROPT: 'string value',
+-    BOOLOPT: 'boolean value',
+-    INTOPT: 'integer value',
+-    FLOATOPT: 'floating point value',
+-    LISTOPT: 'list value',
+-    DICTOPT: 'dict value',
+-    MULTISTROPT: 'multi valued',
+-}
+-
+-OPTION_REGEX = re.compile(r"(%s)" % "|".join([STROPT, BOOLOPT, INTOPT,
+-                                              FLOATOPT, LISTOPT, DICTOPT,
+-                                              MULTISTROPT]))
+-
+-PY_EXT = ".py"
+-BASEDIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
+-                                       "../../../../"))
+-WORDWRAP_WIDTH = 60
+-
+-
+-def raise_extension_exception(extmanager, ep, err):
+-    raise
+-
+-
+-def generate(argv):
+-    parser = argparse.ArgumentParser(
+-        description='generate sample configuration file',
+-    )
+-    parser.add_argument('-m', dest='modules', action='append')
+-    parser.add_argument('-l', dest='libraries', action='append')
+-    parser.add_argument('srcfiles', nargs='*')
+-    parsed_args = parser.parse_args(argv)
+-
+-    mods_by_pkg = dict()
+-    for filepath in parsed_args.srcfiles:
+-        pkg_name = filepath.split(os.sep)[1]
+-        mod_str = '.'.join(['.'.join(filepath.split(os.sep)[:-1]),
+-                            os.path.basename(filepath).split('.')[0]])
+-        mods_by_pkg.setdefault(pkg_name, list()).append(mod_str)
+-    # NOTE(lzyeval): place top level modules before packages
+-    pkg_names = sorted(pkg for pkg in mods_by_pkg if pkg.endswith(PY_EXT))
+-    ext_names = sorted(pkg for pkg in mods_by_pkg if pkg not in pkg_names)
+-    pkg_names.extend(ext_names)
+-
+-    # opts_by_group is a mapping of group name to an options list
+-    # The options list is a list of (module, options) tuples
+-    opts_by_group = {'DEFAULT': []}
+-
+-    if parsed_args.modules:
+-        for module_name in parsed_args.modules:
+-            module = _import_module(module_name)
+-            if module:
+-                for group, opts in _list_opts(module):
+-                    opts_by_group.setdefault(group, []).append((module_name,
+-                                                                opts))
+-
+-    # Look for entry points defined in libraries (or applications) for
+-    # option discovery, and include their return values in the output.
+-    #
+-    # Each entry point should be a function returning an iterable
+-    # of pairs with the group name (or None for the default group)
+-    # and the list of Opt instances for that group.
+-    if parsed_args.libraries:
+-        loader = stevedore.named.NamedExtensionManager(
+-            'oslo.config.opts',
+-            names=list(set(parsed_args.libraries)),
+-            invoke_on_load=False,
+-            on_load_failure_callback=raise_extension_exception
+-        )
+-        for ext in loader:
+-            for group, opts in ext.plugin():
+-                opt_list = opts_by_group.setdefault(group or 'DEFAULT', [])
+-                opt_list.append((ext.name, opts))
+-
+-    for pkg_name in pkg_names:
+-        mods = mods_by_pkg.get(pkg_name)
+-        mods.sort()
+-        for mod_str in mods:
+-            if mod_str.endswith('.__init__'):
+-                mod_str = mod_str[:mod_str.rfind(".")]
+-
+-            mod_obj = _import_module(mod_str)
+-            if not mod_obj:
+-                raise RuntimeError("Unable to import module %s" % mod_str)
+-
+-            for group, opts in _list_opts(mod_obj):
+-                opts_by_group.setdefault(group, []).append((mod_str, opts))
+-
+-    print_group_opts('DEFAULT', opts_by_group.pop('DEFAULT', []))
+-    for group in sorted(opts_by_group.keys()):
+-        print_group_opts(group, opts_by_group[group])
+-
+-
+-def _import_module(mod_str):
+-    try:
+-        if mod_str.startswith('bin.'):
+-            imp.load_source(mod_str[4:], os.path.join('bin', mod_str[4:]))
+-            return sys.modules[mod_str[4:]]
+-        else:
+-            return importutils.import_module(mod_str)
+-    except Exception as e:
+-        sys.stderr.write("Error importing module %s: %s\n" % (mod_str, str(e)))
+-        return None
+-
+-
+-def _is_in_group(opt, group):
+-    "Check if opt is in group."
+-    for value in group._opts.values():
+-        # NOTE(llu): Temporary workaround for bug #1262148, wait until
+-        # newly released oslo.config support '==' operator.
+-        if not(value['opt'] != opt):
+-            return True
+-    return False
+-
+-
+-def _guess_groups(opt, mod_obj):
+-    # is it in the DEFAULT group?
+-    if _is_in_group(opt, cfg.CONF):
+-        return 'DEFAULT'
+-
+-    # what other groups is it in?
+-    for value in cfg.CONF.values():
+-        if isinstance(value, cfg.CONF.GroupAttr):
+-            if _is_in_group(opt, value._group):
+-                return value._group.name
+-
+-    raise RuntimeError(
+-        "Unable to find group for option %s, "
+-        "maybe it's defined twice in the same group?"
+-        % opt.name
+-    )
+-
+-
+-def _list_opts(obj):
+-    def is_opt(o):
+-        return (isinstance(o, cfg.Opt) and
+-                not isinstance(o, cfg.SubCommandOpt))
+-
+-    opts = list()
+-    for attr_str in dir(obj):
+-        attr_obj = getattr(obj, attr_str)
+-        if is_opt(attr_obj):
+-            opts.append(attr_obj)
+-        elif (isinstance(attr_obj, list) and
+-              all(map(lambda x: is_opt(x), attr_obj))):
+-            opts.extend(attr_obj)
+-
+-    ret = {}
+-    for opt in opts:
+-        ret.setdefault(_guess_groups(opt, obj), []).append(opt)
+-    return ret.items()
+-
+-
+-def print_group_opts(group, opts_by_module):
+-    print("[%s]" % group)
+-    print('')
+-    for mod, opts in opts_by_module:
+-        print('#')
+-        print('# Options defined in %s' % mod)
+-        print('#')
+-        print('')
+-        for opt in opts:
+-            _print_opt(opt)
+-        print('')
+-
+-
+-def _get_my_ip():
+-    try:
+-        csock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+-        csock.connect(('8.8.8.8', 80))
+-        (addr, port) = csock.getsockname()
+-        csock.close()
+-        return addr
+-    except socket.error:
+-        return None
+-
+-
+-def _sanitize_default(name, value):
+-    """Set up a reasonably sensible default for pybasedir, my_ip and host."""
+-    if value.startswith(sys.prefix):
+-        # NOTE(jd) Don't use os.path.join, because it is likely to think the
+-        # second part is an absolute pathname and therefore drop the first
+-        # part.
+-        value = os.path.normpath("/usr/" + value[len(sys.prefix):])
+-    elif value.startswith(BASEDIR):
+-        return value.replace(BASEDIR, '/usr/lib/python/site-packages')
+-    elif BASEDIR in value:
+-        return value.replace(BASEDIR, '')
+-    elif value == _get_my_ip():
+-        return '10.0.0.1'
+-    elif value in (socket.gethostname(), socket.getfqdn()) and 'host' in name:
+-        return 'cinder'
+-    elif value.strip() != value:
+-        return '"%s"' % value
+-    return value
+-
+-
+-def _print_opt(opt):
+-    opt_name, opt_default, opt_help = opt.dest, opt.default, opt.help
+-    if not opt_help:
+-        sys.stderr.write('WARNING: "%s" is missing help string.\n' % opt_name)
+-        opt_help = ""
+-    opt_type = None
+-    try:
+-        opt_type = OPTION_REGEX.search(str(type(opt))).group(0)
+-    except (ValueError, AttributeError) as err:
+-        sys.stderr.write("%s\n" % str(err))
+-        sys.exit(1)
+-    opt_help = u'%s (%s)' % (opt_help,
+-                             OPT_TYPES[opt_type])
+-    print('#', "\n# ".join(textwrap.wrap(opt_help, WORDWRAP_WIDTH)))
+-    if opt.deprecated_opts:
+-        for deprecated_opt in opt.deprecated_opts:
+-            if deprecated_opt.name:
+-                deprecated_group = (deprecated_opt.group if
+-                                    deprecated_opt.group else "DEFAULT")
+-                print('# Deprecated group/name - [%s]/%s' %
+-                      (deprecated_group,
+-                       deprecated_opt.name))
+-    try:
+-        if opt_default is None:
+-            print('#%s=<None>' % opt_name)
+-        elif opt_type == STROPT:
+-            assert(isinstance(opt_default, six.string_types))
+-            print('#%s=%s' % (opt_name, _sanitize_default(opt_name,
+-                                                          opt_default)))
+-        elif opt_type == BOOLOPT:
+-            assert(isinstance(opt_default, bool))
+-            print('#%s=%s' % (opt_name, str(opt_default).lower()))
+-        elif opt_type == INTOPT:
+-            assert(isinstance(opt_default, int) and
+-                   not isinstance(opt_default, bool))
+-            print('#%s=%s' % (opt_name, opt_default))
+-        elif opt_type == FLOATOPT:
+-            assert(isinstance(opt_default, float))
+-            print('#%s=%s' % (opt_name, opt_default))
+-        elif opt_type == LISTOPT:
+-            assert(isinstance(opt_default, list))
+-            print('#%s=%s' % (opt_name, ','.join(opt_default)))
+-        elif opt_type == DICTOPT:
+-            assert(isinstance(opt_default, dict))
+-            opt_default_strlist = [str(key) + ':' + str(value)
+-                                   for (key, value) in opt_default.items()]
+-            print('#%s=%s' % (opt_name, ','.join(opt_default_strlist)))
+-        elif opt_type == MULTISTROPT:
+-            assert(isinstance(opt_default, list))
+-            if not opt_default:
+-                opt_default = ['']
+-            for default in opt_default:
+-                print('#%s=%s' % (opt_name, default))
+-        print('')
+-    except Exception:
+-        sys.stderr.write('Error in option "%s"\n' % opt_name)
+-        sys.exit(1)
+-
+-
+-def main():
+-    generate(sys.argv[1:])
+-
+-if __name__ == '__main__':
+-    main()
+diff --git a/cinder/opts.py b/cinder/opts.py
+new file mode 100644
+index 0000000..db93375
+--- /dev/null
++++ b/cinder/opts.py
+@@ -0,0 +1,308 @@
++# Copyright IBM Corp. 2015 All Rights Reserved
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++# http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++
++__all__ = [
++    'list_opts',
++]
++
++
++import copy
++
++from oslo_config import cfg
++
++from cinder.api import common as api_common
++from cinder.api.middleware import auth
++from cinder.api.middleware import sizelimit
++from cinder.api.views import versions
++from cinder.backup import chunkeddriver
++from cinder.backup import driver as backup_driver
++from cinder.backup.drivers import ceph as ceph_backup
++from cinder.backup.drivers import nfs as nfs_backup
++from cinder.backup.drivers import swift as swift_backup
++from cinder.backup.drivers import tsm as tsm_backup
++from cinder.backup import manager as backup_manager
++from cinder.cmd import volume as cmd_volume
++from cinder.cmd import volume_usage_audit
++from cinder.common import config as common_config
++from cinder import compute
++from cinder.compute import nova
++from cinder.db import api as db_api
++from cinder.db import base as db_base
++from cinder import exception as cinder_exception
++from cinder.image import glance
++from cinder.image import image_utils
++from cinder import keymgr
++from cinder.keymgr import conf_key_mgr
++from cinder.keymgr import key_mgr
++from cinder.openstack.common import eventlet_backdoor
++from cinder.openstack.common import periodic_task
++from cinder.openstack.common import policy
++from cinder import quota
++from cinder.scheduler import driver as scheduler_driver
++from cinder.scheduler import host_manager as scheduler_host_manager
++from cinder.scheduler import manager as scheduler_manager
++from cinder.scheduler import scheduler_options
++from cinder.scheduler import simple as simple_scheduler
++from cinder.scheduler.weights import capacity as capacity_weigher
++from cinder.scheduler.weights import volume_number as volume_number_weigher
++from cinder import service as cinder_service
++from cinder import ssh_utils
++from cinder import test
++from cinder.transfer import api as transfer_api
++from cinder.volume import api as volume_api
++from cinder.volume import configuration  # noqa
++from cinder.volume import driver as volume_driver
++from cinder.volume.drivers import block_device
++from cinder.volume.drivers.cloudbyte import options as cloudbyte_options
++from cinder.volume.drivers import datera
++from cinder.volume.drivers.dell import dell_storagecenter_common
++from cinder.volume.drivers.emc import emc_vmax_common
++from cinder.volume.drivers.emc import emc_vnx_cli
++from cinder.volume.drivers.emc import xtremio
++from cinder.volume.drivers import eqlx
++from cinder.volume.drivers.fujitsu import eternus_dx_common
++from cinder.volume.drivers.fusionio import ioControl
++from cinder.volume.drivers import glusterfs
++from cinder.volume.drivers.hds import hds
++from cinder.volume.drivers.hds import iscsi as hds_iscsi
++from cinder.volume.drivers.hds import nfs as hds_nfs
++from cinder.volume.drivers.hitachi import hbsd_common
++from cinder.volume.drivers.hitachi import hbsd_fc
++from cinder.volume.drivers.hitachi import hbsd_horcm
++from cinder.volume.drivers.hitachi import hbsd_iscsi
++from cinder.volume.drivers.ibm import flashsystem
++from cinder.volume.drivers.ibm import gpfs
++from cinder.volume.drivers.ibm import ibmnas
++from cinder.volume.drivers.ibm import storwize_svc
++from cinder.volume.drivers.ibm import xiv_ds8k
++from cinder.volume.drivers import lvm
++from cinder.volume.drivers.netapp.eseries import iscsi as netapp_iscsi
++from cinder.volume.drivers.netapp import options as netapp_options
++from cinder.volume.drivers.nexenta import options as nexenta_options
++from cinder.volume.drivers import nfs
++from cinder.volume.drivers import nimble
++from cinder.volume.drivers import openvstorage
++from cinder.volume.drivers.prophetstor import options as prophetstor_options
++from cinder.volume.drivers import pure
++from cinder.volume.drivers import quobyte
++from cinder.volume.drivers import rbd
++from cinder.volume.drivers import remotefs
++from cinder.volume.drivers.san.hp import hp_3par_common
++from cinder.volume.drivers.san.hp import hp_lefthand_rest_proxy
++from cinder.volume.drivers.san import san
++from cinder.volume.drivers import scality
++from cinder.volume.drivers import smbfs
++from cinder.volume.drivers import solidfire
++from cinder.volume.drivers import srb
++from cinder.volume.drivers.violin import v6000_common
++from cinder.volume.drivers.vmware import vmdk
++from cinder.volume.drivers.windows import windows
++from cinder.volume.drivers import xio
++from cinder.volume.drivers.zfssa import zfssaiscsi
++from cinder.volume.drivers.zfssa import zfssanfs
++from cinder.volume import manager
++from cinder import wsgi
++from cinder.zonemanager.drivers.brocade import brcd_fabric_opts
++from cinder.zonemanager.drivers.brocade import brcd_fc_zone_driver
++from cinder.zonemanager.drivers.cisco import cisco_fabric_opts
++from cinder.zonemanager.drivers.cisco import cisco_fc_zone_driver
++from cinder.zonemanager import fc_zone_manager
++
++# Option lists that cannot be extracted from other files
++# (I.E. lists that are dynamically generated) should be manually
++# defined here.
++
++base_san_opts = [
++    cfg.StrOpt('fc_fabric_names', default=None,
++               help='Comma separated list of fibre channel '
++               'fabric names. This list of names is used to'
++               ' retrieve other SAN credentials for connecting'
++               ' to each SAN fabric'
++               ),
++    cfg.BoolOpt('cisco_zone_activate',
++                default=True,
++                help='Indicates whether zone should '
++                'be activated or not'),
++    cfg.StrOpt('cisco_zone_name_prefix',
++               default="openstack",
++               help="A prefix to be used when naming zone")]
++
++brcd_san_opts = [
++    cfg.BoolOpt('zone_activate',
++                default=True,
++                help='Indicates whether zone should '
++                'be activated or not'),
++    cfg.StrOpt('zone_name_prefix',
++               default="openstack",
++               help="A prefix to be used when naming zone")]
++
++
++def list_opts():
++    """Return a list of oslo.config options available in Cinder.
++
++    The returned list includes all oslo.config options which may be registered
++    at runtime by the Cinder.
++
++    Each element of the list is a tuple. The first element is the name of the
++    group under which the list of elements in the second element will be
++    registered. A group name of None corresponds to the [DEFAULT] group in
++    config files.
++
++    This function is also discoverable via the 'cinder' entry point
++    under the 'cinder.config.opts' namespace.
++
++    The purpose of this is to allow tools like the Oslo sample config file
++    generator to discover the options exposed to users by Cinder.
++
++    All config options must be added to this file in order to become part
++    of the cinder.conf.sample file.  For lists, do a copy.deepcopy of the
++    list(s) of configuration options.  For individual configuration options
++    add a list of one item using [] around the configuration option.
++
++    Hacking check C002 will parse this file and ensure that all files/
++    config options lists are included in this file.  In the case that you
++    have a file that registers configuration options included from
++    another file, import that file above using '# noqa' to indicate that
++    the file has been considered for inclusion but does not have
++    new configuration options to register.
++
++    :returns: a list of (group_name, opts) tuples
++    """
++    return[('DEFAULT',
++            copy.deepcopy(api_common.api_common_opts) +
++            copy.deepcopy(versions.versions_opts) +
++            [auth.use_forwarded_for_opt] +
++            [sizelimit.max_request_body_size_opt] +
++            copy.deepcopy(chunkeddriver.chunkedbackup_service_opts) +
++            copy.deepcopy(backup_driver.service_opts) +
++            copy.deepcopy(ceph_backup.service_opts) +
++            copy.deepcopy(nfs_backup.nfsbackup_service_opts) +
++            copy.deepcopy(swift_backup.swiftbackup_service_opts) +
++            copy.deepcopy(tsm_backup.tsm_opts) +
++            copy.deepcopy(backup_manager.backup_manager_opts) +
++            [cmd_volume.host_opt] +
++            copy.deepcopy(volume_usage_audit.script_opts) +
++            copy.deepcopy(common_config.core_opts) +
++            copy.deepcopy(common_config.debug_opts) +
++            copy.deepcopy(common_config.global_opts) +
++            copy.deepcopy(compute._compute_opts) +
++            copy.deepcopy(nova.nova_opts) +
++            copy.deepcopy(db_api.db_opts) +
++            [db_base.db_driver_opt] +
++            copy.deepcopy(cinder_exception.exc_log_opts) +
++            copy.deepcopy(glance.glance_opts) +
++            copy.deepcopy(glance.glance_core_properties) +
++            copy.deepcopy(image_utils.image_helper_opt) +
++            copy.deepcopy(conf_key_mgr.key_mgr_opts) +
++            copy.deepcopy(keymgr.keymgr_opts) +
++            copy.deepcopy(key_mgr.encryption_opts) +
++            copy.deepcopy(eventlet_backdoor.eventlet_backdoor_opts) +
++            copy.deepcopy(periodic_task.periodic_opts) +
++            copy.deepcopy(policy.policy_opts) +
++            copy.deepcopy(quota.quota_opts) +
++            copy.deepcopy(scheduler_driver.scheduler_driver_opts) +
++            copy.deepcopy(scheduler_host_manager.host_manager_opts) +
++            [scheduler_manager.scheduler_driver_opt] +
++            [scheduler_options.scheduler_json_config_location_opt] +
++            copy.deepcopy(simple_scheduler.simple_scheduler_opts) +
++            copy.deepcopy(capacity_weigher.capacity_weight_opts) +
++            copy.deepcopy(volume_number_weigher.volume_number_weight_opts) +
++            copy.deepcopy(cinder_service.service_opts) +
++            copy.deepcopy(cinder_service.profiler_opts) +
++            copy.deepcopy(ssh_utils.ssh_opts) +
++            copy.deepcopy(test.test_opts) +
++            copy.deepcopy(transfer_api.volume_transfer_opts) +
++            [volume_api.volume_host_opt] +
++            [volume_api.volume_same_az_opt] +
++            [volume_api.az_cache_time_opt] +
++            copy.deepcopy(volume_driver.volume_opts) +
++            copy.deepcopy(volume_driver.iser_opts) +
++            copy.deepcopy(block_device.volume_opts) +
++            copy.deepcopy(cloudbyte_options.cloudbyte_connection_opts) +
++            copy.deepcopy(cloudbyte_options.cloudbyte_add_qosgroup_opts) +
++            copy.deepcopy(cloudbyte_options.cloudbyte_create_volume_opts) +
++            copy.deepcopy(datera.d_opts) +
++            copy.deepcopy(dell_storagecenter_common.common_opts) +
++            copy.deepcopy(emc_vmax_common.emc_opts) +
++            copy.deepcopy(emc_vnx_cli.loc_opts) +
++            copy.deepcopy(xtremio.XTREMIO_OPTS) +
++            copy.deepcopy(eqlx.eqlx_opts) +
++            copy.deepcopy(eternus_dx_common.drv_opts) +
++            copy.deepcopy(ioControl.fusionio_iocontrol_opts) +
++            copy.deepcopy(glusterfs.volume_opts) +
++            copy.deepcopy(hds.HUS_OPTS) +
++            copy.deepcopy(hds_iscsi.iSCSI_OPTS) +
++            copy.deepcopy(hds_nfs.NFS_OPTS) +
++            copy.deepcopy(hbsd_common.volume_opts) +
++            copy.deepcopy(hbsd_fc.volume_opts) +
++            copy.deepcopy(hbsd_horcm.volume_opts) +
++            copy.deepcopy(hbsd_iscsi.volume_opts) +
++            copy.deepcopy(flashsystem.flashsystem_opts) +
++            copy.deepcopy(gpfs.gpfs_opts) +
++            copy.deepcopy(ibmnas.platform_opts) +
++            copy.deepcopy(storwize_svc.storwize_svc_opts) +
++            copy.deepcopy(xiv_ds8k.xiv_ds8k_opts) +
++            copy.deepcopy(lvm.volume_opts) +
++            copy.deepcopy(netapp_options.netapp_proxy_opts) +
++            copy.deepcopy(netapp_options.netapp_connection_opts) +
++            copy.deepcopy(netapp_options.netapp_transport_opts) +
++            copy.deepcopy(netapp_options.netapp_basicauth_opts) +
++            copy.deepcopy(netapp_options.netapp_cluster_opts) +
++            copy.deepcopy(netapp_options.netapp_7mode_opts) +
++            copy.deepcopy(netapp_options.netapp_provisioning_opts) +
++            copy.deepcopy(netapp_options.netapp_img_cache_opts) +
++            copy.deepcopy(netapp_options.netapp_eseries_opts) +
++            copy.deepcopy(netapp_options.netapp_nfs_extra_opts) +
++            copy.deepcopy(netapp_iscsi.na_opts.netapp_basicauth_opts) +
++            copy.deepcopy(netapp_iscsi.na_opts.netapp_connection_opts) +
++            copy.deepcopy(netapp_iscsi.na_opts.netapp_eseries_opts) +
++            copy.deepcopy(netapp_iscsi.na_opts.netapp_transport_opts) +
++            copy.deepcopy(nexenta_options.NEXENTA_CONNECTION_OPTIONS) +
++            copy.deepcopy(nexenta_options.NEXENTA_ISCSI_OPTIONS) +
++            copy.deepcopy(nexenta_options.NEXENTA_NFS_OPTIONS) +
++            copy.deepcopy(nexenta_options.NEXENTA_VOLUME_OPTIONS) +
++            copy.deepcopy(nexenta_options.NEXENTA_RRMGR_OPTIONS) +
++            copy.deepcopy(nfs.nfs_opts) +
++            copy.deepcopy(nimble.nimble_opts) +
++            copy.deepcopy(openvstorage.OPTS) +
++            copy.deepcopy(prophetstor_options.DPL_OPTS) +
++            copy.deepcopy(pure.PURE_OPTS) +
++            copy.deepcopy(quobyte.volume_opts) +
++            copy.deepcopy(rbd.rbd_opts) +
++            copy.deepcopy(remotefs.nas_opts) +
++            copy.deepcopy(hp_3par_common.hp3par_opts) +
++            copy.deepcopy(hp_lefthand_rest_proxy.hplefthand_opts) +
++            copy.deepcopy(san.san_opts) +
++            copy.deepcopy(scality.volume_opts) +
++            copy.deepcopy(smbfs.volume_opts) +
++            copy.deepcopy(solidfire.sf_opts) +
++            copy.deepcopy(srb.srb_opts) +
++            copy.deepcopy(v6000_common.violin_opts) +
++            copy.deepcopy(vmdk.vmdk_opts) +
++            copy.deepcopy(windows.windows_opts) +
++            copy.deepcopy(xio.XIO_OPTS) +
++            copy.deepcopy(zfssaiscsi.ZFSSA_OPTS) +
++            copy.deepcopy(zfssanfs.ZFSSA_OPTS) +
++            copy.deepcopy(manager.volume_manager_opts) +
++            copy.deepcopy(wsgi.socket_opts) +
++            copy.deepcopy(wsgi.eventlet_opts) +
++            copy.deepcopy(brcd_fabric_opts.brcd_zone_opts) +
++            copy.deepcopy(brcd_fc_zone_driver.brcd_opts) +
++            copy.deepcopy(brcd_san_opts) +
++            copy.deepcopy(cisco_fabric_opts.cisco_zone_opts) +
++            copy.deepcopy(cisco_fc_zone_driver.cisco_opts) +
++            copy.deepcopy(base_san_opts) +
++            copy.deepcopy(fc_zone_manager.zone_manager_opts)
++            )]
+diff --git a/openstack-common.conf b/openstack-common.conf
+index 72f9633..7d51922 100644
+--- a/openstack-common.conf
++++ b/openstack-common.conf
+@@ -1,7 +1,6 @@
+ [DEFAULT]
+ 
+ # The list of modules to copy from oslo-incubator
+-module=config.generator
+ module=context
+ module=fileutils
+ module=gettextutils
+diff --git a/setup.cfg b/setup.cfg
+index 36b6f18..6593df0 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -42,6 +42,12 @@ cinder.scheduler.weights =
+     ChanceWeigher = cinder.scheduler.weights.chance:ChanceWeigher
+     GoodnessWeigher = cinder.scheduler.weights.goodness:GoodnessWeigher
+     VolumeNumberWeigher = cinder.scheduler.weights.volume_number:VolumeNumberWeigher
++oslo.config.opts =
++    cinder = cinder.opts:list_opts
++    keystonemiddleware = keystonemiddleware.auth_token:list_opts
++    oslo_concurrency = oslo_concurrency.opts:list_opts
++    oslo.messaging = oslo_messaging.opts:list_opts
++    oslo.db.concurrency = oslo.db.concurrency:list_opts
+ console_scripts =
+     cinder-all = cinder.cmd.all:main
+     cinder-api = cinder.cmd.api:main
+diff --git a/tools/config-generator/cinder.conf b/tools/config-generator/cinder.conf
+new file mode 100644
+index 0000000..1b73331
+--- /dev/null
++++ b/tools/config-generator/cinder.conf
+@@ -0,0 +1,13 @@
++[DEFAULT]
++output_file = etc/cinder/cinder.conf.sample
++wrap_width = 79
++namespace = cinder
++namespace = cinder.openstack.common.eventlet_backdoor
++namespace = cinder.openstack.common.log
++namespace = cinder.openstack.common.periodic_task
++namespace = cinder.openstack.common.policy
++namespace = keystonemiddleware.auth_token
++namespace = oslo_concurrency
++namespace = oslo.messaging
++namespace = oslo_db
++namespace = oslo_db.concurrency
+diff --git a/tools/config/check_uptodate.sh b/tools/config/check_uptodate.sh
+deleted file mode 100755
+index cf51c8c..0000000
+--- a/tools/config/check_uptodate.sh
++++ /dev/null
+@@ -1,28 +0,0 @@
+-#!/usr/bin/env bash
+-
+-PROJECT_NAME=${PROJECT_NAME:-cinder}
+-CFGFILE_NAME=${PROJECT_NAME}.conf.sample
+-
+-if [ -e etc/${PROJECT_NAME}/${CFGFILE_NAME} ]; then
+-    CFGFILE=etc/${PROJECT_NAME}/${CFGFILE_NAME}
+-elif [ -e etc/${CFGFILE_NAME} ]; then
+-    CFGFILE=etc/${CFGFILE_NAME}
+-else
+-    echo "${0##*/}: can not find config file"
+-    exit 1
+-fi
+-
+-TEMPDIR=`mktemp -d /tmp/${PROJECT_NAME}.XXXXXX`
+-trap "rm -rf $TEMPDIR" EXIT
+-
+-tools/config/generate_sample.sh -b ./ -p ${PROJECT_NAME} -o ${TEMPDIR}
+-
+-if ! diff -u ${TEMPDIR}/${CFGFILE_NAME} ${CFGFILE}
+-then
+-   echo "${0##*/}: ${PROJECT_NAME}.conf.sample is not up to date."
+-   echo "${0##*/}: Please run ${0%%${0##*/}}generate_sample.sh from within a VENV."
+-   echo "  \'source .venv/bin/activate; generate_sample.sh\'"
+-   echo "OR simply run tox genconfig"
+-   echo "  \'tox -egenconfig\'"
+-   exit 1
+-fi
+diff --git a/tools/config/oslo.config.generator.rc b/tools/config/oslo.config.generator.rc
+deleted file mode 100644
+index f51783a..0000000
+--- a/tools/config/oslo.config.generator.rc
++++ /dev/null
+@@ -1,2 +0,0 @@
+-export CINDER_CONFIG_GENERATOR_EXTRA_MODULES="keystonemiddleware.auth_token"
+-export CINDER_CONFIG_GENERATOR_EXTRA_LIBRARIES="oslo_concurrency oslo.messaging oslo_db oslo.db.concurrency"
+diff --git a/tox.ini b/tox.ini
+index b5d5d82..18df7f4 100644
+--- a/tox.ini
++++ b/tox.ini
+@@ -39,9 +39,7 @@ commands =
+     --testr-args='^(?!.*test.*coverage).*$'
+ 
+ [testenv:genconfig]
+-sitepackages = False
+-envdir = {toxworkdir}/venv
+-commands = {toxinidir}/tools/config/generate_sample.sh -b . -p cinder -o etc/cinder
++commands = oslo-config-generator --config-file=tools/config-generator/cinder.conf
+ 
+ [testenv:venv]
+ commands = {posargs}
