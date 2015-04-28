@@ -1,10 +1,10 @@
-cinder (2015.1~rc1-1~bpo80+1) UNRELEASED; urgency=medium
+cinder (2015.1~rc1-1) unstable; urgency=medium
 
   * New upstream release.
+  * Uploading to unstable.
   * Updated (build-)depends for this release.
   * Now generates cinder.conf on the fly.
   * Added Fix_borked_StorPool_driver.patch
-  * Rebuilt by bop.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 09 Apr 2015 23:48:10 +0200
 
