@@ -410,10 +410,12 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertRaises(exception.DriverNotInitialized,
                           self.volume.create_volume,
                           self.context, volume_id,
-                          {'volume_properties': self.volume_params})
-        # NOTE(dulek): Volume should be rescheduled as we passed request_spec,
-        # assert that it wasn't counted in allocated_capacity tracking.
-        self.assertEqual(self.volume.stats['pools'], {})
+                          {'volume_properties': self.volume_params},
+                          {'retry': {'num_attempts': 1, 'host': []}})
+        # NOTE(dulek): Volume should be rescheduled as we passed request_spec
+        # and filter_properties, assert that it wasn't counted in
+        # allocated_capacity tracking.
+        self.assertEqual({}, self.volume.stats['pools'])
 
         db.volume_destroy(context.get_admin_context(), volume_id)
 
@@ -431,10 +433,12 @@ class VolumeTestCase(BaseVolumeTestCase):
             self.assertRaises(processutils.ProcessExecutionError,
                               self.volume.create_volume,
                               self.context, volume_id,
-                              {'volume_properties': params})
-        # NOTE(dulek): Volume should be rescheduled as we passed request_spec,
-        # assert that it wasn't counted in allocated_capacity tracking.
-        self.assertEqual(self.volume.stats['pools'], {})
+                              {'volume_properties': params},
+                              {'retry': {'num_attempts': 1, 'host': []}})
+        # NOTE(dulek): Volume should be rescheduled as we passed request_spec
+        # and filter_properties, assert that it wasn't counted in
+        # allocated_capacity tracking.
+        self.assertEqual({}, self.volume.stats['pools'])
 
         db.volume_destroy(context.get_admin_context(), volume_id)
 
@@ -2038,6 +2042,53 @@ class VolumeTestCase(BaseVolumeTestCase):
                           self.context,
                           volume_id)
 
+    def test_run_attach_twice_multiattach_volume_for_instances(self):
+        """Make sure volume can be attached to multiple instances."""
+        mountpoint = "/dev/sdf"
+        # attach volume to the instance then to detach
+        instance_uuid = '12345678-1234-5678-1234-567812345699'
+        volume = tests_utils.create_volume(self.context,
+                                           admin_metadata={'readonly': 'True'},
+                                           multiattach=True,
+                                           **self.volume_params)
+        volume_id = volume['id']
+        self.volume.create_volume(self.context, volume_id)
+        attachment = self.volume.attach_volume(self.context, volume_id,
+                                               instance_uuid, None,
+                                               mountpoint, 'ro')
+        vol = db.volume_get(context.get_admin_context(), volume_id)
+        self.assertEqual('in-use', vol['status'])
+        self.assertTrue(vol['multiattach'])
+        self.assertEqual('attached', attachment['attach_status'])
+        self.assertEqual(mountpoint, attachment['mountpoint'])
+        self.assertEqual(instance_uuid, attachment['instance_uuid'])
+        self.assertIsNone(attachment['attached_host'])
+        admin_metadata = vol['volume_admin_metadata']
+        self.assertEqual(2, len(admin_metadata))
+        expected = dict(readonly='True', attached_mode='ro')
+        ret = {}
+        for item in admin_metadata:
+            ret.update({item['key']: item['value']})
+        self.assertDictMatch(expected, ret)
+        connector = {'initiator': 'iqn.2012-07.org.fake:01'}
+        conn_info = self.volume.initialize_connection(self.context,
+                                                      volume_id, connector)
+        self.assertEqual('ro', conn_info['data']['access_mode'])
+
+        mountpoint2 = "/dev/sdx"
+        attachment2 = self.volume.attach_volume(self.context, volume_id,
+                                                instance_uuid, None,
+                                                mountpoint2, 'ro')
+        vol = db.volume_get(context.get_admin_context(), volume_id)
+        self.assertEqual('in-use', vol['status'])
+        self.assertEqual(True, vol['multiattach'])
+        self.assertIsNone(attachment2)
+
+        self.assertRaises(exception.VolumeAttached,
+                          self.volume.delete_volume,
+                          self.context,
+                          volume_id)
+
     def test_attach_detach_not_multiattach_volume_for_instances(self):
         """Make sure volume can't be attached to more than one instance."""
         mountpoint = "/dev/sdf"
@@ -2199,6 +2250,51 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.volume.delete_volume(self.context, volume_id)
         self.assertRaises(exception.VolumeNotFound,
                           db.volume_get,
+                          self.context,
+                          volume_id)
+
+    def test_run_attach_twice_multiattach_volume_for_hosts(self):
+        """Make sure volume can be attached and detached from hosts."""
+        mountpoint = "/dev/sdf"
+        volume = tests_utils.create_volume(
+            self.context,
+            admin_metadata={'readonly': 'False'},
+            multiattach=True,
+            **self.volume_params)
+        volume_id = volume['id']
+        self.volume.create_volume(self.context, volume_id)
+        attachment = self.volume.attach_volume(self.context, volume_id, None,
+                                               'fake_host', mountpoint, 'rw')
+        vol = db.volume_get(context.get_admin_context(), volume_id)
+        self.assertEqual('in-use', vol['status'])
+        self.assertTrue(vol['multiattach'])
+        self.assertEqual('attached', attachment['attach_status'])
+        self.assertEqual(mountpoint, attachment['mountpoint'])
+        self.assertIsNone(attachment['instance_uuid'])
+        # sanitized, conforms to RFC-952 and RFC-1123 specs.
+        self.assertEqual('fake-host', attachment['attached_host'])
+        admin_metadata = vol['volume_admin_metadata']
+        self.assertEqual(2, len(admin_metadata))
+        expected = dict(readonly='False', attached_mode='rw')
+        ret = {}
+        for item in admin_metadata:
+            ret.update({item['key']: item['value']})
+        self.assertDictMatch(expected, ret)
+        connector = {'initiator': 'iqn.2012-07.org.fake:01'}
+        conn_info = self.volume.initialize_connection(self.context,
+                                                      volume_id, connector)
+        self.assertEqual('rw', conn_info['data']['access_mode'])
+
+        mountpoint2 = "/dev/sdx"
+        attachment2 = self.volume.attach_volume(self.context, volume_id, None,
+                                                'fake_host', mountpoint2,
+                                                'rw')
+        vol = db.volume_get(context.get_admin_context(), volume_id)
+        self.assertEqual('in-use', vol['status'])
+        self.assertIsNone(attachment2)
+
+        self.assertRaises(exception.VolumeAttached,
+                          self.volume.delete_volume,
                           self.context,
                           volume_id)
 
@@ -5250,7 +5346,7 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         capabilities = {'location_info': 'LVMVolumeDriver:%s:'
                         'cinder-volumes-2:default:0' % hostname}
         host = {'capabilities': capabilities}
-        vol = {'name': 'test', 'id': 1, 'size': 1, 'status': 'available'}
+        vol = {'name': 'testvol', 'id': 1, 'size': 2, 'status': 'available'}
 
         def fake_execute(*args, **kwargs):
             pass
@@ -5263,33 +5359,31 @@ class LVMISCSIVolumeDriverTestCase(DriverTestCase):
         def _fake_get_all_physical_volumes(obj, root_helper, vg_name):
             return [{}]
 
-        self.stubs.Set(brick_lvm.LVM,
-                       'get_all_physical_volumes',
-                       _fake_get_all_physical_volumes)
+        with mock.patch.object(brick_lvm.LVM, 'get_all_physical_volumes',
+                               return_value = [{}]), \
+                mock.patch.object(self.volume.driver, '_execute') \
+                as mock_execute, \
+                mock.patch.object(volutils, 'copy_volume') as mock_copy, \
+                mock.patch.object(volutils, 'get_all_volume_groups',
+                                  side_effect = get_all_volume_groups), \
+                mock.patch.object(self.volume.driver, '_delete_volume'), \
+                mock.patch.object(self.volume.driver, 'create_export',
+                                  return_value = None):
 
-        self.stubs.Set(self.volume.driver, '_execute', fake_execute)
-
-        self.stubs.Set(volutils, 'copy_volume',
-                       lambda x, y, z, sync=False, execute='foo',
-                       blocksize=mox.IgnoreArg(): None)
-
-        self.stubs.Set(volutils, 'get_all_volume_groups',
-                       get_all_volume_groups)
-
-        self.stubs.Set(self.volume.driver, '_delete_volume',
-                       lambda x: None)
-
-        self.stubs.Set(self.volume.driver, 'create_export',
-                       lambda x, y, vg='vg': None)
-
-        self.volume.driver.vg = fake_lvm.FakeBrickLVM('cinder-volumes',
-                                                      False,
-                                                      None,
-                                                      'default')
-        moved, model_update = self.volume.driver.migrate_volume(self.context,
-                                                                vol, host)
-        self.assertTrue(moved)
-        self.assertIsNone(model_update)
+            self.volume.driver.vg = fake_lvm.FakeBrickLVM('cinder-volumes',
+                                                          False,
+                                                          None,
+                                                          'default')
+            moved, model_update = \
+                self.volume.driver.migrate_volume(self.context, vol, host)
+            self.assertTrue(moved)
+            self.assertIsNone(model_update)
+            mock_copy.assert_called_once_with(
+                '/dev/mapper/cinder--volumes-testvol',
+                '/dev/mapper/cinder--volumes--2-testvol',
+                2048,
+                '1M',
+                execute=mock_execute)
 
     @staticmethod
     def _get_manage_existing_lvs(name):

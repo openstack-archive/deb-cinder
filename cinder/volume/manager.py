@@ -785,6 +785,8 @@ class VolumeManager(manager.SchedulerDependentManager):
                     self.db.volume_attachment_get_by_host(context, volume_id,
                                                           host_name_sanitized)
             if attachment is not None:
+                self.db.volume_update(context, volume_id,
+                                      {'status': 'in-use'})
                 return
 
             self._notify_about_volume_usage(context, volume,
@@ -1696,7 +1698,17 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         # Call driver to try and change the type
         retype_model_update = None
-        if not retyped:
+
+        # NOTE(jdg): Check to see if the destination host is the same
+        # as the current.  If it's not don't call the driver.retype
+        # method, otherwise drivers that implement retype may report
+        # success, but it's invalid in the case of a migrate.
+
+        # We assume that those that support pools do this internally
+        # so we strip off the pools designation
+        if (not retyped and
+                vol_utils.hosts_are_equivalent(self.driver.host,
+                                               host['host'])):
             try:
                 new_type = volume_types.get_volume_type(context, new_type_id)
                 ret = self.driver.retype(context,
