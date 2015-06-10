@@ -25,10 +25,10 @@ override_dh_install:
 	oslo-config-generator --output-file $(CURDIR)/etc/cinder/cinder.conf.sample \
 		--wrap-width 140 \
 		--namespace cinder \
-		--namespace oslo.concurrency \
-		--namespace oslo.db \
-		--namespace oslo.messaging \
-		--namespace oslo.policy \
+		--namespace oslo_concurrency \
+		--namespace oslo_db \
+		--namespace oslo_messaging \
+		--namespace cinder.policy \
 		--namespace keystonemiddleware.auth_token \
 		--namespace cinder.openstack.common.eventlet_backdoor \
 		--namespace cinder.openstack.common.log \
