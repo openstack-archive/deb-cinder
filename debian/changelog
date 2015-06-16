@@ -1,3 +1,10 @@
+cinder (2015.1.0+git2015.06.16.git26.g9634b76-1) unstable; urgency=high
+
+  * New upstream release (based on commit 26th g9634b76):
+    - Addresses CVE-2015-1850 / OSSA 2015-011.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 16 Jun 2015 22:36:48 +0200
+
 cinder (2015.1.0+2015.06.06.git24.493b6c7f12-1) unstable; urgency=medium
 
   * New upstream release (basing on commit 24th 2015.06.06 493b6c7f12).
