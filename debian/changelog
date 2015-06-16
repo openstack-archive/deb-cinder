@@ -1,4 +1,4 @@
-cinder (2015.1.0+git2015.06.16.git26.g9634b76-1) unstable; urgency=high
+cinder (2015.1.0+2015.06.16.git26.9634b76ba5-1) unstable; urgency=high
 
   * New upstream release (based on commit 26th g9634b76):
     - Addresses CVE-2015-1850 / OSSA 2015-011.
