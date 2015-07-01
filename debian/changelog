@@ -1,3 +1,9 @@
+cinder (2015.1.0+2015.06.16.git26.9634b76ba5-3) unstable; urgency=medium
+
+  * Rebuilt for sqlalchemy 1.0.6.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 01 Jul 2015 02:21:46 +0000
+
 cinder (2015.1.0+2015.06.16.git26.9634b76ba5-2) unstable; urgency=medium
 
   * Fixed changelog regarding CVE number: CVE-2015-1851 and not
