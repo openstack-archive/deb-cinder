@@ -37,6 +37,7 @@ driver documentation for more information.
 
 from oslo_log import log as logging
 from oslo_utils import units
+from six.moves import range
 
 from cinder import context
 from cinder.db.sqlalchemy import models
@@ -70,7 +71,7 @@ class V6000FCDriver(driver.FibreChannelDriver):
         self.common = v6000_common.V6000Common(self.configuration)
         self.lookup_service = fczm_utils.create_lookup_service()
 
-        LOG.info(_LI("Initialized driver %(name)s version: %(vers)s.") %
+        LOG.info(_LI("Initialized driver %(name)s version: %(vers)s."),
                  {'name': self.__class__.__name__, 'vers': self.VERSION})
 
     def do_setup(self, context):
@@ -169,8 +170,8 @@ class V6000FCDriver(driver.FibreChannelDriver):
         properties['target_lun'] = lun_id
         properties['initiator_target_map'] = init_targ_map
 
-        LOG.debug("Return FC data for zone addition: %(properties)s."
-                  % {'properties': properties})
+        LOG.debug("Return FC data for zone addition: %(properties)s.",
+                  {'properties': properties})
 
         return {'driver_volume_type': 'fibre_channel', 'data': properties}
 
@@ -193,8 +194,8 @@ class V6000FCDriver(driver.FibreChannelDriver):
             properties['target_wwn'] = target_wwns
             properties['initiator_target_map'] = init_targ_map
 
-        LOG.debug("Return FC data for zone deletion: %(properties)s."
-                  % {'properties': properties})
+        LOG.debug("Return FC data for zone deletion: %(properties)s.",
+                  {'properties': properties})
 
         return {'driver_volume_type': 'fibre_channel', 'data': properties}
 
@@ -231,7 +232,7 @@ class V6000FCDriver(driver.FibreChannelDriver):
         else:
             raise exception.Error(_("No initiators found, cannot proceed"))
 
-        LOG.debug("Exporting lun %s." % volume['id'])
+        LOG.debug("Exporting lun %s.", volume['id'])
 
         try:
             self.common._send_cmd_and_verify(
@@ -361,7 +362,7 @@ class V6000FCDriver(driver.FibreChannelDriver):
         v = self.common.vip
         wwpns = self._convert_wwns_openstack_to_vmem(connector['wwpns'])
 
-        LOG.debug("Adding initiators %(wwpns)s to igroup %(igroup)s." %
+        LOG.debug("Adding initiators %(wwpns)s to igroup %(igroup)s.",
                   {'wwpns': wwpns, 'igroup': igroup})
 
         resp = v.igroup.add_initiators(igroup, wwpns)
@@ -439,14 +440,14 @@ class V6000FCDriver(driver.FibreChannelDriver):
         if bn1 in resp:
             total_gb = resp[bn1] / units.Gi
         else:
-            LOG.warn(_LW("Failed to receive update for total_gb stat!"))
+            LOG.warning(_LW("Failed to receive update for total_gb stat!"))
             if 'total_capacity_gb' in self.stats:
                 total_gb = self.stats['total_capacity_gb']
 
         if bn2 in resp:
             free_gb = resp[bn2] / units.Gi
         else:
-            LOG.warn(_LW("Failed to receive update for free_gb stat!"))
+            LOG.warning(_LW("Failed to receive update for free_gb stat!"))
             if 'free_capacity_gb' in self.stats:
                 free_gb = self.stats['free_capacity_gb']
 
@@ -461,7 +462,7 @@ class V6000FCDriver(driver.FibreChannelDriver):
         data['free_capacity_gb'] = free_gb
 
         for i in data:
-            LOG.debug("stat update: %(name)s=%(data)s." %
+            LOG.debug("stat update: %(name)s=%(data)s.",
                       {'name': i, 'data': data[i]})
         self.stats = data
 
@@ -505,7 +506,7 @@ class V6000FCDriver(driver.FibreChannelDriver):
         output = []
         for w in wwns:
             output.append('wwn.{0}'.format(
-                ':'.join(w[x:x + 2] for x in xrange(0, len(w), 2))))
+                ':'.join(w[x:x + 2] for x in range(0, len(w), 2))))
         return output
 
     def _convert_wwns_vmem_to_openstack(self, wwns):

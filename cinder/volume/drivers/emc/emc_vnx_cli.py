@@ -31,6 +31,7 @@ from oslo_serialization import jsonutils as json
 from oslo_utils import excutils
 from oslo_utils import timeutils
 import six
+from six.moves import range
 import taskflow.engines
 from taskflow.patterns import linear_flow
 from taskflow import task
@@ -69,9 +70,10 @@ loc_opts = [
     cfg.StrOpt('naviseccli_path',
                default='',
                help='Naviseccli Path.'),
-    cfg.StrOpt('storage_vnx_pool_name',
+    cfg.StrOpt('storage_vnx_pool_names',
                default=None,
-               help='Storage pool name.'),
+               deprecated_name='storage_vnx_pool_name',
+               help='Comma-separated list of storage pool names to be used.'),
     cfg.StrOpt('san_secondary_ip',
                default=None,
                help='VNX secondary SP IP Address.'),
@@ -217,6 +219,10 @@ class CommandLineHelper(object):
     LUN_WITH_POOL = [LUN_STATE, LUN_CAPACITY, LUN_OWNER,
                      LUN_ATTACHEDSNAP, LUN_POOL]
 
+    POOL_STATE = PropertyDescriptor(
+        '-state',
+        'State:\s*(.*)\s*',
+        'state')
     POOL_TOTAL_CAPACITY = PropertyDescriptor(
         '-userCap',
         'User Capacity \(GBs\):\s*(.*)\s*',
@@ -236,8 +242,13 @@ class CommandLineHelper(object):
         '-name',
         'Pool Name:\s*(.*)\s*',
         'pool_name')
+    POOL_SUBSCRIBED_CAPACITY = PropertyDescriptor(
+        '-subscribedCap',
+        'Total Subscribed Capacity *\(GBs\) *:\s*(.*)\s*',
+        'provisioned_capacity_gb',
+        float)
 
-    POOL_ALL = [POOL_TOTAL_CAPACITY, POOL_FREE_CAPACITY]
+    POOL_ALL = [POOL_TOTAL_CAPACITY, POOL_FREE_CAPACITY, POOL_STATE]
 
     MAX_POOL_LUNS = PropertyDescriptor(
         '-maxPoolLUNs',
@@ -262,6 +273,8 @@ class CommandLineHelper(object):
     CLI_RESP_PATTERN_LUN_IN_SG_2 = 'Host LUN/LUN mapping still exists'
     CLI_RESP_PATTERN_LUN_NOT_MIGRATING = ('The specified source LUN '
                                           'is not currently migrating')
+    CLI_RESP_PATTERN_LUN_IS_PREPARING = '0x712d8e0e'
+    CLI_RESP_PATTERM_IS_NOT_SMP = 'it is not a snapshot mount point'
 
     def __init__(self, configuration):
         configuration.append_config_values(san.san_opts)
@@ -282,7 +295,7 @@ class CommandLineHelper(object):
         self.primary_storage_ip = self.active_storage_ip
         self.secondary_storage_ip = configuration.san_secondary_ip
         if self.secondary_storage_ip == self.primary_storage_ip:
-            LOG.warning(_LE("san_secondary_ip is configured as "
+            LOG.warning(_LW("san_secondary_ip is configured as "
                             "the same value as san_ip."))
             self.secondary_storage_ip = None
         if not configuration.san_ip:
@@ -331,7 +344,9 @@ class CommandLineHelper(object):
 
         # extra spec constants
         self.tiering_spec = 'storagetype:tiering'
-        self.provisioning_spec = 'storagetype:provisioning'
+        self.provisioning_specs = [
+            'provisioning:type',
+            'storagetype:provisioning']
         self.provisioning_values = {
             'thin': ['-type', 'Thin'],
             'thick': ['-type', 'NonThin'],
@@ -390,7 +405,7 @@ class CommandLineHelper(object):
             with excutils.save_and_reraise_exception():
                 self.delete_lun(name)
                 LOG.error(_LE("Error on enable compression on lun %s."),
-                          six.text_type(ex))
+                          ex)
 
         # handle consistency group
         try:
@@ -401,7 +416,7 @@ class CommandLineHelper(object):
             with excutils.save_and_reraise_exception():
                 self.delete_lun(name)
                 LOG.error(_LE("Error on adding lun to consistency"
-                              " group. %s"), six.text_type(ex))
+                              " group. %s"), ex)
         return data
 
     def create_lun_by_cmd(self, cmd, name):
@@ -441,7 +456,7 @@ class CommandLineHelper(object):
                         self.CLI_RESP_PATTERN_LUN_NOT_EXIST) >= 0:
                     return False
                 else:
-                    raise ex
+                    raise
             return _lun_state_validation(data)
 
         self._wait_for_a_condition(lun_is_ready,
@@ -510,7 +525,7 @@ class CommandLineHelper(object):
                               '_wait_for_a_condition: %(method_name)s '
                               'execution failed for %(exception)s',
                               {'method_name': testmethod.__name__,
-                               'exception': six.text_type(ex)})
+                               'exception': ex})
             if test_value:
                 raise loopingcall.LoopingCallDone()
 
@@ -551,15 +566,11 @@ class CommandLineHelper(object):
 
         self._wait_for_a_condition(lun_is_extented)
 
-    def lun_rename(self, lun_id, new_name, poll=False):
-        """This function used to rename a lun to match
-        the expected name for the volume.
-        """
+    def rename_lun(self, lun_id, new_name, poll=False):
         command_lun_rename = ('lun', '-modify',
                               '-l', lun_id,
                               '-newName', new_name,
                               '-o')
-
         out, rc = self.command_execute(*command_lun_rename,
                                        poll=poll)
         if rc != 0:
@@ -577,13 +588,15 @@ class CommandLineHelper(object):
             if rc != 0:
                 self._raise_cli_error(command_modify_lun, rc, out)
 
-    def create_consistencygroup(self, context, group):
+    def create_consistencygroup(self, cg_name, members=None):
         """create the consistency group."""
-        cg_name = group['id']
         command_create_cg = ('-np', 'snap', '-group',
                              '-create',
                              '-name', cg_name,
                              '-allowSnapAutoDelete', 'no')
+        if members:
+            command_create_cg += ('-res', ','.join(map(six.text_type,
+                                                       members)))
 
         out, rc = self.command_execute(*command_create_cg)
         if rc != 0:
@@ -717,9 +730,8 @@ class CommandLineHelper(object):
             else:
                 self._raise_cli_error(create_cg_snap_cmd, rc, out)
 
-    def delete_cgsnapshot(self, cgsnapshot):
+    def delete_cgsnapshot(self, snap_name):
         """Delete a cgsnapshot (snap group)."""
-        snap_name = cgsnapshot['id']
         delete_cg_snap_cmd = ('-np', 'snap', '-destroy',
                               '-id', snap_name, '-o')
 
@@ -810,6 +822,27 @@ class CommandLineHelper(object):
 
         return rc
 
+    def copy_snapshot(self, src_snap_name, new_name):
+
+        copy_snap_cmd = ('snap', '-copy',
+                         '-id', src_snap_name,
+                         '-name', new_name,
+                         '-ignoreMigrationCheck',
+                         '-ignoreDeduplicationCheck')
+
+        out, rc = self.command_execute(*copy_snap_cmd)
+        if rc != 0:
+            self._raise_cli_error(copy_snap_cmd, rc, out)
+
+    def allow_snapshot_readwrite_and_autodelete(self, snap_name):
+
+        modify_cmd = ('snap', '-modify', '-id', snap_name,
+                      '-allowReadWrite', 'yes', '-allowAutoDelete', 'yes')
+
+        out, rc = self.command_execute(*modify_cmd)
+        if rc != 0:
+            self._raise_cli_error(modify_cmd, rc, out)
+
     def attach_mount_point(self, name, snapshot_name):
 
         command_attach_mount_point = ('lun', '-attach',
@@ -834,7 +867,7 @@ class CommandLineHelper(object):
     def detach_mount_point(self, smp_name):
 
         command_detach_mount_point = ('lun', '-detach',
-                                      '-name', smp_name)
+                                      '-name', smp_name, '-o')
 
         out, rc = self.command_execute(*command_detach_mount_point)
         if rc != 0:
@@ -864,11 +897,11 @@ class CommandLineHelper(object):
 
         return rc
 
-    def migrate_lun_with_verification(self, src_id,
-                                      dst_id=None,
-                                      dst_name=None):
+    def migrate_lun_without_verification(self, src_id, dst_id,
+                                         dst_name=None):
         try:
             self.migrate_lun(src_id, dst_id)
+            return True
         except exception.EMCVnxCLICmdError as ex:
             migration_succeed = False
             orig_out = "\n".join(ex.kwargs["out"])
@@ -892,7 +925,10 @@ class CommandLineHelper(object):
                                     "start failed. LUN: %s"), dst_name)
                     self.delete_lun(dst_name)
                 return False
+            else:
+                return True
 
+    def verify_lun_migration(self, src_id):
         # Set the proper interval to verify the migration status
         def migration_is_ready(poll=False):
             mig_ready = False
@@ -942,8 +978,6 @@ class CommandLineHelper(object):
                     self._raise_cli_error(cmd_migrate_list, rc, out)
             return False
 
-        eventlet.sleep(INTERVAL_30_SEC)
-
         try:
             if migration_is_ready(True):
                 return True
@@ -971,6 +1005,17 @@ class CommandLineHelper(object):
         out, rc = self.command_execute(*cmd_migrate_cancel)
         if rc != 0:
             self._raise_cli_error(cmd_migrate_cancel, rc, out)
+
+    def migrate_lun_with_verification(self, src_id,
+                                      dst_id,
+                                      dst_name=None):
+        migration_started = self.migrate_lun_without_verification(
+            src_id, dst_id, dst_name)
+        if not migration_started:
+            return False
+
+        eventlet.sleep(INTERVAL_30_SEC)
+        return self.verify_lun_migration(src_id)
 
     def get_storage_group(self, name, poll=True):
 
@@ -1079,7 +1124,7 @@ class CommandLineHelper(object):
         command_add_hlu = ('storagegroup', '-addhlu',
                            '-hlu', hlu,
                            '-alu', alu,
-                           '-gname', sg_name)
+                           '-gname', sg_name, '-o')
 
         out, rc = self.command_execute(*command_add_hlu, poll=False)
         if rc != 0:
@@ -1107,25 +1152,6 @@ class CommandLineHelper(object):
             else:
                 self._raise_cli_error(command_remove_hlu, rc, out)
 
-    def get_iscsi_protocol_endpoints(self, device_sp):
-
-        command_get_port = ('connection', '-getport',
-                            '-sp', device_sp)
-
-        out, rc = self.command_execute(*command_get_port)
-        if rc != 0:
-            self._raise_cli_error(command_get_port, rc, out)
-
-        re_port_wwn = 'Port WWN:\s*(.*)\s*'
-        initiator_address = re.findall(re_port_wwn, out)
-
-        return initiator_address
-
-    def get_pool_name_of_lun(self, lun_name, poll=True):
-        data = self.get_lun_properties(
-            ('-name', lun_name), self.LUN_WITH_POOL, poll=poll)
-        return data.get('pool', '')
-
     def get_lun_by_name(self, name, properties=LUN_ALL, poll=True):
         data = self.get_lun_properties(('-name', name),
                                        properties,
@@ -1136,6 +1162,16 @@ class CommandLineHelper(object):
         data = self.get_lun_properties(('-l', lunid),
                                        properties, poll=poll)
         return data
+
+    def get_lun_current_ops_state(self, name, poll=False):
+        data = self.get_lun_by_name(name, poll=False)
+        return data[self.LUN_OPERATION.key]
+
+    def wait_until_lun_ready_for_ops(self, name):
+        def is_lun_ready_for_ops():
+            data = self.get_lun_current_ops_state(name, False)
+            return data == 'None'
+        self._wait_for_a_condition(is_lun_ready_for_ops)
 
     def get_pool(self, name, properties=POOL_ALL, poll=True):
         data = self.get_pool_properties(('-name', name),
@@ -1516,7 +1552,7 @@ class CommandLineHelper(object):
         retry_disable = kwargv.pop('retry_disable', False)
         out, rc = self._command_execute_on_active_ip(*command, **kwargv)
         if not retry_disable and self._is_sp_unavailable_error(out):
-            # When active sp is unavailble, swith to another sp
+            # When active sp is unavailable, switch to another sp
             # and set it to active and force a poll
             if self._toggle_sp():
                 LOG.debug('EMC: Command Exception: %(rc) %(result)s. '
@@ -1555,21 +1591,6 @@ class CommandLineHelper(object):
                    'result': out.replace('\n', '\\n')})
 
         return out, rc
-
-    def _is_sp_alive(self, ipaddr):
-        ping_cmd = ('ping', '-c', 1, ipaddr)
-        try:
-            out, err = utils.execute(*ping_cmd,
-                                     check_exit_code=True)
-        except processutils.ProcessExecutionError as pe:
-            out = pe.stdout
-            rc = pe.exit_code
-            if rc != 0:
-                LOG.debug('%s is unavaialbe', ipaddr)
-                return False
-        LOG.debug('Ping SP %(spip)s Command Result: %(result)s.',
-                  {'spip': self.active_storage_ip, 'result': out})
-        return True
 
     def _toggle_sp(self):
         """This function toggles the storage IP
@@ -1631,28 +1652,12 @@ class CommandLineHelper(object):
         out, rc = self.command_execute(*command_deregister)
         return rc, out
 
-    def is_pool_fastcache_enabled(self, storage_pool, poll=False):
-        command_check_fastcache = ('storagepool', '-list', '-name',
-                                   storage_pool, '-fastcache')
-        out, rc = self.command_execute(*command_check_fastcache, poll=poll)
-
-        if 0 != rc:
-            self._raise_cli_error(command_check_fastcache, rc, out)
-        else:
-            re_fastcache = 'FAST Cache:\s*(.*)\s*'
-            m = re.search(re_fastcache, out)
-            if m is not None:
-                result = True if 'Enabled' == m.group(1) else False
-            else:
-                LOG.error(_LE("Error parsing output for FastCache Command."))
-        return result
-
 
 @decorate_all_methods(log_enter_exit)
 class EMCVnxCliBase(object):
     """This class defines the functions to use the native CLI functionality."""
 
-    VERSION = '05.03.05'
+    VERSION = '06.00.00'
     stats = {'driver_version': VERSION,
              'storage_protocol': None,
              'vendor_name': 'EMC',
@@ -1660,7 +1665,8 @@ class EMCVnxCliBase(object):
              'compression_support': 'False',
              'fast_support': 'False',
              'deduplication_support': 'False',
-             'thinprovisioning_support': 'False'}
+             'thin_provisioning_support': False,
+             'thick_provisioning_support': True}
     enablers = []
 
     def __init__(self, prtcl, configuration=None):
@@ -1689,8 +1695,10 @@ class EMCVnxCliBase(object):
             LOG.info(_LI("initiator_auto_registration: False. "
                          "Initiator auto registration is not enabled. "
                          "Please register initiator manually."))
-        self.hlu_set = set(xrange(1, self.max_luns_per_sg + 1))
+        self.hlu_set = set(range(1, self.max_luns_per_sg + 1))
         self._client = CommandLineHelper(self.configuration)
+        conf_pools = self.configuration.safe_get("storage_vnx_pool_names")
+        self.storage_pools = self._get_managed_storage_pools(conf_pools)
         self.array_serial = None
         if self.protocol == 'iSCSI':
             self.iscsi_targets = self._client.get_iscsi_targets(poll=True)
@@ -1699,9 +1707,37 @@ class EMCVnxCliBase(object):
             self.configuration.force_delete_lun_in_storagegroup)
         if self.force_delete_lun_in_sg:
             LOG.warning(_LW("force_delete_lun_in_storagegroup=True"))
+        self.max_over_subscription_ratio = (
+            self.configuration.max_over_subscription_ratio)
 
-    def get_target_storagepool(self, volume, source_volume=None):
-        raise NotImplementedError
+    def _get_managed_storage_pools(self, pools):
+        storage_pools = set()
+        if pools:
+            storage_pools = set([po.strip() for po in pools.split(",")])
+            array_pools = self._client.get_pool_list(
+                [self._client.POOL_STATE], False)
+            array_pools = set([po['pool_name'] for po in array_pools])
+            un_exist_pools = storage_pools.difference(array_pools)
+            storage_pools.difference_update(un_exist_pools)
+            if not storage_pools:
+                msg = _("All the specified storage pools to be managed "
+                        "do not exist. Please check your configuration. "
+                        "Non-existent pools: %s") % ",".join(un_exist_pools)
+                raise exception.VolumeBackendAPIException(data=msg)
+            if un_exist_pools:
+                LOG.warning(_LW("The following specified storage pools "
+                                "do not exist: %(unexist)s. "
+                                "This host will only manage the storage "
+                                "pools: %(exist)s"),
+                            {'unexist': ",".join(un_exist_pools),
+                             'exist': ",".join(storage_pools)})
+            else:
+                LOG.debug("This host will manage the storage pools: %s.",
+                          ",".join(storage_pools))
+        else:
+            LOG.debug("No storage pool is configured. This host will "
+                      "manage all the pools on the VNX system.")
+        return storage_pools
 
     def get_array_serial(self):
         if not self.array_serial:
@@ -1809,8 +1845,23 @@ class EMCVnxCliBase(object):
         provisioning = 'thick'
         tiering = None
 
-        if self._client.provisioning_spec in extra_specs:
-            provisioning = extra_specs[self._client.provisioning_spec].lower()
+        if self._client.provisioning_specs[0] in extra_specs:
+            provisioning = (
+                extra_specs[self._client.provisioning_specs[0]].lower())
+            if self._client.provisioning_specs[1] in extra_specs:
+                LOG.warning(_LW("Both 'storagetype:prvosioning' and "
+                                "'provisioning:type' are set in the "
+                                "extra specs, the value of "
+                                "'provisioning:type' will be used. The "
+                                "key 'storagetype:provisioning' may be "
+                                "deprecated in the next release."))
+        elif self._client.provisioning_specs[1] in extra_specs:
+            provisioning = (
+                extra_specs[self._client.provisioning_specs[1]].lower())
+            LOG.warning(_LW("Extra spec key 'storagetype:provisioning' may "
+                            "be deprecated in the next release. It is "
+                            "recommended to use extra spec key "
+                            "'provisioning:type' instead."))
         if self._client.tiering_spec in extra_specs:
             tiering = extra_specs[self._client.tiering_spec].lower()
 
@@ -1869,12 +1920,31 @@ class EMCVnxCliBase(object):
                 self._client.delete_lun(volume['name'])
             else:
                 with excutils.save_and_reraise_exception():
-                    # Reraise the original exceiption
+                    # Reraise the original exception
                     pass
 
     def extend_volume(self, volume, new_size):
         """Extends an EMC volume."""
-        self._client.expand_lun_and_wait(volume['name'], new_size)
+
+        try:
+            self._client.expand_lun_and_wait(volume['name'], new_size)
+        except exception.EMCVnxCLICmdError as ex:
+            with excutils.save_and_reraise_exception(ex) as ctxt:
+                out = "\n".join(ex.kwargs["out"])
+                if (self._client.CLI_RESP_PATTERN_LUN_IS_PREPARING
+                        in out):
+                    # The error means the operation cannot be performed
+                    # because the LUN is 'Preparing'. Wait for a while
+                    # so that the LUN may get out of the transitioning
+                    # state.
+                    LOG.warning(_LW("LUN %(name)s is not ready for extension: "
+                                    "%(out)s"),
+                                {'name': volume['name'], 'out': out})
+                    self._client.wait_until_lun_ready_for_ops(volume['name'])
+                    self._client.expand_lun_and_wait(volume['name'], new_size)
+                    ctxt.reraise = False
+                else:
+                    ctxt.reraise = True
 
     def _get_original_status(self, volume):
         if not volume['volume_attachment']:
@@ -2036,9 +2106,6 @@ class EMCVnxCliBase(object):
             tiering_change = True
         return migration, tiering_change
 
-    def get_specific_extra_spec(self, specs, key):
-        return specs.get(key, None)
-
     def determine_all_enablers_exist(self, enablers):
         """Determine all wanted enablers whether exist."""
         wanted = ['-ThinProvisioning',
@@ -2050,30 +2117,42 @@ class EMCVnxCliBase(object):
                 return False
         return True
 
-    def _build_pool_stats(self, pool):
+    def _build_pool_stats(self, pool, pool_feature=None):
         pool_stats = {}
         pool_stats['pool_name'] = pool['pool_name']
         pool_stats['total_capacity_gb'] = pool['total_capacity_gb']
+        pool_stats['provisioned_capacity_gb'] = (
+            pool['provisioned_capacity_gb'])
         pool_stats['reserved_percentage'] = 0
-        pool_stats['free_capacity_gb'] = pool['free_capacity_gb']
-        # Some extra capacity will be used by meta data of pool LUNs.
-        # The overhead is about LUN_Capacity * 0.02 + 3 GB
-        # reserved_percentage will be used to make sure the scheduler
-        # takes the overhead into consideration.
-        # Assume that all the remaining capacity is to be used to create
-        # a thick LUN, reserved_percentage is estimated as follows:
-        reserved = (((0.02 * pool['free_capacity_gb'] + 3) /
-                     (1.02 * pool['total_capacity_gb'])) * 100)
-        pool_stats['reserved_percentage'] = int(math.ceil(min(reserved, 100)))
-        if self.check_max_pool_luns_threshold:
-            pool_feature = self._client.get_pool_feature_properties(poll=False)
-            if (pool_feature['max_pool_luns']
-                    <= pool_feature['total_pool_luns']):
-                LOG.warning(_LW("Maximum number of Pool LUNs, %s, "
-                                "have been created. "
-                                "No more LUN creation can be done."),
-                            pool_feature['max_pool_luns'])
-                pool_stats['free_capacity_gb'] = 0
+
+        # Handle pool state Initializing, Ready, Faulted, Offline or Deleting.
+        if pool['state'] in ('Initializing', 'Offline', 'Deleting'):
+            pool_stats['free_capacity_gb'] = 0
+            LOG.warning(_LW("Storage Pool '%(pool)s' is '%(state)s'."),
+                        {'pool': pool_stats['pool_name'],
+                         'state': pool['state']})
+        else:
+            pool_stats['free_capacity_gb'] = pool['free_capacity_gb']
+            # Some extra capacity will be used by meta data of pool LUNs.
+            # The overhead is about LUN_Capacity * 0.02 + 3 GB
+            # reserved_percentage will be used to make sure the scheduler
+            # takes the overhead into consideration.
+            # Assume that all the remaining capacity is to be used to create
+            # a thick LUN, reserved_percentage is estimated as follows:
+            reserved = (((0.02 * pool['free_capacity_gb'] + 3) /
+                         (1.02 * pool['total_capacity_gb'])) * 100)
+            pool_stats['reserved_percentage'] = int(math.ceil
+                                                    (min(reserved, 100)))
+            if self.check_max_pool_luns_threshold:
+                pool_feature = self._client.get_pool_feature_properties(
+                    poll=False) if not pool_feature else pool_feature
+                if (pool_feature['max_pool_luns'] <=
+                        pool_feature['total_pool_luns']):
+                    LOG.warning(_LW("Maximum number of Pool LUNs, %s, "
+                                    "have been created. "
+                                    "No more LUN creation can be done."),
+                                pool_feature['max_pool_luns'])
+                    pool_stats['free_capacity_gb'] = 0
 
         array_serial = self.get_array_serial()
         pool_stats['location_info'] = ('%(pool_name)s|%(array_serial)s' %
@@ -2090,16 +2169,21 @@ class EMCVnxCliBase(object):
         pool_stats['fast_support'] = self.stats['fast_support']
         pool_stats['deduplication_support'] = (
             self.stats['deduplication_support'])
-        pool_stats['thinprovisioning_support'] = (
-            self.stats['thinprovisioning_support'])
+        # Thin provisioning is supported on VNX pools only when
+        # ThinProvisioning Enabler software is installed on VNX,
+        # and thick provisioning is always supported on VNX pools.
+        pool_stats['thin_provisioning_support'] = (
+            self.stats['thin_provisioning_support'])
+        pool_stats['thick_provisioning_support'] = True
         pool_stats['consistencygroup_support'] = (
             self.stats['consistencygroup_support'])
+        pool_stats['max_over_subscription_ratio'] = (
+            self.max_over_subscription_ratio)
 
         return pool_stats
 
-    @log_enter_exit
-    def update_volume_stats(self):
-        """Gets the common stats shared by pool and array backend."""
+    def update_enabler_in_volume_stats(self):
+        """Updates the enabler information in stats."""
         if not self.determine_all_enablers_exist(self.enablers):
             self.enablers = self._client.get_enablers_on_array()
 
@@ -2112,14 +2196,11 @@ class EMCVnxCliBase(object):
         self.stats['deduplication_support'] = (
             'True' if '-Deduplication' in self.enablers else 'False')
 
-        self.stats['thinprovisioning_support'] = (
-            'True' if '-ThinProvisioning' in self.enablers else 'False')
+        self.stats['thin_provisioning_support'] = (
+            True if '-ThinProvisioning' in self.enablers else False)
 
         self.stats['consistencygroup_support'] = (
             'True' if '-VNXSnapshots' in self.enablers else 'False')
-
-        if self.protocol == 'iSCSI':
-            self.iscsi_targets = self._client.get_iscsi_targets(poll=False)
 
         return self.stats
 
@@ -2133,7 +2214,26 @@ class EMCVnxCliBase(object):
                  {'snapshot': snapshot_name,
                   'volume': volume_name})
         lun_id = self.get_lun_id(volume)
-        self._client.create_snapshot(lun_id, snapshot_name)
+
+        try:
+            self._client.create_snapshot(lun_id, snapshot_name)
+        except exception.EMCVnxCLICmdError as ex:
+            with excutils.save_and_reraise_exception(ex) as ctxt:
+                out = "\n".join(ex.kwargs["out"])
+                if (self._client.CLI_RESP_PATTERN_LUN_IS_PREPARING
+                        in out):
+                    # The error means the operation cannot be performed
+                    # because the LUN is 'Preparing'. Wait for a while
+                    # so that the LUN may get out of the transitioning
+                    # state.
+                    LOG.warning(_LW("LUN %(name)s is not ready for snapshot: "
+                                    "%(out)s"),
+                                {'name': volume_name, 'out': out})
+                    self._client.wait_until_lun_ready_for_ops(volume['name'])
+                    self._client.create_snapshot(lun_id, snapshot_name)
+                    ctxt.reraise = False
+                else:
+                    ctxt.reraise = True
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
@@ -2214,7 +2314,7 @@ class EMCVnxCliBase(object):
         new_lun_id = flow_engine.storage.fetch('new_lun_id')
         # Delete temp Snapshot
         if consistencygroup_id:
-            self._client.delete_cgsnapshot(snapshot)
+            self._client.delete_cgsnapshot(snapshot['id'])
         else:
             self.delete_snapshot(snapshot)
 
@@ -2239,7 +2339,7 @@ class EMCVnxCliBase(object):
         return self.dumps_provider_location(pl_dict)
 
     def _extract_provider_location_for_lun(self, provider_location, key='id'):
-        """Extacts value of the specified field from provider_location string.
+        """Extracts value of the specified field from provider_location string.
 
         :param provider_location: provider_location string
         :param key: field name of the value that to be extracted
@@ -2278,7 +2378,7 @@ class EMCVnxCliBase(object):
 
         model_update = {'status': 'available'}
         try:
-            self._client.create_consistencygroup(context, group)
+            self._client.create_consistencygroup(group['id'])
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Create consistency group %s failed.'),
@@ -2299,9 +2399,7 @@ class EMCVnxCliBase(object):
             self._client.delete_consistencygroup(cg_name)
         except Exception:
             with excutils.save_and_reraise_exception():
-                msg = (_('Delete consistency group %s failed.')
-                       % cg_name)
-                LOG.error(msg)
+                LOG.error(_LE('Delete consistency group %s failed.'), cg_name)
 
         for volume_ref in volumes:
             try:
@@ -2385,7 +2483,7 @@ class EMCVnxCliBase(object):
                  'group_name': cgsnapshot['consistencygroup_id']})
 
         try:
-            self._client.delete_cgsnapshot(cgsnapshot)
+            self._client.delete_cgsnapshot(cgsnapshot['id'])
             for snapshot in snapshots:
                 snapshot['status'] = 'deleted'
         except Exception:
@@ -2394,10 +2492,6 @@ class EMCVnxCliBase(object):
                           cgsnapshot_id)
 
         return model_update, snapshots
-
-    def get_lun_id_by_name(self, volume_name):
-        data = self._client.get_lun_by_name(volume_name)
-        return data['lun_id']
 
     def get_lun_id(self, volume):
         lun_id = None
@@ -2423,10 +2517,6 @@ class EMCVnxCliBase(object):
         data = self._client.get_storage_group(storage_group)
         return data['lunmap']
 
-    def get_storage_group_uid(self, name):
-        data = self._client.get_storage_group(name)
-        return data['storage_group_uid']
-
     def assure_storage_group(self, storage_group):
         self._client.create_storage_group(storage_group)
 
@@ -2444,7 +2534,7 @@ class EMCVnxCliBase(object):
                 self._client.connect_host_to_storage_group(
                     hostname, storage_group)
             else:
-                raise ex
+                raise
         return hostname
 
     def get_lun_owner(self, volume):
@@ -2645,7 +2735,7 @@ class EMCVnxCliBase(object):
                                                     poll=False)
         except exception.EMCVnxCLICmdError as ex:
             if ex.kwargs["rc"] != 83:
-                raise ex
+                raise
             # Storage Group has not existed yet
             self.assure_storage_group(hostname)
             if self.itor_auto_reg:
@@ -2787,18 +2877,6 @@ class EMCVnxCliBase(object):
         return fc_properties
 
     def initialize_connection(self, volume, connector):
-        volume_metadata = {}
-        for metadata in volume['volume_admin_metadata']:
-            volume_metadata[metadata['key']] = metadata['value']
-        access_mode = volume_metadata.get('attached_mode')
-        if access_mode is None:
-            access_mode = ('ro'
-                           if volume_metadata.get('readonly') == 'True'
-                           else 'rw')
-        LOG.debug('Volume %(vol)s Access mode is: %(access)s.',
-                  {'vol': volume['name'],
-                   'access': access_mode})
-
         """Initializes the connection and returns connection info."""
         @lockutils.synchronized('emc-connection-' + connector['host'],
                                 "emc-connection-", True)
@@ -2814,7 +2892,6 @@ class EMCVnxCliBase(object):
                 device_number,
                 sg_data['raw_output']
             )
-            iscsi_properties['access_mode'] = access_mode
             data = {'driver_volume_type': 'iscsi',
                     'data': iscsi_properties}
         elif self.protocol == 'FC':
@@ -2822,7 +2899,6 @@ class EMCVnxCliBase(object):
             fc_properties = self.vnx_get_fc_properties(connector,
                                                        device_number)
             fc_properties['volume_id'] = volume['id']
-            fc_properties['access_mode'] = access_mode
             data = {'driver_volume_type': 'fibre_channel',
                     'data': fc_properties}
 
@@ -2895,57 +2971,55 @@ class EMCVnxCliBase(object):
             return conn_info
         return do_terminate_connection()
 
-    def manage_existing_get_size(self, volume, ref):
+    def manage_existing_get_size(self, volume, existing_ref):
         """Returns size of volume to be managed by manage_existing."""
-
-        # Check that the reference is valid
-        if 'id' not in ref:
-            reason = _('Reference must contain lun_id element.')
+        if 'source-id' in existing_ref:
+            data = self._client.get_lun_by_id(
+                existing_ref['source-id'],
+                properties=self._client.LUN_WITH_POOL)
+        elif 'source-name' in existing_ref:
+            data = self._client.get_lun_by_name(
+                existing_ref['source-name'],
+                properties=self._client.LUN_WITH_POOL)
+        else:
+            reason = _('Reference must contain source-id or source-name key.')
             raise exception.ManageExistingInvalidReference(
-                existing_ref=ref,
-                reason=reason)
-
-        # Check for existence of the lun
-        data = self._client.get_lun_by_id(
-            ref['id'],
-            properties=self._client.LUN_WITH_POOL)
-        if data is None:
-            reason = _('Find no lun with the specified id %s.') % ref['id']
-            raise exception.ManageExistingInvalidReference(existing_ref=ref,
-                                                           reason=reason)
-
-        pool = self.get_target_storagepool(volume, None)
-        if pool and data['pool'] != pool:
-            reason = (_('The input lun %(lun_id)s is in pool %(poolname)s '
+                existing_ref=existing_ref, reason=reason)
+        target_pool = self.get_target_storagepool(volume)
+        if target_pool and data['pool'] != target_pool:
+            reason = (_('The imported lun %(lun_id)s is in pool %(lun_pool)s '
                         'which is not managed by the host %(host)s.')
-                      % {'lun_id': ref['id'],
-                         'poolname': data['pool'],
+                      % {'lun_id': data['lun_id'],
+                         'lun_pool': data['pool'],
                          'host': volume['host']})
-            raise exception.ManageExistingInvalidReference(existing_ref=ref,
-                                                           reason=reason)
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref, reason=reason)
         return data['total_capacity_gb']
 
-    def manage_existing(self, volume, ref):
+    def manage_existing(self, volume, manage_existing_ref):
         """Imports the existing backend storage object as a volume.
 
-        Renames the backend storage object so that it matches the,
-        volume['name'] which is how drivers traditionally map between a
-        cinder volume and the associated backend storage object.
-
-        existing_ref:{
-            'id':lun_id
+        manage_existing_ref:{
+            'source-id':<lun id in VNX>
+        }
+        or
+        manage_existing_ref:{
+            'source-name':<lun name in VNX>
         }
         """
-
-        self._client.lun_rename(ref['id'], volume['name'])
+        if 'source-id' in manage_existing_ref:
+            lun_id = manage_existing_ref['source-id']
+        elif 'source-name' in manage_existing_ref:
+            lun_id = self._client.get_lun_by_name(
+                manage_existing_ref['source-name'], poll=False)['lun_id']
+        else:
+            reason = _('Reference must contain source-id or source-name key.')
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=manage_existing_ref, reason=reason)
+        self._client.rename_lun(lun_id, volume['name'])
         model_update = {'provider_location':
-                        self._build_provider_location_for_lun(ref['id'])}
-
+                        self._build_provider_location_for_lun(lun_id)}
         return model_update
-
-    def find_iscsi_protocol_endpoints(self, device_sp):
-        """Returns the iSCSI initiators for a SP."""
-        return self._client.get_iscsi_protocol_endpoints(device_sp)
 
     def get_login_ports(self, connector):
         return self._client.get_login_ports(connector['host'],
@@ -2990,51 +3064,103 @@ class EMCVnxCliBase(object):
         """Unmanages a volume"""
         pass
 
+    def create_consistencygroup_from_src(self, context, group, volumes,
+                                         cgsnapshot=None, snapshots=None):
+        """Creates a consistency group from cgsnapshot."""
 
-@decorate_all_methods(log_enter_exit)
-class EMCVnxCliPool(EMCVnxCliBase):
+        if not cgsnapshot or not snapshots:
+            msg = _("create_consistencygroup_from_src only supports a "
+                    "cgsnapshot source, other sources cannot be used.")
+            raise exception.InvalidInput(msg)
 
-    def __init__(self, prtcl, configuration):
-        super(EMCVnxCliPool, self).__init__(prtcl, configuration=configuration)
-        self.storage_pool = configuration.storage_vnx_pool_name.strip()
-        self._client.get_pool(self.storage_pool)
+        flow_name = 'create_consistencygroup_from_cgsnapshot'
+        work_flow = linear_flow.Flow(flow_name)
+        copied_snapshot_name = 'temp_snapshot_for_%s' % group['id']
+        store_spec = {
+            'group': group,
+            'src_snap_name': cgsnapshot['id'],
+            'snap_name': copied_snapshot_name,
+            'client': self._client
+        }
 
-    def get_target_storagepool(self,
-                               volume,
-                               source_volume=None):
-        return self.storage_pool
+        work_flow.add(CopySnapshotTask(),
+                      AllowReadWriteOnSnapshotTask())
 
-    def update_volume_stats(self):
-        """Retrieves stats info."""
-        super(EMCVnxCliPool, self).update_volume_stats()
-        if '-FASTCache' in self.enablers:
-            properties = [self._client.POOL_FREE_CAPACITY,
-                          self._client.POOL_TOTAL_CAPACITY,
-                          self._client.POOL_FAST_CACHE]
-        else:
-            properties = [self._client.POOL_FREE_CAPACITY,
-                          self._client.POOL_TOTAL_CAPACITY]
+        # Add tasks for each volumes in the consistency group
+        lun_id_key_template = 'new_lun_id_%s'
+        lun_data_key_template = 'vol_%s'
+        volume_model_updates = []
 
-        pool = self._client.get_pool(self.storage_pool,
-                                     properties=properties,
-                                     poll=False)
-        self.stats['pools'] = [self._build_pool_stats(pool)]
-        return self.stats
+        for i, (volume, snap) in enumerate(zip(volumes, snapshots)):
+            specs = self.get_volumetype_extraspecs(volume)
+            provisioning, tiering = self._get_and_validate_extra_specs(specs)
+            pool_name = self. get_target_storagepool(volume, snap['volume'])
+            sub_store_spec = {
+                'volume': volume,
+                'source_vol_name': snap['volume_name'],
+                'pool_name': pool_name,
+                'dest_vol_name': volume['name'] + '_dest',
+                'volume_size': volume['size'],
+                'provisioning': provisioning,
+                'tiering': tiering,
+            }
+            work_flow.add(
+                CreateSMPTask(name="CreateSMPTask%s" % i,
+                              inject=sub_store_spec),
+                AttachSnapTask(name="AttachSnapTask%s" % i,
+                               inject=sub_store_spec),
+                CreateDestLunTask(name="CreateDestLunTask%s" % i,
+                                  providers=lun_data_key_template % i,
+                                  inject=sub_store_spec),
+                MigrateLunTask(name="MigrateLunTask%s" % i,
+                               providers=lun_id_key_template % i,
+                               inject=sub_store_spec,
+                               rebind={'lun_data': lun_data_key_template % i},
+                               wait_for_completion=False))
 
+            volume_model_updates.append({'id': volume['id']})
+            volume_host = volume['host']
+            host = vol_utils.extract_host(volume_host, 'backend')
+            host_and_pool = vol_utils.append_host(host, pool_name)
+            if volume_host != host_and_pool:
+                volume_model_updates[i]['host'] = host_and_pool
 
-@decorate_all_methods(log_enter_exit)
-class EMCVnxCliArray(EMCVnxCliBase):
+        work_flow.add(WaitMigrationsCompleteTask(lun_id_key_template,
+                                                 len(volumes)),
+                      CreateConsistencyGroupTask(lun_id_key_template,
+                                                 len(volumes)))
 
-    def __init__(self, prtcl, configuration):
-        super(EMCVnxCliArray, self).__init__(prtcl,
-                                             configuration=configuration)
+        flow_engine = taskflow.engines.load(work_flow, store=store_spec)
+        flow_engine.run()
+
+        # Delete copied snapshot
+        try:
+            self._client.delete_cgsnapshot(copied_snapshot_name)
+        except exception.EMCVnxCLICmdError as ex:
+            LOG.warning(_LW('Delete the temporary cgsnapshot %(name)s failed. '
+                            'This temporary cgsnapshot can be deleted '
+                            'manually. Consistency group %(cg)s is created '
+                            'successfully from cgsnapshot %(cgsnapshot)s. '
+                            'Message: %(msg)s'),
+                        {'name': copied_snapshot_name,
+                         'cg': group['id'],
+                         'cgsnapshot': cgsnapshot['id'],
+                         'msg': ex.kwargs['out']})
+
+        for i, update in enumerate(volume_model_updates):
+            new_lun_id = flow_engine.storage.fetch(lun_id_key_template % i)
+            update['provider_location'] = (
+                self._build_provider_location_for_lun(new_lun_id))
+
+        return None, volume_model_updates
 
     def get_target_storagepool(self, volume, source_volume=None):
         pool = vol_utils.extract_host(volume['host'], 'pool')
 
-        # For new created volume that is not from snapshot or cloned,
+        # For new created volume that is not from snapshot or cloned
+        # or the pool is the managed pool,
         # just use the pool selected by scheduler
-        if not source_volume:
+        if not source_volume or pool in self.storage_pools:
             return pool
 
         # For volume created from snapshot or cloned from volume, the pool to
@@ -3044,11 +3170,9 @@ class EMCVnxCliArray(EMCVnxCliBase):
         # use the pool selected by scheduler
         provider_location = source_volume.get('provider_location')
 
-        if (provider_location and
-                self._extract_provider_location_for_lun(provider_location,
-                                                        'version')):
-            return pool
-        else:
+        if (not provider_location or
+                not self._extract_provider_location_for_lun(provider_location,
+                                                            'version')):
             LOG.warning(_LW("The source volume is a legacy volume. "
                             "Create volume in the pool where the source "
                             "volume %s is created."),
@@ -3061,33 +3185,50 @@ class EMCVnxCliArray(EMCVnxCliBase):
                        % source_volume['name'])
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
-            return data[self._client.LUN_POOL.key]
+            pool = data[self._client.LUN_POOL.key]
+
+        if self.storage_pools and pool not in self.storage_pools:
+            msg = (_("The source volume %s is not in the pool which "
+                     "is managed by the current host.")
+                   % source_volume['name'])
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+        return pool
 
     def update_volume_stats(self):
         """Retrieves stats info."""
-        super(EMCVnxCliArray, self).update_volume_stats()
+        self.update_enabler_in_volume_stats()
+
+        if self.protocol == 'iSCSI':
+            self.iscsi_targets = self._client.get_iscsi_targets(poll=False)
+
         if '-FASTCache' in self.enablers:
             properties = [self._client.POOL_FREE_CAPACITY,
                           self._client.POOL_TOTAL_CAPACITY,
-                          self._client.POOL_FAST_CACHE]
+                          self._client.POOL_FAST_CACHE,
+                          self._client.POOL_STATE,
+                          self._client.POOL_SUBSCRIBED_CAPACITY]
         else:
             properties = [self._client.POOL_FREE_CAPACITY,
-                          self._client.POOL_TOTAL_CAPACITY]
+                          self._client.POOL_TOTAL_CAPACITY,
+                          self._client.POOL_STATE,
+                          self._client.POOL_SUBSCRIBED_CAPACITY]
         pool_list = self._client.get_pool_list(properties, False)
 
-        self.stats['pools'] = map(lambda pool: self._build_pool_stats(pool),
-                                  pool_list)
+        if self.storage_pools:
+            pool_list = filter(lambda a: a['pool_name'] in self.storage_pools,
+                               pool_list)
+        pool_feature = (self._client.get_pool_feature_properties(poll=False)
+                        if self.check_max_pool_luns_threshold else None)
+        self.stats['pools'] = map(
+            lambda pool: self._build_pool_stats(pool, pool_feature), pool_list)
+
         return self.stats
 
 
 def getEMCVnxCli(prtcl, configuration=None):
     configuration.append_config_values(loc_opts)
-    pool_name = configuration.safe_get("storage_vnx_pool_name")
-
-    if pool_name is None or len(pool_name.strip()) == 0:
-        return EMCVnxCliArray(prtcl, configuration=configuration)
-    else:
-        return EMCVnxCliPool(prtcl, configuration=configuration)
+    return EMCVnxCliBase(prtcl, configuration=configuration)
 
 
 class CreateSMPTask(task.Task):
@@ -3125,7 +3266,15 @@ class AttachSnapTask(task.Task):
         else:
             LOG.warning(_LW('AttachSnapTask.revert: detach mount point %s'),
                         volume['name'])
-            client.detach_mount_point(volume['name'])
+            try:
+                client.detach_mount_point(volume['name'])
+            except exception.EMCVnxCLICmdError as ex:
+                with excutils.save_and_reraise_exception() as ctxt:
+                    is_not_smp_err = (
+                        ex.kwargs["rc"] == 163 and
+                        client.CLI_RESP_PATTERM_IS_NOT_SMP in
+                        "".join(ex.kwargs["out"]))
+                    ctxt.reraise = not is_not_smp_err
 
 
 class CreateDestLunTask(task.Task):
@@ -3133,8 +3282,10 @@ class CreateDestLunTask(task.Task):
 
     Reversion strategy: Delete the temp destination lun.
     """
-    def __init__(self):
-        super(CreateDestLunTask, self).__init__(provides='lun_data')
+    def __init__(self, name=None, providers='lun_data', inject=None):
+        super(CreateDestLunTask, self).__init__(name=name,
+                                                provides=providers,
+                                                inject=inject)
 
     def execute(self, client, pool_name, dest_vol_name, volume_size,
                 provisioning, tiering, *args, **kwargs):
@@ -3159,8 +3310,13 @@ class MigrateLunTask(task.Task):
 
     Reversion strategy: None
     """
-    def __init__(self):
-        super(MigrateLunTask, self).__init__(provides='new_lun_id')
+    def __init__(self, name=None, providers='new_lun_id', inject=None,
+                 rebind=None, wait_for_completion=True):
+        super(MigrateLunTask, self).__init__(name=name,
+                                             provides=providers,
+                                             inject=inject,
+                                             rebind=rebind)
+        self.wait_for_completion = wait_for_completion
 
     def execute(self, client, dest_vol_name, volume, lun_data,
                 *args, **kwargs):
@@ -3170,13 +3326,16 @@ class MigrateLunTask(task.Task):
         dest_vol_lun_id = lun_data['lun_id']
 
         LOG.info(_LI('Migrating Mount Point Volume: %s'), new_vol_name)
-
-        migrated = client.migrate_lun_with_verification(new_vol_lun_id,
-                                                        dest_vol_lun_id,
-                                                        None)
+        if self.wait_for_completion:
+            migrated = client.migrate_lun_with_verification(new_vol_lun_id,
+                                                            dest_vol_lun_id,
+                                                            None)
+        else:
+            migrated = client.migrate_lun_without_verification(
+                new_vol_lun_id, dest_vol_lun_id, None)
         if not migrated:
-            msg = (_LE("Migrate volume failed between source vol %(src)s"
-                       " and dest vol %(dst)s."),
+            msg = (_("Migrate volume failed between source vol %(src)s"
+                     " and dest vol %(dst)s.") %
                    {'src': new_vol_name, 'dst': dest_vol_name})
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
@@ -3214,9 +3373,72 @@ class CreateSnapshotTask(task.Task):
                 LOG.warning(_LW('CreateSnapshotTask.revert: '
                                 'delete temp cgsnapshot %s'),
                             snapshot['consistencygroup_id'])
-                client.delete_cgsnapshot(snapshot)
+                client.delete_cgsnapshot(snapshot['id'])
             else:
                 LOG.warning(_LW('CreateSnapshotTask.revert: '
                                 'delete temp snapshot %s'),
                             snapshot['name'])
                 client.delete_snapshot(snapshot['name'])
+
+
+class CopySnapshotTask(task.Task):
+    """Task to copy a volume snapshot/consistency group snapshot.
+
+    Reversion Strategy: Delete the copied snapshot/cgsnapshot
+    """
+    def execute(self, client, src_snap_name, snap_name, *args, **kwargs):
+        LOG.debug('CopySnapshotTask.execute')
+        client.copy_snapshot(src_snap_name,
+                             snap_name)
+
+    def revert(self, result, client, src_snap_name, snap_name,
+               *args, **kwargs):
+        LOG.debug('CopySnapshotTask.revert')
+        if isinstance(result, failure.Failure):
+            return
+        else:
+            LOG.warning(_LW('CopySnapshotTask.revert: delete the '
+                            'copied snapshot %(new_name)s of '
+                            '%(source_name)s.'),
+                        {'new_name': snap_name,
+                         'source_name': src_snap_name})
+            client.delete_cgsnapshot(snap_name)
+
+
+class AllowReadWriteOnSnapshotTask(task.Task):
+    """Task to modify a Snapshot to allow ReadWrite on it."""
+    def execute(self, client, snap_name, *args, **kwargs):
+        LOG.debug('AllowReadWriteOnSnapshotTask.execute')
+        client.allow_snapshot_readwrite_and_autodelete(snap_name)
+
+
+class CreateConsistencyGroupTask(task.Task):
+    """Task to create a consistency group."""
+    def __init__(self, lun_id_key_template, num_of_members):
+        self.lun_id_keys = set(
+            [lun_id_key_template % i for i in range(num_of_members)])
+        super(CreateConsistencyGroupTask, self).__init__(
+            requires=self.lun_id_keys)
+
+    def execute(self, client, group, *args, **kwargs):
+        LOG.debug('CreateConsistencyGroupTask.execute')
+        lun_ids = [kwargs[key] for key in self.lun_id_keys]
+        client.create_consistencygroup(group['id'], lun_ids)
+
+
+class WaitMigrationsCompleteTask(task.Task):
+    """Task to wait migrations to be completed."""
+    def __init__(self, lun_id_key_template, num_of_members):
+        self.lun_id_keys = set(
+            [lun_id_key_template % i for i in range(num_of_members)])
+        super(WaitMigrationsCompleteTask, self).__init__(
+            requires=self.lun_id_keys)
+
+    def execute(self, client, *args, **kwargs):
+        LOG.debug('WaitMigrationsCompleteTask.execute')
+        lun_ids = [kwargs[key] for key in self.lun_id_keys]
+        for lun_id in lun_ids:
+            migrated = client.verify_lun_migration(lun_id)
+            if not migrated:
+                msg = _("Migrate volume %(src)s failed.") % {'src': lun_id}
+                raise exception.VolumeBackendAPIException(data=msg)

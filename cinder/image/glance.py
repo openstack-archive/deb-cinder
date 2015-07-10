@@ -31,7 +31,9 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
 from oslo_utils import timeutils
-import six.moves.urllib.parse as urlparse
+import six
+from six.moves import range
+from six.moves import urllib
 
 from cinder import exception
 from cinder.i18n import _LE, _LW
@@ -67,15 +69,14 @@ def _parse_image_ref(image_href):
     :raises ValueError
 
     """
-    url = urlparse.urlparse(image_href)
+    url = urllib.parse.urlparse(image_href)
     netloc = url.netloc
     image_id = url.path.split('/')[-1]
     use_ssl = (url.scheme == 'https')
     return (image_id, netloc, use_ssl)
 
 
-def _create_glance_client(context, netloc, use_ssl,
-                          version=CONF.glance_api_version):
+def _create_glance_client(context, netloc, use_ssl, version=None):
     """Instantiate a new glanceclient.Client object."""
     if version is None:
         version = CONF.glance_api_version
@@ -107,7 +108,7 @@ def get_api_servers():
     for api_server in CONF.glance_api_servers:
         if '//' not in api_server:
             api_server = 'http://' + api_server
-        url = urlparse.urlparse(api_server)
+        url = urllib.parse.urlparse(api_server)
         netloc = url.netloc
         use_ssl = (url.scheme == 'https')
         api_servers.append((netloc, use_ssl))
@@ -149,7 +150,7 @@ class GlanceClientWrapper(object):
         """Create a client that will be used for one call."""
         if self.api_servers is None:
             self.api_servers = get_api_servers()
-        self.netloc, self.use_ssl = self.api_servers.next()
+        self.netloc, self.use_ssl = next(self.api_servers)
         return _create_glance_client(context,
                                      self.netloc,
                                      self.use_ssl, version)
@@ -161,7 +162,7 @@ class GlanceClientWrapper(object):
         retry the request according to CONF.glance_num_retries.
         """
         version = self.version
-        if version in kwargs:
+        if 'version' in kwargs:
             version = kwargs['version']
 
         retry_excs = (glanceclient.exc.ServiceUnavailable,
@@ -169,7 +170,7 @@ class GlanceClientWrapper(object):
                       glanceclient.exc.CommunicationError)
         num_attempts = 1 + CONF.glance_num_retries
 
-        for attempt in xrange(1, num_attempts + 1):
+        for attempt in range(1, num_attempts + 1):
             client = self.client or self._create_onetime_client(context,
                                                                 version)
             try:
@@ -243,8 +244,9 @@ class GlanceImageService(object):
         return base_image_meta
 
     def get_location(self, context, image_id):
-        """Returns the direct url representing the backend storage location,
-        or None if this attribute is not shown by Glance.
+        """Returns a tuple of the direct url and locations representing the
+        backend storage location, or (None, None) if these attributes are not
+        shown by Glance.
         """
         if CONF.glance_api_version == 1:
             # image location not available in v1
@@ -267,16 +269,20 @@ class GlanceImageService(object):
 
     def download(self, context, image_id, data=None):
         """Calls out to Glance for data and writes data."""
-        if 'file' in CONF.allowed_direct_url_schemes:
-            location = self.get_location(context, image_id)
-            o = urlparse.urlparse(location)
-            if o.scheme == "file":
-                with open(o.path, "r") as f:
+        if data and 'file' in CONF.allowed_direct_url_schemes:
+            direct_url, locations = self.get_location(context, image_id)
+            urls = [direct_url] + [loc.get('url') for loc in locations or []]
+            for url in urls:
+                if url is None:
+                    continue
+                parsed_url = urllib.parse.urlparse(url)
+                if parsed_url.scheme == "file":
                     # a system call to cp could have significant performance
                     # advantages, however we do not have the path to files at
                     # this point in the abstraction.
-                    shutil.copyfileobj(f, data)
-                return
+                    with open(parsed_url.path, "r") as f:
+                        shutil.copyfileobj(f, data)
+                    return
 
         try:
             image_chunks = self._client.call(context, 'data', image_id)
@@ -394,13 +400,13 @@ def _convert_timestamps_to_datetimes(image_meta):
 # NOTE(bcwaldon): used to store non-string data in glance metadata
 def _json_loads(properties, attr):
     prop = properties[attr]
-    if isinstance(prop, basestring):
+    if isinstance(prop, six.string_types):
         properties[attr] = jsonutils.loads(prop)
 
 
 def _json_dumps(properties, attr):
     prop = properties[attr]
-    if not isinstance(prop, basestring):
+    if not isinstance(prop, six.string_types):
         properties[attr] = jsonutils.dumps(prop)
 
 
@@ -476,14 +482,14 @@ def _reraise_translated_image_exception(image_id):
     """Transform the exception for the image but keep its traceback intact."""
     _exc_type, exc_value, exc_trace = sys.exc_info()
     new_exc = _translate_image_exception(image_id, exc_value)
-    raise new_exc, None, exc_trace
+    six.reraise(new_exc, None, exc_trace)
 
 
 def _reraise_translated_exception():
     """Transform the exception but keep its traceback intact."""
     _exc_type, exc_value, exc_trace = sys.exc_info()
     new_exc = _translate_plain_exception(exc_value)
-    raise new_exc, None, exc_trace
+    six.reraise(new_exc, None, exc_trace)
 
 
 def _translate_image_exception(image_id, exc_value):

@@ -12,6 +12,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import ast
 import re
 
 """
@@ -42,6 +43,7 @@ underscore_import_check = re.compile(r"(.)*i18n\s+import\s+_(.)*")
 custom_underscore_check = re.compile(r"(.)*_\s*=\s*(.)*")
 no_audit_log = re.compile(r"(.)*LOG\.audit(.)*")
 no_print_statements = re.compile(r"\s*print\s*\(.+\).*")
+dict_constructor_with_list_copy_re = re.compile(r".*\bdict\((\[)?(\(|\[)")
 
 # NOTE(jsbryant): When other oslo libraries switch over non-namespaced
 # imports, we will need to add them to the regex below.
@@ -55,6 +57,52 @@ log_translation_LE = re.compile(
     r"(.)*LOG\.(exception|error)\(\s*(_\(|'|\")")
 log_translation_LW = re.compile(
     r"(.)*LOG\.(warning|warn)\(\s*(_\(|'|\")")
+
+
+class BaseASTChecker(ast.NodeVisitor):
+    """Provides a simple framework for writing AST-based checks.
+
+    Subclasses should implement visit_* methods like any other AST visitor
+    implementation. When they detect an error for a particular node the
+    method should call ``self.add_error(offending_node)``. Details about
+    where in the code the error occurred will be pulled from the node
+    object.
+
+    Subclasses should also provide a class variable named CHECK_DESC to
+    be used for the human readable error message.
+
+    """
+
+    def __init__(self, tree, filename):
+        """This object is created automatically by pep8.
+
+        :param tree: an AST tree
+        :param filename: name of the file being analyzed
+                         (ignored by our checks)
+        """
+        self._tree = tree
+        self._errors = []
+
+    def run(self):
+        """Called automatically by pep8."""
+        self.visit(self._tree)
+        return self._errors
+
+    def add_error(self, node, message=None):
+        """Add an error caused by a node to the list of errors for pep8."""
+
+        # Need to disable pylint check here as it doesn't catch CHECK_DESC
+        # being defined in the subclasses.
+        message = message or self.CHECK_DESC  # pylint: disable=E1101
+        error = (node.lineno, node.col_offset, message, self.__class__)
+        self._errors.append(error)
+
+    def _check_call_names(self, call_node, names):
+        if isinstance(call_node, ast.Call):
+            if isinstance(call_node.func, ast.Name):
+                if call_node.func.id in names:
+                    return True
+        return False
 
 
 def no_vi_headers(physical_line, line_number, lines):
@@ -115,32 +163,55 @@ def check_explicit_underscore_import(logical_line, filename):
         yield(0, "N323: Found use of _() without explicit import of _ !")
 
 
+class CheckForStrUnicodeExc(BaseASTChecker):
+    """Checks for the use of str() or unicode() on an exception.
+
+    This currently only handles the case where str() or unicode()
+    is used in the scope of an exception handler.  If the exception
+    is passed into a function, returned from an assertRaises, or
+    used on an exception created in the same scope, this does not
+    catch it.
+    """
+
+    CHECK_DESC = ('N325 str() and unicode() cannot be used on an '
+                  'exception.  Remove or use six.text_type()')
+
+    def __init__(self, tree, filename):
+        super(CheckForStrUnicodeExc, self).__init__(tree, filename)
+        self.name = []
+        self.already_checked = []
+
+    def visit_TryExcept(self, node):
+        for handler in node.handlers:
+            if handler.name:
+                self.name.append(handler.name.id)
+                super(CheckForStrUnicodeExc, self).generic_visit(node)
+                self.name = self.name[:-1]
+            else:
+                super(CheckForStrUnicodeExc, self).generic_visit(node)
+
+    def visit_Call(self, node):
+        if self._check_call_names(node, ['str', 'unicode']):
+            if node not in self.already_checked:
+                self.already_checked.append(node)
+                if isinstance(node.args[0], ast.Name):
+                    if node.args[0].id in self.name:
+                        self.add_error(node.args[0])
+        super(CheckForStrUnicodeExc, self).generic_visit(node)
+
+
 def check_assert_called_once(logical_line, filename):
     msg = ("N327: assert_called_once is a no-op. please use assert_called_"
            "once_with to test with explicit parameters or an assertEqual with"
            " call_count.")
 
-    if 'cinder/tests/' in filename:
+    if 'cinder/tests/functional' or 'cinder/tests/unit' in filename:
         pos = logical_line.find('.assert_called_once(')
         if pos != -1:
             yield (pos, msg)
 
 
 def validate_log_translations(logical_line, filename):
-    # TODO(smcginnis): The following is temporary as a series
-    # of patches are done to address these issues. It should be
-    # removed completely when bug 1433216 is closed.
-    ignore_dirs = [
-        "cinder/brick",
-        "cinder/db",
-        "cinder/openstack",
-        "cinder/scheduler",
-        "cinder/volume",
-        "cinder/zonemanager"]
-    for directory in ignore_dirs:
-        if directory in filename:
-            return
-
     # Translations are not required in the test directory.
     # This will not catch all instances of violations, just direct
     # misuse of the form LOG.info('Message').
@@ -220,16 +291,48 @@ def check_no_contextlib_nested(logical_line):
         yield(0, msg)
 
 
+def check_timeutils_strtime(logical_line):
+    msg = ("C306: Found timeutils.strtime(). "
+           "Please use datetime.datetime.isoformat() or datetime.strftime()")
+    if 'timeutils.strtime' in logical_line:
+        yield(0, msg)
+
+
+def no_log_warn(logical_line):
+    msg = "C307: LOG.warn is deprecated, please use LOG.warning!"
+    if "LOG.warn(" in logical_line:
+        yield (0, msg)
+
+
+def dict_constructor_with_list_copy(logical_line):
+    msg = ("N336: Must use a dict comprehension instead of a dict constructor "
+           "with a sequence of key-value pairs.")
+    if dict_constructor_with_list_copy_re.match(logical_line):
+        yield (0, msg)
+
+
+def check_timeutils_isotime(logical_line):
+    msg = ("C308: Found timeutils.isotime(). "
+           "Please use datetime.datetime.isoformat()")
+    if 'timeutils.isotime' in logical_line:
+        yield(0, msg)
+
+
 def factory(register):
     register(no_vi_headers)
     register(no_translate_debug_logs)
     register(no_mutable_default_args)
     register(check_explicit_underscore_import)
+    register(CheckForStrUnicodeExc)
     register(check_assert_called_once)
     register(check_oslo_namespace_imports)
     register(check_datetime_now)
+    register(check_timeutils_strtime)
+    register(check_timeutils_isotime)
     register(validate_log_translations)
     register(check_unicode_usage)
     register(check_no_print_statements)
     register(check_no_log_audit)
     register(check_no_contextlib_nested)
+    register(no_log_warn)
+    register(dict_constructor_with_list_copy)

@@ -59,7 +59,7 @@ class QuotaSetsController(wsgi.Controller):
     def _validate_quota_limit(self, limit):
         try:
             limit = int(limit)
-        except ValueError:
+        except (ValueError, TypeError):
             msg = _("Quota limit must be specified as an integer value.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
@@ -76,7 +76,7 @@ class QuotaSetsController(wsgi.Controller):
         if usages:
             return values
         else:
-            return dict((k, v['limit']) for k, v in values.items())
+            return {k: v['limit'] for k, v in values.items()}
 
     @wsgi.serializers(xml=QuotaTemplate)
     def show(self, req, id):
@@ -155,7 +155,7 @@ class QuotaSetsController(wsgi.Controller):
         authorize_delete(context)
 
         try:
-            db.quota_destroy_all_by_project(context, id)
+            db.quota_destroy_by_project(context, id)
         except exception.AdminRequired:
             raise webob.exc.HTTPForbidden()
 

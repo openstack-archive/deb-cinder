@@ -28,6 +28,7 @@ from cinder.api import xmlutil
 from cinder import db
 from cinder import exception
 from cinder.i18n import _, _LI
+from cinder import objects
 from cinder import utils
 from cinder.volume import api as volume_api
 
@@ -156,7 +157,7 @@ class HostController(wsgi.Controller):
     def update(self, req, id, body):
         authorize(req.environ['cinder.context'])
         update_values = {}
-        for raw_key, raw_val in body.iteritems():
+        for raw_key, raw_val in body.items():
             key = raw_key.lower().strip()
             val = raw_val.lower().strip()
             if key == "status":
@@ -170,7 +171,7 @@ class HostController(wsgi.Controller):
                 raise webob.exc.HTTPBadRequest(explanation=explanation)
         update_setters = {'status': self._set_enabled_status}
         result = {}
-        for key, value in update_values.iteritems():
+        for key, value in update_values.items():
             result.update(update_setters[key](req, id, value))
         return result
 
@@ -232,9 +233,9 @@ class HostController(wsgi.Controller):
         project_ids = list(set(project_ids))
         for project_id in project_ids:
             (count, sum) = db.volume_data_get_for_project(context, project_id)
-            (snap_count, snap_sum) = db.snapshot_data_get_for_project(
-                context,
-                project_id)
+            (snap_count, snap_sum) = (
+                objects.Snapshot.snapshot_data_get_for_project(context,
+                                                               project_id))
             resources.append(
                 {'resource':
                     {'host': host,

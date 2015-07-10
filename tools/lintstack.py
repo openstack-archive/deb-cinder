@@ -63,6 +63,9 @@ objects_ignore_codes = ["E0213", "E1101", "E1102"]
 objects_ignore_messages = [
     "No value passed for parameter 'id' in function call",
     "Module 'cinder.objects' has no 'Snapshot' member",
+    "Module 'cinder.objects' has no 'SnapshotList' member",
+    "Module 'cinder.objects' has no 'Backup' member",
+    "Module 'cinder.objects' has no 'BackupList' member",
 ]
 objects_ignore_modules = ["cinder/objects/"]
 

@@ -25,6 +25,7 @@ from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+from six.moves import range
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW, _LI
@@ -208,7 +209,7 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
             if any(ln.startswith(('% Error', 'Error:')) for ln in out):
                 desc = _("Error executing EQL command")
                 cmdout = '\n'.join(out)
-                LOG.error(cmdout)
+                LOG.error(_LE("%s"), cmdout)
                 raise processutils.ProcessExecutionError(
                     stdout=cmdout, cmd=command, description=desc)
             return out
@@ -245,10 +246,8 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
                         return self._ssh_execute(
                             ssh, command,
                             timeout=self.configuration.eqlx_cli_timeout)
-                    except processutils.ProcessExecutionError:
-                        raise
-                    except Exception as e:
-                        LOG.exception(e)
+                    except Exception:
+                        LOG.exception(_LE('Error running command.'))
                         greenthread.sleep(random.randint(20, 500) / 100.0)
                 msg = (_("SSH Command failed after '%(total_attempts)r' "
                          "attempts : '%(command)s'") %
@@ -346,7 +345,7 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
         """
         lines = [line for line in out if line != '']
         # Every record has 2 lines
-        for i in xrange(0, len(lines), 2):
+        for i in range(0, len(lines), 2):
             try:
                 int(lines[i][0])
                 # sanity check
@@ -414,8 +413,8 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
             self._eql_execute('volume', 'select', volume['name'], 'offline')
             self._eql_execute('volume', 'delete', volume['name'])
         except exception.VolumeNotFound:
-            LOG.warn(_LW('Volume %s was not found while trying to delete it.'),
-                     volume['name'])
+            LOG.warning(_LW('Volume %s was not found while trying to delete '
+                            'it.'), volume['name'])
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Failed to delete '
@@ -529,8 +528,8 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
         try:
             self._check_volume(volume)
         except exception.VolumeNotFound:
-            LOG.warn(_LW('Volume %s is not found!, it may have been deleted.'),
-                     volume['name'])
+            LOG.warning(_LW('Volume %s is not found!, it may have been '
+                            'deleted.'), volume['name'])
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Failed to ensure export of volume "%s".'),

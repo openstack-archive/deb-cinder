@@ -18,6 +18,7 @@
 
 import ast
 
+from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import uuidutils
 import webob
@@ -36,6 +37,18 @@ from cinder import volume as cinder_volume
 from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
 
+
+query_volume_filters_opt = cfg.ListOpt('query_volume_filters',
+                                       default=['name', 'status', 'metadata',
+                                                'availability_zone'],
+                                       help="Volume filter options which "
+                                            "non-admin user could use to "
+                                            "query volumes. Default values "
+                                            "are: ['name', 'status', "
+                                            "'metadata', 'availability_zone']")
+
+CONF = cfg.CONF
+CONF.register_opt(query_volume_filters_opt)
 
 LOG = logging.getLogger(__name__)
 SCHEDULER_HINTS_NAMESPACE =\
@@ -231,7 +244,7 @@ class VolumeController(wsgi.Controller):
             filters['display_name'] = filters['name']
             del filters['name']
 
-        for k, v in filters.iteritems():
+        for k, v in filters.items():
             try:
                 filters[k] = ast.literal_eval(v)
             except (ValueError, SyntaxError):
@@ -243,7 +256,7 @@ class VolumeController(wsgi.Controller):
                                           filters=filters,
                                           viewable_admin_meta=True)
 
-        volumes = [dict(vol.iteritems()) for vol in volumes]
+        volumes = [dict(vol) for vol in volumes]
 
         for volume in volumes:
             utils.add_visible_admin_metadata(volume)
@@ -429,14 +442,14 @@ class VolumeController(wsgi.Controller):
         # TODO(vish): Instance should be None at db layer instead of
         #             trying to lazy load, but for now we turn it into
         #             a dict to avoid an error.
-        new_volume = dict(new_volume.iteritems())
+        new_volume = dict(new_volume)
         retval = self._view_builder.detail(req, new_volume)
 
         return retval
 
     def _get_volume_filter_options(self):
         """Return volume search options allowed by non-admin."""
-        return ('name', 'status', 'metadata')
+        return CONF.query_volume_filters
 
     @wsgi.serializers(xml=VolumeTemplate)
     def update(self, req, id, body):

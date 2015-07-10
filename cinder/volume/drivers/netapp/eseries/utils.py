@@ -26,6 +26,11 @@ import six
 
 LOG = logging.getLogger(__name__)
 
+MULTI_ATTACH_HOST_GROUP_NAME = 'cinder-multi-attach'
+NULL_REF = '0000000000000000000000000000000000000000'
+MAX_LUNS_PER_HOST = 256
+MAX_LUNS_PER_HOST_GROUP = 256
+
 
 def encode_hex_to_base32(hex_string):
     """Encodes hex to base32 bit as per RFC4648."""
@@ -47,5 +52,7 @@ def convert_uuid_to_es_fmt(uuid_str):
 
 def convert_es_fmt_to_uuid(es_label):
     """Converts e-series name format to uuid."""
+    if es_label.startswith('tmp-'):
+        es_label = es_label[4:]
     es_label_b32 = es_label.ljust(32, '=')
     return uuid.UUID(binascii.hexlify(base64.b32decode(es_label_b32)))

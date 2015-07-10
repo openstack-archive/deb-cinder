@@ -23,15 +23,16 @@ from oslo_log import log as logging
 from oslo_utils import units
 
 from cinder import exception
-from cinder.i18n import _
+from cinder.i18n import _, _LI
 from cinder.image import image_utils
 from cinder.openstack.common import fileutils
 from cinder import utils
 from cinder.volume.drivers import smbfs
 from cinder.volume.drivers.windows import remotefs
 from cinder.volume.drivers.windows import vhdutils
+from cinder.volume.drivers.windows import windows_utils
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 LOG = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ CONF.set_default('smbfs_default_volume_format', 'vhd')
 
 class WindowsSmbfsDriver(smbfs.SmbfsDriver):
     VERSION = VERSION
+    _MINIMUM_QEMU_IMG_VERSION = '1.6'
 
     def __init__(self, *args, **kwargs):
         super(WindowsSmbfsDriver, self).__init__(*args, **kwargs)
@@ -56,6 +58,7 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
             'cifs', root_helper=None, smbfs_mount_point_base=self.base,
             smbfs_mount_options=opts)
         self.vhdutils = vhdutils.VHDUtils()
+        self._windows_utils = windows_utils.WindowsUtils()
 
     def do_setup(self, context):
         self._check_os_platform()
@@ -102,8 +105,10 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
             smbfs_share)
         total_allocated = self._get_total_allocated(smbfs_share)
         return_value = [total_size, total_available, total_allocated]
-        LOG.info('Smb share %s Total size %s Total allocated %s'
-                 % (smbfs_share, total_size, total_allocated))
+        LOG.info(_LI('Smb share %(share)s Total size %(size)s '
+                     'Total allocated %(allocated)s'),
+                 {'share': smbfs_share, 'size': total_size,
+                  'allocated': total_allocated})
         return [float(x) for x in return_value]
 
     def _get_total_allocated(self, smbfs_share):
@@ -206,45 +211,22 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
+        volume_path = self.local_path(volume)
         volume_format = self.get_volume_format(volume, qemu_format=True)
-        image_meta = image_service.show(context, image_id)
-
-        fetch_format = volume_format
-        fetch_path = self.local_path(volume)
-        self._delete(fetch_path)
-        qemu_version = self.get_qemu_version()
-
-        needs_conversion = False
-
-        if (qemu_version < [1, 7] and (
-                volume_format == self._DISK_FORMAT_VHDX and
-                image_meta['disk_format'] != self._DISK_FORMAT_VHDX)):
-            needs_conversion = True
-            fetch_format = 'vpc'
-            temp_file_name = '%s.temp_image.%s.%s' % (
-                volume['id'],
-                image_meta['id'],
-                self._DISK_FORMAT_VHD)
-            fetch_path = os.path.join(self._local_volume_dir(volume),
-                                      temp_file_name)
+        self._delete(volume_path)
 
         image_utils.fetch_to_volume_format(
             context, image_service, image_id,
-            fetch_path, fetch_format,
+            volume_path, volume_format,
             self.configuration.volume_dd_blocksize)
 
-        if needs_conversion:
-            self.vhdutils.convert_vhd(fetch_path, self.local_path(volume))
-            self._delete(fetch_path)
-
-        self.vhdutils.resize_vhd(self.local_path(volume),
-                                 volume['size'] * units.Gi)
+        self._extend_vhd_if_needed(self.local_path(volume), volume['size'])
 
     def _copy_volume_from_snapshot(self, snapshot, volume, volume_size):
         """Copy data from snapshot to destination volume."""
 
         LOG.debug("snapshot: %(snap)s, volume: %(vol)s, "
-                  "volume_size: %(size)s" %
+                  "volume_size: %(size)s",
                   {'snap': snapshot['id'],
                    'vol': volume['id'],
                    'size': snapshot['volume_size']})
@@ -265,4 +247,14 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
         self._delete(volume_path)
         self.vhdutils.convert_vhd(snapshot_path,
                                   volume_path)
-        self.vhdutils.resize_vhd(volume_path, volume_size * units.Gi)
+        self._extend_vhd_if_needed(volume_path, volume_size)
+
+    def _extend_vhd_if_needed(self, vhd_path, new_size_gb):
+        old_size_bytes = self.vhdutils.get_vhd_size(vhd_path)['VirtualSize']
+        new_size_bytes = new_size_gb * units.Gi
+
+        # This also ensures we're not attempting to shrink the image.
+        is_resize_needed = self._windows_utils.is_resize_needed(
+            vhd_path, new_size_bytes, old_size_bytes)
+        if is_resize_needed:
+            self.vhdutils.resize_vhd(vhd_path, new_size_bytes)

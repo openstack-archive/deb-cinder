@@ -77,7 +77,7 @@ CONF = cfg.CONF
 CONF.register_opts(san_opts)
 
 
-class SanDriver(driver.VolumeDriver):
+class SanDriver(driver.BaseVD):
     """Base class for SAN-style storage volumes
 
     A SAN-style storage value is 'different' because the volume controller
@@ -147,7 +147,7 @@ class SanDriver(driver.VolumeDriver):
 
         except Exception:
             with excutils.save_and_reraise_exception():
-                LOG.error(_LE("Error running SSH command: %s") % command)
+                LOG.error(_LE("Error running SSH command: %s"), command)
 
     def ensure_export(self, context, volume):
         """Synchronously recreates an export for a logical volume."""

@@ -28,7 +28,6 @@ import uuid
 
 import fixtures
 import mock
-import mox
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_config import fixture as config_fixture
@@ -36,7 +35,7 @@ from oslo_log import log
 from oslo_messaging import conffixture as messaging_conffixture
 from oslo_utils import strutils
 from oslo_utils import timeutils
-import stubout
+from oslotest import moxstubout
 import testtools
 
 from cinder.common import config  # noqa Need to register global_opts
@@ -46,8 +45,8 @@ from cinder import i18n
 from cinder import objects
 from cinder import rpc
 from cinder import service
-from cinder.tests import conf_fixture
-from cinder.tests import fake_notifier
+from cinder.tests.unit import conf_fixture
+from cinder.tests.unit import fake_notifier
 
 test_opts = [
     cfg.StrOpt('sqlite_clean_db',
@@ -126,9 +125,25 @@ _patch_mock_to_raise_for_invalid_assert_calls()
 class TestCase(testtools.TestCase):
     """Test case base class for all unit tests."""
 
+    def _get_joined_notifier(self, *args, **kwargs):
+        # We create a new fake notifier but we join the notifications with
+        # the default notifier
+        notifier = fake_notifier.get_fake_notifier(*args, **kwargs)
+        notifier.notifications = self.notifier.notifications
+        return notifier
+
     def setUp(self):
         """Run before each test method to initialize test environment."""
         super(TestCase, self).setUp()
+
+        # Create default notifier
+        self.notifier = fake_notifier.get_fake_notifier()
+
+        # Mock rpc get notifier with fake notifier method that joins all
+        # notifications with the default notifier
+        p = mock.patch('cinder.rpc.get_notifier',
+                       side_effect=self._get_joined_notifier)
+        p.start()
 
         # Import cinder objects for test cases
         objects.register_all()
@@ -165,7 +180,7 @@ class TestCase(testtools.TestCase):
                                                    format=log_format,
                                                    level=level))
 
-        rpc.add_extra_exmods("cinder.tests")
+        rpc.add_extra_exmods("cinder.tests.unit")
         self.addCleanup(rpc.clear_extra_exmods)
         self.addCleanup(rpc.cleanup)
 
@@ -196,13 +211,10 @@ class TestCase(testtools.TestCase):
 
         # emulate some of the mox stuff, we can't use the metaclass
         # because it screws with our generators
-        self.mox = mox.Mox()
-        self.stubs = stubout.StubOutForTesting()
+        mox_fixture = self.useFixture(moxstubout.MoxStubout())
+        self.mox = mox_fixture.mox
+        self.stubs = mox_fixture.stubs
         self.addCleanup(CONF.reset)
-        self.addCleanup(self.mox.UnsetStubs)
-        self.addCleanup(self.stubs.UnsetAll)
-        self.addCleanup(self.stubs.SmartUnsetAll)
-        self.addCleanup(self.mox.VerifyAll)
         self.addCleanup(self._common_cleanup)
         self.injected = []
         self._services = []
@@ -225,7 +237,22 @@ class TestCase(testtools.TestCase):
                                          '..',
                                      )
                                  ),
-                                 'cinder/tests/policy.json'))
+                                 'cinder/tests/unit/policy.json'),
+                             group='oslo_policy')
+
+        self._disable_osprofiler()
+
+    def _disable_osprofiler(self):
+        """Disable osprofiler.
+
+        osprofiler should not run for unit tests.
+        """
+
+        side_effect = lambda value: value
+        mock_decorator = mock.MagicMock(side_effect=side_effect)
+        p = mock.patch("osprofiler.profiler.trace_cls",
+                       return_value=mock_decorator)
+        p.start()
 
     def _common_cleanup(self):
         """Runs after each test method to tear down test environment."""
@@ -257,7 +284,7 @@ class TestCase(testtools.TestCase):
 
     def flags(self, **kw):
         """Override CONF variables for a test."""
-        for k, v in kw.iteritems():
+        for k, v in kw.items():
             self.override_config(k, v)
 
     def log_level(self, level):

@@ -40,8 +40,9 @@ CONF = cfg.CONF
 CONF.register_opts(volume_opts)
 
 
-class BlockDeviceDriver(driver.VolumeDriver):
-    VERSION = '2.0.0'
+class BlockDeviceDriver(driver.BaseVD, driver.LocalVD, driver.CloneableVD,
+                        driver.CloneableImageVD, driver.TransferVD):
+    VERSION = '2.1.0'
 
     def __init__(self, *args, **kwargs):
         super(BlockDeviceDriver, self).__init__(*args, **kwargs)
@@ -61,7 +62,8 @@ class BlockDeviceDriver(driver.VolumeDriver):
 
     def create_volume(self, volume):
         device = self.find_appropriate_size_device(volume['size'])
-        LOG.info("Create %s on %s" % (volume['name'], device))
+        LOG.info(_LI("Create %(volume)s on %(device)s"),
+                 {"volume": volume['name'], "device": device})
         return {
             'provider_location': device,
         }
@@ -103,7 +105,7 @@ class BlockDeviceDriver(driver.VolumeDriver):
                                   self.local_path(volume))
 
     def create_cloned_volume(self, volume, src_vref):
-        LOG.info(_LI('Creating clone of volume: %s') % src_vref['id'])
+        LOG.info(_LI('Creating clone of volume: %s'), src_vref['id'])
         device = self.find_appropriate_size_device(src_vref['size'])
         volutils.copy_volume(
             self.local_path(src_vref), device,
@@ -125,7 +127,7 @@ class BlockDeviceDriver(driver.VolumeDriver):
         used_devices = self._get_used_devices()
         total_size = 0
         free_size = 0
-        for device, size in dict_of_devices_sizes.iteritems():
+        for device, size in dict_of_devices_sizes.items():
             if device not in used_devices:
                 free_size += size
             total_size += size
@@ -189,8 +191,7 @@ class BlockDeviceDriver(driver.VolumeDriver):
     # #######  Interface methods for DataPath (Target Driver) ########
 
     def ensure_export(self, context, volume):
-        volume_path = "/dev/%s/%s" % (self.configuration.volume_group,
-                                      volume['name'])
+        volume_path = self.local_path(volume)
         model_update = \
             self.target_driver.ensure_export(
                 context,
@@ -199,8 +200,7 @@ class BlockDeviceDriver(driver.VolumeDriver):
         return model_update
 
     def create_export(self, context, volume):
-        volume_path = "/dev/%s/%s" % (self.configuration.volume_group,
-                                      volume['name'])
+        volume_path = self.local_path(volume)
         export_info = self.target_driver.create_export(context,
                                                        volume,
                                                        volume_path)

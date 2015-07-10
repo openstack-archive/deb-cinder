@@ -28,6 +28,7 @@ from oslo_utils import timeutils
 from cinder.db import base
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
+from cinder import objects
 import cinder.policy
 from cinder import quota
 from cinder.scheduler import rpcapi as scheduler_rpcapi
@@ -207,7 +208,7 @@ class API(base.Base):
 
     def _create_cg_from_cgsnapshot(self, context, group, cgsnapshot):
         try:
-            snapshots = self.db.snapshot_get_all_for_cgsnapshot(
+            snapshots = objects.SnapshotList.get_all_for_cgsnapshot(
                 context, cgsnapshot['id'])
 
             if not snapshots:
@@ -380,8 +381,8 @@ class API(base.Base):
                 LOG.error(msg)
                 raise exception.InvalidConsistencyGroup(reason=msg)
 
-            snapshots = self.db.snapshot_get_all_for_volume(context,
-                                                            volume['id'])
+            snapshots = objects.SnapshotList.get_all_for_volume(context,
+                                                                volume['id'])
             if snapshots:
                 msg = _("Volume in consistency group still has "
                         "dependent snapshots.")
@@ -453,7 +454,7 @@ class API(base.Base):
         fields = {'updated_at': now}
 
         # Update name and description in db now. No need to
-        # to send them over thru an RPC call.
+        # to send them over through an RPC call.
         if name:
             fields['name'] = name
         if description:
@@ -579,7 +580,7 @@ class API(base.Base):
 
     def get(self, context, group_id):
         rv = self.db.consistencygroup_get(context, group_id)
-        group = dict(rv.iteritems())
+        group = dict(rv)
         check_policy(context, 'get', group)
         return group
 
@@ -675,7 +676,7 @@ class API(base.Base):
     def get_cgsnapshot(self, context, cgsnapshot_id):
         check_policy(context, 'get_cgsnapshot')
         rv = self.db.cgsnapshot_get(context, cgsnapshot_id)
-        return dict(rv.iteritems())
+        return dict(rv)
 
     def get_all_cgsnapshots(self, context, search_opts=None):
         check_policy(context, 'get_all_cgsnapshots')
@@ -696,7 +697,7 @@ class API(base.Base):
             results = []
             not_found = object()
             for cgsnapshot in cgsnapshots:
-                for opt, value in search_opts.iteritems():
+                for opt, value in search_opts.items():
                     if cgsnapshot.get(opt, not_found) != value:
                         break
                 else:

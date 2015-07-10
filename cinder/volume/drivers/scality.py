@@ -18,13 +18,12 @@ Scality SOFS Volume Driver.
 
 
 import os
-import urllib2
 
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import units
-import six.moves.urllib.parse as urlparse
+from six.moves import urllib
 
 from cinder import exception
 from cinder.i18n import _, _LI
@@ -72,24 +71,24 @@ class ScalityDriver(driver.VolumeDriver):
         config = self.configuration.scality_sofs_config
         if not config:
             msg = _("Value required for 'scality_sofs_config'")
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
         # config can be a file path or a URL, check it
-        if urlparse.urlparse(config).scheme == '':
+        if urllib.parse.urlparse(config).scheme == '':
             # turn local path into URL
             config = 'file://%s' % config
         try:
-            urllib2.urlopen(config, timeout=5).close()
-        except urllib2.URLError as e:
+            urllib.request.urlopen(config, timeout=5).close()
+        except urllib.error.URLError as e:
             msg = _("Cannot access 'scality_sofs_config': %s") % e
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
         # mount.sofs must be installed
         if not os.access('/sbin/mount.sofs', os.X_OK):
             msg = _("Cannot execute /sbin/mount.sofs")
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
     @lockutils.synchronized('mount-sofs', 'cinder-sofs', external=True)
@@ -104,7 +103,7 @@ class ScalityDriver(driver.VolumeDriver):
                           run_as_root=True)
         if not os.path.isdir(sysdir):
             msg = _("Cannot mount Scality SOFS, check syslog for errors")
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
     def _size_bytes(self, size_in_g):
@@ -135,7 +134,7 @@ class ScalityDriver(driver.VolumeDriver):
                               self.configuration.scality_sofs_volume_dir)
         if not os.path.isdir(voldir):
             msg = _("Cannot find volume dir for Scality SOFS at '%s'") % voldir
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
     def create_volume(self, volume):
@@ -284,7 +283,7 @@ class ScalityDriver(driver.VolumeDriver):
         """Create a new backup from an existing volume."""
         volume = self.db.volume_get(context, backup['volume_id'])
         volume_local_path = self.local_path(volume)
-        LOG.info(_LI('Begin backup of volume %s.') % volume['name'])
+        LOG.info(_LI('Begin backup of volume %s.'), volume['name'])
 
         qemu_img_info = image_utils.qemu_img_info(volume_local_path)
         if qemu_img_info.file_format != 'raw':
@@ -303,7 +302,7 @@ class ScalityDriver(driver.VolumeDriver):
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
-        LOG.info(_LI('Restoring backup %(backup)s to volume %(volume)s.') %
+        LOG.info(_LI('Restoring backup %(backup)s to volume %(volume)s.'),
                  {'backup': backup['id'], 'volume': volume['name']})
         volume_local_path = self.local_path(volume)
         with utils.temporary_chown(volume_local_path):

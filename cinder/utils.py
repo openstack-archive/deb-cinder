@@ -35,6 +35,7 @@ from xml import sax
 from xml.sax import expatreader
 from xml.sax import saxutils
 
+from os_brick.initiator import connector
 from oslo_concurrency import lockutils
 from oslo_concurrency import processutils
 from oslo_config import cfg
@@ -44,7 +45,6 @@ from oslo_utils import timeutils
 import retrying
 import six
 
-from cinder.brick.initiator import connector
 from cinder import exception
 from cinder.i18n import _, _LE
 
@@ -118,7 +118,7 @@ def check_exclusive_options(**kwargs):
 
     pretty_keys = kwargs.pop("pretty_keys", True)
     exclusive_options = {}
-    for (k, v) in kwargs.iteritems():
+    for (k, v) in kwargs.items():
         if v is not None:
             exclusive_options[k] = True
 
@@ -459,8 +459,12 @@ def make_dev_path(dev, partition=None, base='/dev'):
 
 def sanitize_hostname(hostname):
     """Return a hostname which conforms to RFC-952 and RFC-1123 specs."""
-    if isinstance(hostname, unicode):
+    if six.PY3:
         hostname = hostname.encode('latin-1', 'ignore')
+        hostname = hostname.decode('latin-1')
+    else:
+        if isinstance(hostname, six.text_type):
+            hostname = hostname.encode('latin-1', 'ignore')
 
     hostname = re.sub('[ _]', '-', hostname)
     hostname = re.sub('[^\w.-]+', '', hostname)
@@ -473,7 +477,7 @@ def sanitize_hostname(hostname):
 def hash_file(file_like_object):
     """Generate a hash for the contents of a file."""
     checksum = hashlib.sha1()
-    any(map(checksum.update, iter(lambda: file_like_object.read(32768), '')))
+    any(map(checksum.update, iter(lambda: file_like_object.read(32768), b'')))
     return checksum.hexdigest()
 
 
@@ -714,7 +718,7 @@ def add_visible_admin_metadata(volume):
         for item in orig_meta:
             if item['key'] in visible_admin_meta.keys():
                 item['value'] = visible_admin_meta.pop(item['key'])
-        for key, value in visible_admin_meta.iteritems():
+        for key, value in visible_admin_meta.items():
             orig_meta.append({'key': key, 'value': value})
         volume['volume_metadata'] = orig_meta
     # avoid circular ref when vol is a Volume instance
@@ -793,7 +797,7 @@ def convert_version_to_int(version):
         if isinstance(version, six.string_types):
             version = convert_version_to_tuple(version)
         if isinstance(version, tuple):
-            return reduce(lambda x, y: (x * 1000) + y, version)
+            return six.moves.reduce(lambda x, y: (x * 1000) + y, version)
     except Exception:
         msg = _("Version %s is invalid.") % version
         raise exception.CinderException(msg)
@@ -805,9 +809,9 @@ def convert_version_to_str(version_int):
     while version_int != 0:
         version_number = version_int - (version_int // factor * factor)
         version_numbers.insert(0, six.text_type(version_number))
-        version_int = version_int / factor
+        version_int = version_int // factor
 
-    return reduce(lambda x, y: "%s.%s" % (x, y), version_numbers)
+    return '.'.join(map(str, version_numbers))
 
 
 def convert_version_to_tuple(version_str):

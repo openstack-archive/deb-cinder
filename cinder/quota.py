@@ -23,6 +23,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import importutils
 from oslo_utils import timeutils
+import six
 
 from cinder import context
 from cinder import db
@@ -69,7 +70,10 @@ quota_opts = [
     cfg.BoolOpt('use_default_quota_class',
                 default=True,
                 help='Enables or disables use of default quota class '
-                     'with default quota.'), ]
+                     'with default quota.'),
+    cfg.IntOpt('per_volume_size_limit',
+               default=-1,
+               help='Max size allowed per volume, in gigabytes'), ]
 
 CONF = cfg.CONF
 CONF.register_opts(quota_opts)
@@ -244,8 +248,8 @@ class DbQuotaDriver(object):
         else:
             sync_filt = lambda x: not hasattr(x, 'sync')
         desired = set(keys)
-        sub_resources = dict((k, v) for k, v in resources.items()
-                             if k in desired and sync_filt(v))
+        sub_resources = {k: v for k, v in resources.items()
+                         if k in desired and sync_filt(v)}
 
         # Make sure we accounted for all of them...
         if len(keys) != len(sub_resources):
@@ -257,7 +261,7 @@ class DbQuotaDriver(object):
                                          project_id,
                                          context.quota_class, usages=False)
 
-        return dict((k, v['limit']) for k, v in quotas.items())
+        return {k: v['limit'] for k, v in quotas.items()}
 
     def limit_check(self, context, resources, values, project_id=None):
         """Check simple quota limits.
@@ -402,16 +406,15 @@ class DbQuotaDriver(object):
 
         db.reservation_rollback(context, reservations, project_id=project_id)
 
-    def destroy_all_by_project(self, context, project_id):
-        """Destroy all that is associated with a project.
+    def destroy_by_project(self, context, project_id):
+        """Destroy all limit quotas associated with a project.
 
-        This includes quotas, usages and reservations.
+        Leave usage and reservation quotas intact.
 
         :param context: The request context, for access checks.
         :param project_id: The ID of the project being deleted.
         """
-
-        db.quota_destroy_all_by_project(context, project_id)
+        db.quota_destroy_by_project(context, project_id)
 
     def expire(self, context):
         """Expire reservations.
@@ -524,7 +527,8 @@ class ReservableResource(BaseResource):
         """
 
         super(ReservableResource, self).__init__(name, flag=flag)
-        self.sync = sync
+        if sync:
+            self.sync = sync
 
 
 class AbsoluteResource(BaseResource):
@@ -594,7 +598,7 @@ class QuotaEngine(object):
         if not quota_driver_class:
             quota_driver_class = CONF.quota_driver
 
-        if isinstance(quota_driver_class, basestring):
+        if isinstance(quota_driver_class, six.string_types):
             quota_driver_class = importutils.import_object(quota_driver_class)
 
         self._resources = {}
@@ -806,15 +810,14 @@ class QuotaEngine(object):
             LOG.exception(_LE("Failed to roll back reservations "
                               "%s"), reservations)
 
-    def destroy_all_by_project(self, context, project_id):
-        """Destroy all quotas, usages, and reservations associated with a
-        project.
+    def destroy_by_project(self, context, project_id):
+        """Destroy all quota limits associated with a project.
 
         :param context: The request context, for access checks.
         :param project_id: The ID of the project being deleted.
         """
 
-        self._driver.destroy_all_by_project(context, project_id)
+        self._driver.destroy_by_project(context, project_id)
 
     def expire(self, context):
         """Expire reservations.
@@ -871,6 +874,7 @@ class VolumeTypeQuotaEngine(QuotaEngine):
         result = {}
         # Global quotas.
         argses = [('volumes', '_sync_volumes', 'quota_volumes'),
+                  ('per_volume_gigabytes', None, 'per_volume_size_limit'),
                   ('snapshots', '_sync_snapshots', 'quota_snapshots'),
                   ('gigabytes', '_sync_gigabytes', 'quota_gigabytes'),
                   ('backups', '_sync_backups', 'quota_backups'),

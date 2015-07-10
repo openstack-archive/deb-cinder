@@ -69,7 +69,7 @@ def _create_facade_lazily():
         if _FACADE is None:
             _FACADE = db_session.EngineFacade(
                 CONF.database.connection,
-                **dict(CONF.database.iteritems())
+                **dict(CONF.database)
             )
 
             if CONF.profiler.profiler_enabled:
@@ -218,9 +218,9 @@ def _retry_on_deadlock(f):
             try:
                 return f(*args, **kwargs)
             except db_exc.DBDeadlock:
-                LOG.warn(_LW("Deadlock detected when running "
-                             "'%(func_name)s': Retrying..."),
-                         dict(func_name=f.__name__))
+                LOG.warning(_LW("Deadlock detected when running "
+                                "'%(func_name)s': Retrying..."),
+                            dict(func_name=f.__name__))
                 # Retry!
                 time.sleep(0.5)
                 continue
@@ -450,7 +450,7 @@ def service_update(context, service_id, values):
 def _metadata_refs(metadata_dict, meta_class):
     metadata_refs = []
     if metadata_dict:
-        for k, v in metadata_dict.iteritems():
+        for k, v in metadata_dict.items():
             metadata_ref = meta_class()
             metadata_ref['key'] = k
             metadata_ref['value'] = v
@@ -470,8 +470,8 @@ def _dict_with_extra_specs(inst_type_query):
     'extra_specs' : {'k1': 'v1'}
     """
     inst_type_dict = dict(inst_type_query)
-    extra_specs = dict([(x['key'], x['value'])
-                        for x in inst_type_query['extra_specs']])
+    extra_specs = {x['key']: x['value']
+                   for x in inst_type_query['extra_specs']}
     inst_type_dict['extra_specs'] = extra_specs
     return inst_type_dict
 
@@ -490,7 +490,7 @@ def iscsi_target_count_by_host(context, host):
 def iscsi_target_create_safe(context, values):
     iscsi_target_ref = models.IscsiTarget()
 
-    for (key, value) in values.iteritems():
+    for (key, value) in values.items():
         iscsi_target_ref[key] = value
     session = get_session()
 
@@ -742,7 +742,7 @@ def _get_quota_usages(context, session, project_id):
         filter_by(project_id=project_id).\
         with_lockmode('update').\
         all()
-    return dict((row.resource, row) for row in rows)
+    return {row.resource: row for row in rows}
 
 
 @require_context
@@ -875,10 +875,10 @@ def quota_reserve(context, resources, quotas, deltas, expire,
 
     if unders:
         LOG.warning(_LW("Change will make usage less than 0 for the following "
-                        "resources: %s") % unders)
+                        "resources: %s"), unders)
     if overs:
-        usages = dict((k, dict(in_use=v['in_use'], reserved=v['reserved']))
-                      for k, v in usages.items())
+        usages = {k: dict(in_use=v['in_use'], reserved=v['reserved'])
+                  for k, v in usages.items()}
         raise exception.OverQuota(overs=sorted(overs), quotas=quotas,
                                   usages=usages)
 
@@ -928,9 +928,26 @@ def reservation_rollback(context, reservations, project_id=None):
             reservation.delete(session=session)
 
 
+def quota_destroy_by_project(*args, **kwargs):
+    """Destroy all limit quotas associated with a project.
+
+    Leaves usage and reservation quotas intact.
+    """
+    quota_destroy_all_by_project(only_quotas=True, *args, **kwargs)
+
+
 @require_admin_context
 @_retry_on_deadlock
-def quota_destroy_all_by_project(context, project_id):
+def quota_destroy_all_by_project(context, project_id, only_quotas=False):
+    """Destroy all quotas associated with a project.
+
+    This includes limit quotas, usage quotas and reservation quotas.
+    Optionally can only remove limit quotas and leave other types as they are.
+
+    :param context: The request context, for access checks.
+    :param project_id: The ID of the project being deleted.
+    :param only_quotas: Only delete limit quotas, leave other types intact.
+    """
     session = get_session()
     with session.begin():
         quotas = model_query(context, models.Quota, session=session,
@@ -940,6 +957,9 @@ def quota_destroy_all_by_project(context, project_id):
 
         for quota_ref in quotas:
             quota_ref.delete(session=session)
+
+        if only_quotas:
+            return
 
         quota_usages = model_query(context, models.QuotaUsage,
                                    session=session, read_deleted="no").\
@@ -1055,20 +1075,20 @@ def volume_create(context, values):
 
 @require_admin_context
 def volume_data_get_for_host(context, host, count_only=False):
+    host_attr = models.Volume.host
+    conditions = [host_attr == host, host_attr.op('LIKE')(host + '#%')]
     if count_only:
         result = model_query(context,
                              func.count(models.Volume.id),
-                             read_deleted="no").\
-            filter_by(host=host).\
-            first()
+                             read_deleted="no").filter(
+            or_(*conditions)).first()
         return result[0] or 0
     else:
         result = model_query(context,
                              func.count(models.Volume.id),
                              func.sum(models.Volume.size),
-                             read_deleted="no").\
-            filter_by(host=host).\
-            first()
+                             read_deleted="no").filter(
+            or_(*conditions)).first()
         # NOTE(vish): convert None to 0
         return (result[0] or 0, result[1] or 0)
 
@@ -1367,7 +1387,7 @@ def volume_get_all_by_host(context, host, filters=None):
     # now be either form below:
     #     Host
     #     Host#Pool
-    if host and isinstance(host, basestring):
+    if host and isinstance(host, six.string_types):
         session = get_session()
         with session.begin():
             host_attr = getattr(models.Volume, 'host')
@@ -1544,14 +1564,14 @@ def _process_volume_filters(query, filters):
     filter_dict = {}
 
     # Iterate over all filters, special case the filter if necessary
-    for key, value in filters.iteritems():
+    for key, value in filters.items():
         if key == 'metadata':
             # model.VolumeMetadata defines the backref to Volumes as
             # 'volume_metadata' or 'volume_admin_metadata', use those as
             # column attribute keys
             col_attr = getattr(models.Volume, 'volume_metadata')
             col_ad_attr = getattr(models.Volume, 'volume_admin_metadata')
-            for k, v in value.iteritems():
+            for k, v in value.items():
                 query = query.filter(or_(col_attr.any(key=k, value=v),
                                          col_ad_attr.any(key=k, value=v)))
         elif isinstance(value, (list, tuple, set, frozenset)):
@@ -1616,7 +1636,7 @@ def process_sort_params(sort_keys, sort_dirs, default_keys=None,
         # Verify sort direction
         for sort_dir in sort_dirs:
             if sort_dir not in ('asc', 'desc'):
-                msg = _LE("Unknown sort direction, must be 'desc' or 'asc'.")
+                msg = _("Unknown sort direction, must be 'desc' or 'asc'.")
                 raise exception.InvalidInput(reason=msg)
             result_dirs.append(sort_dir)
     else:
@@ -1627,7 +1647,7 @@ def process_sort_params(sort_keys, sort_dirs, default_keys=None,
         result_dirs.append(default_dir_value)
     # Unless more direction are specified, which is an error
     if len(result_dirs) > len(result_keys):
-        msg = _LE("Sort direction array size exceeds sort key array size.")
+        msg = _("Sort direction array size exceeds sort key array size.")
         raise exception.InvalidInput(reason=msg)
 
     # Ensure defaults are included
@@ -1688,7 +1708,33 @@ def volume_attachment_update(context, attachment_id, values):
         return volume_attachment_ref
 
 
+def volume_update_status_based_on_attachment(context, volume_id):
+    """Update volume status based on attachment.
+
+    Get volume and check if 'volume_attachment' parameter is present in volume.
+    If 'volume_attachment' is None then set volume status to 'available'
+    else set volume status to 'in-use'.
+
+    :param context: context to query under
+    :param volume_id: id of volume to be updated
+    :returns: updated volume
+    """
+    session = get_session()
+    with session.begin():
+        volume_ref = _volume_get(context, volume_id, session=session)
+        # We need to get and update volume using same session because
+        # there is possibility that instance is deleted between the 'get'
+        # and 'update' volume call.
+        if not volume_ref['volume_attachment']:
+            volume_ref.update({'status': 'available'})
+        else:
+            volume_ref.update({'status': 'in-use'})
+
+        return volume_ref
+
+
 ####################
+
 
 def _volume_x_metadata_get_query(context, volume_id, model, session=None):
     return model_query(context, model, session=session, read_deleted="no").\
@@ -1727,7 +1773,7 @@ def _volume_x_metadata_update(context, volume_id, metadata, delete,
         if delete:
             original_metadata = _volume_x_metadata_get(context, volume_id,
                                                        model, session=session)
-            for meta_key, meta_value in original_metadata.iteritems():
+            for meta_key, meta_value in original_metadata.items():
                 if meta_key not in metadata:
                     meta_ref = _volume_x_metadata_get_item(context, volume_id,
                                                            meta_key, model,
@@ -2084,7 +2130,7 @@ def snapshot_metadata_update(context, snapshot_id, metadata, delete):
         if delete:
             original_metadata = _snapshot_metadata_get(context, snapshot_id,
                                                        session)
-            for meta_key, meta_value in original_metadata.iteritems():
+            for meta_key, meta_value in original_metadata.items():
                 if meta_key not in metadata:
                     meta_ref = _snapshot_metadata_get_item(context,
                                                            snapshot_id,
@@ -2441,8 +2487,8 @@ def volume_type_destroy(context, id):
         results = model_query(context, models.Volume, session=session). \
             filter_by(volume_type_id=id).all()
         if results:
-            msg = _('VolumeType %s deletion failed, VolumeType in use.') % id
-            LOG.error(msg)
+            LOG.error(_LE('VolumeType %s deletion failed, '
+                          'VolumeType in use.'), id)
             raise exception.VolumeTypeInUse(volume_type_id=id)
         model_query(context, models.VolumeTypes, session=session).\
             filter_by(id=id).\
@@ -2574,7 +2620,7 @@ def volume_type_extra_specs_update_or_create(context, volume_type_id,
     session = get_session()
     with session.begin():
         spec_ref = None
-        for key, value in specs.iteritems():
+        for key, value in specs.items():
             try:
                 spec_ref = _volume_type_extra_specs_get_item(
                     context, volume_type_id, key, session)
@@ -2626,7 +2672,7 @@ def qos_specs_create(context, values):
             specs_root.save(session=session)
 
             # Insert all specification entries for QoS specs
-            for k, v in values['qos_specs'].iteritems():
+            for k, v in values['qos_specs'].items():
                 item = dict(key=k, value=v, specs_id=specs_id)
                 item['id'] = str(uuid.uuid4())
                 spec_entry = models.QualityOfServiceSpecs()
@@ -2862,7 +2908,7 @@ def qos_specs_update(context, qos_specs_id, specs):
             value = dict(id=id, key=key, value=specs[key],
                          specs_id=qos_specs_id,
                          deleted=False)
-            LOG.debug('qos_specs_update() value: %s' % value)
+            LOG.debug('qos_specs_update() value: %s', value)
             spec_ref.update(value)
             spec_ref.save(session=session)
 
@@ -2942,13 +2988,15 @@ def volume_encryption_metadata_get(context, volume_id, session=None):
     encryption_ref = volume_type_encryption_get(context,
                                                 volume_ref['volume_type_id'])
 
-    return {
+    values = {
         'encryption_key_id': volume_ref['encryption_key_id'],
-        'control_location': encryption_ref['control_location'],
-        'cipher': encryption_ref['cipher'],
-        'key_size': encryption_ref['key_size'],
-        'provider': encryption_ref['provider'],
     }
+
+    if encryption_ref:
+        for key in ['control_location', 'cipher', 'key_size', 'provider']:
+            values[key] = encryption_ref[key]
+
+    return values
 
 
 ####################
@@ -3332,9 +3380,8 @@ def transfer_destroy(context, transfer_id):
         # If the volume state is not 'awaiting-transfer' don't change it, but
         # we can still mark the transfer record as deleted.
         if volume_ref['status'] != 'awaiting-transfer':
-            msg = _('Volume in unexpected state %s, '
-                    'expected awaiting-transfer') % volume_ref['status']
-            LOG.error(msg)
+            LOG.error(_LE('Volume in unexpected state %s, expected '
+                          'awaiting-transfer'), volume_ref['status'])
         else:
             volume_ref['status'] = 'available'
         volume_ref.update(volume_ref)
@@ -3562,12 +3609,12 @@ def purge_deleted_rows(context, age_in_days):
     try:
         age_in_days = int(age_in_days)
     except ValueError:
-        msg = _LE('Invalid value for age, %(age)s')
-        LOG.exception(msg, {'age': age_in_days})
-        raise exception.InvalidParameterValue(msg % {'age': age_in_days})
-    if age_in_days <= 0:
-        msg = _LE('Must supply a positive value for age')
+        msg = _('Invalid value for age, %(age)s') % {'age': age_in_days}
         LOG.exception(msg)
+        raise exception.InvalidParameterValue(msg)
+    if age_in_days <= 0:
+        msg = _('Must supply a positive value for age')
+        LOG.error(msg)
         raise exception.InvalidParameterValue(msg)
 
     engine = get_engine()
@@ -3576,7 +3623,7 @@ def purge_deleted_rows(context, age_in_days):
     metadata.bind = engine
     tables = []
 
-    for model_class in models.__dict__.itervalues():
+    for model_class in models.__dict__.values():
         if hasattr(model_class, "__tablename__") \
                 and hasattr(model_class, "deleted"):
             tables.append(model_class.__tablename__)

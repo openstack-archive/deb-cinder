@@ -35,7 +35,7 @@ class DellStorageCenterFCDriver(dell_storagecenter_common.DellCommonDriver,
         volume_driver=cinder.volume.drivers.dell.DellStorageCenterFCDriver
     '''
 
-    VERSION = '1.0.1'
+    VERSION = '1.0.2'
 
     def __init__(self, *args, **kwargs):
         super(DellStorageCenterFCDriver, self).__init__(*args, **kwargs)
@@ -60,32 +60,25 @@ class DellStorageCenterFCDriver(dell_storagecenter_common.DellCommonDriver,
         LOG.debug('Initialize connection: %s', volume_name)
         with self._client.open_connection() as api:
             try:
-                ssn = api.find_sc(self.configuration.dell_sc_ssn)
                 # Find our server.
                 wwpns = connector.get('wwpns')
                 for wwn in wwpns:
-                    scserver = api.find_server(ssn,
-                                               wwn)
+                    scserver = api.find_server(wwn)
                     if scserver is not None:
                         break
 
                 # No? Create it.
                 if scserver is None:
-                    server_folder = self.configuration.dell_sc_server_folder
-                    scserver = api.create_server_multiple_hbas(ssn,
-                                                               server_folder,
-                                                               wwpns)
+                    scserver = api.create_server_multiple_hbas(wwpns)
                 # Find the volume on the storage center.
-                scvolume = api.find_volume(ssn,
-                                           volume_name)
+                scvolume = api.find_volume(volume_name)
                 if scserver is not None and scvolume is not None:
                     mapping = api.map_volume(scvolume,
                                              scserver)
                     if mapping is not None:
                         # Since we just mapped our volume we had best update
                         # our sc volume object.
-                        scvolume = api.find_volume(ssn,
-                                                   volume_name)
+                        scvolume = api.find_volume(volume_name)
                         lun, targets, init_targ_map = api.find_wwns(scvolume,
                                                                     scserver)
                         if lun is not None and len(targets) > 0:
@@ -102,11 +95,10 @@ class DellStorageCenterFCDriver(dell_storagecenter_common.DellCommonDriver,
 
             except Exception:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_LE('Failed to initialize connection '))
+                    LOG.error(_LE('Failed to initialize connection.'))
 
         # We get here because our mapping is none so blow up.
-        raise exception.VolumeBackendAPIException(
-            _('unable to map volume'))
+        raise exception.VolumeBackendAPIException(_('Unable to map volume.'))
 
     @fczm_utils.RemoveFCZone
     def terminate_connection(self, volume, connector, force=False, **kwargs):
@@ -115,17 +107,14 @@ class DellStorageCenterFCDriver(dell_storagecenter_common.DellCommonDriver,
         LOG.debug('Terminate connection: %s', volume_name)
         with self._client.open_connection() as api:
             try:
-                ssn = api.find_sc(self.configuration.dell_sc_ssn)
                 wwpns = connector.get('wwpns')
                 for wwn in wwpns:
-                    scserver = api.find_server(ssn,
-                                               wwn)
+                    scserver = api.find_server(wwn)
                     if scserver is not None:
                         break
 
                 # Find the volume on the storage center.
-                scvolume = api.find_volume(ssn,
-                                           volume_name)
+                scvolume = api.find_volume(volume_name)
                 # Get our target map so we can return it to free up a zone.
                 lun, targets, init_targ_map = api.find_wwns(scvolume,
                                                             scserver)

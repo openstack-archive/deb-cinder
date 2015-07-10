@@ -247,8 +247,8 @@ class HostState(object):
         nonactive_pools = set(self.pools.keys()) - active_pools
         for pool in nonactive_pools:
             LOG.debug("Removing non-active pool %(pool)s @ %(host)s "
-                      "from scheduler cache." % {'pool': pool,
-                                                 'host': self.host})
+                      "from scheduler cache.", {'pool': pool,
+                                                'host': self.host})
             del self.pools[pool]
 
     def _append_backend_info(self, pool_cap):
@@ -400,8 +400,8 @@ class HostManager(object):
             if not found_class:
                 bad_filters.append(filter_name)
         if bad_filters:
-            msg = ", ".join(bad_filters)
-            raise exception.SchedulerHostFilterNotFound(filter_name=msg)
+            raise exception.SchedulerHostFilterNotFound(
+                filter_name=", ".join(bad_filters))
         return good_filters
 
     def _choose_host_weighers(self, weight_cls_names):
@@ -428,8 +428,8 @@ class HostManager(object):
             if not found_class:
                 bad_weighers.append(weigher_name)
         if bad_weighers:
-            msg = ", ".join(bad_weighers)
-            raise exception.SchedulerHostWeigherNotFound(weigher_name=msg)
+            raise exception.SchedulerHostWeigherNotFound(
+                weigher_name=", ".join(bad_weighers))
         return good_weighers
 
     def get_filtered_hosts(self, hosts, filter_properties,
@@ -462,7 +462,7 @@ class HostManager(object):
         self.service_states[host] = capab_copy
 
         LOG.debug("Received %(service_name)s service update from "
-                  "%(host)s: %(cap)s" %
+                  "%(host)s: %(cap)s",
                   {'service_name': service_name, 'host': host,
                    'cap': capabilities})
 
@@ -483,7 +483,7 @@ class HostManager(object):
         for service in volume_services:
             host = service['host']
             if not utils.service_is_up(service):
-                LOG.warn(_LW("volume service is down. (host: %s)") % host)
+                LOG.warning(_LW("volume service is down. (host: %s)"), host)
                 continue
             capabilities = self.service_states.get(host, None)
             if capabilities is None:
@@ -495,12 +495,12 @@ class HostManager(object):
                 host_state = self.host_state_cls(host,
                                                  capabilities=capabilities,
                                                  service=
-                                                 dict(service.iteritems()))
+                                                 dict(service))
                 self.host_state_map[host] = host_state
             # update capabilities and attributes in host_state
             host_state.update_from_volume_capability(capabilities,
                                                      service=
-                                                     dict(service.iteritems()))
+                                                     dict(service))
             active_hosts.add(host)
 
         self._no_capabilities_hosts = no_capabilities_hosts
@@ -509,7 +509,7 @@ class HostManager(object):
         nonactive_hosts = set(self.host_state_map.keys()) - active_hosts
         for host in nonactive_hosts:
             LOG.info(_LI("Removing non-active host: %(host)s from "
-                         "scheduler cache.") % {'host': host})
+                         "scheduler cache."), {'host': host})
             del self.host_state_map[host]
 
     def get_all_host_states(self, context):
@@ -533,7 +533,7 @@ class HostManager(object):
                 pool_key = '.'.join([host, pool.pool_name])
                 all_pools[pool_key] = pool
 
-        return all_pools.itervalues()
+        return all_pools.values()
 
     def get_pools(self, context):
         """Returns a dict of all pools on all hosts HostManager knows about."""

@@ -35,7 +35,7 @@ LeftHand array.
 from oslo_log import log as logging
 
 from cinder import exception
-from cinder.i18n import _LE, _LI
+from cinder.i18n import _, _LI
 from cinder.volume import driver
 from cinder.volume.drivers.san.hp import hp_lefthand_cliq_proxy as cliq_proxy
 from cinder.volume.drivers.san.hp import hp_lefthand_rest_proxy as rest_proxy
@@ -45,7 +45,14 @@ LOG = logging.getLogger(__name__)
 MIN_CLIENT_VERSION = '1.0.4'
 
 
-class HPLeftHandISCSIDriver(driver.VolumeDriver):
+class HPLeftHandISCSIDriver(driver.TransferVD,
+                            driver.ManageableVD,
+                            driver.ExtendVD,
+                            driver.CloneableVD,
+                            driver.SnapshotVD,
+                            driver.RetypeVD,
+                            driver.MigrateVD,
+                            driver.BaseVD):
     """Executes commands relating to HP/LeftHand SAN ISCSI volumes.
 
     Version history:
@@ -55,10 +62,11 @@ class HPLeftHandISCSIDriver(driver.VolumeDriver):
         1.0.3 - Fix for no handler for logger during tests
         1.0.4 - Removing locks bug #1395953
         1.0.5 - Adding support for manage/unmanage.
-        1.0.6 - Fixed #1432757 Updated minimum client version.
+        1.0.6 - Updated minimum client version. bug #1432757
+        1.0.7 - Update driver to use ABC metaclasses
     """
 
-    VERSION = "1.0.6"
+    VERSION = "1.0.7"
 
     def __init__(self, *args, **kwargs):
         super(HPLeftHandISCSIDriver, self).__init__(*args, **kwargs)
@@ -81,7 +89,7 @@ class HPLeftHandISCSIDriver(driver.VolumeDriver):
         self.proxy = self._create_proxy(*self.args, **self.kwargs)
 
         LOG.info(_LI("HPLeftHand driver %(driver_ver)s, "
-                     "proxy %(proxy_ver)s") % {
+                     "proxy %(proxy_ver)s"), {
             "driver_ver": self.VERSION,
             "proxy_ver": self.proxy.get_version_string()})
 
@@ -91,10 +99,10 @@ class HPLeftHandISCSIDriver(driver.VolumeDriver):
             # Check minimum client version for REST proxy
             client_version = rest_proxy.hplefthandclient.version
 
-            if (client_version < MIN_CLIENT_VERSION):
-                ex_msg = (_LE("Invalid hplefthandclient version found ("
-                              "%(found)s). Version %(minimum)s or greater "
-                              "required.")
+            if client_version < MIN_CLIENT_VERSION:
+                ex_msg = (_("Invalid hplefthandclient version found ("
+                            "%(found)s). Version %(minimum)s or greater "
+                            "required.")
                           % {'found': client_version,
                              'minimum': MIN_CLIENT_VERSION})
                 LOG.error(ex_msg)

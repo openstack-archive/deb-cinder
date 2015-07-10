@@ -14,10 +14,13 @@
 #    under the License.
 
 import re
-import urllib2
 
 from oslo_log import log as logging
 import paste.urlmap
+try:
+    from urllib.request import parse_http_list   # pylint: disable=E0611
+except ImportError:
+    from urllib2 import parse_http_list   # Python 2
 
 from cinder.api.openstack import wsgi
 
@@ -64,7 +67,7 @@ def parse_list_header(value):
     :return: :class:`list`
     """
     result = []
-    for item in urllib2.parse_http_list(value):
+    for item in parse_http_list(value):
         if item[:1] == item[-1:] == '"':
             item = unquote_header_value(item[1:-1])
         result.append(item)
@@ -93,7 +96,7 @@ def parse_options_header(value):
         return '', {}
 
     parts = _tokenize(';' + value)
-    name = parts.next()[0]
+    name = next(parts)[0]
     extra = dict(parts)
     return name, extra
 

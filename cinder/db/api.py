@@ -262,6 +262,11 @@ def volume_attachment_get_by_instance_uuid(context, volume_id, instance_uuid):
                                                        instance_uuid)
 
 
+def volume_update_status_based_on_attachment(context, volume_id):
+    """Update volume status according to attached instance id"""
+    return IMPL.volume_update_status_based_on_attachment(context, volume_id)
+
+
 ####################
 
 
@@ -788,9 +793,9 @@ def reservation_rollback(context, reservations, project_id=None):
                                      project_id=project_id)
 
 
-def quota_destroy_all_by_project(context, project_id):
+def quota_destroy_by_project(context, project_id):
     """Destroy all quotas associated with a given project."""
-    return IMPL.quota_destroy_all_by_project(context, project_id)
+    return IMPL.quota_destroy_by_project(context, project_id)
 
 
 def reservation_expire(context):

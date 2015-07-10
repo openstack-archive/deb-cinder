@@ -15,11 +15,11 @@
 ZFS Storage Appliance WebDAV Client
 """
 
-import httplib
 import time
-import urllib2
 
 from oslo_log import log
+from six.moves import http_client
+from six.moves import urllib
 
 from cinder import exception
 from cinder.i18n import _, _LE
@@ -31,15 +31,15 @@ bad_gateway_err = _('Check the state of the http service. Also ensure that '
                     'in cinder.conf.')
 
 WebDAVHTTPErrors = {
-    httplib.UNAUTHORIZED: _('User not authorized to perform WebDAV '
-                            'operations.'),
-    httplib.BAD_GATEWAY: bad_gateway_err,
-    httplib.FORBIDDEN: _('Check access permissions for the ZFS share assigned '
-                         'to this driver.'),
-    httplib.NOT_FOUND: _('The source volume for this WebDAV operation not '
-                         'found.'),
-    httplib.INSUFFICIENT_STORAGE: _('Not enough storage space in the ZFS '
-                                    'share to perform this operation.')
+    http_client.UNAUTHORIZED: _('User not authorized to perform WebDAV '
+                                'operations.'),
+    http_client.BAD_GATEWAY: bad_gateway_err,
+    http_client.FORBIDDEN: _('Check access permissions for the ZFS share '
+                             'assigned to this driver.'),
+    http_client.NOT_FOUND: _('The source volume for this WebDAV operation not '
+                             'found.'),
+    http_client.INSUFFICIENT_STORAGE: _('Not enough storage space in the ZFS '
+                                        'share to perform this operation.')
 }
 
 WebDAVErrors = {
@@ -58,8 +58,8 @@ class ZFSSAWebDAVClient(object):
 
     def _lookup_error(self, error):
         msg = ''
-        if error in httplib.responses:
-            msg = httplib.responses[error]
+        if error in http_client.responses:
+            msg = http_client.responses[error]
 
         if error in WebDAVHTTPErrors:
             msg = WebDAVHTTPErrors[error]
@@ -72,7 +72,7 @@ class ZFSSAWebDAVClient(object):
         retry = 0
         src_url = self.https_path + "/" + src_file
         dst_url = self.https_path + "/" + dst_file
-        request = urllib2.Request(src_url)
+        request = urllib.request.Request(src_url)
 
         if dst_file != "":
             request.add_header('Destination', dst_url)
@@ -81,27 +81,24 @@ class ZFSSAWebDAVClient(object):
 
         request.get_method = lambda: method
 
-        LOG.debug('Sending WebDAV request:%s %s %s' % (method, src_url,
-                  dst_url))
+        LOG.debug('Sending WebDAV request:%(method)s %(src)s %(des)s',
+                  {'method': method, 'src': src_url, 'des': dst_url})
 
         while retry < maxretries:
             try:
-                response = urllib2.urlopen(request, timeout=None)
-            except urllib2.HTTPError as err:
+                response = urllib.request.urlopen(request, timeout=None)
+            except urllib.error.HTTPError as err:
                 LOG.error(_LE('WebDAV returned with %(code)s error during '
-                              '%(method)s call.')
-                          % {'code': err.code,
-                             'method': method})
+                              '%(method)s call.'),
+                          {'code': err.code, 'method': method})
 
-                if err.code == httplib.INTERNAL_SERVER_ERROR:
-                    exception_msg = (_('WebDAV operation failed with '
-                                       'error code: %(code)s '
-                                       'reason: %(reason)s '
-                                       'Retry attempt %(retry)s in progress.')
-                                     % {'code': err.code,
-                                        'reason': err.reason,
-                                        'retry': retry})
-                    LOG.error(exception_msg)
+                if err.code == http_client.INTERNAL_SERVER_ERROR:
+                    LOG.error(_LE('WebDAV operation failed with error code: '
+                                  '%(code)s reason: %(reason)s Retry attempt '
+                                  '%(retry)s in progress.'),
+                              {'code': err.code,
+                               'reason': err.reason,
+                               'retry': retry})
                     if retry < maxretries:
                         retry += 1
                         time.sleep(1)
@@ -112,14 +109,15 @@ class ZFSSAWebDAVClient(object):
                                                   src=src_file, dst=dst_file,
                                                   method=method)
 
-            except httplib.BadStatusLine as err:
+            except http_client.BadStatusLine as err:
                 msg = self._lookup_error('BadStatusLine')
+                code = 'http_client.BadStatusLine'
                 raise exception.WebDAVClientError(msg=msg,
-                                                  code='httplib.BadStatusLine',
+                                                  code=code,
                                                   src=src_file, dst=dst_file,
                                                   method=method)
 
-            except urllib2.URLError as err:
+            except urllib.error.URLError as err:
                 reason = ''
                 if getattr(err, 'reason'):
                     reason = err.reason

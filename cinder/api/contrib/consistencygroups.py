@@ -16,6 +16,7 @@
 """The consistencygroups api."""
 
 from oslo_log import log as logging
+from oslo_utils import strutils
 import webob
 from webob import exc
 
@@ -154,8 +155,18 @@ class ConsistencyGroupsController(wsgi.Controller):
         context = req.environ['cinder.context']
         force = False
         if body:
+            if not self.is_valid_body(body, 'consistencygroup'):
+                msg = _("Missing required element 'consistencygroup' in "
+                        "request body.")
+                raise exc.HTTPBadRequest(explanation=msg)
+
             cg_body = body['consistencygroup']
-            force = cg_body.get('force', False)
+            try:
+                force = strutils.bool_from_string(cg_body.get('force', False),
+                                                  strict=True)
+            except ValueError:
+                msg = _("Invalid value '%s' for force.") % force
+                raise exc.HTTPBadRequest(explanation=msg)
 
         LOG.info(_LI('Delete consistency group with id: %s'), id,
                  context=context)
@@ -237,7 +248,7 @@ class ConsistencyGroupsController(wsgi.Controller):
 
         retval = self._view_builder.summary(
             req,
-            dict(new_consistencygroup.iteritems()))
+            dict(new_consistencygroup))
         return retval
 
     @wsgi.response(202)
@@ -289,7 +300,7 @@ class ConsistencyGroupsController(wsgi.Controller):
 
         retval = self._view_builder.summary(
             req,
-            dict(new_consistencygroup.iteritems()))
+            dict(new_consistencygroup))
         return retval
 
     @wsgi.serializers(xml=ConsistencyGroupTemplate)

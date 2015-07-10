@@ -33,6 +33,8 @@ i18n.enable_lazy()
 
 # Need to register global_opts
 from cinder.common import config  # noqa
+from cinder import objects
+from cinder.openstack.common.report import guru_meditation_report as gmr
 from cinder import service
 from cinder import utils
 from cinder import version
@@ -42,10 +44,12 @@ CONF = cfg.CONF
 
 
 def main():
+    objects.register_all()
     CONF(sys.argv[1:], project='cinder',
          version=version.version_string())
     logging.setup(CONF, "cinder")
     utils.monkey_patch()
+    gmr.TextGuruMeditation.setup_autorun(version)
     server = service.Service.create(binary='cinder-backup')
     service.serve(server)
     service.wait()

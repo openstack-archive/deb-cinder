@@ -34,6 +34,7 @@ import time
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import importutils
+import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW, _LI
@@ -168,7 +169,7 @@ class V6000Common(object):
         """
         lun_type = '0'
 
-        LOG.debug("Creating LUN %(name)s, %(size)s GB." %
+        LOG.debug("Creating LUN %(name)s, %(size)s GB.",
                   {'name': volume['name'], 'size': volume['size']})
 
         if self.config.san_thin_provision:
@@ -188,7 +189,7 @@ class V6000Common(object):
             LOG.debug("Lun %s already exists, continuing.", volume['id'])
 
         except Exception:
-            LOG.warn(_LW("Lun create for %s failed!"), volume['id'])
+            LOG.warning(_LW("Lun create for %s failed!"), volume['id'])
             raise
 
     @utils.synchronized('vmem-lun')
@@ -213,8 +214,8 @@ class V6000Common(object):
             LOG.debug("Lun %s already deleted, continuing.", volume['id'])
 
         except exception.ViolinBackendErrExists:
-            LOG.warn(_LW("Lun %s has dependent snapshots, skipping."),
-                     volume['id'])
+            LOG.warning(_LW("Lun %s has dependent snapshots, skipping."),
+                        volume['id'])
             raise exception.VolumeIsBusy(volume_name=volume['id'])
 
         except Exception:
@@ -232,7 +233,7 @@ class V6000Common(object):
             volume   -- volume object provided by the Manager
             new_size -- new (increased) size in GB to be applied
         """
-        LOG.debug("Extending lun %(id)s, from %(size)s to %(new_size)s GB." %
+        LOG.debug("Extending lun %(id)s, from %(size)s to %(new_size)s GB.",
                   {'id': volume['id'], 'size': volume['size'],
                    'new_size': new_size})
 
@@ -375,7 +376,7 @@ class V6000Common(object):
         start = time.time()
         done = False
 
-        if isinstance(success_msgs, basestring):
+        if isinstance(success_msgs, six.string_types):
             success_msgs = [success_msgs]
 
         while not done:
@@ -435,7 +436,7 @@ class V6000Common(object):
         request_needed = True
         verify_needed = True
 
-        if isinstance(request_success_msgs, basestring):
+        if isinstance(request_success_msgs, six.string_types):
             request_success_msgs = [request_success_msgs]
 
         rargs = rargs if rargs else []
@@ -536,7 +537,7 @@ class V6000Common(object):
             LOG.debug("Entering _wait_for_export_config loop: state=%s.",
                       state)
 
-            for node_id in xrange(2):
+            for node_id in range(2):
                 resp = mg_conns[node_id].basic.get_node_values(bn)
                 if state and len(resp.keys()):
                     status[node_id] = True

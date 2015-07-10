@@ -106,7 +106,17 @@ vmdk_opts = [
     cfg.StrOpt('vmware_tmp_dir',
                default='/tmp',
                help='Directory where virtual disks are stored during volume '
-                    'backup and restore.')
+                    'backup and restore.'),
+    cfg.StrOpt('vmware_ca_file',
+               default=None,
+               help='CA bundle file to use in verifying the vCenter server '
+                    'certificate.'),
+    cfg.BoolOpt('vmware_insecure',
+                default=False,
+                help='If true, the vCenter server certificate is not '
+                     'verified. If false, then the default CA truststore is '
+                     'used for verification. This option is ignored if '
+                     '"vmware_ca_file" is set.'),
 ]
 
 CONF = cfg.CONF
@@ -198,10 +208,10 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
     VERSION = '1.4.0'
 
     def _do_deprecation_warning(self):
-        LOG.warn(_LW('The VMware ESX VMDK driver is now deprecated '
-                     'and will be removed in the Juno release. The VMware '
-                     'vCenter VMDK driver will remain and continue to be '
-                     'supported.'))
+        LOG.warning(_LW('The VMware ESX VMDK driver is now deprecated '
+                        'and will be removed in the Juno release. The VMware '
+                        'vCenter VMDK driver will remain and continue to be '
+                        'supported.'))
 
     def __init__(self, *args, **kwargs):
         super(VMwareEsxVmdkDriver, self).__init__(*args, **kwargs)
@@ -352,66 +362,6 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         """
         return self.volumeops.get_vmfolder(datacenter)
 
-    def _compute_space_utilization(self, datastore_summary):
-        """Compute the space utilization of the given datastore.
-
-        :param datastore_summary: Summary of the datastore for which
-                                  space utilization is to be computed
-        :return: space utilization in the range [0..1]
-        """
-        return (
-            1.0 -
-            datastore_summary.freeSpace / float(datastore_summary.capacity)
-        )
-
-    def _select_datastore_summary(self, size_bytes, datastores):
-        """Get the best datastore summary from the given datastore list.
-
-        The implementation selects a datastore which is connected to maximum
-        number of hosts, provided there is enough space to accommodate the
-        volume. Ties are broken based on space utilization; datastore with
-        low space utilization is preferred.
-
-        :param size_bytes: Size in bytes of the volume
-        :param datastores: Datastores from which a choice is to be made
-                           for the volume
-        :return: Summary of the best datastore selected for volume
-        """
-        best_summary = None
-        max_host_count = 0
-        best_space_utilization = 1.0
-
-        for datastore in datastores:
-            summary = self.volumeops.get_summary(datastore)
-            if summary.freeSpace > size_bytes:
-                host_count = len(self.volumeops.get_connected_hosts(datastore))
-                if host_count > max_host_count:
-                    max_host_count = host_count
-                    best_space_utilization = self._compute_space_utilization(
-                        summary
-                    )
-                    best_summary = summary
-                elif host_count == max_host_count:
-                    # break the tie based on space utilization
-                    space_utilization = self._compute_space_utilization(
-                        summary
-                    )
-                    if space_utilization < best_space_utilization:
-                        best_space_utilization = space_utilization
-                        best_summary = summary
-
-        if not best_summary:
-            msg = _("Unable to pick datastore to accommodate %(size)s bytes "
-                    "from the datastores: %(dss)s.") % {'size': size_bytes,
-                                                        'dss': datastores}
-            LOG.error(msg)
-            raise exceptions.VimException(msg)
-
-        LOG.debug("Selected datastore: %(datastore)s with %(host_count)d "
-                  "connected host(s) for the volume.",
-                  {'datastore': best_summary, 'host_count': max_host_count})
-        return best_summary
-
     def _get_extra_spec_storage_profile(self, type_id):
         """Get storage profile name in the given volume type's extra spec.
 
@@ -427,61 +377,6 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
                  and contains storage_profile extra_spec option; None otherwise
         """
         return self._get_extra_spec_storage_profile(volume['volume_type_id'])
-
-    def _filter_ds_by_profile(self, datastores, storage_profile):
-        """Filter out datastores that do not match given storage profile.
-
-        :param datastores: list of candidate datastores
-        :param storage_profile: storage profile name required to be satisfied
-        :return: subset of datastores that match storage_profile, or empty list
-                 if none of the datastores match
-        """
-        LOG.debug("Filter datastores matching storage profile %(profile)s: "
-                  "%(dss)s.",
-                  {'profile': storage_profile, 'dss': datastores})
-        profileId = pbm.get_profile_id_by_name(self.session, storage_profile)
-        if not profileId:
-            msg = _("No such storage profile '%s; is defined in vCenter.")
-            LOG.error(msg, storage_profile)
-            raise exceptions.VimException(msg % storage_profile)
-        pbm_cf = self.session.pbm.client.factory
-        hubs = pbm.convert_datastores_to_hubs(pbm_cf, datastores)
-        filtered_hubs = pbm.filter_hubs_by_profile(self.session, hubs,
-                                                   profileId)
-        return pbm.filter_datastores_by_hubs(filtered_hubs, datastores)
-
-    def _get_folder_ds_summary(self, volume, resource_pool, datastores):
-        """Get folder and best datastore summary where volume can be placed.
-
-        :param volume: volume to place into one of the datastores
-        :param resource_pool: Resource pool reference
-        :param datastores: Datastores from which a choice is to be made
-                           for the volume
-        :return: Folder and best datastore summary where volume can be
-                 placed on.
-        """
-        datacenter = self.volumeops.get_dc(resource_pool)
-        folder = self._get_volume_group_folder(datacenter)
-        storage_profile = self._get_storage_profile(volume)
-        if self._storage_policy_enabled and storage_profile:
-            LOG.debug("Storage profile required for this volume: %s.",
-                      storage_profile)
-            datastores = self._filter_ds_by_profile(datastores,
-                                                    storage_profile)
-            if not datastores:
-                msg = _("Aborting since none of the datastores match the "
-                        "given storage profile %s.")
-                LOG.error(msg, storage_profile)
-                raise exceptions.VimException(msg % storage_profile)
-        elif storage_profile:
-            LOG.warn(_LW("Ignoring storage profile %s requirement for this "
-                         "volume since policy based placement is "
-                         "disabled."), storage_profile)
-
-        size_bytes = volume['size'] * units.Gi
-        datastore_summary = self._select_datastore_summary(size_bytes,
-                                                           datastores)
-        return (folder, datastore_summary)
 
     @staticmethod
     def _get_extra_spec_disk_type(type_id):
@@ -636,8 +531,8 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
             if not backing:
                 # Create a backing in case it does not exist. It is a bad use
                 # case to boot from an empty volume.
-                LOG.warn(_LW("Trying to boot from an empty volume: %s."),
-                         volume['name'])
+                LOG.warning(_LW("Trying to boot from an empty volume: %s."),
+                            volume['name'])
                 # Create backing
                 backing = self._create_backing(volume)
 
@@ -909,10 +804,9 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
             self.volumeops.delete_vmdk_file(
                 descriptor_ds_file_path, dc_ref)
         except exceptions.VimException:
-            LOG.warn(_LW("Error occurred while deleting temporary "
-                         "disk: %s."),
-                     descriptor_ds_file_path,
-                     exc_info=True)
+            LOG.warning(_LW("Error occurred while deleting temporary "
+                            "disk: %s."),
+                        descriptor_ds_file_path, exc_info=True)
 
     def _copy_temp_virtual_disk(self, src_dc_ref, src_path, dest_dc_ref,
                                 dest_path):
@@ -1041,10 +935,10 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
                     self.volumeops.delete_file(
                         path.get_descriptor_ds_file_path(), dc_ref)
                 except exceptions.VimException:
-                    LOG.warn(_LW("Error occurred while deleting "
-                                 "descriptor: %s."),
-                             path.get_descriptor_ds_file_path(),
-                             exc_info=True)
+                    LOG.warning(_LW("Error occurred while deleting "
+                                    "descriptor: %s."),
+                                path.get_descriptor_ds_file_path(),
+                                exc_info=True)
 
         if dest_path != path:
             # Copy temporary disk to given destination.
@@ -1074,9 +968,8 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         try:
             self.volumeops.delete_backing(backing)
         except exceptions.VimException:
-            LOG.warn(_LW("Error occurred while deleting backing: %s."),
-                     backing,
-                     exc_info=True)
+            LOG.warning(_LW("Error occurred while deleting backing: %s."),
+                        backing, exc_info=True)
 
     def _create_volume_from_non_stream_optimized_image(
             self, context, volume, image_service, image_id,
@@ -1299,8 +1192,8 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         # Validate container format; only 'bare' is supported currently.
         container_format = metadata.get('container_format')
         if (container_format and container_format != 'bare'):
-            msg = _("Container format: %s is unsupported, only 'bare' is "
-                    "supported.") % container_format
+            msg = _("Container format: %s is unsupported by the VMDK driver, "
+                    "only 'bare' is supported.") % container_format
             LOG.error(msg)
             raise exception.ImageUnacceptable(image_id=image_id, reason=msg)
 
@@ -1435,8 +1328,8 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         """
         # Can't attempt retype if the volume is in use.
         if self._in_use(volume):
-            LOG.warn(_LW("Volume: %s is in use, can't retype."),
-                     volume['name'])
+            LOG.warning(_LW("Volume: %s is in use, can't retype."),
+                        volume['name'])
             return False
 
         # If the backing doesn't exist, retype is NOP.
@@ -1504,9 +1397,9 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
             best_candidate = self.ds_sel.select_datastore(req)
             if not best_candidate:
                 # No candidate datastores; can't retype.
-                LOG.warn(_LW("There are no datastores matching new "
-                             "requirements; can't retype volume: %s."),
-                         volume['name'])
+                LOG.warning(_LW("There are no datastores matching new "
+                                "requirements; can't retype volume: %s."),
+                            volume['name'])
                 return False
 
             (host, rp, summary) = best_candidate
@@ -1556,12 +1449,13 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
                                 self.volumeops.rename_backing(backing,
                                                               volume['name'])
                             except exceptions.VimException:
-                                LOG.warn(_LW("Changing backing: %(backing)s "
-                                             "name from %(new_name)s to "
-                                             "%(old_name)s failed."),
-                                         {'backing': backing,
-                                          'new_name': tmp_name,
-                                          'old_name': volume['name']})
+                                LOG.warning(_LW("Changing backing: "
+                                                "%(backing)s name from "
+                                                "%(new_name)s to %(old_name)s "
+                                                "failed."),
+                                            {'backing': backing,
+                                             'new_name': tmp_name,
+                                             'old_name': volume['name']})
 
         # Update the backing's storage profile if needed.
         if need_profile_change:
@@ -1799,12 +1693,12 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
                             self.volumeops.rename_backing(backing,
                                                           volume['name'])
                         except exceptions.VimException:
-                            LOG.warn(_LW("Cannot undo volume rename; old name "
-                                         "was %(old_name)s and new name is "
-                                         "%(new_name)s."),
-                                     {'old_name': volume['name'],
-                                      'new_name': tmp_backing_name},
-                                     exc_info=True)
+                            LOG.warning(_LW("Cannot undo volume rename; old "
+                                            "name was %(old_name)s and new "
+                                            "name is %(new_name)s."),
+                                        {'old_name': volume['name'],
+                                         'new_name': tmp_backing_name},
+                                        exc_info=True)
         finally:
             # Delete the temporary backing.
             self._delete_temp_backing(src)
@@ -1884,11 +1778,15 @@ class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
             task_poll_interval = self.configuration.vmware_task_poll_interval
             wsdl_loc = self.configuration.safe_get('vmware_wsdl_location')
             pbm_wsdl = self.pbm_wsdl if hasattr(self, 'pbm_wsdl') else None
+            ca_file = self.configuration.vmware_ca_file
+            insecure = self.configuration.vmware_insecure
             self._session = api.VMwareAPISession(ip, username,
                                                  password, api_retry_count,
                                                  task_poll_interval,
                                                  wsdl_loc=wsdl_loc,
-                                                 pbm_wsdl_loc=pbm_wsdl)
+                                                 pbm_wsdl_loc=pbm_wsdl,
+                                                 cacert=ca_file,
+                                                 insecure=insecure)
         return self._session
 
     def _get_vc_version(self):

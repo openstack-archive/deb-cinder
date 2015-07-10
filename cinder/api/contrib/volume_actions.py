@@ -114,9 +114,21 @@ class VolumeActionsController(wsgi.Controller):
             msg = _("Invalid request to attach volume with an invalid mode. "
                     "Attaching mode should be 'rw' or 'ro'")
             raise webob.exc.HTTPBadRequest(explanation=msg)
+        try:
+            self.volume_api.attach(context, volume,
+                                   instance_uuid, host_name, mountpoint, mode)
+        except messaging.RemoteError as error:
+            if error.exc_type in ['InvalidVolume', 'InvalidUUID',
+                                  'InvalidVolumeAttachMode']:
+                msg = "Error attaching volume - %(err_type)s: %(err_msg)s" % {
+                      'err_type': error.exc_type, 'err_msg': error.value}
+                raise webob.exc.HTTPBadRequest(explanation=msg)
+            else:
+                # There are also few cases where attach call could fail due to
+                # db or volume driver errors. These errors shouldn't be exposed
+                # to the user and in such cases it should raise 500 error.
+                raise
 
-        self.volume_api.attach(context, volume,
-                               instance_uuid, host_name, mountpoint, mode)
         return webob.Response(status_int=202)
 
     @wsgi.action('os-detach')
@@ -132,7 +144,19 @@ class VolumeActionsController(wsgi.Controller):
         if body['os-detach']:
             attachment_id = body['os-detach'].get('attachment_id', None)
 
-        self.volume_api.detach(context, volume, attachment_id)
+        try:
+            self.volume_api.detach(context, volume, attachment_id)
+        except messaging.RemoteError as error:
+            if error.exc_type in ['VolumeAttachmentNotFound', 'InvalidVolume']:
+                msg = "Error detaching volume - %(err_type)s: %(err_msg)s" % \
+                      {'err_type': error.exc_type, 'err_msg': error.value}
+                raise webob.exc.HTTPBadRequest(explanation=msg)
+            else:
+                # There are also few cases where detach call could fail due to
+                # db or volume driver errors. These errors shouldn't be exposed
+                # to the user and in such cases it should raise 500 error.
+                raise
+
         return webob.Response(status_int=202)
 
     @wsgi.action('os-reserve')
@@ -242,7 +266,7 @@ class VolumeActionsController(wsgi.Controller):
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
         force = params.get('force', False)
-        if isinstance(force, basestring):
+        if isinstance(force, six.string_types):
             try:
                 force = strutils.bool_from_string(force, strict=False)
             except ValueError:
@@ -313,7 +337,7 @@ class VolumeActionsController(wsgi.Controller):
             msg = _("Must specify readonly in request.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
-        if isinstance(readonly_flag, basestring):
+        if isinstance(readonly_flag, six.string_types):
             try:
                 readonly_flag = strutils.bool_from_string(readonly_flag,
                                                           strict=True)
@@ -358,7 +382,7 @@ class VolumeActionsController(wsgi.Controller):
             msg = _("Must specify bootable in request.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
-        if isinstance(bootable, basestring):
+        if isinstance(bootable, six.string_types):
             try:
                 bootable = strutils.bool_from_string(bootable,
                                                      strict=True)

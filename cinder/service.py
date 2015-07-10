@@ -263,6 +263,7 @@ class Service(service.Service):
         # errors, go ahead and ignore them.. as we're shutting down anyway
         try:
             self.rpcserver.stop()
+            self.rpcserver.wait()
         except Exception:
             pass
         for x in self.timers:
@@ -287,6 +288,14 @@ class Service(service.Service):
 
     def report_state(self):
         """Update the state of this service in the datastore."""
+        if not self.manager.is_working():
+            # NOTE(dulek): If manager reports a problem we're not sending
+            # heartbeats - to indicate that service is actually down.
+            LOG.error(_LE('Manager for service %s is reporting problems, skip '
+                          'sending heartbeat. Service will appear "down".'),
+                      self.binary)
+            return
+
         ctxt = context.get_admin_context()
         zone = CONF.storage_availability_zone
         state_catalog = {}
@@ -315,6 +324,13 @@ class Service(service.Service):
             if not getattr(self, 'model_disconnected', False):
                 self.model_disconnected = True
                 LOG.exception(_LE('model server went away'))
+
+        # NOTE(jsbryant) Other DB errors can happen in HA configurations.
+        # such errors shouldn't kill this thread, so we handle them here.
+        except db_exc.DBError:
+            if not getattr(self, 'model_disconnected', False):
+                self.model_disconnected = True
+                LOG.exception(_LE('DBError encountered: '))
 
 
 class WSGIService(object):

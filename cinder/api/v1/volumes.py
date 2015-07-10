@@ -120,7 +120,7 @@ def _translate_volume_summary_view(context, vol, image_id=None):
 
     if vol.get('volume_metadata'):
         metadata = vol.get('volume_metadata')
-        d['metadata'] = dict((item['key'], item['value']) for item in metadata)
+        d['metadata'] = {item['key']: item['value'] for item in metadata}
     # avoid circular ref when vol is a Volume instance
     elif vol.get('metadata') and isinstance(vol.get('metadata'), dict):
         d['metadata'] = vol['metadata']
@@ -275,7 +275,7 @@ class VolumeController(wsgi.Controller):
         search_opts.pop('limit', None)
         search_opts.pop('offset', None)
 
-        for k, v in search_opts.iteritems():
+        for k, v in search_opts.items():
             try:
                 search_opts[k] = ast.literal_eval(v)
             except (ValueError, SyntaxError):
@@ -292,7 +292,7 @@ class VolumeController(wsgi.Controller):
                                           filters=search_opts,
                                           viewable_admin_meta=True)
 
-        volumes = [dict(vol.iteritems()) for vol in volumes]
+        volumes = [dict(vol) for vol in volumes]
 
         for volume in volumes:
             utils.add_visible_admin_metadata(volume)
@@ -401,7 +401,7 @@ class VolumeController(wsgi.Controller):
         # TODO(vish): Instance should be None at db layer instead of
         #             trying to lazy load, but for now we turn it into
         #             a dict to avoid an error.
-        new_volume = dict(new_volume.iteritems())
+        new_volume = dict(new_volume)
 
         retval = _translate_volume_detail_view(context, new_volume, image_uuid)
 

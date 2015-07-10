@@ -1,7 +1,9 @@
-# Copyright (c) 2014 NetApp, Inc.  All rights reserved.
-# Copyright (c) 2014 Navneet Singh.  All rights reserved.
-# Copyright (c) 2015 Alex Meade.  All Rights Reserved.
-# Copyright (c) 2015 Rushil Chugh.  All Rights Reserved.
+# Copyright (c) 2014 NetApp, Inc
+# Copyright (c) 2014 Navneet Singh
+# Copyright (c) 2015 Alex Meade
+# Copyright (c) 2015 Rushil Chugh
+# Copyright (c) 2015 Yogesh Kshirsagar
+#  All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -20,13 +22,16 @@ Client classes for web services.
 
 import copy
 import json
+import uuid
 
 from oslo_log import log as logging
 import requests
-import six.moves.urllib.parse as urlparse
+import six
+from six.moves import urllib
 
 from cinder import exception
 from cinder.i18n import _, _LE
+from cinder.volume.drivers.netapp.eseries import utils
 
 
 LOG = logging.getLogger(__name__)
@@ -55,8 +60,8 @@ class WebserviceClient(object):
     def _create_endpoint(self, scheme, host, port, service_path):
         """Creates end point url for the service."""
         netloc = '%s:%s' % (host, port)
-        self._endpoint = urlparse.urlunparse((scheme, netloc, service_path,
-                                              None, None, None))
+        self._endpoint = urllib.parse.urlunparse((scheme, netloc, service_path,
+                                                 None, None, None))
 
     def _init_connection(self):
         """Do client specific set up for session and connection pooling."""
@@ -115,7 +120,7 @@ class RestClient(WebserviceClient):
         path = path.format(**kwargs)
         if not self._endpoint.endswith('/'):
             self._endpoint = '%s/' % self._endpoint
-        return urlparse.urljoin(self._endpoint, path.lstrip('/'))
+        return urllib.parse.urljoin(self._endpoint, path.lstrip('/'))
 
     def _invoke(self, method, path, data=None, use_system=True,
                 timeout=None, verify=False, **kwargs):
@@ -127,11 +132,11 @@ class RestClient(WebserviceClient):
             if 'storedPassword' in scrubbed_data:
                 scrubbed_data['storedPassword'] = "****"
 
-        params = {'m': method, 'p': path, 'd': scrubbed_data,
-                  'sys': use_system, 't': timeout, 'v': verify, 'k': kwargs}
         LOG.debug("Invoking rest with method: %(m)s, path: %(p)s,"
                   " data: %(d)s, use_system: %(sys)s, timeout: %(t)s,"
-                  " verify: %(v)s, kwargs: %(k)s." % (params))
+                  " verify: %(v)s, kwargs: %(k)s.",
+                  {'m': method, 'p': path, 'd': scrubbed_data,
+                   'sys': use_system, 't': timeout, 'v': verify, 'k': kwargs})
         url = self._get_resource_url(path, use_system, **kwargs)
         if self._content_type == 'json':
             headers = {'Accept': 'application/json',
@@ -191,6 +196,25 @@ class RestClient(WebserviceClient):
         path = "/storage-systems/{system-id}/volume-mappings"
         return self._invoke('GET', path)
 
+    def get_volume_mappings_for_volume(self, volume):
+        """Gets all host mappings for given volume from array."""
+        mappings = self.get_volume_mappings() or []
+        host_maps = filter(lambda x: x.get('volumeRef') == volume['volumeRef'],
+                           mappings)
+        return host_maps
+
+    def get_volume_mappings_for_host(self, host_ref):
+        """Gets all volume mappings for given host from array."""
+        mappings = self.get_volume_mappings() or []
+        host_maps = filter(lambda x: x.get('mapRef') == host_ref, mappings)
+        return host_maps
+
+    def get_volume_mappings_for_host_group(self, hg_ref):
+        """Gets all volume mappings for given host group from array."""
+        mappings = self.get_volume_mappings() or []
+        hg_maps = filter(lambda x: x.get('mapRef') == hg_ref, mappings)
+        return hg_maps
+
     def create_volume_mapping(self, object_id, target_id, lun):
         """Creates volume mapping on array."""
         path = "/storage-systems/{system-id}/volume-mappings"
@@ -203,9 +227,58 @@ class RestClient(WebserviceClient):
         path = "/storage-systems/{system-id}/volume-mappings/{object-id}"
         return self._invoke('DELETE', path, **{'object-id': map_object_id})
 
+    def move_volume_mapping_via_symbol(self, map_ref, to_ref, lun_id):
+        """Moves a map from one host/host_group object to another."""
+
+        path = "/storage-systems/{system-id}/symbol/moveLUNMapping"
+        data = {'lunMappingRef': map_ref,
+                'lun': int(lun_id),
+                'mapRef': to_ref}
+        return_code = self._invoke('POST', path, data)
+        if return_code == 'ok':
+            return {'lun': lun_id}
+        msg = _("Failed to move LUN mapping.  Return code: %s") % return_code
+        raise exception.NetAppDriverException(msg)
+
     def list_hardware_inventory(self):
         """Lists objects in the hardware inventory."""
         path = "/storage-systems/{system-id}/hardware-inventory"
+        return self._invoke('GET', path)
+
+    def list_target_wwpns(self):
+        """Lists the world-wide port names of the target."""
+        inventory = self.list_hardware_inventory()
+        fc_ports = inventory.get("fibrePorts", [])
+        wwpns = [port['portName'] for port in fc_ports]
+        return wwpns
+
+    def create_host_group(self, label):
+        """Creates a host group on the array."""
+        path = "/storage-systems/{system-id}/host-groups"
+        data = {'name': label}
+        return self._invoke('POST', path, data)
+
+    def get_host_group(self, host_group_ref):
+        """Gets a single host group from the array."""
+        path = "/storage-systems/{system-id}/host-groups/{object-id}"
+        try:
+            return self._invoke('GET', path, **{'object-id': host_group_ref})
+        except exception.NetAppDriverException:
+            raise exception.NotFound(_("Host group with ref %s not found") %
+                                     host_group_ref)
+
+    def get_host_group_by_name(self, name):
+        """Gets a single host group by name from the array."""
+        host_groups = self.list_host_groups()
+        matching = [host_group for host_group in host_groups
+                    if host_group['label'] == name]
+        if len(matching):
+            return matching[0]
+        raise exception.NotFound(_("Host group with name %s not found") % name)
+
+    def list_host_groups(self):
+        """Lists host groups on the array."""
+        path = "/storage-systems/{system-id}/host-groups"
         return self._invoke('GET', path)
 
     def list_hosts(self):
@@ -217,21 +290,42 @@ class RestClient(WebserviceClient):
         """Creates host on array."""
         path = "/storage-systems/{system-id}/hosts"
         data = {'name': label, 'hostType': host_type}
-        data.setdefault('groupId', group_id) if group_id else None
-        data.setdefault('ports', ports) if ports else None
+        data.setdefault('groupId', group_id if group_id else None)
+        data.setdefault('ports', ports if ports else None)
         return self._invoke('POST', path, data)
 
-    def create_host_with_port(self, label, host_type, port_id,
-                              port_label, port_type='iscsi', group_id=None):
+    def create_host_with_ports(self, label, host_type, port_ids,
+                               port_type='iscsi', group_id=None):
         """Creates host on array with given port information."""
-        port = {'type': port_type, 'port': port_id, 'label': port_label}
-        return self.create_host(label, host_type, [port], group_id)
+        if port_type == 'fc':
+            port_ids = [six.text_type(wwpn).replace(':', '')
+                        for wwpn in port_ids]
+        ports = []
+        for port_id in port_ids:
+            port_label = utils.convert_uuid_to_es_fmt(uuid.uuid4())
+            port = {'type': port_type, 'port': port_id, 'label': port_label}
+            ports.append(port)
+        return self.create_host(label, host_type, ports, group_id)
+
+    def update_host(self, host_ref, data):
+        """Updates host type for a given host."""
+        path = "/storage-systems/{system-id}/hosts/{object-id}"
+        return self._invoke('POST', path, data, **{'object-id': host_ref})
+
+    def get_host(self, host_ref):
+        """Gets a single host from the array."""
+        path = "/storage-systems/{system-id}/hosts/{object-id}"
+        return self._invoke('GET', path, **{'object-id': host_ref})
 
     def update_host_type(self, host_ref, host_type):
         """Updates host type for a given host."""
-        path = "/storage-systems/{system-id}/hosts/{object-id}"
         data = {'hostType': host_type}
-        return self._invoke('POST', path, data, **{'object-id': host_ref})
+        return self.update_host(host_ref, data)
+
+    def set_host_group_for_host(self, host_ref, host_group_ref=utils.NULL_REF):
+        """Sets or clears which host group a host is in."""
+        data = {'groupId': host_group_ref}
+        self.update_host(host_ref, data)
 
     def list_host_types(self):
         """Lists host types in storage system."""
@@ -300,6 +394,11 @@ class RestClient(WebserviceClient):
         path = "/storage-systems/{system-id}/storage-pools"
         return self._invoke('GET', path)
 
+    def get_storage_pool(self, volume_group_ref):
+        """Get storage pool information from the array."""
+        path = "/storage-systems/{system-id}/storage-pools/{object-id}"
+        return self._invoke('GET', path, **{'object-id': volume_group_ref})
+
     def list_drives(self):
         """Lists drives in the array."""
         path = "/storage-systems/{system-id}/drives"
@@ -320,8 +419,8 @@ class RestClient(WebserviceClient):
         """Registers storage system with web service."""
         path = "/storage-systems"
         data = {'controllerAddresses': controller_addresses}
-        data.setdefault('wwn', wwn) if wwn else None
-        data.setdefault('password', password) if password else None
+        data.setdefault('wwn', wwn if wwn else None)
+        data.setdefault('password', password if password else None)
         return self._invoke('POST', path, data, use_system=False)
 
     def update_stored_system_password(self, password):

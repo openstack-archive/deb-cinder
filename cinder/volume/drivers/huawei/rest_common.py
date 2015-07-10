@@ -15,10 +15,9 @@
 """Common class for Huawei 18000 storage drivers."""
 
 import base64
-import cookielib
 import json
+import socket
 import time
-import urllib2
 import uuid
 from xml.etree import ElementTree as ET
 
@@ -26,6 +25,8 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import units
 import six
+from six.moves import http_cookiejar
+from six.moves import urllib
 
 from cinder import context
 from cinder import exception
@@ -53,7 +54,7 @@ class RestCommon(object):
 
     def __init__(self, configuration):
         self.configuration = configuration
-        self.cookie = cookielib.CookieJar()
+        self.cookie = http_cookiejar.CookieJar()
         self.url = None
         self.productversion = None
         self.headers = {"Connection": "keep-alive",
@@ -65,15 +66,16 @@ class RestCommon(object):
         Convert response into Python Object and return it.
         """
 
-        opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(self.cookie))
-        urllib2.install_opener(opener)
+        handler = urllib.request.HTTPCookieProcessor(self.cookie)
+        opener = urllib.request.build_opener(handler)
+        urllib.request.install_opener(opener)
 
         try:
-            urllib2.socket.setdefaulttimeout(720)
-            req = urllib2.Request(url, data, self.headers)
+            socket.setdefaulttimeout(720)
+            req = urllib.request.Request(url, data, self.headers)
             if method:
                 req.get_method = lambda: method
-            res = urllib2.urlopen(req).read().decode("utf-8")
+            res = urllib.request.urlopen(req).read().decode("utf-8")
 
             if "xx/sessions" not in url:
                 LOG.info(_LI('\n\n\n\nRequest URL: %(url)s\n\n'
@@ -85,14 +87,13 @@ class RestCommon(object):
                                                             'res': res})
 
         except Exception as err:
-            LOG.error(_LE('\nBad response from server: %s.') % err)
+            LOG.error(_LE('\nBad response from server: %s.'), err)
             raise
 
         try:
             res_json = json.loads(res)
         except Exception as err:
-            err_msg = (_LE('JSON transfer error: %s.') % err)
-            LOG.error(err_msg)
+            LOG.error(_LE('JSON transfer error: %s.'), err)
             raise
 
         return res_json
@@ -165,10 +166,8 @@ class RestCommon(object):
         volume_description = volume['name']
         volume_size = self._get_volume_size(volume)
 
-        LOG.info(_LI(
-            'Create Volume: %(volume)s Size: %(size)s.')
-            % {'volume': volume_name,
-               'size': volume_size})
+        LOG.info(_LI('Create Volume: %(volume)s Size: %(size)s.'),
+                 {'volume': volume_name, 'size': volume_size})
 
         params = self._get_lun_conf_params()
         params['pool_id'] = poolinfo['ID']
@@ -234,8 +233,8 @@ class RestCommon(object):
 
         name = self._encode_name(volume['id'])
         lun_id = volume.get('provider_location', None)
-        LOG.info(_LI('Delete Volume: %(name)s  array lun id: %(lun_id)s.')
-                 % {'name': name, 'lun_id': lun_id})
+        LOG.info(_LI('Delete Volume: %(name)s  array lun id: %(lun_id)s.'),
+                 {'name': name, 'lun_id': lun_id})
         if lun_id:
             if self._check_lun_exist(lun_id) is True:
                 # Get qos_id by lun_id.
@@ -278,7 +277,7 @@ class RestCommon(object):
             tree = ET.parse(filename)
             root = tree.getroot()
         except Exception as err:
-            LOG.error(_LE('_read_xml: %s') % err)
+            LOG.error(_LE('_read_xml: %s'), err)
             raise
         return root
 
@@ -341,11 +340,10 @@ class RestCommon(object):
         snapshot_description = snapshot['id']
         volume_name = self._encode_name(snapshot['volume_id'])
 
-        LOG.info(_LI(
-            '_create_snapshot:snapshot name: %(snapshot)s, '
-            'volume name: %(volume)s.')
-            % {'snapshot': snapshot_name,
-               'volume': volume_name})
+        LOG.info(_LI('_create_snapshot:snapshot name: %(snapshot)s, '
+                     'volume name: %(volume)s.'),
+                 {'snapshot': snapshot_name,
+                  'volume': volume_name})
 
         lun_id = self._get_volume_by_name(volume_name)
         if lun_id is None:
@@ -404,11 +402,10 @@ class RestCommon(object):
         snapshot_name = self._encode_name(snapshot['id'])
         volume_name = self._encode_name(snapshot['volume_id'])
 
-        LOG.info(_LI(
-            'stop_snapshot:snapshot name: %(snapshot)s, '
-            'volume name: %(volume)s.')
-            % {'snapshot': snapshot_name,
-               'volume': volume_name})
+        LOG.info(_LI('stop_snapshot:snapshot name: %(snapshot)s, '
+                     'volume name: %(volume)s.'),
+                 {'snapshot': snapshot_name,
+                  'volume': volume_name})
 
         snapshot_id = snapshot.get('provider_location', None)
         if snapshot_id is None:
@@ -556,12 +553,12 @@ class RestCommon(object):
         tgt_lun_id = lun_info['ID']
         luncopy_name = self._encode_name(volume['id'])
 
-        LOG.info(_LI(
-            'create_volume_from_snapshot: src_lun_id: %(src_lun_id)s, '
-            'tgt_lun_id: %(tgt_lun_id)s, copy_name: %(copy_name)s')
-            % {'src_lun_id': snapshot_id,
-               'tgt_lun_id': tgt_lun_id,
-               'copy_name': luncopy_name})
+        LOG.info(_LI('create_volume_from_snapshot: src_lun_id: '
+                     '%(src_lun_id)s, tgt_lun_id: %(tgt_lun_id)s, '
+                     'copy_name: %(copy_name)s'),
+                 {'src_lun_id': snapshot_id,
+                  'tgt_lun_id': tgt_lun_id,
+                  'copy_name': luncopy_name})
 
         event_type = 'LUNReadyWaitInterval'
         wait_interval = self._get_wait_interval(event_type)
@@ -601,11 +598,10 @@ class RestCommon(object):
                 # Delete snapshot.
                 self.delete_snapshot(snapshot)
             except exception.CinderException:
-                LOG.warning(_LW(
-                    'Failure deleting the snapshot %(snapshot_id)s '
-                    'of volume %(volume_id)s.')
-                    % {'snapshot_id': snapshot['id'],
-                       'volume_id': src_vref['id']})
+                LOG.warning(_LW('Failure deleting the snapshot '
+                                '%(snapshot_id)s of volume %(volume_id)s.'),
+                            {'snapshot_id': snapshot['id'],
+                             'volume_id': src_vref['id']})
 
         return lun_info
 
@@ -638,11 +634,10 @@ class RestCommon(object):
         host_group_name = HOSTGROUP_PREFIX + host_id
         hostgroup_id = self._find_hostgroup(host_group_name)
 
-        LOG.info(_LI(
-            '_add_host_into_hostgroup, hostgroup name: %(name)s, '
-            'hostgroup id: %(id)s.')
-            % {'name': host_group_name,
-               'id': hostgroup_id})
+        LOG.info(_LI('_add_host_into_hostgroup, hostgroup name: %(name)s, '
+                     'hostgroup id: %(id)s.'),
+                 {'name': host_group_name,
+                  'id': hostgroup_id})
 
         if hostgroup_id is None:
             hostgroup_id = self._create_hostgroup(host_group_name)
@@ -663,12 +658,11 @@ class RestCommon(object):
         lun_id = self._get_volume_by_name(volume_name)
         view_id = self._find_mapping_view(mapping_view_name)
 
-        LOG.info(_LI(
-            '_mapping_hostgroup_and_lungroup, lun_group: %(lun_group)s, '
-            'view_id: %(view_id)s, lun_id: %(lun_id)s.')
-            % {'lun_group': six.text_type(lungroup_id),
-               'view_id': six.text_type(view_id),
-               'lun_id': six.text_type(lun_id)})
+        LOG.info(_LI('_mapping_hostgroup_and_lungroup, lun_group: '
+                     '%(lun_group)s, view_id: %(view_id)s, lun_id: '
+                     '%(lun_id)s.'), {'lun_group': lungroup_id,
+                                      'view_id': view_id,
+                                      'lun_id': lun_id})
 
         try:
             # Create lungroup and add LUN into to lungroup.
@@ -691,10 +685,9 @@ class RestCommon(object):
 
         except Exception:
             with excutils.save_and_reraise_exception():
-                err_msg = (_LE(
-                    'Error occurred when adding hostgroup and lungroup to '
-                    'view. Remove lun from lungroup now.'))
-                LOG.error(err_msg)
+                LOG.error(_LE('Error occurred when adding hostgroup and '
+                              'lungroup to view. Remove lun from lungroup '
+                              'now.'))
                 self._remove_lun_from_lungroup(lungroup_id, lun_id)
 
         return lun_id
@@ -717,18 +710,16 @@ class RestCommon(object):
         initiator_name = connector['initiator']
         volume_name = self._encode_name(volume['id'])
 
-        LOG.info(_LI(
-            'initiator name: %(initiator_name)s, '
-            'volume name: %(volume)s.')
-            % {'initiator_name': initiator_name,
-               'volume': volume_name})
+        LOG.info(_LI('initiator name: %(initiator_name)s, '
+                     'volume name: %(volume)s.'),
+                 {'initiator_name': initiator_name,
+                  'volume': volume_name})
 
         (iscsi_iqn, target_ip) = self._get_iscsi_params(connector)
-        LOG.info(_LI(
-            'initialize_connection_iscsi,iscsi_iqn: %(iscsi_iqn)s, '
-            'target_ip: %(target_ip)s.')
-            % {'iscsi_iqn': iscsi_iqn,
-               'target_ip': target_ip})
+        LOG.info(_LI('initialize_connection_iscsi,iscsi_iqn: %(iscsi_iqn)s, '
+                     'target_ip: %(target_ip)s.'),
+                 {'iscsi_iqn': iscsi_iqn,
+                  'target_ip': target_ip})
 
         # Create host_group if not exist.
         host_name = connector['host']
@@ -746,8 +737,8 @@ class RestCommon(object):
 
         hostlunid = self._find_host_lun_id(hostid, lun_id)
 
-        LOG.info(_LI("initialize_connection_iscsi, host lun id is: %s.")
-                 % hostlunid)
+        LOG.info(_LI("initialize_connection_iscsi, host lun id is: %s."),
+                 hostlunid)
 
         # Return iSCSI properties.
         properties = {}
@@ -757,8 +748,8 @@ class RestCommon(object):
         properties['target_lun'] = int(hostlunid)
         properties['volume_id'] = volume['id']
 
-        LOG.info(_LI("initialize_connection_iscsi success. Return data: %s.")
-                 % properties)
+        LOG.info(_LI("initialize_connection_iscsi success. Return data: %s."),
+                 properties)
         return {'driver_volume_type': 'iscsi', 'data': properties}
 
     @utils.synchronized('huawei', external=True)
@@ -767,11 +758,10 @@ class RestCommon(object):
         host_name = connector['host']
         volume_name = self._encode_name(volume['id'])
 
-        LOG.info(_LI(
-            'initialize_connection_fc, initiator: %(initiator_name)s,'
-            ' volume name: %(volume)s.')
-            % {'initiator_name': wwns,
-               'volume': volume_name})
+        LOG.info(_LI('initialize_connection_fc, initiator: %(initiator_name)s,'
+                     ' volume name: %(volume)s.'),
+                 {'initiator_name': wwns,
+                  'volume': volume_name})
 
         # Create host_group if not exist.
         hostid = self._find_host(host_name)
@@ -782,8 +772,8 @@ class RestCommon(object):
         hostgroup_id = self._add_host_into_hostgroup(hostid)
 
         free_wwns = self._get_connected_free_wwns()
-        LOG.info(_LI("initialize_connection_fc, the array has free wwns: %s")
-                 % free_wwns)
+        LOG.info(_LI("initialize_connection_fc, the array has free wwns: %s"),
+                 free_wwns)
         for wwn in wwns:
             if wwn in free_wwns:
                 self._add_fc_port_to_host(hostid, wwn)
@@ -810,8 +800,7 @@ class RestCommon(object):
                          'volume_id': volume['id'],
                          'initiator_target_map': init_targ_map}}
 
-        LOG.info(_LI("initialize_connection_fc, return data is: %s.")
-                 % info)
+        LOG.info(_LI("initialize_connection_fc, return data is: %s."), info)
 
         return info
 
@@ -926,8 +915,7 @@ class RestCommon(object):
                         host_lun_id = hostassoinfo['HostLUNID']
                         break
                     except Exception as err:
-                        msg = (_LE("JSON transfer data error. %s") % err)
-                        LOG.error(msg)
+                        LOG.error(_LE("JSON transfer data error. %s"), err)
                         raise
         return host_lun_id
 
@@ -1155,13 +1143,11 @@ class RestCommon(object):
         initiator_name = connector['initiator']
         volume_name = self._encode_name(volume['id'])
         lun_id = volume.get('provider_location', None)
-        LOG.info(_LI(
-            'terminate_connection:volume name: %(volume)s, '
-            'initiator name: %(ini)s, '
-            'lun_id: %(lunid)s.')
-            % {'volume': volume_name,
-               'ini': initiator_name,
-               'lunid': lun_id})
+        LOG.info(_LI('terminate_connection:volume name: %(volume)s, '
+                     'initiator name: %(ini)s, lun_id: %(lunid)s.'),
+                 {'volume': volume_name,
+                  'ini': initiator_name,
+                  'lunid': lun_id})
 
         if lun_id:
             if self._check_lun_exist(lun_id) is True:
@@ -1393,10 +1379,10 @@ class RestCommon(object):
         ip_info = self._get_iscsi_port_info(iscsiip)
         iqn_prefix = self._get_iscsi_tgt_port()
 
-        LOG.info(_LI('Request ip info is: %s.') % ip_info)
+        LOG.info(_LI('Request ip info is: %s.'), ip_info)
         split_list = ip_info.split(".")
         newstr = split_list[1] + split_list[2]
-        LOG.info(_LI('New str info is: %s.') % newstr)
+        LOG.info(_LI('New str info is: %s.'), newstr)
 
         if ip_info:
             if newstr[0] == 'A':
@@ -1411,7 +1397,7 @@ class RestCommon(object):
                     iqn_suffix = iqn_suffix[i:]
                     break
             iqn = iqn_prefix + ':' + iqn_suffix + ':' + iscsiip
-            LOG.info(_LI('_get_tgt_iqn: iSCSI target iqn is: %s.') % iqn)
+            LOG.info(_LI('_get_tgt_iqn: iSCSI target iqn is: %s.'), iqn)
             return iqn
         else:
             return None
@@ -1495,7 +1481,7 @@ class RestCommon(object):
             try:
                 tree.write(filename, 'UTF-8')
             except Exception as err:
-                LOG.warning(_LW('Unable to access config file. %s') % err)
+                LOG.warning(_LW('Unable to access config file. %s'), err)
 
         return logininfo
 
@@ -1589,12 +1575,11 @@ class RestCommon(object):
         new_volume_size = int(new_size) * units.Gi / 512
         volume_name = self._encode_name(volume['id'])
 
-        LOG.info(_LI(
-            'Extend Volume: %(volumename)s, oldsize:'
-            ' %(oldsize)s  newsize: %(newsize)s.')
-            % {'volumename': volume_name,
-               'oldsize': volume_size,
-               'newsize': new_volume_size})
+        LOG.info(_LI('Extend Volume: %(volumename)s, oldsize: %(oldsize)s  '
+                     'newsize: %(newsize)s.'),
+                 {'volumename': volume_name,
+                  'oldsize': volume_size,
+                  'newsize': new_volume_size})
 
         lun_id = self._get_volume_by_name(volume_name)
 
@@ -1634,8 +1619,8 @@ class RestCommon(object):
         else:
             kvs = specs
 
-        LOG.info(_LI('The QoS sepcs is: %s.') % kvs)
-        for key, value in kvs.iteritems():
+        LOG.info(_LI('The QoS sepcs is: %s.'), kvs)
+        for key, value in kvs.items():
             if key in huawei_valid_keys:
                 qos[key.upper()] = value
 
@@ -1653,20 +1638,19 @@ class RestCommon(object):
         localtime = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
         # Package QoS name.
         qos_name = QOS_NAME_PREFIX + lun_id + '_' + localtime
-        baseData = {"TYPE": "230",
-                    "NAME": qos_name,
-                    "LUNLIST": ["%s" % lun_id],
-                    "CLASSTYPE": "1",
-                    "SCHEDULEPOLICY": "2",
-                    "SCHEDULESTARTTIME": "1410969600",
-                    "STARTTIME": "08:00",
-                    "DURATION": "86400",
-                    "CYCLESET": "[1,2,3,4,5,6,0]"
-                    }
 
-        mergedata = dict(baseData.items() + qos.items())
-        url = self.url + "/ioclass/"
+        mergedata = {"TYPE": "230",
+                     "NAME": qos_name,
+                     "LUNLIST": ["%s" % lun_id],
+                     "CLASSTYPE": "1",
+                     "SCHEDULEPOLICY": "2",
+                     "SCHEDULESTARTTIME": "1410969600",
+                     "STARTTIME": "08:00",
+                     "DURATION": "86400",
+                     "CYCLESET": "[1,2,3,4,5,6,0]"}
+        mergedata.update(qos)
         data = json.dumps(mergedata)
+        url = self.url + "/ioclass/"
 
         result = self.call(url, data)
         self._assert_rest_result(result, 'Create QoS policy error.')
@@ -1711,7 +1695,7 @@ class RestCommon(object):
     def _check_qos_high_priority(self, qos):
         """Check QoS priority."""
 
-        for key, value in qos.iteritems():
+        for key, value in qos.items():
             if (key.find('MIN') == 0) or (key.find('LATENCY') == 0):
                 return True
 
