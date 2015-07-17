@@ -7,9 +7,20 @@ export OSLO_PACKAGE_VERSION=$(shell dpkg-parsechangelog -S Version | sed -e 's/^
 %:
 	dh $@  --with python2,systemd
 
-ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 override_dh_auto_test:
-	PYTHONPATH=$(CURDIR) bash run_tests.sh -N -P
+ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
+	@echo "===> Running tests"
+	set -e ; set -x ; for i in 2.7 $(PYTHON3S) ; do \
+		PYMAJOR=`echo $$i | cut -d'.' -f1` ; \
+		echo "===> Testing with python$$i (python$$PYMAJOR)" ; \
+		rm -rf .testrepository ; \
+		testr-python$$PYMAJOR init ; \
+		TEMP_REZ=`mktemp -t` ; \
+		PYTHONPATH=$(CURDIR) PYTHON=python$$i testr-python$$PYMAJOR run --subunit | tee $$TEMP_REZ | subunit2pyunit ; \
+		cat $$TEMP_REZ | subunit-filter -s --no-passthrough | subunit-stats ; \
+		rm -f $$TEMP_REZ ; \
+		testr-python$$PYMAJOR slowest ; \
+	done
 endif
 
 override_dh_clean:
