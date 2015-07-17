@@ -2,6 +2,7 @@ cinder (1:7.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
   * Updated (build-)depends for this release.
+  * Fixed OSLO_PACKAGE_VERSION for last PBR version.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 10 Jul 2015 09:41:59 +0200
 
