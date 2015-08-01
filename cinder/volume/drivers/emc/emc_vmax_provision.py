@@ -64,7 +64,7 @@ class EMCVMAXProvision(object):
             theElements = [volumeInstanceName]
 
         rc, job = conn.InvokeMethod(
-            'EMCReturnToStoragePool', storageConfigservice,
+            'ReturnElementsToStoragePool', storageConfigservice,
             TheElements=theElements)
 
         if rc != 0:
@@ -338,14 +338,13 @@ class EMCVMAXProvision(object):
                                                       time.time())})
 
     def unbind_volume_from_storage_pool(
-            self, conn, storageConfigService, poolInstanceName,
-            volumeInstanceName, volumeName, extraSpecs):
+            self, conn, storageConfigService, volumeInstanceName,
+            volumeName, extraSpecs):
         """Unbind a volume from a pool and return the unbound volume.
 
         :param conn: the connection information to the ecom server
         :param storageConfigService: the storage configuration service
             instance name
-        :param poolInstanceName: the pool instance name
         :param volumeInstanceName: the volume instance name
         :param volumeName: the volume name
         :param extraSpecs: additional info
@@ -358,7 +357,6 @@ class EMCVMAXProvision(object):
         rc, job = conn.InvokeMethod(
             'EMCUnBindElement',
             storageConfigService,
-            InPool=poolInstanceName,
             TheElement=volumeInstanceName)
 
         if rc != 0:
@@ -969,10 +967,16 @@ class EMCVMAXProvision(object):
         """
         startTime = time.time()
 
+        if isinstance(volumeInstanceName, list):
+            theElements = volumeInstanceName
+            volumeName = 'Bulk Add'
+        else:
+            theElements = [volumeInstanceName]
+
         rc, job = conn.InvokeMethod(
             'AddMembers',
             replicationService,
-            Members=[volumeInstanceName],
+            Members=theElements,
             ReplicationGroup=cgInstanceName)
 
         if rc != 0:
@@ -980,9 +984,9 @@ class EMCVMAXProvision(object):
                                                              extraSpecs)
             if rc != 0:
                 exceptionMessage = (_(
-                    "Failed to add volume %(volumeName)s: "
-                    "to consistency group %(cgName)s "
-                    "Return code: %(rc)lu.  Error: %(error)s.")
+                    "Failed to add volume %(volumeName)s "
+                    "to consistency group %(cgName)s. "
+                    "Return code: %(rc)lu. Error: %(error)s.")
                     % {'volumeName': volumeName,
                        'cgName': cgName,
                        'rc': rc,
@@ -1015,21 +1019,26 @@ class EMCVMAXProvision(object):
         """
         startTime = time.time()
 
+        if isinstance(volumeInstanceName, list):
+            theElements = volumeInstanceName
+            volumeName = 'Bulk Remove'
+        else:
+            theElements = [volumeInstanceName]
+
         rc, job = conn.InvokeMethod(
             'RemoveMembers',
             replicationService,
-            Members=[volumeInstanceName],
-            ReplicationGroup=cgInstanceName,
-            RemoveElements=True)
+            Members=theElements,
+            ReplicationGroup=cgInstanceName)
 
         if rc != 0:
             rc, errordesc = self.utils.wait_for_job_complete(conn, job,
                                                              extraSpecs)
             if rc != 0:
                 exceptionMessage = (_(
-                    "Failed to remove volume %(volumeName)s: "
-                    "to consistency group %(cgName)s "
-                    "Return code: %(rc)lu.  Error: %(error)s.")
+                    "Failed to remove volume %(volumeName)s "
+                    "from consistency group %(cgName)s. "
+                    "Return code: %(rc)lu. Error: %(error)s.")
                     % {'volumeName': volumeName,
                        'cgName': cgName,
                        'rc': rc,
@@ -1070,14 +1079,16 @@ class EMCVMAXProvision(object):
              'relationName': relationName,
              'srcGroup': srcGroupInstanceName,
              'tgtGroup': tgtGroupInstanceName})
-        # 8 for clone.
+        # SyncType 8 - clone.
+        # CopyState 4 - Synchronized.
         rc, job = conn.InvokeMethod(
             'CreateGroupReplica',
             replicationService,
             RelationshipName=relationName,
             SourceGroup=srcGroupInstanceName,
             TargetGroup=tgtGroupInstanceName,
-            SyncType=self.utils.get_num(8, '16'))
+            SyncType=self.utils.get_num(8, '16'),
+            WaitForCopyState=self.utils.get_num(4, '16'))
 
         if rc != 0:
             rc, errordesc = self.utils.wait_for_job_complete(conn, job,

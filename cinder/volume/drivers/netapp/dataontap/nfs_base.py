@@ -49,6 +49,7 @@ LOG = logging.getLogger(__name__)
 CONF = cfg.CONF
 
 
+@six.add_metaclass(utils.TraceWrapperWithABCMetaclass)
 class NetAppNfsDriver(nfs.NfsDriver):
     """Base class for NetApp NFS driver for Data ONTAP."""
 
@@ -242,11 +243,11 @@ class NetAppNfsDriver(nfs.NfsDriver):
 
     def _get_host_ip(self, volume_id):
         """Returns IP address for the given volume."""
-        return self._get_provider_location(volume_id).split(':')[0]
+        return self._get_provider_location(volume_id).rsplit(':')[0]
 
     def _get_export_path(self, volume_id):
         """Returns NFS export path for the given volume."""
-        return self._get_provider_location(volume_id).split(':')[1]
+        return self._get_provider_location(volume_id).rsplit(':')[1]
 
     def _volume_not_present(self, nfs_mount, volume_name):
         """Check if volume exists."""
@@ -502,39 +503,43 @@ class NetAppNfsDriver(nfs.NfsDriver):
         """Clone directly in nfs share."""
         LOG.info(_LI('Checking image clone %s from glance share.'), image_id)
         cloned = False
-        image_location = self._construct_image_nfs_url(image_location)
-        share = self._is_cloneable_share(image_location)
+        image_locations = self._construct_image_nfs_url(image_location)
         run_as_root = self._execute_as_root
-        if share and self._is_share_vol_compatible(volume, share):
-            LOG.debug('Share is cloneable %s', share)
-            volume['provider_location'] = share
-            (__, ___, img_file) = image_location.rpartition('/')
-            dir_path = self._get_mount_point_for_share(share)
-            img_path = '%s/%s' % (dir_path, img_file)
-            img_info = image_utils.qemu_img_info(img_path,
-                                                 run_as_root=run_as_root)
-            if img_info.file_format == 'raw':
-                LOG.debug('Image is raw %s', image_id)
-                self._clone_backing_file_for_volume(
-                    img_file, volume['name'],
-                    volume_id=None, share=share)
-                cloned = True
-            else:
-                LOG.info(
-                    _LI('Image will locally be converted to raw %s'),
-                    image_id)
-                dst = '%s/%s' % (dir_path, volume['name'])
-                image_utils.convert_image(img_path, dst, 'raw',
-                                          run_as_root=run_as_root)
-                data = image_utils.qemu_img_info(dst, run_as_root=run_as_root)
-                if data.file_format != "raw":
-                    raise exception.InvalidResults(
-                        _("Converted to raw, but"
-                          " format is now %s") % data.file_format)
-                else:
+        for loc in image_locations:
+            share = self._is_cloneable_share(loc)
+            if share and self._is_share_vol_compatible(volume, share):
+                LOG.debug('Share is cloneable %s', share)
+                volume['provider_location'] = share
+                (__, ___, img_file) = loc.rpartition('/')
+                dir_path = self._get_mount_point_for_share(share)
+                img_path = '%s/%s' % (dir_path, img_file)
+                img_info = image_utils.qemu_img_info(img_path,
+                                                     run_as_root=run_as_root)
+                if img_info.file_format == 'raw':
+                    LOG.debug('Image is raw %s', image_id)
+                    self._clone_backing_file_for_volume(
+                        img_file, volume['name'],
+                        volume_id=None, share=share)
                     cloned = True
-                    self._register_image_in_cache(
-                        volume, image_id)
+                    break
+                else:
+                    LOG.info(
+                        _LI('Image will locally be converted to raw %s'),
+                        image_id)
+                    dst = '%s/%s' % (dir_path, volume['name'])
+                    image_utils.convert_image(img_path, dst, 'raw',
+                                              run_as_root=run_as_root)
+                    data = image_utils.qemu_img_info(dst,
+                                                     run_as_root=run_as_root)
+                    if data.file_format != "raw":
+                        raise exception.InvalidResults(
+                            _("Converted to raw, but"
+                              " format is now %s") % data.file_format)
+                    else:
+                        cloned = True
+                        self._register_image_in_cache(
+                            volume, image_id)
+                        break
         return cloned
 
     def _post_clone_image(self, volume):
@@ -651,7 +656,7 @@ class NetAppNfsDriver(nfs.NfsDriver):
 
              It creates direct url from image_location
              which is a tuple with direct_url and locations.
-             Returns url with nfs scheme if nfs store
+             Returns array of urls with nfs scheme if nfs store
              else returns url. It needs to be verified
              by backend before use.
         """
@@ -660,26 +665,30 @@ class NetAppNfsDriver(nfs.NfsDriver):
         if not direct_url and not locations:
             raise exception.NotFound(_('Image location not present.'))
 
-        # Locations will be always a list of one until
-        # bp multiple-image-locations is introduced
+        urls = []
         if not locations:
-            return direct_url
-        location = locations[0]
-        url = location['url']
-        if not location['metadata']:
-            return url
-        location_type = location['metadata'].get('type')
-        if not location_type or location_type.lower() != "nfs":
-            return url
-        share_location = location['metadata'].get('share_location')
-        mount_point = location['metadata'].get('mount_point')
-        if not share_location or not mount_point:
-            return url
-        url_parse = urllib.parse.urlparse(url)
-        abs_path = os.path.join(url_parse.netloc, url_parse.path)
-        rel_path = os.path.relpath(abs_path, mount_point)
-        direct_url = "%s/%s" % (share_location, rel_path)
-        return direct_url
+            urls.append(direct_url)
+        else:
+            for location in locations:
+                url = location['url']
+                if not location['metadata']:
+                    urls.append(url)
+                    break
+                location_type = location['metadata'].get('type')
+                if not location_type or location_type.lower() != "nfs":
+                    urls.append(url)
+                    break
+                share_location = location['metadata'].get('share_location')
+                mountpoint = location['metadata'].get('mountpoint')
+                if not share_location or not mountpoint:
+                    urls.append(url)
+                    break
+                url_parse = urllib.parse.urlparse(url)
+                abs_path = os.path.join(url_parse.netloc, url_parse.path)
+                rel_path = os.path.relpath(abs_path, mountpoint)
+                direct_url = "%s/%s" % (share_location, rel_path)
+                urls.append(direct_url)
+        return urls
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""

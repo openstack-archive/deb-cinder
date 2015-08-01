@@ -49,16 +49,20 @@ IMAGE_ATTRIBUTES = (
 class OnFailureRescheduleTask(flow_utils.CinderTask):
     """Triggers a rescheduling request to be sent when reverting occurs.
 
+    If rescheduling doesn't occur this task errors out the volume.
+
     Reversion strategy: Triggers the rescheduling mechanism whereby a cast gets
     sent to the scheduler rpc api to allow for an attempt X of Y for scheduling
     this volume elsewhere.
     """
 
-    def __init__(self, reschedule_context, db, scheduler_rpcapi):
-        requires = ['filter_properties', 'image_id', 'request_spec',
-                    'snapshot_id', 'volume_id', 'context']
+    def __init__(self, reschedule_context, db, scheduler_rpcapi,
+                 do_reschedule):
+        requires = ['filter_properties', 'request_spec', 'volume_id',
+                    'context']
         super(OnFailureRescheduleTask, self).__init__(addons=[ACTION],
                                                       requires=requires)
+        self.do_reschedule = do_reschedule
         self.scheduler_rpcapi = scheduler_rpcapi
         self.db = db
         self.reschedule_context = reschedule_context
@@ -86,8 +90,33 @@ class OnFailureRescheduleTask(flow_utils.CinderTask):
     def execute(self, **kwargs):
         pass
 
+    def _pre_reschedule(self, context, volume_id):
+        """Actions that happen before the rescheduling attempt occur here."""
+
+        try:
+            # Update volume's timestamp and host.
+            #
+            # NOTE(harlowja): this is awkward to be done here, shouldn't
+            # this happen at the scheduler itself and not before it gets
+            # sent to the scheduler? (since what happens if it never gets
+            # there??). It's almost like we need a status of 'on-the-way-to
+            # scheduler' in the future.
+            # We don't need to update the volume's status to creating, since
+            # we haven't changed it to error.
+            update = {
+                'scheduled_at': timeutils.utcnow(),
+                'host': None,
+            }
+            LOG.debug("Updating volume %(volume_id)s with %(update)s.",
+                      {'update': update, 'volume_id': volume_id})
+            self.db.volume_update(context, volume_id, update)
+        except exception.CinderException:
+            # Don't let updating the state cause the rescheduling to fail.
+            LOG.exception(_LE("Volume %s: update volume state failed."),
+                          volume_id)
+
     def _reschedule(self, context, cause, request_spec, filter_properties,
-                    snapshot_id, image_id, volume_id, **kwargs):
+                    volume_id):
         """Actions that happen during the rescheduling attempt occur here."""
 
         create_volume = self.scheduler_rpcapi.create_volume
@@ -112,7 +141,6 @@ class OnFailureRescheduleTask(flow_utils.CinderTask):
             retry_info['exc'] = traceback.format_exception(*cause.exc_info)
 
         return create_volume(context, CONF.volume_topic, volume_id,
-                             snapshot_id=snapshot_id, image_id=image_id,
                              request_spec=request_spec,
                              filter_properties=filter_properties)
 
@@ -121,56 +149,40 @@ class OnFailureRescheduleTask(flow_utils.CinderTask):
 
         LOG.debug("Volume %s: re-scheduled", volume_id)
 
-    def _pre_reschedule(self, context, volume_id):
-        """Actions that happen before the rescheduling attempt occur here."""
-
-        try:
-            # Reset the volume state.
-            #
-            # NOTE(harlowja): this is awkward to be done here, shouldn't
-            # this happen at the scheduler itself and not before it gets
-            # sent to the scheduler? (since what happens if it never gets
-            # there??). It's almost like we need a status of 'on-the-way-to
-            # scheduler' in the future.
-            update = {
-                'status': 'creating',
-                'scheduled_at': timeutils.utcnow(),
-                'host': None
-            }
-            LOG.debug("Updating volume %(volume_id)s with %(update)s.",
-                      {'update': update, 'volume_id': volume_id})
-            self.db.volume_update(context, volume_id, update)
-        except exception.CinderException:
-            # Don't let resetting the status cause the rescheduling to fail.
-            LOG.exception(_LE("Volume %s: resetting 'creating' "
-                              "status failed."),
-                          volume_id)
-
-    def revert(self, context, result, flow_failures, **kwargs):
+    def revert(self, context, result, flow_failures, volume_id, **kwargs):
         # NOTE(dulek): Revert is occurring and manager need to know if
-        # rescheduling happened. We're injecting this information into
-        # exception that will be caught there. This is ugly and we need
-        # TaskFlow to support better way of returning data from reverted flow.
-        cause = list(flow_failures.values())[0]
-        cause.exception.rescheduled = False
+        # rescheduling happened. We're returning boolean flag that will
+        # indicate that. It which will be available in flow engine store
+        # through get_revert_result method.
 
-        # Check if we have a cause which can tell us not to reschedule.
+        # If do not want to be rescheduled, just set the volume's status to
+        # error and return.
+        if not self.do_reschedule:
+            common.error_out_volume(context, self.db, volume_id)
+            LOG.error(_LE("Volume %s: create failed"), volume_id)
+            return False
+
+        # Check if we have a cause which can tell us not to reschedule and
+        # set the volume's status to error.
         for failure in flow_failures.values():
             if failure.check(*self.no_reschedule_types):
-                return
+                common.error_out_volume(context, self.db, volume_id)
+                LOG.error(_LE("Volume %s: create failed"), volume_id)
+                return False
 
-        volume_id = kwargs['volume_id']
         # Use a different context when rescheduling.
         if self.reschedule_context:
+            cause = list(flow_failures.values())[0]
             context = self.reschedule_context
             try:
                 self._pre_reschedule(context, volume_id)
-                self._reschedule(context, cause, **kwargs)
+                self._reschedule(context, cause, volume_id=volume_id, **kwargs)
                 self._post_reschedule(context, volume_id)
-                # Inject information that we rescheduled
-                cause.exception.rescheduled = True
+                return True
             except exception.CinderException:
                 LOG.exception(_LE("Volume %s: rescheduling failed"), volume_id)
+
+        return False
 
 
 class ExtractVolumeRefTask(flow_utils.CinderTask):
@@ -178,10 +190,11 @@ class ExtractVolumeRefTask(flow_utils.CinderTask):
 
     default_provides = 'volume_ref'
 
-    def __init__(self, db, host):
+    def __init__(self, db, host, set_error=True):
         super(ExtractVolumeRefTask, self).__init__(addons=[ACTION])
         self.db = db
         self.host = host
+        self.set_error = set_error
 
     def execute(self, context, volume_id):
         # NOTE(harlowja): this will fetch the volume from the database, if
@@ -193,7 +206,7 @@ class ExtractVolumeRefTask(flow_utils.CinderTask):
         return volume_ref
 
     def revert(self, context, volume_id, result, **kwargs):
-        if isinstance(result, ft.Failure):
+        if isinstance(result, ft.Failure) or not self.set_error:
             return
 
         common.error_out_volume(context, self.db, volume_id)
@@ -214,13 +227,12 @@ class ExtractVolumeSpecTask(flow_utils.CinderTask):
     default_provides = 'volume_spec'
 
     def __init__(self, db):
-        requires = ['image_id', 'snapshot_id', 'source_volid',
-                    'source_replicaid']
+        requires = ['volume_ref', 'request_spec']
         super(ExtractVolumeSpecTask, self).__init__(addons=[ACTION],
                                                     requires=requires)
         self.db = db
 
-    def execute(self, context, volume_ref, **kwargs):
+    def execute(self, context, volume_ref, request_spec):
         get_remote_image_service = glance.get_remote_image_service
 
         volume_name = volume_ref['name']
@@ -240,18 +252,18 @@ class ExtractVolumeSpecTask(flow_utils.CinderTask):
             'volume_size': volume_size,
         }
 
-        if kwargs.get('snapshot_id'):
+        if volume_ref.get('snapshot_id'):
             # We are making a snapshot based volume instead of a raw volume.
             specs.update({
                 'type': 'snap',
-                'snapshot_id': kwargs['snapshot_id'],
+                'snapshot_id': volume_ref['snapshot_id'],
             })
-        elif kwargs.get('source_volid'):
+        elif volume_ref.get('source_volid'):
             # We are making a source based volume instead of a raw volume.
             #
             # NOTE(harlowja): This will likely fail if the source volume
             # disappeared by the time this call occurred.
-            source_volid = kwargs['source_volid']
+            source_volid = volume_ref.get('source_volid')
             source_volume_ref = self.db.volume_get(context, source_volid)
             specs.update({
                 'source_volid': source_volid,
@@ -261,21 +273,21 @@ class ExtractVolumeSpecTask(flow_utils.CinderTask):
                 'source_volstatus': source_volume_ref['status'],
                 'type': 'source_vol',
             })
-        elif kwargs.get('source_replicaid'):
+        elif request_spec.get('source_replicaid'):
             # We are making a clone based on the replica.
             #
             # NOTE(harlowja): This will likely fail if the replica
             # disappeared by the time this call occurred.
-            source_volid = kwargs['source_replicaid']
+            source_volid = request_spec['source_replicaid']
             source_volume_ref = self.db.volume_get(context, source_volid)
             specs.update({
                 'source_replicaid': source_volid,
                 'source_replicastatus': source_volume_ref['status'],
                 'type': 'source_replica',
             })
-        elif kwargs.get('image_id'):
+        elif request_spec.get('image_id'):
             # We are making an image based volume instead of a raw volume.
-            image_href = kwargs['image_id']
+            image_href = request_spec['image_id']
             image_service, image_id = get_remote_image_service(context,
                                                                image_href)
             specs.update({
@@ -549,21 +561,14 @@ class CreateVolumeFromSpecTask(flow_utils.CinderTask):
             if value is not None:
                 property_metadata[key] = value
 
-        # NOTE(harlowja): The best way for this to happen would be in bulk,
-        # but that doesn't seem to exist (yet), so we go through one by one
-        # which means we can have partial create/update failure.
         volume_metadata = dict(property_metadata)
         volume_metadata.update(base_metadata)
         LOG.debug("Creating volume glance metadata for volume %(volume_id)s"
                   " backed by image %(image_id)s with: %(vol_metadata)s.",
                   {'volume_id': volume_id, 'image_id': image_id,
                    'vol_metadata': volume_metadata})
-        for (key, value) in volume_metadata.items():
-            try:
-                self.db.volume_glance_metadata_create(context, volume_id,
-                                                      key, value)
-            except exception.GlanceMetadataExists:
-                pass
+        self.db.volume_glance_metadata_bulk_create(context, volume_id,
+                                                   volume_metadata)
 
     def _create_from_image(self, context, volume_ref,
                            image_location, image_id, image_meta,
@@ -623,9 +628,6 @@ class CreateVolumeFromSpecTask(flow_utils.CinderTask):
             driver_name = self.driver.__class__.__name__
             LOG.exception(_LE("Unable to create volume. "
                               "Volume driver %s not initialized"), driver_name)
-            # NOTE(flaper87): Set the error status before
-            # raising any exception.
-            self.db.volume_update(context, volume_id, dict(status='error'))
             raise exception.DriverNotInitialized()
 
         create_type = volume_spec.pop('type', None)
@@ -701,7 +703,7 @@ class CreateVolumeOnFinishTask(NotifyVolumeActionTask):
             # TODO(harlowja): is it acceptable to only log if this fails??
             # or are there other side-effects that this will cause if the
             # status isn't updated correctly (aka it will likely be stuck in
-            # 'building' if this fails)??
+            # 'creating' if this fails)??
             volume_ref = self.db.volume_update(context, volume_id, update)
             # Now use the parent to notify.
             super(CreateVolumeOnFinishTask, self).execute(context, volume_ref)
@@ -718,9 +720,7 @@ class CreateVolumeOnFinishTask(NotifyVolumeActionTask):
 
 def get_flow(context, db, driver, scheduler_rpcapi, host, volume_id,
              allow_reschedule, reschedule_context, request_spec,
-             filter_properties, snapshot_id=None, image_id=None,
-             source_volid=None, source_replicaid=None,
-             consistencygroup_id=None, cgsnapshot_id=None):
+             filter_properties):
     """Constructs and returns the manager entrypoint flow.
 
     This flow will do the following:
@@ -730,7 +730,7 @@ def get_flow(context, db, driver, scheduler_rpcapi, host, volume_id,
     3. Selects 1 of 2 activated only on *failure* tasks (one to update the db
        status & notify or one to update the db status & notify & *reschedule*).
     4. Extracts a volume specification from the provided inputs.
-    5. Notifies that the volume has start to be created.
+    5. Notifies that the volume has started to be created.
     6. Creates a volume from the extracted volume specification.
     7. Attaches a on-success *only* task that notifies that the volume creation
        has ended and performs further database status updates.
@@ -745,22 +745,21 @@ def get_flow(context, db, driver, scheduler_rpcapi, host, volume_id,
     create_what = {
         'context': context,
         'filter_properties': filter_properties,
-        'image_id': image_id,
         'request_spec': request_spec,
-        'snapshot_id': snapshot_id,
-        'source_volid': source_volid,
         'volume_id': volume_id,
-        'source_replicaid': source_replicaid,
-        'consistencygroup_id': consistencygroup_id,
-        'cgsnapshot_id': cgsnapshot_id,
     }
 
-    volume_flow.add(ExtractVolumeRefTask(db, host))
+    volume_flow.add(ExtractVolumeRefTask(db, host, set_error=False))
 
     retry = filter_properties.get('retry', None)
-    if allow_reschedule and request_spec and retry:
-        volume_flow.add(OnFailureRescheduleTask(reschedule_context,
-                                                db, scheduler_rpcapi))
+
+    # Always add OnFailureRescheduleTask and we handle the change of volume's
+    # status when reverting the flow. Meanwhile, no need to revert process of
+    # ExtractVolumeRefTask.
+    do_reschedule = allow_reschedule and request_spec and retry
+    volume_flow.add(OnFailureRescheduleTask(reschedule_context, db,
+                                            scheduler_rpcapi,
+                                            do_reschedule))
 
     LOG.debug("Volume reschedule parameters: %(allow)s "
               "retry: %(retry)s", {'allow': allow_reschedule, 'retry': retry})

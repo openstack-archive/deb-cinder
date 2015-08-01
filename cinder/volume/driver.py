@@ -29,6 +29,7 @@ import six
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
 from cinder.image import image_utils
+from cinder import objects
 from cinder.openstack.common import fileutils
 from cinder import utils
 from cinder.volume import rpcapi as volume_rpcapi
@@ -66,7 +67,6 @@ volume_opts = [
                default=3260,
                help='The port that the iSCSI daemon is listening on'),
     cfg.IntOpt('num_volume_device_scan_tries',
-               deprecated_name='num_iscsi_scan_tries',
                default=3,
                help='The maximum number of times to rescan targets'
                     ' to find volume'),
@@ -113,10 +113,6 @@ volume_opts = [
     cfg.StrOpt('chiscsi_conf',
                default='/etc/chelsio-iscsi/chiscsi.conf',
                help='Chiscsi (CXT) global defaults configuration file'),
-    cfg.StrOpt('lio_initiator_iqns',
-               default='',
-               help='This option is deprecated and unused. '
-                    'It will be removed in the next release.'),
     cfg.StrOpt('iscsi_iotype',
                default='fileio',
                choices=['blockio', 'fileio', 'auto'],
@@ -221,6 +217,11 @@ volume_opts = [
                 default=False,
                 help='If set to True the http client will validate the SSL '
                      'certificate of the backend endpoint.'),
+    cfg.ListOpt('trace_flags',
+                default=None,
+                help='List of options that control which trace info '
+                     'is written to the DEBUG log level to assist '
+                     'developers. Valid values are method and api.'),
 ]
 
 # for backward compatibility
@@ -289,6 +290,7 @@ class BaseVD(object):
         if self.configuration:
             self.configuration.append_config_values(volume_opts)
             self.configuration.append_config_values(iser_opts)
+            utils.setup_tracing(self.configuration.safe_get('trace_flags'))
         self.set_execute(execute)
         self._stats = {}
 
@@ -743,9 +745,22 @@ class BaseVD(object):
 
     def backup_volume(self, context, backup, backup_service):
         """Create a new backup from an existing volume."""
-        volume = self.db.volume_get(context, backup['volume_id'])
+        volume = self.db.volume_get(context, backup.volume_id)
 
         LOG.debug('Creating a new backup for volume %s.', volume['name'])
+
+        # NOTE(xyang): Check volume status; if not 'available', create a
+        # a temp volume from the volume, and backup the temp volume, and
+        # then clean up the temp volume; if 'available', just backup the
+        # volume.
+        previous_status = volume.get('previous_status', None)
+        temp_vol_ref = None
+        if previous_status == "in_use":
+            temp_vol_ref = self._create_temp_cloned_volume(
+                context, volume)
+            backup.temp_volume_id = temp_vol_ref['id']
+            backup.save()
+            volume = temp_vol_ref
 
         use_multipath = self.configuration.use_multipath_for_image_xfer
         enforce_multipath = self.configuration.enforce_multipath_for_image_xfer
@@ -767,6 +782,10 @@ class BaseVD(object):
 
         finally:
             self._detach_volume(context, attach_info, volume, properties)
+            if temp_vol_ref:
+                self._delete_volume(context, temp_vol_ref)
+                backup.temp_volume_id = None
+                backup.save()
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
@@ -796,6 +815,67 @@ class BaseVD(object):
 
         finally:
             self._detach_volume(context, attach_info, volume, properties)
+
+    def _create_temp_snapshot(self, context, volume):
+        kwargs = {
+            'volume_id': volume['id'],
+            'cgsnapshot_id': None,
+            'user_id': context.user_id,
+            'project_id': context.project_id,
+            'status': 'creating',
+            'progress': '0%',
+            'volume_size': volume['size'],
+            'display_name': 'backup-snap-%s' % volume['id'],
+            'display_description': None,
+            'volume_type_id': volume['volume_type_id'],
+            'encryption_key_id': volume['encryption_key_id'],
+            'metadata': {},
+        }
+        temp_snap_ref = objects.Snapshot(context=context, **kwargs)
+        temp_snap_ref.create()
+        try:
+            self.create_snapshot(temp_snap_ref)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                with temp_snap_ref.obj_as_admin():
+                    self.db.volume_glance_metadata_delete_by_snapshot(
+                        context, temp_snap_ref.id)
+                    temp_snap_ref.destroy()
+
+        temp_snap_ref.status = 'available'
+        temp_snap_ref.save()
+        return temp_snap_ref
+
+    def _create_temp_cloned_volume(self, context, volume):
+        temp_volume = {
+            'size': volume['size'],
+            'display_name': 'backup-vol-%s' % volume['id'],
+            'host': volume['host'],
+            'user_id': context.user_id,
+            'project_id': context.project_id,
+            'status': 'creating',
+        }
+        temp_vol_ref = self.db.volume_create(context, temp_volume)
+        try:
+            self.create_cloned_volume(temp_vol_ref, volume)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                self.db.volume_destroy(context, temp_vol_ref['id'])
+
+        self.db.volume_update(context, temp_vol_ref['id'],
+                              {'status': 'available'})
+        return temp_vol_ref
+
+    def _delete_snapshot(self, context, snapshot):
+        self.delete_snapshot(snapshot)
+        with snapshot.obj_as_admin():
+            self.db.volume_glance_metadata_delete_by_snapshot(
+                context, snapshot.id)
+            snapshot.destroy()
+
+    def _delete_volume(self, context, volume):
+        self.delete_volume(volume)
+        self.db.volume_destroy(context, volume['id'])
 
     def clear_download(self, context, volume):
         """Clean up after an interrupted image copy."""
@@ -1358,15 +1438,24 @@ class VolumeDriver(ConsistencyGroupVD, TransferVD, ManageableVD, ExtendVD,
         """
         return None
 
-    def update_migrated_volume(self, ctxt, volume, new_volume):
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status):
         """Return model update for migrated volume.
+
+        Each driver implementing this method needs to be responsible for the
+        values of _name_id and provider_location. If None is returned or either
+        key is not set, it means the volume table does not need to change the
+        value(s) for the key(s).
+        The return format is {"_name_id": value, "provider_location": value}.
 
         :param volume: The original volume that was migrated to this backend
         :param new_volume: The migration volume object that was created on
                            this backend as part of the migration process
+        :param original_volume_status: The status of the original volume
         :return model_update to update DB with any needed changes
         """
-        return None
+        msg = _("The method update_migrated_volume is not implemented.")
+        raise NotImplementedError(msg)
 
     def migrate_volume(self, context, volume, host):
         return (False, None)

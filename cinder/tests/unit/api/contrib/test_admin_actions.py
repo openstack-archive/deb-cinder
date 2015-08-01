@@ -30,6 +30,7 @@ from cinder import db
 from cinder import exception
 from cinder import objects
 from cinder import test
+from cinder.tests.unit.api.contrib import test_backups
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.api.v2 import stubs
 from cinder.tests.unit import cast_as_call
@@ -249,6 +250,23 @@ class AdminActionsTest(test.TestCase):
                                         backup,
                                         {'status': 'restoring'})
         self.assertEqual(resp.status_int, 400)
+
+    def test_backup_reset_status_with_invalid_backup(self):
+        ctx = context.RequestContext('admin', 'fake', True)
+        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
+                                        'provider_location': '', 'size': 1})
+        backup = db.backup_create(ctx, {'status': 'available',
+                                        'volume_id': volume['id'],
+                                        'user_id': 'user',
+                                        'project_id': 'project'})
+
+        backup['id'] = 'fake_id'
+        resp = self._issue_backup_reset(ctx,
+                                        backup,
+                                        {'status': 'error'})
+
+        # Should raise 404 if backup doesn't exist.
+        self.assertEqual(404, resp.status_int)
 
     def test_malformed_reset_status_body(self):
         ctx = context.RequestContext('admin', 'fake', True)
@@ -847,21 +865,13 @@ class AdminActionsTest(test.TestCase):
         db.snapshot_create(ctx, {'volume_id': volume['id']})
         self._migrate_volume_exec(ctx, volume, host, expected_status)
 
-    def test_migrate_volume_bad_force_host_copy1(self):
+    def test_migrate_volume_bad_force_host_copy(self):
         expected_status = 400
         host = 'test2'
         ctx = context.RequestContext('admin', 'fake', True)
         volume = self._migrate_volume_prep()
         self._migrate_volume_exec(ctx, volume, host, expected_status,
                                   force_host_copy='foo')
-
-    def test_migrate_volume_bad_force_host_copy2(self):
-        expected_status = 400
-        host = 'test2'
-        ctx = context.RequestContext('admin', 'fake', True)
-        volume = self._migrate_volume_prep()
-        self._migrate_volume_exec(ctx, volume, host, expected_status,
-                                  force_host_copy=1)
 
     def _migrate_volume_comp_exec(self, ctx, volume, new_volume, error,
                                   expected_status, expected_id, no_body=False):
@@ -961,3 +971,56 @@ class AdminActionsTest(test.TestCase):
         self.assertRaises(exc.HTTPBadRequest,
                           vac.validate_update,
                           {'status': 'creating'})
+
+    @mock.patch('cinder.backup.api.API._check_support_to_force_delete')
+    def _force_delete_backup_util(self, test_status, mock_check_support):
+        # admin context
+        ctx = context.RequestContext('admin', 'fake', True)
+        mock_check_support.return_value = True
+        # current status is dependent on argument: test_status.
+        id = test_backups.BackupsAPITestCase._create_backup(status=test_status)
+        req = webob.Request.blank('/v2/fake/backups/%s/action' % id)
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = jsonutils.dumps({'os-force_delete': {}})
+        req.environ['cinder.context'] = ctx
+        res = req.get_response(app())
+
+        self.assertEqual(202, res.status_int)
+        self.assertEqual('deleting',
+                         test_backups.BackupsAPITestCase.
+                         _get_backup_attrib(id, 'status'))
+        db.backup_destroy(context.get_admin_context(), id)
+
+    def test_delete_backup_force_when_creating(self):
+        self._force_delete_backup_util('creating')
+
+    def test_delete_backup_force_when_deleting(self):
+        self._force_delete_backup_util('deleting')
+
+    def test_delete_backup_force_when_restoring(self):
+        self._force_delete_backup_util('restoring')
+
+    def test_delete_backup_force_when_available(self):
+        self._force_delete_backup_util('available')
+
+    def test_delete_backup_force_when_error(self):
+        self._force_delete_backup_util('error')
+
+    def test_delete_backup_force_when_error_deleting(self):
+        self._force_delete_backup_util('error_deleting')
+
+    @mock.patch('cinder.backup.rpcapi.BackupAPI.check_support_to_force_delete',
+                return_value=False)
+    def test_delete_backup_force_when_not_supported(self, mock_check_support):
+        # admin context
+        ctx = context.RequestContext('admin', 'fake', True)
+        self.override_config('backup_driver', 'cinder.backup.drivers.ceph')
+        id = test_backups.BackupsAPITestCase._create_backup()
+        req = webob.Request.blank('/v2/fake/backups/%s/action' % id)
+        req.method = 'POST'
+        req.headers['Content-Type'] = 'application/json'
+        req.body = jsonutils.dumps({'os-force_delete': {}})
+        req.environ['cinder.context'] = ctx
+        res = req.get_response(app())
+        self.assertEqual(405, res.status_int)

@@ -20,7 +20,6 @@ Tests for volume transfer code.
 import json
 from xml.dom import minidom
 
-from oslo_log import log as logging
 import webob
 
 from cinder.api.contrib import volume_transfer
@@ -30,9 +29,6 @@ from cinder import exception
 from cinder import test
 from cinder.tests.unit.api import fakes
 import cinder.transfer
-
-
-LOG = logging.getLogger(__name__)
 
 
 class VolumeTransferAPITestCase(test.TestCase):
@@ -71,7 +67,6 @@ class VolumeTransferAPITestCase(test.TestCase):
     def test_show_transfer(self):
         volume_id = self._create_volume(size=5)
         transfer = self._create_transfer(volume_id)
-        LOG.debug('Created transfer with id %s' % transfer)
         req = webob.Request.blank('/v2/fake/os-volume-transfer/%s' %
                                   transfer['id'])
         req.method = 'GET'
@@ -269,7 +264,6 @@ class VolumeTransferAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
 
         res_dict = json.loads(res.body)
-        LOG.info(res_dict)
 
         self.assertEqual(res.status_int, 202)
         self.assertIn('id', res_dict['transfer'])
@@ -313,9 +307,9 @@ class VolumeTransferAPITestCase(test.TestCase):
 
         self.assertEqual(res.status_int, 400)
         self.assertEqual(res_dict['badRequest']['code'], 400)
-        self.assertEqual(res_dict['badRequest']['message'],
-                         'The server could not comply with the request since'
-                         ' it is either malformed or otherwise incorrect.')
+        self.assertEqual("Missing required element 'transfer' in "
+                         "request body.",
+                         res_dict['badRequest']['message'])
 
     def test_create_transfer_with_body_KeyError(self):
         body = {"transfer": {"display_name": "transfer1"}}
@@ -465,9 +459,8 @@ class VolumeTransferAPITestCase(test.TestCase):
 
         self.assertEqual(res.status_int, 400)
         self.assertEqual(res_dict['badRequest']['code'], 400)
-        self.assertEqual(res_dict['badRequest']['message'],
-                         'The server could not comply with the request since'
-                         ' it is either malformed or otherwise incorrect.')
+        self.assertEqual("Missing required element 'accept' in request body.",
+                         res_dict['badRequest']['message'])
 
         db.volume_destroy(context.get_admin_context(), volume_id)
 
@@ -488,9 +481,8 @@ class VolumeTransferAPITestCase(test.TestCase):
 
         self.assertEqual(res.status_int, 400)
         self.assertEqual(res_dict['badRequest']['code'], 400)
-        self.assertEqual(res_dict['badRequest']['message'],
-                         'The server could not comply with the request since'
-                         ' it is either malformed or otherwise incorrect.')
+        self.assertEqual("Missing required element 'accept' in request body.",
+                         res_dict['badRequest']['message'])
 
     def test_accept_transfer_invalid_id_auth_key(self):
         volume_id = self._create_volume()

@@ -198,10 +198,6 @@ class FileLock(lockutils.InterProcessLock):
         super(FileLock, self).__init__(name)
 
     def __enter__(self):
-        if not os.access(self.fname, os.W_OK):
-            msg = output_err(633, file=self.fname)
-            raise exception.HBSDError(message=msg)
-
         self.lock_object.acquire()
 
         try:
@@ -244,7 +240,7 @@ class HBSDBasicLib(object):
         cmd = [cmd]
 
         if args:
-            if isinstance(args, six.text_type):
+            if six.PY2 and isinstance(args, six.text_type):
                 cmd += shlex.split(args.encode())
             else:
                 cmd += shlex.split(args)

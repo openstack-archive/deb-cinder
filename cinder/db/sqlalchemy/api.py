@@ -46,6 +46,7 @@ from sqlalchemy.sql.expression import literal_column
 from sqlalchemy.sql.expression import true
 from sqlalchemy.sql import func
 
+from cinder.api import common
 from cinder.common import sqlalchemyutils
 from cinder.db.sqlalchemy import models
 from cinder import exception
@@ -1151,12 +1152,13 @@ def finish_volume_migration(context, src_vol_id, dest_vol_id):
             return attr in inst.__class__.__table__.columns
 
         for key, value in dest_volume_ref.iteritems():
-            if key == 'id' or not is_column(dest_volume_ref, key):
+            # The implementation of update_migrated_volume will decide the
+            # values for _name_id and provider_location.
+            if (key in ('id', '_name_id', 'provider_location')
+                    or not is_column(dest_volume_ref, key)):
                 continue
             elif key == 'migration_status':
                 value = None
-            elif key == '_name_id':
-                value = dest_volume_ref['_name_id'] or dest_volume_ref['id']
 
             setattr(src_volume_ref, key, value)
 
@@ -1428,7 +1430,7 @@ def volume_get_all_by_group(context, group_id, filters=None):
 @require_context
 def volume_get_all_by_project(context, project_id, marker, limit,
                               sort_keys=None, sort_dirs=None, filters=None):
-    """"Retrieves all volumes in a project.
+    """Retrieves all volumes in a project.
 
     If no sort parameters are specified then the returned volumes are sorted
     first by the 'created_at' key and then by the 'id' key in descending
@@ -1759,7 +1761,10 @@ def _volume_x_metadata_get_item(context, volume_id, key, model, notfound_exec,
         first()
 
     if not result:
-        raise notfound_exec(metadata_key=key, volume_id=volume_id)
+        if model is models.VolumeGlanceMetadata:
+            raise notfound_exec(id=volume_id)
+        else:
+            raise notfound_exec(metadata_key=key, volume_id=volume_id)
     return result
 
 
@@ -1811,6 +1816,12 @@ def _volume_user_metadata_get_query(context, volume_id, session=None):
                                         models.VolumeMetadata, session=session)
 
 
+def _volume_image_metadata_get_query(context, volume_id, session=None):
+    return _volume_x_metadata_get_query(context, volume_id,
+                                        models.VolumeGlanceMetadata,
+                                        session=session)
+
+
 @require_context
 @require_volume_exists
 def _volume_user_metadata_get(context, volume_id, session=None):
@@ -1838,6 +1849,16 @@ def _volume_user_metadata_update(context, volume_id, metadata, delete,
 
 @require_context
 @require_volume_exists
+def _volume_image_metadata_update(context, volume_id, metadata, delete,
+                                  session=None):
+    return _volume_x_metadata_update(context, volume_id, metadata, delete,
+                                     models.VolumeGlanceMetadata,
+                                     exception.GlanceMetadataNotFound,
+                                     session=session)
+
+
+@require_context
+@require_volume_exists
 def volume_metadata_get_item(context, volume_id, key):
     return _volume_user_metadata_get_item(context, volume_id, key)
 
@@ -1851,19 +1872,41 @@ def volume_metadata_get(context, volume_id):
 @require_context
 @require_volume_exists
 @_retry_on_deadlock
-def volume_metadata_delete(context, volume_id, key):
-    _volume_user_metadata_get_query(context, volume_id).\
-        filter_by(key=key).\
-        update({'deleted': True,
-                'deleted_at': timeutils.utcnow(),
-                'updated_at': literal_column('updated_at')})
+def volume_metadata_delete(context, volume_id, key, meta_type):
+    if meta_type == common.METADATA_TYPES.user:
+        (_volume_user_metadata_get_query(context, volume_id).
+            filter_by(key=key).
+            update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')}))
+    elif meta_type == common.METADATA_TYPES.image:
+        (_volume_image_metadata_get_query(context, volume_id).
+            filter_by(key=key).
+            update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')}))
+    else:
+        raise exception.InvalidMetadataType(metadata_type=meta_type,
+                                            id=volume_id)
 
 
 @require_context
 @require_volume_exists
 @_retry_on_deadlock
-def volume_metadata_update(context, volume_id, metadata, delete):
-    return _volume_user_metadata_update(context, volume_id, metadata, delete)
+def volume_metadata_update(context, volume_id, metadata, delete, meta_type):
+    if meta_type == common.METADATA_TYPES.user:
+        return _volume_user_metadata_update(context,
+                                            volume_id,
+                                            metadata,
+                                            delete)
+    elif meta_type == common.METADATA_TYPES.image:
+        return _volume_image_metadata_update(context,
+                                             volume_id,
+                                             metadata,
+                                             delete)
+    else:
+        raise exception.InvalidMetadataType(metadata_type=meta_type,
+                                            id=volume_id)
 
 
 ###################
@@ -1974,10 +2017,22 @@ def snapshot_get(context, snapshot_id):
 
 
 @require_admin_context
-def snapshot_get_all(context):
-    return model_query(context, models.Snapshot).\
-        options(joinedload('snapshot_metadata')).\
-        all()
+def snapshot_get_all(context, filters=None):
+    # Ensure that the filter value exists on the model
+    if filters:
+        for key in filters.keys():
+            try:
+                getattr(models.Snapshot, key)
+            except AttributeError:
+                LOG.debug("'%s' filter key is not valid.", key)
+                return []
+
+    query = model_query(context, models.Snapshot)
+
+    if filters:
+        query = query.filter_by(**filters)
+
+    return query.options(joinedload('snapshot_metadata')).all()
 
 
 @require_context
@@ -2012,12 +2067,15 @@ def snapshot_get_all_for_cgsnapshot(context, cgsnapshot_id):
 
 
 @require_context
-def snapshot_get_all_by_project(context, project_id):
+def snapshot_get_all_by_project(context, project_id, filters=None):
     authorize_project_context(context, project_id)
-    return model_query(context, models.Snapshot).\
-        filter_by(project_id=project_id).\
-        options(joinedload('snapshot_metadata')).\
-        all()
+    query = model_query(context, models.Snapshot)
+
+    if filters:
+        query = query.filter_by(**filters)
+
+    return query.filter_by(project_id=project_id).\
+        options(joinedload('snapshot_metadata')).all()
 
 
 @require_context
@@ -2079,7 +2137,6 @@ def _snapshot_metadata_get_query(context, snapshot_id, session=None):
 
 
 @require_context
-@require_snapshot_exists
 def _snapshot_metadata_get(context, snapshot_id, session=None):
     rows = _snapshot_metadata_get_query(context, snapshot_id, session).all()
     result = {}
@@ -2931,6 +2988,9 @@ def volume_type_encryption_delete(context, volume_type_id):
     with session.begin():
         encryption = volume_type_encryption_get(context, volume_type_id,
                                                 session)
+        if not encryption:
+            raise exception.VolumeTypeEncryptionNotFound(
+                type_id=volume_type_id)
         encryption.update({'deleted': True,
                            'deleted_at': timeutils.utcnow(),
                            'updated_at': literal_column('updated_at')})
@@ -3092,6 +3152,34 @@ def volume_glance_metadata_create(context, volume_id, key, value):
         session.add(vol_glance_metadata)
 
     return
+
+
+@require_context
+@require_volume_exists
+def volume_glance_metadata_bulk_create(context, volume_id, metadata):
+    """Update the Glance metadata for a volume by adding new key:value pairs.
+
+    This API does not support changing the value of a key once it has been
+    created.
+    """
+
+    session = get_session()
+    with session.begin():
+        for (key, value) in metadata.items():
+            rows = session.query(models.VolumeGlanceMetadata).\
+                filter_by(volume_id=volume_id).\
+                filter_by(key=key).\
+                filter_by(deleted=False).all()
+
+            if len(rows) > 0:
+                raise exception.GlanceMetadataExists(key=key,
+                                                     volume_id=volume_id)
+
+            vol_glance_metadata = models.VolumeGlanceMetadata()
+            vol_glance_metadata.volume_id = volume_id
+            vol_glance_metadata.key = key
+            vol_glance_metadata.value = six.text_type(value)
+            session.add(vol_glance_metadata)
 
 
 @require_context
@@ -3541,23 +3629,52 @@ def cgsnapshot_get(context, cgsnapshot_id):
     return _cgsnapshot_get(context, cgsnapshot_id)
 
 
-@require_admin_context
-def cgsnapshot_get_all(context):
-    return model_query(context, models.Cgsnapshot).all()
+def is_valid_model_filters(model, filters):
+    """Return True if filter values exist on the model
+
+    :param model: a Cinder model
+    :param filters: dictionary of filters
+    """
+    for key in filters.keys():
+        try:
+            getattr(model, key)
+        except AttributeError:
+            LOG.debug("'%s' filter key is not valid.", key)
+            return False
+    return True
+
+
+def _cgsnapshot_get_all(context, project_id=None, group_id=None, filters=None):
+    query = model_query(context, models.Cgsnapshot)
+
+    if filters:
+        if not is_valid_model_filters(models.Cgsnapshot, filters):
+            return []
+        query = query.filter_by(**filters)
+
+    if project_id:
+        query.filter_by(project_id=project_id)
+
+    if group_id:
+        query.filter_by(consistencygroup_id=group_id)
+
+    return query.all()
 
 
 @require_admin_context
-def cgsnapshot_get_all_by_group(context, group_id):
-    return model_query(context, models.Cgsnapshot).\
-        filter_by(consistencygroup_id=group_id).all()
+def cgsnapshot_get_all(context, filters=None):
+    return _cgsnapshot_get_all(context, filters=filters)
+
+
+@require_admin_context
+def cgsnapshot_get_all_by_group(context, group_id, filters=None):
+    return _cgsnapshot_get_all(context, group_id=group_id, filters=filters)
 
 
 @require_context
-def cgsnapshot_get_all_by_project(context, project_id):
+def cgsnapshot_get_all_by_project(context, project_id, filters=None):
     authorize_project_context(context, project_id)
-
-    return model_query(context, models.Cgsnapshot).\
-        filter_by(project_id=project_id).all()
+    return _cgsnapshot_get_all(context, project_id=project_id, filters=filters)
 
 
 @require_context

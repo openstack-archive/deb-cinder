@@ -40,6 +40,7 @@ from oslo_config import cfg
 from oslo_db import concurrency as db_concurrency
 from oslo_db import options as db_options
 
+from cinder.api import common
 
 db_opts = [
     cfg.BoolOpt('enable_new_services',
@@ -65,6 +66,9 @@ _BACKEND_MAPPING = {'sqlalchemy': 'cinder.db.sqlalchemy.api'}
 
 
 IMPL = db_concurrency.TpoolDbapiWrapper(CONF, _BACKEND_MAPPING)
+
+# The maximum value a signed INT type may have
+MAX_INT = 0x7FFFFFFF
 
 
 ###################
@@ -285,14 +289,14 @@ def snapshot_get(context, snapshot_id):
     return IMPL.snapshot_get(context, snapshot_id)
 
 
-def snapshot_get_all(context):
+def snapshot_get_all(context, filters=None):
     """Get all snapshots."""
-    return IMPL.snapshot_get_all(context)
+    return IMPL.snapshot_get_all(context, filters)
 
 
-def snapshot_get_all_by_project(context, project_id):
+def snapshot_get_all_by_project(context, project_id, filters=None):
     """Get all snapshots belonging to a project."""
-    return IMPL.snapshot_get_all_by_project(context, project_id)
+    return IMPL.snapshot_get_all_by_project(context, project_id, filters)
 
 
 def snapshot_get_by_host(context, host, filters=None):
@@ -365,14 +369,18 @@ def volume_metadata_get(context, volume_id):
     return IMPL.volume_metadata_get(context, volume_id)
 
 
-def volume_metadata_delete(context, volume_id, key):
+def volume_metadata_delete(context, volume_id, key,
+                           meta_type=common.METADATA_TYPES.user):
     """Delete the given metadata item."""
-    return IMPL.volume_metadata_delete(context, volume_id, key)
+    return IMPL.volume_metadata_delete(context, volume_id,
+                                       key, meta_type)
 
 
-def volume_metadata_update(context, volume_id, metadata, delete):
+def volume_metadata_update(context, volume_id, metadata,
+                           delete, meta_type=common.METADATA_TYPES.user):
     """Update metadata if it exists, otherwise create it."""
-    return IMPL.volume_metadata_update(context, volume_id, metadata, delete)
+    return IMPL.volume_metadata_update(context, volume_id, metadata,
+                                       delete, meta_type)
 
 
 ##################
@@ -629,6 +637,12 @@ def volume_glance_metadata_create(context, volume_id, key, value):
                                               volume_id,
                                               key,
                                               value)
+
+
+def volume_glance_metadata_bulk_create(context, volume_id, metadata):
+    """Add Glance metadata for specified volume (multiple pairs)."""
+    return IMPL.volume_glance_metadata_bulk_create(context, volume_id,
+                                                   metadata)
 
 
 def volume_glance_metadata_get_all(context):
@@ -928,9 +942,9 @@ def cgsnapshot_get(context, cgsnapshot_id):
     return IMPL.cgsnapshot_get(context, cgsnapshot_id)
 
 
-def cgsnapshot_get_all(context):
+def cgsnapshot_get_all(context, filters=None):
     """Get all cgsnapshots."""
-    return IMPL.cgsnapshot_get_all(context)
+    return IMPL.cgsnapshot_get_all(context, filters)
 
 
 def cgsnapshot_create(context, values):
@@ -938,14 +952,14 @@ def cgsnapshot_create(context, values):
     return IMPL.cgsnapshot_create(context, values)
 
 
-def cgsnapshot_get_all_by_group(context, group_id):
+def cgsnapshot_get_all_by_group(context, group_id, filters=None):
     """Get all cgsnapshots belonging to a consistency group."""
-    return IMPL.cgsnapshot_get_all_by_group(context, group_id)
+    return IMPL.cgsnapshot_get_all_by_group(context, group_id, filters)
 
 
-def cgsnapshot_get_all_by_project(context, project_id):
+def cgsnapshot_get_all_by_project(context, project_id, filters=None):
     """Get all cgsnapshots belonging to a project."""
-    return IMPL.cgsnapshot_get_all_by_project(context, project_id)
+    return IMPL.cgsnapshot_get_all_by_project(context, project_id, filters)
 
 
 def cgsnapshot_update(context, cgsnapshot_id, values):

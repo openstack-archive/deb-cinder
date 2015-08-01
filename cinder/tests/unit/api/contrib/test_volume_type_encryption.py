@@ -324,11 +324,13 @@ class VolumeTypeEncryptionTest(test.TestCase):
         db.volume_type_destroy(context.get_admin_context(), volume_type['id'])
 
     def test_create_no_body(self):
-        self._encryption_create_bad_body(body=None)
+        msg = "Missing required element 'encryption' in request body."
+        self._encryption_create_bad_body(body=None, msg=msg)
 
     def test_create_malformed_entity(self):
         body = {'encryption': 'string'}
-        self._encryption_create_bad_body(body=body)
+        msg = "Missing required element 'encryption' in request body."
+        self._encryption_create_bad_body(body=body, msg=msg)
 
     def test_create_negative_key_size(self):
         body = {"encryption": {'cipher': 'cipher',
@@ -475,6 +477,27 @@ class VolumeTypeEncryptionTest(test.TestCase):
 
         db.volume_type_destroy(context.get_admin_context(), volume_type['id'])
 
+    def test_delete_with_no_encryption(self):
+        volume_type = self._default_volume_type
+        # create an volume type
+        db.volume_type_create(context.get_admin_context(), volume_type)
+
+        # without creating encryption type, try to delete
+        # and check if 404 is raised.
+        res = self._get_response(volume_type, req_method='DELETE',
+                                 req_headers='application/json',
+                                 url='/v2/fake/types/%s/encryption/provider')
+        self.assertEqual(404, res.status_code)
+        expected = {
+            "itemNotFound": {
+                "message": "Volume type encryption for type "
+                           "fake_type_id does not exist.",
+                "code": 404
+            }
+        }
+        self.assertEqual(expected, json.loads(res.body))
+        db.volume_type_destroy(context.get_admin_context(), volume_type['id'])
+
     def test_update_item(self):
         volume_type = self._default_volume_type
 
@@ -549,11 +572,11 @@ class VolumeTypeEncryptionTest(test.TestCase):
 
     def test_update_item_invalid_body(self):
         update_body = {"key_size": "value1"}
-        msg = 'Update body is not valid. It must contain "encryption."'
+        msg = "Missing required element 'encryption' in request body."
         self._encryption_update_bad_body(update_body, msg)
 
     def _encryption_empty_update(self, update_body):
-        msg = 'Request body empty.'
+        msg = "Missing required element 'encryption' in request body."
         self._encryption_update_bad_body(update_body, msg)
 
     def test_update_no_body(self):

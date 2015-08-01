@@ -16,6 +16,7 @@
 """Base class for all backup drivers."""
 
 import abc
+import base64
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -323,6 +324,10 @@ class BackupDriver(base.Base):
         super(BackupDriver, self).__init__(db_driver)
         self.context = context
         self.backup_meta_api = BackupMetadataAPI(context, db_driver)
+        # This flag indicates if backup driver supports force
+        # deletion. So it should be set to True if the driver that inherits
+        # from BackupDriver supports the force deletion function.
+        self.support_force_delete = False
 
     def get_metadata(self, volume_id):
         return self.backup_meta_api.get(volume_id)
@@ -355,7 +360,9 @@ class BackupDriver(base.Base):
         :returns backup_url - a string describing the backup record
         """
         retval = jsonutils.dumps(backup)
-        return retval.encode("base64")
+        if six.PY3:
+            retval = retval.encode('utf-8')
+        return base64.encodestring(retval)
 
     def import_record(self, backup_url):
         """Import and verify backup record.
@@ -367,7 +374,7 @@ class BackupDriver(base.Base):
         :param backup_url: driver specific backup record string
         :returns dictionary object with database updates
         """
-        return jsonutils.loads(backup_url.decode("base64"))
+        return jsonutils.loads(base64.decodestring(backup_url))
 
 
 @six.add_metaclass(abc.ABCMeta)

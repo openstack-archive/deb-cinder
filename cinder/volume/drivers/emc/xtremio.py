@@ -22,7 +22,8 @@ supported XtremIO version 2.4 and up
 1.0.3 - update logging level, add translation
 1.0.4 - support for FC zones
 1.0.5 - add support for XtremIO 4.0
-1.0.6 - add support for iSCSI and CA validation
+1.0.6 - add support for iSCSI multipath, CA validation, consistency groups,
+        R/O snapshots, CHAP discovery authentication
 """
 
 import json
@@ -38,6 +39,8 @@ import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import objects
+from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
 from cinder.zonemanager import utils as fczm_utils
@@ -50,7 +53,13 @@ DEFAULT_PROVISIONING_FACTOR = 20.0
 XTREMIO_OPTS = [
     cfg.StrOpt('xtremio_cluster_name',
                default='',
-               help='XMS cluster id in multi-cluster environment')]
+               help='XMS cluster id in multi-cluster environment'),
+    cfg.IntOpt('xtremio_array_busy_retry_count',
+               default=5,
+               help='Number of retries in case array is busy'),
+    cfg.IntOpt('xtremio_array_busy_retry_interval',
+               default=5,
+               help='Interval between retries in case array is busy')]
 
 CONF.register_opts(XTREMIO_OPTS)
 
@@ -59,6 +68,7 @@ OBJ_NOT_FOUND_ERR = 'obj_not_found'
 VOL_NOT_UNIQUE_ERR = 'vol_obj_name_not_unique'
 VOL_OBJ_NOT_FOUND_ERR = 'vol_obj_not_found'
 ALREADY_MAPPED_ERR = 'already_mapped'
+SYSTEM_BUSY = 'system_is_busy'
 
 
 class XtremIOClient(object):
@@ -75,6 +85,9 @@ class XtremIOClient(object):
         elif ver == 'v2':
             return 'https://%s/api/json/v2/types' % self.configuration.san_ip
 
+    @utils.retry(exception.XtremIOArrayBusy,
+                 CONF.xtremio_array_busy_retry_count,
+                 CONF.xtremio_array_busy_retry_interval, 1)
     def req(self, object_type='volumes', request_typ='GET', data=None,
             name=None, idx=None, ver='v1'):
         if not data:
@@ -139,6 +152,8 @@ class XtremIOClient(object):
                 raise exception.VolumeNotFound(volume_id=key)
             elif ALREADY_MAPPED_ERR in err_msg:
                 raise exception.XtremIOAlreadyMappedError()
+            elif err_msg == SYSTEM_BUSY:
+                raise exception.XtremIOArrayBusy()
         msg = _('Bad response from XMS, %s') % response.text
         LOG.error(msg)
         raise exception.VolumeBackendAPIException(message=msg)
@@ -151,6 +166,23 @@ class XtremIOClient(object):
 
     def get_cluster(self):
         return self.req('clusters', idx=1)['content']
+
+    def create_snapshot(self, src, dest, ro=False):
+        """Create a snapshot of a volume on the array.
+
+        XtreamIO array snapshots are also volumes.
+
+        :src: name of the source volume to be cloned
+        :dest: name for the new snapshot
+        :ro: new snapshot type ro/regular. only applicable to Client4
+        """
+        raise NotImplementedError()
+
+    def get_extra_capabilities(self):
+        return {}
+
+    def get_initiator(self, port_address):
+        raise NotImplementedError()
 
 
 class XtremIOClient3(XtremIOClient):
@@ -167,7 +199,7 @@ class XtremIOClient3(XtremIOClient):
                     return lm
         except exception.NotFound:
             raise (exception.VolumeDriverException
-                   (_("can't find lunmap, ig:%(ig)s vol:%(vol)s") %
+                   (_("can't find lun-map, ig:%(ig)s vol:%(vol)s") %
                     {'ig': ig_name, 'vol': vol_name}))
 
     def num_of_mapped_volumes(self, initiator):
@@ -195,11 +227,25 @@ class XtremIOClient3(XtremIOClient):
 
         return self._portals
 
+    def create_snapshot(self, src, dest, ro=False):
+        data = {'snap-vol-name': dest, 'ancestor-vol-id': src}
+
+        self.req('snapshots', 'POST', data)
+
+    def get_initiator(self, port_address):
+        try:
+            return self.req('initiators', 'GET', name=port_address)['content']
+        except exception.NotFound:
+            pass
+
 
 class XtremIOClient4(XtremIOClient):
     def __init__(self, configuration, cluster_id):
         super(XtremIOClient4, self).__init__(configuration, cluster_id)
         self._cluster_name = None
+
+    def get_extra_capabilities(self):
+        return {'consistencygroup_support': True}
 
     def find_lunmap(self, ig_name, vol_name):
         try:
@@ -233,6 +279,38 @@ class XtremIOClient4(XtremIOClient):
             self.cluster_id = self.req('clusters')['clusters'][0]['name']
 
         return self.req('clusters', name=self.cluster_id)['content']
+
+    def create_snapshot(self, src, dest, ro=False):
+        data = {'snapshot-set-name': dest, 'snap-suffix': dest,
+                'volume-list': [src],
+                'snapshot-type': 'readonly' if ro else 'regular'}
+
+        res = self.req('snapshots', 'POST', data, ver='v2')
+        typ, idx = res['links'][0]['href'].split('/')[-2:]
+
+        # rename the snapshot
+        data = {'name': dest}
+        try:
+            self.req(typ, 'PUT', data, idx=int(idx))
+        except exception.VolumeBackendAPIException:
+            # reverting
+            msg = _LE('Failed to rename the created snapshot, reverting.')
+            LOG.error(msg)
+            self.req(typ, 'DELETE', idx=int(idx))
+            raise
+
+    def add_vol_to_cg(self, vol_id, cg_id):
+        add_data = {'vol-id': vol_id, 'cg-id': cg_id}
+        self.req('consistency-group-volumes', 'POST', add_data, ver='v2')
+
+    def get_initiator(self, port_address):
+        inits = self.req('initiators',
+                         data={'filter': 'port-address:eq:' + port_address,
+                               'full': 1})['initiators']
+        if len(inits) == 1:
+            return inits[0]
+        else:
+            pass
 
 
 class XtremIOVolumeDriver(san.SanDriver):
@@ -287,22 +365,28 @@ class XtremIOVolumeDriver(san.SanDriver):
         data = {'vol-name': volume['id'],
                 'vol-size': str(volume['size']) + 'g'
                 }
-
         self.client.req('volumes', 'POST', data)
+
+        if volume.get('consistencygroup_id') and self.client is XtremIOClient4:
+            self.client.add_vol_to_cg(volume['id'],
+                                      volume['consistencygroup_id'])
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot."""
-        data = {'snap-vol-name': volume['id'],
-                'ancestor-vol-id': snapshot.id}
+        self.client.create_snapshot(snapshot.id, volume['id'])
 
-        self.client.req('snapshots', 'POST', data)
+        if (snapshot.get('consistencygroup_id') and
+                self.client is XtremIOClient4):
+            self.client.add_vol_to_cg(volume['id'],
+                                      snapshot['consistencygroup_id'])
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
-        data = {'snap-vol-name': volume['id'],
-                'ancestor-vol-id': src_vref['id']}
+        self.client.create_snapshot(src_vref['id'], volume['id'])
 
-        self.client.req('snapshots', 'POST', data)
+        if volume.get('consistencygroup_id') and self.client is XtremIOClient4:
+            self.client.add_vol_to_cg(volume['id'],
+                                      volume['consistencygroup_id'])
 
     def delete_volume(self, volume):
         """Deletes a volume."""
@@ -313,10 +397,7 @@ class XtremIOVolumeDriver(san.SanDriver):
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
-        data = {'snap-vol-name': snapshot.id,
-                'ancestor-vol-id': snapshot.volume_id}
-
-        self.client.req('snapshots', 'POST', data)
+        self.client.create_snapshot(snapshot.volume_id, snapshot.id, True)
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
@@ -344,7 +425,9 @@ class XtremIOVolumeDriver(san.SanDriver):
                        'thick_provisioning_support': False,
                        'reserved_percentage':
                        self.configuration.reserved_percentage,
-                       'QoS_support': False}
+                       'QoS_support': False,
+                       }
+        self._stats.update(self.client.get_extra_capabilities())
 
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
@@ -409,7 +492,7 @@ class XtremIOVolumeDriver(san.SanDriver):
             self.client.req('volumes', 'PUT', data, name=volume['id'])
         except exception.NotFound:
             msg = _("can't find the volume to extend")
-            raise (exception.VolumeDriverException(message=msg))
+            raise exception.VolumeDriverException(message=msg)
 
     def check_for_export(self, context, volume_id):
         """Make sure volume is exported."""
@@ -419,14 +502,14 @@ class XtremIOVolumeDriver(san.SanDriver):
         """Disallow connection from connector"""
         try:
             ig = self.client.req('initiator-groups',
-                                 name=self._get_ig(connector))['content']
+                                 name=self._get_ig_name(connector))['content']
             tg = self.client.req('target-groups', name='Default')['content']
             vol = self.client.req('volumes', name=volume['id'])['content']
 
             lm_name = '%s_%s_%s' % (six.text_type(vol['index']),
                                     six.text_type(ig['index']),
                                     six.text_type(tg['index']))
-            LOG.debug('removing lun map %s', lm_name)
+            LOG.debug('Removing lun map %s.', lm_name)
             self.client.req('lun-maps', 'DELETE', name=lm_name)
         except exception.NotFound:
             LOG.warning(_LW("terminate_connection: lun map not found"))
@@ -436,22 +519,151 @@ class XtremIOVolumeDriver(san.SanDriver):
                        (string.ascii_uppercase + string.digits)
                        for _ in range(12))
 
-    def create_lun_map(self, volume, ig):
+    def create_lun_map(self, volume, ig, lun_num=None):
         try:
-            res = self.client.req('lun-maps', 'POST',
-                                  {'ig-id': ig['ig-id'][2],
-                                   'vol-id': volume['id']})
+            data = {'ig-id': ig, 'vol-id': volume['id']}
+            if lun_num:
+                data['lun'] = lun_num
+            res = self.client.req('lun-maps', 'POST', data)
+
             lunmap = self._obj_from_result(res)
-            LOG.info(_LI('created lunmap\n%s'), lunmap)
+            LOG.info(_LI('Created lun-map:\n%s'), lunmap)
         except exception.XtremIOAlreadyMappedError:
-            LOG.info(_LI('volume already mapped,'
-                         ' trying to retrieve it %(ig)s, %(vol)d'),
-                     {'ig': ig['ig-id'][1], 'vol': volume['id']})
-            lunmap = self.client.find_lunmap(ig['ig-id'][1], volume['id'])
+            LOG.info(_LI('Volume already mapped, retrieving %(ig)s, %(vol)d'),
+                     {'ig': ig, 'vol': volume['id']})
+            lunmap = self.client.find_lunmap(ig, volume['id'])
         return lunmap
 
-    def _get_ig(self, connector):
+    def _get_ig_name(self, connector):
         raise NotImplementedError()
+
+    def create_consistencygroup(self, context, group):
+        """Creates a consistency group.
+
+        :param context: the context
+        :param group: the group object to be created
+        :returns: dict -- modelUpdate = {'status': 'available'}
+        :raises: VolumeBackendAPIException
+        """
+        create_data = {'consistency-group-name': group['id']}
+        self.client.req('consistency-groups', 'POST', data=create_data,
+                        ver='v2')
+        return {'status': 'available'}
+
+    def delete_consistencygroup(self, context, group):
+        """Deletes a consistency group."""
+        self.client.req('consistency-groups', 'DELETE', name=group['id'],
+                        ver='v2')
+
+        volumes = self.db.volume_get_all_by_group(context, group['id'])
+
+        for volume in volumes:
+            self.delete_volume(volume)
+            volume.status = 'deleted'
+
+        model_update = {'status': group['status']}
+
+        return model_update, volumes
+
+    def create_consistencygroup_from_src(self, context, group, volumes,
+                                         cgsnapshot=None, snapshots=None):
+        """Creates a consistencygroup from source.
+
+        :param context: the context of the caller.
+        :param group: the dictionary of the consistency group to be created.
+        :param volumes: a list of volume dictionaries in the group.
+        :param cgsnapshot: the dictionary of the cgsnapshot as source.
+        :param snapshots: a list of snapshot dictionaries in the cgsnapshot.
+        :return model_update, volumes_model_update
+        """
+        if cgsnapshot and snapshots:
+            for volume, snapshot in zip(volumes, snapshots):
+                self.create_volume_from_snapshot(volume, snapshot)
+            create_data = {'consistency-group-name': group['id'],
+                           'vol-list': [v['id'] for v in volumes]}
+            self.client.req('consistency-groups', 'POST', data=create_data,
+                            ver='v2')
+        else:
+            msg = _("create_consistencygroup_from_src only supports a"
+                    " cgsnapshot source, other sources cannot be used.")
+            raise exception.InvalidInput(msg)
+
+        return None, None
+
+    def update_consistencygroup(self, context, group,
+                                add_volumes=None, remove_volumes=None):
+        """Updates a consistency group.
+
+        :param context: the context of the caller.
+        :param group: the dictionary of the consistency group to be updated.
+        :param add_volumes: a list of volume dictionaries to be added.
+        :param remove_volumes: a list of volume dictionaries to be removed.
+        :return model_update, add_volumes_update, remove_volumes_update
+        """
+        add_volumes = add_volumes if add_volumes else []
+        remove_volumes = remove_volumes if remove_volumes else []
+        for vol in add_volumes:
+            add_data = {'vol-id': vol['id'], 'cg-id': group['id']}
+            self.client.req('consistency-group-volumes', 'POST', add_data,
+                            ver='v2')
+        for vol in remove_volumes:
+            remove_data = {'vol-id': vol['id'], 'cg-id': group['id']}
+            self.client.req('consistency-group-volumes', 'DELETE', remove_data,
+                            name=group['id'], ver='v2')
+        return None, None, None
+
+    def _get_cgsnap_name(self, cgsnapshot):
+        return '%(cg)s%(snap)s' % {'cg': cgsnapshot['consistencygroup_id']
+                                   .replace('-', ''),
+                                   'snap': cgsnapshot['id'].replace('-', '')}
+
+    def create_cgsnapshot(self, context, cgsnapshot):
+        """Creates a cgsnapshot."""
+        data = {'consistency-group-id': cgsnapshot['consistencygroup_id'],
+                'snapshot-set-name': self._get_cgsnap_name(cgsnapshot)}
+        self.client.req('snapshots', 'POST', data, ver='v2')
+
+        snapshots = objects.SnapshotList().get_all_for_cgsnapshot(
+            context, cgsnapshot['id'])
+
+        for snapshot in snapshots:
+            snapshot.status = 'available'
+
+        model_update = {'status': 'available'}
+
+        return model_update, snapshots
+
+    def delete_cgsnapshot(self, context, cgsnapshot):
+        """Deletes a cgsnapshot."""
+        self.client.req('snapshot-sets', 'DELETE',
+                        name=self._get_cgsnap_name(cgsnapshot), ver='v2')
+
+        snapshots = objects.SnapshotList().get_all_for_cgsnapshot(
+            context, cgsnapshot['id'])
+
+        for snapshot in snapshots:
+            snapshot.status = 'deleted'
+
+        model_update = {'status': cgsnapshot.status}
+
+        return model_update, snapshots
+
+    def _get_ig(self, name):
+        try:
+            return self.client.req('initiator-groups', 'GET',
+                                   name=name)['content']
+        except exception.NotFound:
+            pass
+
+    def _create_ig(self, name):
+        # create an initiator group to hold the initiator
+        data = {'ig-name': name}
+        self.client.req('initiator-groups', 'POST', data)
+        try:
+            return self.client.req('initiator-groups', name=name)['content']
+        except exception.NotFound:
+            raise (exception.VolumeBackendAPIException
+                   (data=_("Failed to create IG, %s") % name))
 
 
 class XtremIOISCSIDriver(XtremIOVolumeDriver, driver.ISCSIDriver):
@@ -475,69 +687,77 @@ class XtremIOISCSIDriver(XtremIOVolumeDriver, driver.ISCSIDriver):
         super(XtremIOISCSIDriver, self).__init__(*args, **kwargs)
         self.protocol = 'iSCSI'
 
+    def _add_auth(self, data, login_chap, discovery_chap):
+        login_passwd, discovery_passwd = None, None
+        if login_chap:
+            data['initiator-authentication-user-name'] = 'chap_user'
+            login_passwd = self._get_password()
+            data['initiator-authentication-password'] = login_passwd
+        if discovery_chap:
+            data['chap-discovery-initiator-user-name'] = 'chap_user'
+            discovery_passwd = self._get_password()
+            data['chap-discovery-initiator-password'] = discovery_passwd
+        return login_passwd, discovery_passwd
+
+    def _create_initiator(self, connector, login_chap, discovery_chap):
+        initiator = self._get_initiator_name(connector)
+        # create an initiator
+        data = {'initiator-name': initiator,
+                'ig-id': initiator,
+                'port-address': initiator}
+        l, d = self._add_auth(data, login_chap, discovery_chap)
+        self.client.req('initiators', 'POST', data)
+        return l, d
+
     def initialize_connection(self, volume, connector):
         try:
             sys = self.client.get_cluster()
         except exception.NotFound:
             msg = _("XtremIO not initialized correctly, no clusters found")
             raise exception.VolumeBackendAPIException(data=msg)
-        use_chap = (sys.get('chap-authentication-mode', 'disabled') !=
-                    'disabled')
+        login_chap = (sys.get('chap-authentication-mode', 'disabled') !=
+                      'disabled')
         discovery_chap = (sys.get('chap-discovery-mode', 'disabled') !=
                           'disabled')
-        initiator = self._get_initiator(connector)
-        try:
-            # check if the IG already exists
-            ig = self.client.req('initiator-groups', 'GET',
-                                 name=self._get_ig(connector))['content']
-        except exception.NotFound:
-            # create an initiator group to hold the initiator
-            data = {'ig-name': self._get_ig(connector)}
-            self.client.req('initiator-groups', 'POST', data)
-            try:
-                ig = self.client.req('initiator-groups',
-                                     name=self._get_ig(connector))['content']
-            except exception.NotFound:
-                raise (exception.VolumeBackendAPIException
-                       (data=_("Failed to create IG, %s") %
-                        self._get_ig(connector)))
-        try:
-            init = self.client.req('initiators', 'GET',
-                                   name=initiator)['content']
-            if use_chap:
-                chap_passwd = init['chap-authentication-initiator-'
-                                   'password']
-                # delete the initiator to create a new one with password
-                if not chap_passwd:
-                    LOG.info(_LI('initiator has no password while using chap,'
-                                 'removing it'))
-                    self.client.req('initiators', 'DELETE', name=initiator)
-                    # check if the initiator already exists
-                    raise exception.NotFound()
-        except exception.NotFound:
-            # create an initiator
-            data = {'initiator-name': initiator,
-                    'ig-id': initiator,
-                    'port-address': initiator}
-            if use_chap:
-                data['initiator-authentication-user-name'] = 'chap_user'
-                chap_passwd = self._get_password()
-                data['initiator-authentication-password'] = chap_passwd
-            if discovery_chap:
-                data['initiator-discovery-user-name'] = 'chap_user'
-                data['initiator-discovery-'
-                     'password'] = self._get_password()
-            self.client.req('initiators', 'POST', data)
+        initiator_name = self._get_initiator_name(connector)
+        initiator = self.client.get_initiator(initiator_name)
+        if initiator:
+            login_passwd = initiator['chap-authentication-initiator-password']
+            discovery_passwd = initiator['chap-discovery-initiator-password']
+            ig = self._get_ig(initiator['ig-id'][1])
+        else:
+            ig = self._get_ig(self._get_ig_name(connector))
+            if not ig:
+                ig = self._create_ig(self._get_ig_name(connector))
+            (login_passwd,
+             discovery_passwd) = self._create_initiator(connector,
+                                                        login_chap,
+                                                        discovery_chap)
+        # if CHAP was enabled after the the initiator was created
+        if login_chap and not login_passwd:
+            LOG.info(_LI('initiator has no password while using chap,'
+                         'adding it'))
+            data = {}
+            (login_passwd,
+             d_passwd) = self._add_auth(data, login_chap, discovery_chap and
+                                        not discovery_passwd)
+            discovery_passwd = (discovery_passwd if discovery_passwd
+                                else d_passwd)
+            self.client.req('initiators', 'PUT', data, idx=initiator['index'])
+
         # lun mappping
-        lunmap = self.create_lun_map(volume, ig)
+        lunmap = self.create_lun_map(volume, ig['ig-id'][2])
 
         properties = self._get_iscsi_properties(lunmap)
 
-        if use_chap:
+        if login_chap:
             properties['auth_method'] = 'CHAP'
             properties['auth_username'] = 'chap_user'
-            properties['auth_password'] = chap_passwd
-
+            properties['auth_password'] = login_passwd
+        if discovery_chap:
+            properties['discovery_auth_method'] = 'CHAP'
+            properties['discovery_auth_username'] = 'chap_user'
+            properties['discovery_auth_password'] = discovery_passwd
         LOG.debug('init conn params:\n%s', properties)
         return {
             'driver_volume_type': 'iscsi',
@@ -585,10 +805,10 @@ class XtremIOISCSIDriver(XtremIOVolumeDriver, driver.ISCSIDriver):
                       'target_luns': [lunmap['lun']] * len(portals)}
         return properties
 
-    def _get_initiator(self, connector):
+    def _get_initiator_name(self, connector):
         return connector['initiator']
 
-    def _get_ig(self, connector):
+    def _get_ig_name(self, connector):
         return connector['initiator']
 
 
@@ -618,40 +838,37 @@ class XtremIOFibreChannelDriver(XtremIOVolumeDriver,
 
     @fczm_utils.AddFCZone
     def initialize_connection(self, volume, connector):
-        initiators = self._get_initiator(connector)
-        ig_name = self._get_ig(connector)
+        wwpns = self._get_initiator_name(connector)
+        ig_name = self._get_ig_name(connector)
         i_t_map = {}
+        found = []
+        new = []
+        for wwpn in wwpns:
+            init = self.client.get_initiator(wwpn)
+            if init:
+                found.append(init)
+            else:
+                new.append(wwpn)
+            i_t_map[wwpn.replace(':', '')] = self.get_targets()
         # get or create initiator group
-        try:
-            # check if the IG already exists
-            ig = self.client.req('initiator-groups', name=ig_name)['content']
-        except exception.NotFound:
-            # create an initiator group to hold the the initiator
-            data = {'ig-name': ig_name}
-            self.client.req('initiator-groups', 'POST', data)
-            try:
-                ig = self.client.req('initiator-groups',
-                                     name=ig_name)['content']
-            except exception.NotFound:
-                raise (exception.VolumeBackendAPIException
-                       (data=_("Failed to create IG, %s") % ig_name))
-        # get or create all initiators
-        for initiator in initiators:
-            try:
-                self.client.req('initiators', name=initiator)['content']
-            except exception.NotFound:
-                # create an initiator
-                data = {'initiator-name': initiator,
-                        'ig-id': ig['name'],
-                        'port-address': initiator}
+        if new:
+            ig = self._get_ig(ig_name)
+            if not ig:
+                ig = self._create_ig(ig_name)
+            for wwpn in new:
+                data = {'initiator-name': wwpn, 'ig-id': ig_name,
+                        'port-address': wwpn}
                 self.client.req('initiators', 'POST', data)
-            i_t_map[initiator] = self.get_targets()
+        igs = list(set([i['ig-id'][1] for i in found] + [ig_name]))
 
-        lunmap = self.create_lun_map(volume, ig)
+        lun_num = None
+        for ig in igs:
+            lunmap = self.create_lun_map(volume, ig, lun_num)
+            lun_num = lunmap['lun']
         return {'driver_volume_type': 'fibre_channel',
                 'data': {
-                    'target_discovered': True,
-                    'target_lun': lunmap['lun'],
+                    'target_discovered': False,
+                    'target_lun': lun_num,
                     'target_wwn': self.get_targets(),
                     'access_mode': 'rw',
                     'initiator_target_map': i_t_map}}
@@ -660,21 +877,24 @@ class XtremIOFibreChannelDriver(XtremIOVolumeDriver,
     def terminate_connection(self, volume, connector, **kwargs):
         (super(XtremIOFibreChannelDriver, self)
          .terminate_connection(volume, connector, **kwargs))
-        num_vols = self.client.num_of_mapped_volumes(self._get_ig(connector))
+        num_vols = (self.client
+                    .num_of_mapped_volumes(self._get_ig_name(connector)))
         if num_vols > 0:
             data = {}
         else:
             i_t_map = {}
-            for initiator in self._get_initiator(connector):
-                i_t_map[initiator] = self.get_targets()
+            for initiator in self._get_initiator_name(connector):
+                i_t_map[initiator.replace(':', '')] = self.get_targets()
             data = {'target_wwn': self.get_targets(),
                     'initiator_target_map': i_t_map}
 
         return {'driver_volume_type': 'fibre_channel',
                 'data': data}
 
-    def _get_initiator(self, connector):
-        return connector['wwpns']
+    def _get_initiator_name(self, connector):
+        return [wwpn if ':' in wwpn else
+                ':'.join(wwpn[i:i + 2] for i in range(0, len(wwpn), 2))
+                for wwpn in connector['wwpns']]
 
-    def _get_ig(self, connector):
+    def _get_ig_name(self, connector):
         return connector['host']

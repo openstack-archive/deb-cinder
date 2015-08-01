@@ -14,14 +14,11 @@
 #    under the License.
 from mox3 import mox
 from oslo_concurrency import processutils
-from oslo_log import log as logging
 
 from cinder.brick.local_dev import lvm as brick
 from cinder import exception
 from cinder import test
 from cinder.volume import configuration as conf
-
-LOG = logging.getLogger(__name__)
 
 
 def create_configuration():
@@ -98,6 +95,11 @@ class BrickLvmTestCase(test.TestCase):
               'fake-vg/lv-nothere' in cmd_string):
             raise processutils.ProcessExecutionError(
                 stderr="One or more specified logical volume(s) not found.")
+        elif ('env, LC_ALL=C, lvs, --noheadings, '
+              '--unit=g, -o, vg_name,name,size, --nosuffix, '
+              'fake-vg/lv-newerror' in cmd_string):
+            raise processutils.ProcessExecutionError(
+                stderr="Failed to find logical volume \"fake-vg/lv-newerror\"")
         elif ('env, LC_ALL=C, lvs, --noheadings, '
               '--unit=g, -o, vg_name,name,size' in cmd_string):
             if 'fake-unknown' in cmd_string:
@@ -180,10 +182,17 @@ class BrickLvmTestCase(test.TestCase):
         self.assertEqual(self.vg.get_volume('fake-unknown'), None)
 
     def test_get_lv_info_notfound(self):
+        # lv-nothere will raise lvm < 2.102.112 exception
         self.assertEqual(
             [],
             self.vg.get_lv_info(
                 'sudo', vg_name='fake-vg', lv_name='lv-nothere')
+        )
+        # lv-newerror will raise lvm > 2.102.112 exception
+        self.assertEqual(
+            [],
+            self.vg.get_lv_info(
+                'sudo', vg_name='fake-vg', lv_name='lv-newerror')
         )
 
     def test_get_lv_info_found(self):

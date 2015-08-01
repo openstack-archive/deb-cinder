@@ -29,7 +29,7 @@ CONF = cfg.CONF
 
 
 class VolumeAPI(object):
-    '''Client side of the volume rpc API.
+    """Client side of the volume rpc API.
 
     API version history:
 
@@ -63,8 +63,12 @@ class VolumeAPI(object):
                and delete_snapshot()
         1.21 - Adds update_consistencygroup.
         1.22 - Adds create_consistencygroup_from_src.
-        1.23 - Adds attachment_id to detach_volume
-    '''
+        1.23 - Adds attachment_id to detach_volume.
+        1.24 - Removed duplicated parameters: snapshot_id, image_id,
+               source_volid, source_replicaid, consistencygroup_id and
+               cgsnapshot_id from create_volume. All off them are already
+               passed either in request_spec or available in the DB.
+    """
 
     BASE_RPC_API_VERSION = '1.0'
 
@@ -73,7 +77,7 @@ class VolumeAPI(object):
         target = messaging.Target(topic=CONF.volume_topic,
                                   version=self.BASE_RPC_API_VERSION)
         serializer = objects_base.CinderObjectSerializer()
-        self.client = rpc.get_client(target, '1.23', serializer=serializer)
+        self.client = rpc.get_client(target, '1.24', serializer=serializer)
 
     def create_consistencygroup(self, ctxt, group, host):
         new_host = utils.extract_host(host)
@@ -118,29 +122,16 @@ class VolumeAPI(object):
         cctxt.cast(ctxt, 'delete_cgsnapshot',
                    cgsnapshot_id=cgsnapshot['id'])
 
-    def create_volume(self, ctxt, volume, host,
-                      request_spec, filter_properties,
-                      allow_reschedule=True,
-                      snapshot_id=None, image_id=None,
-                      source_replicaid=None,
-                      source_volid=None,
-                      consistencygroup_id=None,
-                      cgsnapshot_id=None):
-
+    def create_volume(self, ctxt, volume, host, request_spec,
+                      filter_properties, allow_reschedule=True):
         new_host = utils.extract_host(host)
-        cctxt = self.client.prepare(server=new_host, version='1.4')
+        cctxt = self.client.prepare(server=new_host, version='1.24')
         request_spec_p = jsonutils.to_primitive(request_spec)
         cctxt.cast(ctxt, 'create_volume',
                    volume_id=volume['id'],
                    request_spec=request_spec_p,
                    filter_properties=filter_properties,
-                   allow_reschedule=allow_reschedule,
-                   snapshot_id=snapshot_id,
-                   image_id=image_id,
-                   source_replicaid=source_replicaid,
-                   source_volid=source_volid,
-                   consistencygroup_id=consistencygroup_id,
-                   cgsnapshot_id=cgsnapshot_id)
+                   allow_reschedule=allow_reschedule)
 
     def delete_volume(self, ctxt, volume, unmanage_only=False):
         new_host = utils.extract_host(volume['host'])
@@ -255,10 +246,12 @@ class VolumeAPI(object):
         cctxt = self.client.prepare(server=new_host, version='1.17')
         cctxt.cast(ctxt, 'reenable_replication', volume_id=volume['id'])
 
-    def update_migrated_volume(self, ctxt, volume, new_volume):
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status):
         host = utils.extract_host(new_volume['host'])
         cctxt = self.client.prepare(server=host, version='1.19')
         cctxt.call(ctxt,
                    'update_migrated_volume',
                    volume=volume,
-                   new_volume=new_volume)
+                   new_volume=new_volume,
+                   volume_status=original_volume_status)

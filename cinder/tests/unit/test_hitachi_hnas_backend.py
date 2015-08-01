@@ -17,16 +17,13 @@
 import mock
 from oslo_concurrency import processutils
 from oslo_config import cfg
-from oslo_log import log as logging
 
 from cinder import test
 from cinder import utils
-from cinder.volume.drivers.hds import hnas_backend
-from cinder.volume.drivers.hds import nfs
+from cinder.volume.drivers.hitachi import hnas_backend
+from cinder.volume.drivers.hitachi import hnas_nfs as nfs
 
 CONF = cfg.CONF
-
-LOG = logging.getLogger(__name__)
 
 HNAS_RESULT1 = "\n\
 FS ID        FS Label        FS Permanent ID     EVS ID     EVS Label\n\
@@ -271,8 +268,6 @@ UTILS_EXEC_OUT = ["output: test_cmd", ""]
 
 
 def m_run_cmd(*args, **kargs):
-    LOG.debug(args)
-    LOG.debug(HNAS_CMDS.get(args))
     return HNAS_CMDS.get(args)
 
 

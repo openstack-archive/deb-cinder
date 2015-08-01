@@ -21,7 +21,6 @@ import mock
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
-from oslo_log import log as logging
 
 from cinder import exception
 from cinder import test
@@ -29,8 +28,6 @@ from cinder import utils
 from cinder.volume import throttling
 from cinder.volume import utils as volume_utils
 
-
-LOG = logging.getLogger(__name__)
 
 CONF = cfg.CONF
 
@@ -226,8 +223,10 @@ class NotifyUsageTestCase(test.TestCase):
         self.assertEqual(expected_snapshot, usage_info)
 
     @mock.patch('cinder.db.volume_glance_metadata_get')
-    def test_usage_from_volume(self, mock_image_metadata):
+    @mock.patch('cinder.db.volume_attachment_get_used_by_volume_id')
+    def test_usage_from_volume(self, mock_attachment, mock_image_metadata):
         mock_image_metadata.return_value = {'image_id': 'fake_image_id'}
+        mock_attachment.return_value = [{'instance_uuid': 'fake_instance_id'}]
         raw_volume = {
             'project_id': '12b0330ec2584a',
             'user_id': '158cba1b8c2bb6008e',
@@ -267,6 +266,7 @@ class NotifyUsageTestCase(test.TestCase):
             'status': 'available',
             'metadata': {'fake_metadata_key': 'fake_metadata_value'},
             'glance_metadata': {'image_id': 'fake_image_id'},
+            'volume_attachment': [{'instance_uuid': 'fake_instance_id'}],
         }
         self.assertEqual(expected_volume, usage_info)
 

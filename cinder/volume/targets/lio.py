@@ -30,12 +30,6 @@ class LioAdm(iscsi.ISCSITarget):
         # FIXME(jdg): modify executor to use the cinder-rtstool
         self.iscsi_target_prefix =\
             self.configuration.safe_get('iscsi_target_prefix')
-        self.lio_initiator_iqns =\
-            self.configuration.safe_get('lio_initiator_iqns')
-
-        if self.lio_initiator_iqns is not None:
-            LOG.warning(_LW("The lio_initiator_iqns option has been "
-                            "deprecated and no longer has any effect."))
 
         self._verify_rtstool()
 
@@ -187,14 +181,7 @@ class LioAdm(iscsi.ISCSITarget):
         # We make changes persistent
         self._persist_configuration(volume['id'])
 
-        iscsi_properties = self._get_iscsi_properties(volume,
-                                                      connector.get(
-                                                          'multipath'))
-
-        return {
-            'driver_volume_type': self.iscsi_protocol,
-            'data': iscsi_properties
-        }
+        return super(LioAdm, self).initialize_connection(volume, connector)
 
     def terminate_connection(self, volume, connector, **kwargs):
         volume_iqn = volume['provider_location'].split(' ')[1]

@@ -27,6 +27,8 @@ from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 import oslo_messaging as messaging
+from oslo_service import loopingcall
+from oslo_service import service
 from oslo_utils import importutils
 import osprofiler.notifier
 from osprofiler import profiler
@@ -37,8 +39,6 @@ from cinder import db
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.objects import base as objects_base
-from cinder.openstack.common import loopingcall
-from cinder.openstack.common import service
 from cinder import rpc
 from cinder import version
 from cinder import wsgi
@@ -135,6 +135,7 @@ class Service(service.Service):
         self.timers = []
 
         setup_profiler(binary, host)
+        self.rpcserver = None
 
     def start(self):
         version_string = version.version_string()
@@ -263,7 +264,6 @@ class Service(service.Service):
         # errors, go ahead and ignore them.. as we're shutting down anyway
         try:
             self.rpcserver.stop()
-            self.rpcserver.wait()
         except Exception:
             pass
         for x in self.timers:
@@ -280,6 +280,8 @@ class Service(service.Service):
                 x.wait()
             except Exception:
                 pass
+        if self.rpcserver:
+            self.rpcserver.wait()
 
     def periodic_tasks(self, raise_on_error=False):
         """Tasks to be run at a periodic interval."""
@@ -291,9 +293,11 @@ class Service(service.Service):
         if not self.manager.is_working():
             # NOTE(dulek): If manager reports a problem we're not sending
             # heartbeats - to indicate that service is actually down.
-            LOG.error(_LE('Manager for service %s is reporting problems, skip '
-                          'sending heartbeat. Service will appear "down".'),
-                      self.binary)
+            LOG.error(_LE('Manager for service %(binary)s %(host)s is '
+                          'reporting problems, not sending heartbeat. '
+                          'Service will appear "down".'),
+                      {'binary': self.binary,
+                       'host': self.host})
             return
 
         ctxt = context.get_admin_context()
@@ -333,7 +337,7 @@ class Service(service.Service):
                 LOG.exception(_LE('DBError encountered: '))
 
 
-class WSGIService(object):
+class WSGIService(service.ServiceBase):
     """Provides ability to launch API from a 'paste' configuration."""
 
     def __init__(self, name, loader=None):
@@ -427,7 +431,7 @@ class WSGIService(object):
 
 
 def process_launcher():
-    return service.ProcessLauncher()
+    return service.ProcessLauncher(CONF)
 
 
 # NOTE(vish): the global launcher is to maintain the existing
@@ -441,7 +445,7 @@ def serve(server, workers=None):
     if _launcher:
         raise RuntimeError(_('serve() can only be called once'))
 
-    _launcher = service.launch(server, workers=workers)
+    _launcher = service.launch(CONF, server, workers=workers)
 
 
 def wait():

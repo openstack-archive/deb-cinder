@@ -1,4 +1,3 @@
-
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -20,7 +19,6 @@ Tests For Scheduler
 
 import mock
 from oslo_config import cfg
-from oslo_log import log as logging
 
 from cinder import context
 from cinder import db
@@ -194,38 +192,6 @@ class SchedulerManagerTestCase(test.TestCase):
         _mock_host_passes.assert_called_once_with(self.context, 'host',
                                                   request_spec, {})
 
-    def test_chance_simple_scheduler_mocked(self):
-        # Test FilterScheduler is loaded and predefined combination
-        # of filters and weighers overrides the default value of config option
-        # scheduler_default_filters and scheduler_default_weighers when
-        # ChanceScheduler or SimpleScheduler is configured as scheduler_driver.
-        chance = 'cinder.scheduler.chance.ChanceScheduler'
-        simple = 'cinder.scheduler.simple.SimpleScheduler'
-        default_filters = ['AvailabilityZoneFilter',
-                           'CapacityFilter',
-                           'CapabilitiesFilter']
-        self.flags(scheduler_driver=chance,
-                   scheduler_default_filters=['CapacityFilter'],
-                   scheduler_default_weighers=['CapacityWeigher'])
-        self.manager = self.manager_cls()
-        self.assertTrue(isinstance(self.manager.driver,
-                                   filter_scheduler.FilterScheduler))
-        self.assertEqual(CONF.scheduler_default_filters,
-                         default_filters)
-        self.assertEqual(CONF.scheduler_default_weighers,
-                         ['ChanceWeigher'])
-
-        self.flags(scheduler_driver=simple,
-                   scheduler_default_filters=['CapacityFilter'],
-                   scheduler_default_weighers=['CapacityWeigher'])
-        self.manager = self.manager_cls()
-        self.assertTrue(isinstance(self.manager.driver,
-                                   filter_scheduler.FilterScheduler))
-        self.assertEqual(CONF.scheduler_default_filters,
-                         default_filters)
-        self.assertEqual(CONF.scheduler_default_weighers,
-                         ['AllocatedCapacityWeigher'])
-
     @mock.patch('cinder.db.volume_update')
     @mock.patch('cinder.db.volume_get')
     def test_retype_volume_exception_returns_volume_state(self, _mock_vol_get,
@@ -266,9 +232,7 @@ class SchedulerManagerTestCase(test.TestCase):
                                'schedule_create_consistencygroup') as mock_cg:
             original_driver = self.manager.driver
             self.manager.driver = filter_scheduler.FilterScheduler
-            LOG = logging.getLogger('cinder.scheduler.manager')
-            self.stubs.Set(LOG, 'error', mock.Mock())
-            self.stubs.Set(LOG, 'exception', mock.Mock())
+            LOG = self.mock_object(manager, 'LOG')
             self.stubs.Set(db, 'consistencygroup_update', mock.Mock())
 
             ex = exception.CinderException('test')

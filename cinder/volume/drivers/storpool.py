@@ -179,8 +179,9 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
                 self._attach.api().snapshotDelete(snapname)
             except spapi.ApiError as e:
                 # ARGH!
-                LOG.error(_LE("Could not delete the temp snapshot {n}: {msg}").
-                          format(n=snapname, msg=six.text_type(e)))
+                LOG.error(_LE("Could not delete the temp snapshot %(name)s: "
+                              "%(msg)s"),
+                          {'name': snapname, 'msg': e})
 
     def create_export(self, context, volume):
         pass
@@ -221,8 +222,7 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
         try:
             self._attach.api()
         except Exception as e:
-            LOG.error(_LE("StorPoolDriver API initialization failed: {e}").
-                      format(e=e))
+            LOG.error(_LE("StorPoolDriver API initialization failed: %s"), e)
             raise
 
     def get_volume_stats(self, refresh=False):
@@ -294,7 +294,7 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
             self._attach.add(req_id, req)
         name = req['volume']
         self._attach.sync(req_id, None)
-        return {'device': {'path': '/dev/storpool/{v}'.format(v=name),
+        return {'device': {'path': '/dev/storpool/' + name,
                 'storpool_attach_req': req_id}}, volume
 
     def _detach_volume(self, context, attach_info, volume, properties,
@@ -336,8 +336,9 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
                 self._attach.api().snapshotDelete(name)
             except spapi.ApiError as e:
                 LOG.error(
-                    _LE('Could not remove the temp snapshot {n} for {v}: {e}').
-                    format(n=name, v=volname, e=six.text_type(e)))
+                    _LE('Could not remove the temp snapshot %(name)s for '
+                        '%(vol)s: %(err)s'),
+                    {'name': name, 'vol': volname, 'err': e})
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         req_id = context.request_id
@@ -363,8 +364,9 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
                 self._attach.api().snapshotDelete(name)
             except spapi.ApiError as e:
                 LOG.error(
-                    _LE('Could not remove the temp snapshot {n} for {v}: {e}').
-                    format(n=name, v=volname, e=six.text_type(e)))
+                    _LE('Could not remove the temp snapshot %(name)s for '
+                        '%(vol)s: %(err)s'),
+                    {'name': name, 'vol': volname, 'err': e})
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         req_id = context.request_id
@@ -434,7 +436,8 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
 
         return True
 
-    def update_migrated_volume(self, context, volume, new_volume):
+    def update_migrated_volume(self, context, volume, new_volume,
+                               original_volume_status):
         orig_id = volume['id']
         orig_name = self._attach.volumeName(orig_id)
         temp_id = new_volume['id']
@@ -442,14 +445,25 @@ class StorPoolDriver(driver.TransferVD, driver.ExtendVD, driver.CloneableVD,
         vols = {v.name: True for v in self._attach.api().volumesList()}
         if temp_name not in vols:
             LOG.error(_LE('StorPool update_migrated_volume(): it seems '
-                          'that the StorPool volume "%(tid)" was not '
+                          'that the StorPool volume "%(tid)s" was not '
                           'created as part of the migration from '
-                          '"%(oid)"'), {'tid': temp_id, 'oid': orig_id})
+                          '"%(oid)s"'), {'tid': temp_id, 'oid': orig_id})
+            return {'_name_id': new_volume['_name_id'] or new_volume['id']}
         elif orig_name in vols:
             LOG.error(_LE('StorPool update_migrated_volume(): both '
-                          'the original volume "%(oid)" and the migrated '
-                          'StorPool volume "%(tid)" seem to exist on '
+                          'the original volume "%(oid)s" and the migrated '
+                          'StorPool volume "%(tid)s" seem to exist on '
                           'the StorPool cluster'),
                       {'oid': orig_id, 'tid': temp_id})
+            return {'_name_id': new_volume['_name_id'] or new_volume['id']}
         else:
-            self._attach.api().volumeUpdate(temp_name, {'rename': orig_name})
+            try:
+                self._attach.api().volumeUpdate(temp_name,
+                                                {'rename': orig_name})
+                return {'_name_id': None}
+            except spapi.ApiError as e:
+                LOG.error(_LE('StorPool update_migrated_volume(): '
+                              'could not rename %(tname)s to %(oname)s: '
+                              '%(err)s'),
+                          {'tname': temp_name, 'oname': orig_name, 'err': e})
+                return {'_name_id': new_volume['_name_id'] or new_volume['id']}

@@ -16,16 +16,18 @@
 
 import datetime
 
+import enum
 from oslo_config import cfg
 from oslo_utils import uuidutils
+import six
 
+from cinder.api import common
 from cinder import context
 from cinder import db
 from cinder.db.sqlalchemy import api as sqlalchemy_api
 from cinder import exception
 from cinder import quota
 from cinder import test
-
 
 CONF = cfg.CONF
 
@@ -51,8 +53,8 @@ def _quota_reserve(context, project_id):
     resources = {}
     deltas = {}
     for i, resource in enumerate(('volumes', 'gigabytes')):
-        quotas[resource] = db.quota_create(context, project_id,
-                                           resource, i + 1)
+        quota_obj = db.quota_create(context, project_id, resource, i + 1)
+        quotas[resource] = quota_obj.hard_limit
         resources[resource] = quota.ReservableResource(resource,
                                                        '_sync_%s' % resource)
         deltas[resource] = i + 1
@@ -67,7 +69,11 @@ class ModelsObjectComparatorMixin(object):
     def _dict_from_object(self, obj, ignored_keys):
         if ignored_keys is None:
             ignored_keys = []
-        return {k: v for k, v in obj.iteritems()
+        if isinstance(obj, dict):
+            items = obj.items()
+        else:
+            items = obj.iteritems()
+        return {k: v for k, v in items
                 if k not in ignored_keys}
 
     def _assertEqualObjects(self, obj1, obj2, ignored_keys=None):
@@ -76,7 +82,8 @@ class ModelsObjectComparatorMixin(object):
 
         self.assertEqual(
             len(obj1), len(obj2),
-            "Keys mismatch: %s" % str(set(obj1.keys()) ^ set(obj2.keys())))
+            "Keys mismatch: %s" % six.text_type(
+                set(obj1.keys()) ^ set(obj2.keys())))
         for key, value in obj1.items():
             self.assertEqual(value, obj2[key])
 
@@ -533,7 +540,7 @@ class DBAPIVolumeTestCase(BaseTest):
                                        match_keys=['id', 'display_name',
                                                    'volume_metadata',
                                                    'created_at']):
-        """"Verifies that volumes are returned in the correct order."""
+        """Verifies that volumes are returned in the correct order."""
         if project_id:
             result = db.volume_get_all_by_project(self.ctxt, project_id,
                                                   marker, limit,
@@ -814,7 +821,7 @@ class DBAPIVolumeTestCase(BaseTest):
         self._assertEqualsVolumeOrderResult(correct_order)
 
     def test_volume_get_all_by_filters_sort_keys_paginate(self):
-        '''Verifies sort order with pagination.'''
+        """Verifies sort order with pagination."""
         # Volumes that will reply to the query
         test1_avail = db.volume_create(self.ctxt, {'display_name': 'test',
                                                    'size': 1,
@@ -909,6 +916,53 @@ class DBAPIVolumeTestCase(BaseTest):
 
         self.assertEqual(should_be, db_meta)
 
+    def test_volume_metadata_update_with_metatype(self):
+        user_metadata1 = {'a': '1', 'c': '2'}
+        user_metadata2 = {'a': '3', 'd': '5'}
+        expected1 = {'a': '3', 'c': '2', 'd': '5'}
+        image_metadata1 = {'e': '1', 'f': '2'}
+        image_metadata2 = {'e': '3', 'g': '5'}
+        expected2 = {'e': '3', 'f': '2', 'g': '5'}
+        FAKE_METADATA_TYPE = enum.Enum('METADATA_TYPES', 'fake_type')
+
+        db.volume_create(self.ctxt, {'id': 1, 'metadata': user_metadata1})
+
+        # update user metatdata associated with volume.
+        db_meta = db.volume_metadata_update(
+            self.ctxt,
+            1,
+            user_metadata2,
+            False,
+            meta_type=common.METADATA_TYPES.user)
+        self.assertEqual(expected1, db_meta)
+
+        # create image metatdata associated with volume.
+        db_meta = db.volume_metadata_update(
+            self.ctxt,
+            1,
+            image_metadata1,
+            False,
+            meta_type=common.METADATA_TYPES.image)
+        self.assertEqual(image_metadata1, db_meta)
+
+        # update image metatdata associated with volume.
+        db_meta = db.volume_metadata_update(
+            self.ctxt,
+            1,
+            image_metadata2,
+            False,
+            meta_type=common.METADATA_TYPES.image)
+        self.assertEqual(expected2, db_meta)
+
+        # update volume with invalid metadata type.
+        self.assertRaises(exception.InvalidMetadataType,
+                          db.volume_metadata_update,
+                          self.ctxt,
+                          1,
+                          image_metadata1,
+                          False,
+                          FAKE_METADATA_TYPE.fake_type)
+
     def test_volume_metadata_update_delete(self):
         metadata1 = {'a': '1', 'c': '2'}
         metadata2 = {'a': '3', 'd': '4'}
@@ -925,6 +979,46 @@ class DBAPIVolumeTestCase(BaseTest):
         db.volume_metadata_delete(self.ctxt, 1, 'c')
         metadata.pop('c')
         self.assertEqual(metadata, db.volume_metadata_get(self.ctxt, 1))
+
+    def test_volume_metadata_delete_with_metatype(self):
+        user_metadata = {'a': '1', 'c': '2'}
+        image_metadata = {'e': '1', 'f': '2'}
+        FAKE_METADATA_TYPE = enum.Enum('METADATA_TYPES', 'fake_type')
+
+        # test that user metadata deleted with meta_type specified.
+        db.volume_create(self.ctxt, {'id': 1, 'metadata': user_metadata})
+        db.volume_metadata_delete(self.ctxt, 1, 'c',
+                                  meta_type=common.METADATA_TYPES.user)
+        user_metadata.pop('c')
+        self.assertEqual(user_metadata, db.volume_metadata_get(self.ctxt, 1))
+
+        # update the image metadata associated with the volume.
+        db.volume_metadata_update(
+            self.ctxt,
+            1,
+            image_metadata,
+            False,
+            meta_type=common.METADATA_TYPES.image)
+
+        # test that image metadata deleted with meta_type specified.
+        db.volume_metadata_delete(self.ctxt, 1, 'e',
+                                  meta_type=common.METADATA_TYPES.image)
+        image_metadata.pop('e')
+
+        # parse the result to build the dict.
+        rows = db.volume_glance_metadata_get(self.ctxt, 1)
+        result = {}
+        for row in rows:
+            result[row['key']] = row['value']
+        self.assertEqual(image_metadata, result)
+
+        # delete volume with invalid metadata type.
+        self.assertRaises(exception.InvalidMetadataType,
+                          db.volume_metadata_delete,
+                          self.ctxt,
+                          1,
+                          'f',
+                          FAKE_METADATA_TYPE.fake_type)
 
     def test_volume_glance_metadata_create(self):
         volume = db.volume_create(self.ctxt, {'host': 'h1'})
@@ -954,11 +1048,72 @@ class DBAPISnapshotTestCase(BaseTest):
         actual = db.snapshot_data_get_for_project(self.ctxt, 'project1')
         self.assertEqual(actual, (1, 42))
 
-    def test_snapshot_get_all(self):
+    def test_snapshot_get_all_by_filter(self):
         db.volume_create(self.ctxt, {'id': 1})
-        snapshot = db.snapshot_create(self.ctxt, {'id': 1, 'volume_id': 1})
-        self._assertEqualListsOfObjects([snapshot],
-                                        db.snapshot_get_all(self.ctxt),
+        db.volume_create(self.ctxt, {'id': 2})
+        snapshot1 = db.snapshot_create(self.ctxt, {'id': 1, 'volume_id': 1,
+                                                   'display_name': 'one',
+                                                   'status': 'available'})
+        snapshot2 = db.snapshot_create(self.ctxt, {'id': 2, 'volume_id': 1,
+                                                   'display_name': 'two',
+                                                   'status': 'creating'})
+        snapshot3 = db.snapshot_create(self.ctxt, {'id': 3, 'volume_id': 2,
+                                                   'display_name': 'three',
+                                                   'status': 'available'})
+        # no filter
+        filters = {}
+        snapshots = db.snapshot_get_all(self.ctxt, filters=filters)
+        self.assertEqual(3, len(snapshots))
+        # single match
+        filters = {'display_name': 'two'}
+        self._assertEqualListsOfObjects([snapshot2],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        filters = {'volume_id': 2}
+        self._assertEqualListsOfObjects([snapshot3],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        # filter no match
+        filters = {'volume_id': 5}
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        filters = {'status': 'error'}
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        # multiple match
+        filters = {'volume_id': 1}
+        self._assertEqualListsOfObjects([snapshot1, snapshot2],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        filters = {'status': 'available'}
+        self._assertEqualListsOfObjects([snapshot1, snapshot3],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        filters = {'volume_id': 1, 'status': 'available'}
+        self._assertEqualListsOfObjects([snapshot1],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
+                                        ignored_keys=['metadata', 'volume'])
+        filters = {'fake_key': 'fake'}
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_all(
+                                            self.ctxt,
+                                            filters),
                                         ignored_keys=['metadata', 'volume'])
 
     def test_snapshot_get_by_host(self):
@@ -1031,6 +1186,57 @@ class DBAPISnapshotTestCase(BaseTest):
         db.snapshot_metadata_delete(self.ctxt, 1, 'c')
 
         self.assertEqual(should_be, db.snapshot_metadata_get(self.ctxt, 1))
+
+
+class DBAPICgsnapshotTestCase(BaseTest):
+    """Tests for cinder.db.api.cgsnapshot_*."""
+
+    def test_cgsnapshot_get_all_by_filter(self):
+        cgsnapshot1 = db.cgsnapshot_create(self.ctxt, {'id': 1,
+                                           'consistencygroup_id': 'g1'})
+        cgsnapshot2 = db.cgsnapshot_create(self.ctxt, {'id': 2,
+                                           'consistencygroup_id': 'g1'})
+        cgsnapshot3 = db.cgsnapshot_create(self.ctxt, {'id': 3,
+                                           'consistencygroup_id': 'g2'})
+        tests = [
+            ({'consistencygroup_id': 'g1'}, [cgsnapshot1, cgsnapshot2]),
+            ({'id': 3}, [cgsnapshot3]),
+            ({'fake_key': 'fake'}, [])
+        ]
+
+        # no filter
+        filters = None
+        cgsnapshots = db.cgsnapshot_get_all(self.ctxt, filters=filters)
+        self.assertEqual(3, len(cgsnapshots))
+
+        for filters, expected in tests:
+            self._assertEqualListsOfObjects(expected,
+                                            db.cgsnapshot_get_all(
+                                                self.ctxt,
+                                                filters))
+
+    def test_cgsnapshot_get_all_by_project(self):
+        cgsnapshot1 = db.cgsnapshot_create(self.ctxt,
+                                           {'id': 1,
+                                            'consistencygroup_id': 'g1',
+                                            'project_id': 1})
+        cgsnapshot2 = db.cgsnapshot_create(self.ctxt,
+                                           {'id': 2,
+                                            'consistencygroup_id': 'g1',
+                                            'project_id': 1})
+        project_id = 1
+        tests = [
+            ({'id': 1}, [cgsnapshot1]),
+            ({'consistencygroup_id': 'g1'}, [cgsnapshot1, cgsnapshot2]),
+            ({'fake_key': 'fake'}, [])
+        ]
+
+        for filters, expected in tests:
+            self._assertEqualListsOfObjects(expected,
+                                            db.cgsnapshot_get_all_by_project(
+                                                self.ctxt,
+                                                project_id,
+                                                filters))
 
 
 class DBAPIVolumeTypeTestCase(BaseTest):
@@ -1146,7 +1352,7 @@ class DBAPIEncryptionTestCase(BaseTest):
             self._assertEqualObjects(encryption, encryption_get,
                                      self._ignored_keys)
 
-    def test_volume_type_update_with_no_create(self):
+    def test_volume_type_encryption_update_with_no_create(self):
         self.assertRaises(exception.VolumeTypeEncryptionNotFound,
                           db.volume_type_encryption_update,
                           self.ctxt,
@@ -1172,6 +1378,12 @@ class DBAPIEncryptionTestCase(BaseTest):
             db.volume_type_encryption_get(self.ctxt,
                                           encryption['volume_type_id'])
         self.assertIsNone(encryption_get)
+
+    def test_volume_type_encryption_delete_no_create(self):
+        self.assertRaises(exception.VolumeTypeEncryptionNotFound,
+                          db.volume_type_encryption_delete,
+                          self.ctxt,
+                          'fake_no_create_type')
 
     def test_volume_encryption_get(self):
         # normal volume -- metadata should be None
@@ -1509,7 +1721,9 @@ class DBAPIBackupTestCase(BaseTest):
             'service': 'service',
             'parent_id': "parent_id",
             'size': 1000,
-            'object_count': 100}
+            'object_count': 100,
+            'temp_volume_id': 'temp_volume_id',
+            'temp_snapshot_id': 'temp_snapshot_id', }
         if one:
             return base_values
 
@@ -1600,7 +1814,7 @@ class DBAPIBackupTestCase(BaseTest):
 class DBAPIProcessSortParamTestCase(test.TestCase):
 
     def test_process_sort_params_defaults(self):
-        '''Verifies default sort parameters.'''
+        """Verifies default sort parameters."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params([], [])
         self.assertEqual(['created_at', 'id'], sort_keys)
         self.assertEqual(['asc', 'asc'], sort_dirs)
@@ -1610,21 +1824,21 @@ class DBAPIProcessSortParamTestCase(test.TestCase):
         self.assertEqual(['asc', 'asc'], sort_dirs)
 
     def test_process_sort_params_override_default_keys(self):
-        '''Verifies that the default keys can be overridden.'''
+        """Verifies that the default keys can be overridden."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             [], [], default_keys=['key1', 'key2', 'key3'])
         self.assertEqual(['key1', 'key2', 'key3'], sort_keys)
         self.assertEqual(['asc', 'asc', 'asc'], sort_dirs)
 
     def test_process_sort_params_override_default_dir(self):
-        '''Verifies that the default direction can be overridden.'''
+        """Verifies that the default direction can be overridden."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             [], [], default_dir='dir1')
         self.assertEqual(['created_at', 'id'], sort_keys)
         self.assertEqual(['dir1', 'dir1'], sort_dirs)
 
     def test_process_sort_params_override_default_key_and_dir(self):
-        '''Verifies that the default key and dir can be overridden.'''
+        """Verifies that the default key and dir can be overridden."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             [], [], default_keys=['key1', 'key2', 'key3'],
             default_dir='dir1')
@@ -1637,7 +1851,7 @@ class DBAPIProcessSortParamTestCase(test.TestCase):
         self.assertEqual([], sort_dirs)
 
     def test_process_sort_params_non_default(self):
-        '''Verifies that non-default keys are added correctly.'''
+        """Verifies that non-default keys are added correctly."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             ['key1', 'key2'], ['asc', 'desc'])
         self.assertEqual(['key1', 'key2', 'created_at', 'id'], sort_keys)
@@ -1645,7 +1859,7 @@ class DBAPIProcessSortParamTestCase(test.TestCase):
         self.assertEqual(['asc', 'desc', 'asc', 'asc'], sort_dirs)
 
     def test_process_sort_params_default(self):
-        '''Verifies that default keys are added correctly.'''
+        """Verifies that default keys are added correctly."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             ['id', 'key2'], ['asc', 'desc'])
         self.assertEqual(['id', 'key2', 'created_at'], sort_keys)
@@ -1658,7 +1872,7 @@ class DBAPIProcessSortParamTestCase(test.TestCase):
         self.assertEqual(['asc', 'asc', 'asc'], sort_dirs)
 
     def test_process_sort_params_default_dir(self):
-        '''Verifies that the default dir is applied to all keys.'''
+        """Verifies that the default dir is applied to all keys."""
         # Direction is set, ignore default dir
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             ['id', 'key2'], ['desc'], default_dir='dir')
@@ -1672,7 +1886,7 @@ class DBAPIProcessSortParamTestCase(test.TestCase):
         self.assertEqual(['dir', 'dir', 'dir'], sort_dirs)
 
     def test_process_sort_params_unequal_length(self):
-        '''Verifies that a sort direction list is applied correctly.'''
+        """Verifies that a sort direction list is applied correctly."""
         sort_keys, sort_dirs = sqlalchemy_api.process_sort_params(
             ['id', 'key2', 'key3'], ['desc'])
         self.assertEqual(['id', 'key2', 'key3', 'created_at'], sort_keys)
@@ -1690,14 +1904,14 @@ class DBAPIProcessSortParamTestCase(test.TestCase):
         self.assertEqual(['desc', 'asc', 'asc', 'desc'], sort_dirs)
 
     def test_process_sort_params_extra_dirs_lengths(self):
-        '''InvalidInput raised if more directions are given.'''
+        """InvalidInput raised if more directions are given."""
         self.assertRaises(exception.InvalidInput,
                           sqlalchemy_api.process_sort_params,
                           ['key1', 'key2'],
                           ['asc', 'desc', 'desc'])
 
     def test_process_sort_params_invalid_sort_dir(self):
-        '''InvalidInput raised if invalid directions are given.'''
+        """InvalidInput raised if invalid directions are given."""
         for dirs in [['foo'], ['asc', 'foo'], ['asc', 'desc', 'foo']]:
             self.assertRaises(exception.InvalidInput,
                               sqlalchemy_api.process_sort_params,

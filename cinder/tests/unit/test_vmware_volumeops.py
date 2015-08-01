@@ -1443,51 +1443,35 @@ class VolumeOpsTestCase(test.TestCase):
                                            datacenter=dc_ref)
         self.session.wait_for_task.assert_called_once_with(task)
 
-    def test_get_profile(self):
-        server_obj = mock.Mock()
-        self.session.pbm.client.factory.create.return_value = server_obj
+    @mock.patch('oslo_vmware.pbm.get_profiles_by_ids')
+    @mock.patch('oslo_vmware.pbm.get_profiles')
+    def test_get_profile(self, get_profiles, get_profiles_by_ids):
 
         profile_ids = [mock.sentinel.profile_id]
+        get_profiles.return_value = profile_ids
+
         profile_name = mock.sentinel.profile_name
         profile = mock.Mock()
         profile.name = profile_name
-        self.session.invoke_api.side_effect = [profile_ids, [profile]]
+        get_profiles_by_ids.return_value = [profile]
 
-        value = mock.sentinel.value
-        backing = mock.Mock(value=value)
+        backing = mock.sentinel.backing
         self.assertEqual(profile_name, self.vops.get_profile(backing))
+        get_profiles.assert_called_once_with(self.session, backing)
+        get_profiles_by_ids.assert_called_once_with(self.session, profile_ids)
 
-        pbm = self.session.pbm
-        profile_manager = pbm.service_content.profileManager
-        exp_calls = [mock.call(pbm, 'PbmQueryAssociatedProfile',
-                               profile_manager, entity=server_obj),
-                     mock.call(pbm, 'PbmRetrieveContent', profile_manager,
-                               profileIds=profile_ids)]
-        self.assertEqual(exp_calls, self.session.invoke_api.call_args_list)
+    @mock.patch('oslo_vmware.pbm.get_profiles_by_ids')
+    @mock.patch('oslo_vmware.pbm.get_profiles')
+    def test_get_profile_with_no_profile(self, get_profiles,
+                                         get_profiles_by_ids):
 
-        self.assertEqual(value, server_obj.key)
-        self.assertEqual('virtualMachine', server_obj.objectType)
-        self.session.invoke_api.side_effect = None
+        get_profiles.return_value = []
 
-    def test_get_profile_with_no_profile(self):
-        server_obj = mock.Mock()
-        self.session.pbm.client.factory.create.return_value = server_obj
-
-        self.session.invoke_api.side_effect = [[]]
-
-        value = mock.sentinel.value
-        backing = mock.Mock(value=value)
+        backing = mock.sentinel.backing
         self.assertIsNone(self.vops.get_profile(backing))
 
-        pbm = self.session.pbm
-        profile_manager = pbm.service_content.profileManager
-        exp_calls = [mock.call(pbm, 'PbmQueryAssociatedProfile',
-                               profile_manager, entity=server_obj)]
-        self.assertEqual(exp_calls, self.session.invoke_api.call_args_list)
-
-        self.assertEqual(value, server_obj.key)
-        self.assertEqual('virtualMachine', server_obj.objectType)
-        self.session.invoke_api.side_effect = None
+        get_profiles.assert_called_once_with(self.session, backing)
+        self.assertFalse(get_profiles_by_ids.called)
 
     def test_extend_virtual_disk(self):
         """Test volumeops.extend_virtual_disk."""
@@ -1509,6 +1493,58 @@ class VolumeOpsTestCase(test.TestCase):
                                            newCapacityKb=fake_size_in_kb,
                                            eagerZero=False)
         self.session.wait_for_task.assert_called_once_with(task)
+
+    @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
+                '_get_all_clusters')
+    def test_get_cluster_refs(self, get_all_clusters):
+        cls_1 = mock.sentinel.cls_1
+        cls_2 = mock.sentinel.cls_2
+        clusters = {"cls_1": cls_1, "cls_2": cls_2}
+        get_all_clusters.return_value = clusters
+
+        self.assertEqual({"cls_2": cls_2},
+                         self.vops.get_cluster_refs(["cls_2"]))
+
+    @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
+                '_get_all_clusters')
+    def test_get_cluster_refs_with_invalid_cluster(self, get_all_clusters):
+        cls_1 = mock.sentinel.cls_1
+        cls_2 = mock.sentinel.cls_2
+        clusters = {"cls_1": cls_1, "cls_2": cls_2}
+        get_all_clusters.return_value = clusters
+
+        self.assertRaises(vmdk_exceptions.ClusterNotFoundException,
+                          self.vops.get_cluster_refs,
+                          ["cls_1", "cls_3"])
+
+    def test_get_cluster_hosts(self):
+        host_1 = mock.sentinel.host_1
+        host_2 = mock.sentinel.host_2
+        hosts = mock.Mock(ManagedObjectReference=[host_1, host_2])
+        self.session.invoke_api.return_value = hosts
+
+        cluster = mock.sentinel.cluster
+        ret = self.vops.get_cluster_hosts(cluster)
+
+        self.assertEqual([host_1, host_2], ret)
+        self.session.invoke_api.assert_called_once_with(vim_util,
+                                                        'get_object_property',
+                                                        self.session.vim,
+                                                        cluster,
+                                                        'host')
+
+    def test_get_cluster_hosts_with_no_host(self):
+        self.session.invoke_api.return_value = None
+
+        cluster = mock.sentinel.cluster
+        ret = self.vops.get_cluster_hosts(cluster)
+
+        self.assertEqual([], ret)
+        self.session.invoke_api.assert_called_once_with(vim_util,
+                                                        'get_object_property',
+                                                        self.session.vim,
+                                                        cluster,
+                                                        'host')
 
 
 class VirtualDiskPathTest(test.TestCase):

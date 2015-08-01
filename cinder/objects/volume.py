@@ -74,6 +74,8 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         'replication_status': fields.StringField(nullable=True),
         'replication_extended_status': fields.StringField(nullable=True),
         'replication_driver_data': fields.StringField(nullable=True),
+
+        'previous_status': fields.StringField(nullable=True),
     }
 
     # NOTE(thangp): obj_extra_fields is used to hold properties that are not
@@ -121,13 +123,13 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         if self.obj_attr_is_set('id'):
             raise exception.ObjectActionError(action='create',
                                               reason=_('already created'))
-        updates = self.obj_get_changes()
+        updates = self.cinder_obj_get_changes()
         db_volume = db.volume_create(self._context, updates)
         self._from_db_object(self._context, self, db_volume)
 
     @base.remotable
     def save(self):
-        updates = self.obj_get_changes()
+        updates = self.cinder_obj_get_changes()
         if updates:
             db.volume_update(self._context, self.id, updates)
 

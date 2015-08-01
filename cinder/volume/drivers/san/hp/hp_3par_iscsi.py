@@ -87,10 +87,12 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
         2.0.15 - Added support for updated detach_volume attachment.
         2.0.16 - Added encrypted property to initialize_connection #1439917
         2.0.17 - Python 3 fixes
+        2.0.18 - Improved VLUN creation and deletion logic. #1469816
+        2.0.19 - Changed initialize_connection to use getHostVLUNs. #1475064
 
     """
 
-    VERSION = "2.0.17"
+    VERSION = "2.0.19"
 
     def __init__(self, *args, **kwargs):
         super(HP3PARISCSIDriver, self).__init__(*args, **kwargs)
@@ -290,27 +292,29 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
                 connector)
 
             least_used_nsp = None
-            try:
-                vol_name = common._get_3par_vol_name(volume['id'])
-                existing_vlun = common.client.getVLUN(vol_name)
 
+            # check if a VLUN already exists for this host
+            existing_vlun = common.find_existing_vlun(volume, host)
+
+            if existing_vlun:
                 # We override the nsp here on purpose to force the
                 # volume to be exported out the same IP as it already is.
                 # This happens during nova live-migration, we want to
                 # disable the picking of a different IP that we export
                 # the volume to, or nova complains.
                 least_used_nsp = common.build_nsp(existing_vlun['portPos'])
-            except hpexceptions.HTTPNotFound:
-                # ignore this error, as we will create the vlun later
-                pass
 
             if not least_used_nsp:
                 least_used_nsp = self._get_least_used_nsp_for_host(
                     common,
                     host['name'])
 
-            # now that we have a host, create the VLUN
-            vlun = common.create_vlun(volume, host, least_used_nsp)
+            vlun = None
+            if existing_vlun is None:
+                # now that we have a host, create the VLUN
+                vlun = common.create_vlun(volume, host, least_used_nsp)
+            else:
+                vlun = existing_vlun
 
             if least_used_nsp is None:
                 LOG.warning(_LW("Least busy iSCSI port not found, "
@@ -637,7 +641,7 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
                 return key
 
     def _get_least_used_nsp(self, common, vluns, nspss):
-        """"Return the nsp that has the fewest active vluns."""
+        """Return the nsp that has the fewest active vluns."""
         # return only the nsp (node:server:port)
         # count the number of nsps
         nsp_counts = {}

@@ -14,7 +14,10 @@ import datetime
 import six
 import sys
 
-import mock
+try:
+    from unittest import mock
+except ImportError:
+    import mock
 from oslo_config import cfg
 
 try:
@@ -439,7 +442,10 @@ class TestCinderManageCmd(test.TestCase):
         mock_client.prepare.return_value = cctxt
         get_client.return_value = mock_client
         volume_id = '123'
-        volume = {'id': volume_id, 'host': 'fake-host', 'status': 'available'}
+        host = 'fake@host'
+        volume = {'id': volume_id,
+                  'host': host + '#pool1',
+                  'status': 'available'}
         volume_get.return_value = volume
 
         volume_cmds = cinder_manage.VolumeCommands()
@@ -447,7 +453,8 @@ class TestCinderManageCmd(test.TestCase):
         volume_cmds.delete(volume_id)
 
         volume_get.assert_called_once_with(ctxt, 123)
-        mock_client.prepare.assert_called_once_with(server=volume['host'])
+        # NOTE prepare called w/o pool part in host
+        mock_client.prepare.assert_called_once_with(server=host)
         cctxt.cast.assert_called_once_with(ctxt, 'delete_volume',
                                            volume_id=volume['id'])
 
@@ -529,7 +536,7 @@ class TestCinderManageCmd(test.TestCase):
 
             self.assertEqual(expected_out, fake_out.getvalue())
 
-    @mock.patch('__builtin__.open')
+    @mock.patch('six.moves.builtins.open')
     @mock.patch('os.listdir')
     def test_get_log_commands_errors(self, listdir, open):
         CONF.set_override('log_dir', 'fake-dir')
@@ -548,7 +555,7 @@ class TestCinderManageCmd(test.TestCase):
             open.assert_called_once_with('fake-dir/fake-error.log', 'r')
             listdir.assert_called_once_with(CONF.log_dir)
 
-    @mock.patch('__builtin__.open')
+    @mock.patch('six.moves.builtins.open')
     @mock.patch('os.path.exists')
     def test_get_log_commands_syslog_no_log_file(self, path_exists, open):
         path_exists.return_value = False

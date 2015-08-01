@@ -21,10 +21,14 @@
 Volume driver for NetApp NFS storage.
 """
 
+import os
+
 from oslo_log import log as logging
+import six
 
 from cinder import exception
 from cinder.i18n import _
+from cinder import utils
 from cinder.volume.drivers.netapp.dataontap.client import client_7mode
 from cinder.volume.drivers.netapp.dataontap import nfs_base
 from cinder.volume.drivers.netapp import options as na_opts
@@ -34,6 +38,7 @@ from cinder.volume.drivers.netapp import utils as na_utils
 LOG = logging.getLogger(__name__)
 
 
+@six.add_metaclass(utils.TraceWrapperWithABCMetaclass)
 class NetApp7modeNfsDriver(nfs_base.NetAppNfsDriver):
     """NetApp NFS driver for Data ONTAP (7-mode)."""
 
@@ -120,11 +125,13 @@ class NetApp7modeNfsDriver(nfs_base.NetAppNfsDriver):
     def _shortlist_del_eligible_files(self, share, old_files):
         """Prepares list of eligible files to be deleted from cache."""
         file_list = []
-        exp_volume = self.zapi_client.get_actual_path_for_export(share)
-        for file in old_files:
-            path = '/vol/%s/%s' % (exp_volume, file)
+        (_, export_path) = self._get_export_ip_path(share=share)
+        exported_volume = self.zapi_client.get_actual_path_for_export(
+            export_path)
+        for old_file in old_files:
+            path = os.path.join(exported_volume, old_file)
             u_bytes = self.zapi_client.get_file_usage(path)
-            file_list.append((file, u_bytes))
+            file_list.append((old_file, u_bytes))
         LOG.debug('Shortlisted files eligible for deletion: %s', file_list)
         return file_list
 

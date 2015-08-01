@@ -12,29 +12,37 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-'''Volume driver for Dell Storage Center.'''
+"""Volume driver for Dell Storage Center."""
 
 from oslo_log import log as logging
 from oslo_utils import excutils
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI
+from cinder.volume import driver
 from cinder.volume.drivers.dell import dell_storagecenter_common
-from cinder.volume.drivers import san
-
 LOG = logging.getLogger(__name__)
 
 
-class DellStorageCenterISCSIDriver(san.SanISCSIDriver,
-                                   dell_storagecenter_common.DellCommonDriver):
+class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
+                                   driver.ISCSIDriver):
 
-    '''Implements commands for Dell StorageCenter ISCSI management.
+    """Implements commands for Dell StorageCenter ISCSI management.
 
     To enable the driver add the following line to the cinder configuration:
         volume_driver=cinder.volume.drivers.dell.DellStorageCenterISCSIDriver
-    '''
 
-    VERSION = '1.0.2'
+    Version history:
+        1.0.0 - Initial driver
+        1.1.0 - Added extra spec support for Storage Profile selection
+        1.2.0 - Added consistency group support.
+        2.0.0 - Switched to inheriting functional objects rather than volume
+                driver.
+        2.1.0 - Added support for ManageableVD.
+        2.2.0 - Driver retype support for switching volume's Storage Profile
+    """
+
+    VERSION = '2.2.0'
 
     def __init__(self, *args, **kwargs):
         super(DellStorageCenterISCSIDriver, self).__init__(*args, **kwargs)

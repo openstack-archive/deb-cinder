@@ -446,9 +446,14 @@ class QuotaError(CinderException):
 
 
 class VolumeSizeExceedsAvailableQuota(QuotaError):
-    message = _("Requested volume or snapshot exceeds allowed gigabytes "
+    message = _("Requested volume or snapshot exceeds allowed %(name)s "
                 "quota. Requested %(requested)sG, quota is %(quota)sG and "
                 "%(consumed)sG has been consumed.")
+
+    def __init__(self, message=None, **kwargs):
+        kwargs.setdefault('name', 'gigabytes')
+        super(VolumeSizeExceedsAvailableQuota, self).__init__(
+            message, **kwargs)
 
 
 class VolumeSizeExceedsLimit(QuotaError):
@@ -530,6 +535,11 @@ class MetadataUpdateFailure(Invalid):
 
 class MetadataCopyFailure(Invalid):
     message = _("Failed to copy metadata to volume: %(reason)s")
+
+
+class InvalidMetadataType(Invalid):
+    message = _("The type of metadata: %(metadata_type)s for volume/snapshot "
+                "%(id)s is invalid.")
 
 
 class ImageCopyFailure(Invalid):
@@ -922,6 +932,10 @@ class XtremIOAlreadyMappedError(CinderException):
     message = _("Volume to Initiator Group mapping already exists")
 
 
+class XtremIOArrayBusy(CinderException):
+    message = _("System is busy, retry operation.")
+
+
 # StorPool driver
 class StorPoolConfigurationMissing(CinderException):
     message = _("Missing parameter %(param)s in the %(section)s section "
@@ -962,3 +976,12 @@ class DotHillRequestError(CinderException):
 
 class DotHillNotTargetPortal(CinderException):
     message = _("No active iSCSI portals with supplied iSCSI IPs")
+
+
+class MetadataAbsent(CinderException):
+    message = _("There is no metadata in DB object.")
+
+
+class NotSupportedOperation(Invalid):
+    message = _("Operation not supported: %(operation)s.")
+    code = 405

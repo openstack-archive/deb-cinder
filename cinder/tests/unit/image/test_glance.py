@@ -45,15 +45,11 @@ class TestGlanceSerializer(test.TestCase):
                     'properties': {
                         'prop1': 'propvalue1',
                         'mappings': [
-                            {'virtual': 'aaa',
-                             'device': 'bbb'},
-                            {'virtual': 'xxx',
-                             'device': 'yyy'}],
+                            {'device': 'bbb'},
+                            {'device': 'yyy'}],
                         'block_device_mapping': [
-                            {'virtual_device': 'fake',
-                             'device_name': '/dev/fake'},
-                            {'virtual_device': 'ephemeral0',
-                             'device_name': '/dev/fake0'}]}}
+                            {'device_name': '/dev/fake'},
+                            {'device_name': '/dev/fake0'}]}}
 
         converted_expected = {
             'name': 'image1',
@@ -62,12 +58,11 @@ class TestGlanceSerializer(test.TestCase):
             'properties': {
                 'prop1': 'propvalue1',
                 'mappings':
-                '[{"device": "bbb", "virtual": "aaa"}, '
-                '{"device": "yyy", "virtual": "xxx"}]',
+                '[{"device": "bbb"}, '
+                '{"device": "yyy"}]',
                 'block_device_mapping':
-                '[{"virtual_device": "fake", "device_name": "/dev/fake"}, '
-                '{"virtual_device": "ephemeral0", '
-                '"device_name": "/dev/fake0"}]'}}
+                '[{"device_name": "/dev/fake"}, '
+                '{"device_name": "/dev/fake0"}]'}}
         converted = glance._convert_to_string(metadata)
         self.assertEqual(converted, converted_expected)
         self.assertEqual(glance._convert_from_string(converted), metadata)
@@ -518,7 +513,7 @@ class TestGlanceImageService(test.TestCase):
         self.assertRaises(exception.ImageNotFound, service.download,
                           self.context, image_id, writer)
 
-    @mock.patch('__builtin__.open')
+    @mock.patch('six.moves.builtins.open')
     @mock.patch('shutil.copyfileobj')
     def test_download_from_direct_file(self, mock_copyfileobj, mock_open):
         fixture = self._make_fixture(name='test image',
@@ -530,7 +525,7 @@ class TestGlanceImageService(test.TestCase):
         self.service.download(self.context, image_id, writer)
         mock_copyfileobj.assert_called_once_with(mock.ANY, writer)
 
-    @mock.patch('__builtin__.open')
+    @mock.patch('six.moves.builtins.open')
     @mock.patch('shutil.copyfileobj')
     def test_download_from_direct_file_non_file(self,
                                                 mock_copyfileobj, mock_open):
@@ -613,10 +608,7 @@ class TestGlanceImageService(test.TestCase):
     def test_extracting_v2_boot_properties(self, config):
 
         config.glance_api_version = 2
-
-        attributes = ['size', 'disk_format', 'owner', 'container_format',
-                      'checksum', 'id', 'name', 'created_at', 'updated_at',
-                      'deleted', 'status', 'min_disk', 'min_ram', 'is_public']
+        config.glance_num_retries = 0
 
         metadata = {
             'id': 1,
@@ -627,23 +619,13 @@ class TestGlanceImageService(test.TestCase):
             'ramdisk_id': 'bar',
         }
 
-        class FakeSchema(object):
-
-            def __init__(self, base):
-                self.base = base
-
-            def is_base_property(self, key):
-                if key in self.base:
-                    return True
-                else:
-                    return False
-
         image = glance_stubs.FakeImage(metadata)
         client = glance_stubs.StubGlanceClient()
 
         service = self._create_image_service(client)
-        service._image_schema = FakeSchema(attributes)
-        actual = service._translate_from_glance(image)
+        service._image_schema = glance_stubs.FakeSchema()
+
+        actual = service._translate_from_glance('fake_context', image)
         expected = {
             'id': 1,
             'name': None,
@@ -655,7 +637,6 @@ class TestGlanceImageService(test.TestCase):
             'container_format': None,
             'checksum': None,
             'deleted': None,
-            'deleted_at': None,
             'status': None,
             'properties': {'kernel_id': 'foo',
                            'ramdisk_id': 'bar'},

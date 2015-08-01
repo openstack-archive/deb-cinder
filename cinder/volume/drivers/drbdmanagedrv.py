@@ -63,8 +63,9 @@ CONF = cfg.CONF
 CONF.register_opts(drbd_opts)
 
 
-CINDER_AUX_PROP_id = "cinder-id"
+AUX_PROP_CINDER_VOL_ID = "cinder-id"
 DM_VN_PREFIX = 'CV_'  # sadly 2CV isn't allowed by DRBDmanage
+DM_SN_PREFIX = 'SN_'
 
 
 class DrbdManageDriver(driver.VolumeDriver):
@@ -138,7 +139,9 @@ class DrbdManageDriver(driver.VolumeDriver):
         # Some uuid library versions put braces around the result!?
         # We don't want them, just a plain [0-9a-f-]+ string.
         id = str(uuid.uuid4())
-        return id.translate(None, "{}")
+        id = id.replace("{", "")
+        id = id.replace("}", "")
+        return id
 
     def _check_result(self, res, ignore=None, ret=0):
         seen_success = False
@@ -170,27 +173,27 @@ class DrbdManageDriver(driver.VolumeDriver):
     def _vol_size_to_cinder(self, size):
         return int(size * units.Ki / units.Gi)
 
-    def is_clean_volume_name(self, name):
+    def is_clean_volume_name(self, name, prefix):
         try:
             if (name.startswith(CONF.volume_name_template % "") and
                     uuid.UUID(name[7:]) is not None):
-                return DM_VN_PREFIX + name[7:]
+                return prefix + name[7:]
         except ValueError:
             return None
 
         try:
             if uuid.UUID(name) is not None:
-                return DM_VN_PREFIX + name
+                return prefix + name
         except ValueError:
             return None
 
     def _priv_hash_from_volume(self, volume):
         return dm_utils.dict_to_aux_props({
-            CINDER_AUX_PROP_id: volume['id'],
+            AUX_PROP_CINDER_VOL_ID: volume['id'],
         })
 
     def snapshot_name_from_cinder_snapshot(self, snapshot):
-        sn_name = self.is_clean_volume_name(snapshot['id'])
+        sn_name = self.is_clean_volume_name(snapshot['id'], DM_SN_PREFIX)
         return sn_name
 
     def _res_and_vl_data_for_volume(self, volume, empty_ok=False):
@@ -214,7 +217,7 @@ class DrbdManageDriver(driver.VolumeDriver):
                                          self.empty_dict,
                                          0,
                                          dm_utils.dict_to_aux_props(
-                                             {CINDER_AUX_PROP_id: v_uuid}),
+                                             {AUX_PROP_CINDER_VOL_ID: v_uuid}),
                                          self.empty_dict)
         self._check_result(res)
 
@@ -251,7 +254,7 @@ class DrbdManageDriver(driver.VolumeDriver):
                                          self.empty_dict,
                                          0,
                                          dm_utils.dict_to_aux_props(
-                                             {CINDER_AUX_PROP_id: s_uuid}),
+                                             {AUX_PROP_CINDER_VOL_ID: s_uuid}),
                                          self.empty_dict)
         self._check_result(res)
 
@@ -304,7 +307,7 @@ class DrbdManageDriver(driver.VolumeDriver):
         """
 
         # TODO(PM): consistency groups
-        dres = self.is_clean_volume_name(volume['id'])
+        dres = self.is_clean_volume_name(volume['id'], DM_VN_PREFIX)
 
         res = self.call_or_reconnect(self.odm.create_resource,
                                      dres,
@@ -379,7 +382,7 @@ class DrbdManageDriver(driver.VolumeDriver):
         dres, sname, sprop = self._resource_and_snap_data_from_snapshot(
             snapshot)
 
-        new_res = self.is_clean_volume_name(volume['id'])
+        new_res = self.is_clean_volume_name(volume['id'], DM_VN_PREFIX)
 
         r_props = self.empty_dict
         # TODO(PM): consistency groups => different volume number possible
@@ -397,8 +400,7 @@ class DrbdManageDriver(driver.VolumeDriver):
         temp_id = self._clean_uuid()
         snapshot = {'id': temp_id}
 
-        self.create_snapshot(dict(snapshot.items() +
-                                  [('volume_id', src_vref['id'])]))
+        self.create_snapshot({'id': temp_id, 'volume_id': src_vref['id']})
 
         self.create_volume_from_snapshot(volume, snapshot)
 
@@ -468,7 +470,7 @@ class DrbdManageDriver(driver.VolumeDriver):
                                            self.empty_dict)
         self._check_result(res)
 
-        nodes = map(lambda d: d[0], data)
+        nodes = [d[0] for d in data]
         if len(nodes) < 1:
             raise exception.VolumeBackendAPIException(
                 _('Snapshot res "%s" that is not deployed anywhere?') %

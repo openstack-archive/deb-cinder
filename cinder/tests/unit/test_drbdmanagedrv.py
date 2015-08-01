@@ -16,7 +16,6 @@
 import collections
 
 import mock
-from oslo_log import log as logging
 from oslo_utils import importutils
 from oslo_utils import timeutils
 
@@ -69,9 +68,6 @@ sys.modules['drbdmanage.exceptions'] = collections.namedtuple(
 
 
 from cinder.volume.drivers import drbdmanagedrv
-
-
-LOG = logging.getLogger(__name__)
 
 
 def create_configuration(object):
@@ -200,13 +196,13 @@ class DrbdManageTestCase(test.TestCase):
         return None
 
     def fake_issue_dbus_call(self, fn, *args):
-        return apply(fn, args)
+        return fn(*args)
 
     def fake_issue_dbus_connect(self):
         self.odm = DrbdManageFakeDriver()
 
     def call_or_reconnect(self, method, *params):
-        return apply(method, params)
+        return method(*params)
 
     # Tests per se
 

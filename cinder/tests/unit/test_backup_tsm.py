@@ -22,7 +22,6 @@ import os
 import posix
 
 from oslo_concurrency import processutils as putils
-from oslo_log import log as logging
 from oslo_utils import timeutils
 
 from cinder.backup.drivers import tsm
@@ -33,7 +32,6 @@ from cinder import objects
 from cinder import test
 from cinder import utils
 
-LOG = logging.getLogger(__name__)
 SIM = None
 VOLUME_PATH = '/dev/null'
 
@@ -279,7 +277,7 @@ class BackupTSMTestCase(test.TestCase):
         self._create_backup_db_entry(backup_id2, mode)
         self._create_backup_db_entry(backup_id3, mode)
 
-        with open(VOLUME_PATH, 'rw') as volume_file:
+        with open(VOLUME_PATH, 'w+') as volume_file:
             # Create two backups of the volume
             backup1 = objects.Backup.get_by_id(self.ctxt, backup_id1)
             self.driver.backup(backup1, volume_file)
@@ -311,7 +309,7 @@ class BackupTSMTestCase(test.TestCase):
         self._create_backup_db_entry(backup_id1, mode)
         self._create_backup_db_entry(backup_id2, mode)
 
-        with open(VOLUME_PATH, 'rw') as volume_file:
+        with open(VOLUME_PATH, 'w+') as volume_file:
             # Create two backups of the volume
             backup1 = objects.Backup.get_by_id(self.ctxt, 123)
             self.driver.backup(backup1, volume_file)
@@ -342,7 +340,7 @@ class BackupTSMTestCase(test.TestCase):
         backup_id1 = 123
         self._create_backup_db_entry(backup_id1, mode)
 
-        with open(VOLUME_PATH, 'rw') as volume_file:
+        with open(VOLUME_PATH, 'w+') as volume_file:
             # Create two backups of the volume
             backup1 = objects.Backup.get_by_id(self.ctxt, 123)
             self.assertRaises(exception.InvalidBackup,

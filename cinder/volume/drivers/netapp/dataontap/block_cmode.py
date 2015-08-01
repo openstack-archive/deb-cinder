@@ -25,12 +25,12 @@ Volume driver library for NetApp C-mode block storage systems.
 import copy
 
 from oslo_log import log as logging
+from oslo_service import loopingcall
 from oslo_utils import units
 import six
 
 from cinder import exception
 from cinder.i18n import _
-from cinder.openstack.common import loopingcall
 from cinder import utils
 from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap.client import client_cmode
@@ -43,8 +43,8 @@ LOG = logging.getLogger(__name__)
 QOS_CLEANUP_INTERVAL_SECONDS = 60
 
 
-class NetAppBlockStorageCmodeLibrary(block_base.
-                                     NetAppBlockStorageLibrary):
+@six.add_metaclass(utils.TraceWrapperMetaclass)
+class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
     """NetApp block storage library for Data ONTAP (Cluster-mode)."""
 
     REQUIRED_CMODE_FLAGS = ['netapp_vserver']

@@ -16,13 +16,10 @@
 
 import contextlib
 import datetime
-import functools
-import traceback
 
 from oslo_log import log as logging
 from oslo_versionedobjects import base
 from oslo_versionedobjects import fields
-import six
 
 from cinder import exception
 from cinder import objects
@@ -45,6 +42,28 @@ class CinderObject(base.VersionedObject):
     # cinder, and other objects can exist on the same bus and be distinguished
     # from one another.
     OBJ_PROJECT_NAMESPACE = 'cinder'
+
+    def cinder_obj_get_changes(self):
+        """Returns a dict of changed fields with tz unaware datetimes.
+
+        Any timezone aware datetime field will be converted to UTC timezone
+        and returned as timezone unaware datetime.
+
+        This will allow us to pass these fields directly to a db update
+        method as they can't have timezone information.
+        """
+        # Get dirtied/changed fields
+        changes = self.obj_get_changes()
+
+        # Look for datetime objects that contain timezone information
+        for k, v in changes.items():
+            if isinstance(v, datetime.datetime) and v.tzinfo:
+                # Remove timezone information and adjust the time according to
+                # the timezone information's offset.
+                changes[k] = v.replace(tzinfo=None) - v.utcoffset()
+
+        # Return modified dict
+        return changes
 
 
 class CinderObjectDictCompat(base.VersionedObjectDictCompat):
@@ -122,27 +141,3 @@ class ObjectListBase(base.ObjectListBase):
 
 class CinderObjectSerializer(base.VersionedObjectSerializer):
     OBJ_BASE_CLASS = CinderObject
-
-
-def serialize_args(fn):
-    """Decorator that will do the arguments serialization before remoting."""
-    def wrapper(obj, *args, **kwargs):
-        for kw in kwargs:
-            value_arg = kwargs.get(kw)
-            if kw == 'exc_val' and value_arg:
-                kwargs[kw] = str(value_arg)
-            elif kw == 'exc_tb' and (
-                    not isinstance(value_arg, six.string_types) and value_arg):
-                kwargs[kw] = ''.join(traceback.format_tb(value_arg))
-            elif isinstance(value_arg, datetime.datetime):
-                kwargs[kw] = value_arg.isoformat()
-        if hasattr(fn, '__call__'):
-            return fn(obj, *args, **kwargs)
-        # NOTE(danms): We wrap a descriptor, so use that protocol
-        return fn.__get__(None, obj)(*args, **kwargs)
-
-    # NOTE(danms): Make this discoverable
-    wrapper.remotable = getattr(fn, 'remotable', False)
-    wrapper.original_fn = fn
-    return (functools.wraps(fn)(wrapper) if hasattr(fn, '__call__')
-            else classmethod(wrapper))

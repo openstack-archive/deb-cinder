@@ -21,6 +21,7 @@ Implements operations on volumes residing on VMware datastores.
 from oslo_log import log as logging
 from oslo_utils import units
 from oslo_vmware import exceptions
+from oslo_vmware import pbm
 from oslo_vmware import vim_util
 from six.moves import urllib
 
@@ -1396,20 +1397,52 @@ class VMwareVolumeOps(object):
         :param backing: backing reference
         :return: profile name
         """
-        pbm = self._session.pbm
-        profile_manager = pbm.service_content.profileManager
-
-        object_ref = pbm.client.factory.create('ns0:PbmServerObjectRef')
-        object_ref.key = backing.value
-        object_ref.objectType = 'virtualMachine'
-
-        profile_ids = self._session.invoke_api(pbm,
-                                               'PbmQueryAssociatedProfile',
-                                               profile_manager,
-                                               entity=object_ref)
+        profile_ids = pbm.get_profiles(self._session, backing)
         if profile_ids:
-            profiles = self._session.invoke_api(pbm,
-                                                'PbmRetrieveContent',
-                                                profile_manager,
-                                                profileIds=profile_ids)
-            return profiles[0].name
+            return pbm.get_profiles_by_ids(self._session, profile_ids)[0].name
+
+    def _get_all_clusters(self):
+        clusters = {}
+        retrieve_result = self._session.invoke_api(vim_util, 'get_objects',
+                                                   self._session.vim,
+                                                   'ClusterComputeResource',
+                                                   self._max_objects)
+        while retrieve_result:
+            if retrieve_result.objects:
+                for cluster in retrieve_result.objects:
+                    name = urllib.unquote(cluster.propSet[0].val)
+                    clusters[name] = cluster.obj
+            retrieve_result = self.continue_retrieval(retrieve_result)
+        return clusters
+
+    def get_cluster_refs(self, names):
+        """Get references to given clusters.
+
+        :param names: list of cluster names
+        :return: Dictionary of cluster names to references
+        """
+        clusters = self._get_all_clusters()
+        for name in names:
+            if name not in clusters:
+                LOG.error(_LE("Compute cluster: %s not found."), name)
+                raise vmdk_exceptions.ClusterNotFoundException(cluster=name)
+
+        return {name: clusters[name] for name in names}
+
+    def get_cluster_hosts(self, cluster):
+        """Get hosts in the given cluster.
+
+        :param cluster: cluster reference
+        :return: references to hosts in the cluster
+        """
+        hosts = self._session.invoke_api(vim_util,
+                                         'get_object_property',
+                                         self._session.vim,
+                                         cluster,
+                                         'host')
+
+        host_refs = []
+        if hosts and hosts.ManagedObjectReference:
+            host_refs.extend(hosts.ManagedObjectReference)
+
+        return host_refs

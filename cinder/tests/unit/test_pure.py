@@ -205,11 +205,12 @@ class PureDriverTestCase(test.TestCase):
         """
         func(*args, **kwargs)
         for mock_func in mocks:
-            mock_func.side_effect = exception.PureDriverException(
-                reason="reason")
+            original_side_effect = mock_func.side_effect
+            mock_func.side_effect = [exception.PureDriverException(
+                reason='reason')]
             self.assertRaises(exception.PureDriverException,
                               func, *args, **kwargs)
-            mock_func.side_effect = None
+            mock_func.side_effect = original_side_effect
 
 
 class PureBaseVolumeDriverTestCase(PureDriverTestCase):
@@ -480,6 +481,21 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         self.array.disconnect_host.assert_called_with(PURE_HOST_NAME, vol_name)
         self.assertFalse(self.array.list_host_connections.called)
         self.assertFalse(self.array.delete_host.called)
+
+    @mock.patch(BASE_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_terminate_connection_host_deleted(self, mock_host):
+        vol_name = VOLUME["name"] + "-cinder"
+        mock_host.return_value = PURE_HOST.copy()
+        self.array.reset_mock()
+        self.array.list_host_connections.return_value = []
+        self.array.delete_host.side_effect = \
+            self.purestorage_module.PureHTTPError(code=400,
+                                                  text='Host does not exist.')
+        self.driver.terminate_connection(VOLUME, ISCSI_CONNECTOR)
+        self.array.disconnect_host.assert_called_with(PURE_HOST_NAME, vol_name)
+        self.array.list_host_connections.assert_called_with(PURE_HOST_NAME,
+                                                            private=True)
+        self.array.delete_host.assert_called_once_with(PURE_HOST_NAME)
 
     @mock.patch(BASE_DRIVER_OBJ + ".get_filter_function", autospec=True)
     @mock.patch(BASE_DRIVER_OBJ + "._get_provisioned_space", autospec=True)
@@ -1012,6 +1028,12 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         self.array.rename_volume.assert_called_with(vol_name,
                                                     unmanaged_vol_name)
 
+    def test_retype(self):
+        # Ensure that we return true no matter what the inputs are
+        retyped, update = self.driver.retype(None, None, None, None, None)
+        self.assertTrue(retyped)
+        self.assertIsNone(update)
+
 
 class PureISCSIDriverTestCase(PureDriverTestCase):
 
@@ -1314,7 +1336,7 @@ class PureFCDriverTestCase(PureDriverTestCase):
         # Branch where host already exists
         mock_host.return_value = PURE_HOST
         self.array.connect_host.return_value = {"vol": vol_name, "lun": 1}
-        real_result = self.driver._connect(VOLUME, FC_CONNECTOR, None)
+        real_result = self.driver._connect(VOLUME, FC_CONNECTOR)
         self.assertEqual(result, real_result)
         mock_host.assert_called_with(self.driver, FC_CONNECTOR)
         self.assertFalse(mock_generate.called)
@@ -1324,7 +1346,7 @@ class PureFCDriverTestCase(PureDriverTestCase):
         # Branch where new host is created
         mock_host.return_value = None
         mock_generate.return_value = PURE_HOST_NAME
-        real_result = self.driver._connect(VOLUME, FC_CONNECTOR, None)
+        real_result = self.driver._connect(VOLUME, FC_CONNECTOR)
         mock_host.assert_called_with(self.driver, FC_CONNECTOR)
         mock_generate.assert_called_with(HOSTNAME)
         self.array.create_host.assert_called_with(PURE_HOST_NAME,
@@ -1336,7 +1358,7 @@ class PureFCDriverTestCase(PureDriverTestCase):
         self.assert_error_propagates(
             [mock_host, mock_generate, self.array.connect_host,
              self.array.create_host],
-            self.driver._connect, VOLUME, FC_CONNECTOR, None)
+            self.driver._connect, VOLUME, FC_CONNECTOR)
 
     @mock.patch(FC_DRIVER_OBJ + "._get_host", autospec=True)
     def test_connect_already_connected(self, mock_host):
@@ -1349,7 +1371,7 @@ class PureFCDriverTestCase(PureDriverTestCase):
                 code=400,
                 text="Connection already exists"
             )
-        actual = self.driver._connect(VOLUME, FC_CONNECTOR, None)
+        actual = self.driver._connect(VOLUME, FC_CONNECTOR)
         self.assertEqual(expected, actual)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
@@ -1364,7 +1386,7 @@ class PureFCDriverTestCase(PureDriverTestCase):
                 text="Connection already exists"
             )
         self.assertRaises(exception.PureDriverException, self.driver._connect,
-                          VOLUME, FC_CONNECTOR, None)
+                          VOLUME, FC_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
 
@@ -1379,6 +1401,6 @@ class PureFCDriverTestCase(PureDriverTestCase):
                 text="Connection already exists"
             )
         self.assertRaises(self.purestorage_module.PureHTTPError,
-                          self.driver._connect, VOLUME, FC_CONNECTOR, None)
+                          self.driver._connect, VOLUME, FC_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)

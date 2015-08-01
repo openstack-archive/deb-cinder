@@ -57,6 +57,8 @@ log_translation_LE = re.compile(
     r"(.)*LOG\.(exception|error)\(\s*(_\(|'|\")")
 log_translation_LW = re.compile(
     r"(.)*LOG\.(warning|warn)\(\s*(_\(|'|\")")
+logging_instance = re.compile(
+    r"(.)*LOG\.(warning|info|debug|error|exception)\(")
 
 
 class BaseASTChecker(ast.NodeVisitor):
@@ -200,17 +202,6 @@ class CheckForStrUnicodeExc(BaseASTChecker):
         super(CheckForStrUnicodeExc, self).generic_visit(node)
 
 
-def check_assert_called_once(logical_line, filename):
-    msg = ("N327: assert_called_once is a no-op. please use assert_called_"
-           "once_with to test with explicit parameters or an assertEqual with"
-           " call_count.")
-
-    if 'cinder/tests/functional' or 'cinder/tests/unit' in filename:
-        pos = logical_line.find('.assert_called_once(')
-        if pos != -1:
-            yield (pos, msg)
-
-
 def validate_log_translations(logical_line, filename):
     # Translations are not required in the test directory.
     # This will not catch all instances of violations, just direct
@@ -318,13 +309,23 @@ def check_timeutils_isotime(logical_line):
         yield(0, msg)
 
 
+def no_test_log(logical_line, filename, noqa):
+    if "cinder/tests" not in filename or noqa:
+        return
+    # Skip the "integrated" tests for now
+    if "cinder/tests/unit/integrated" in filename:
+        return
+    msg = "C309: Unit tests should not perform logging."
+    if logging_instance.match(logical_line):
+        yield (0, msg)
+
+
 def factory(register):
     register(no_vi_headers)
     register(no_translate_debug_logs)
     register(no_mutable_default_args)
     register(check_explicit_underscore_import)
     register(CheckForStrUnicodeExc)
-    register(check_assert_called_once)
     register(check_oslo_namespace_imports)
     register(check_datetime_now)
     register(check_timeutils_strtime)
@@ -336,3 +337,4 @@ def factory(register):
     register(check_no_contextlib_nested)
     register(no_log_warn)
     register(dict_constructor_with_list_copy)
+    register(no_test_log)

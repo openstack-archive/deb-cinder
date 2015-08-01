@@ -18,11 +18,10 @@ Mock unit tests for the NetApp cmode nfs storage driver
 
 import mock
 from os_brick.remotefs import remotefs as remotefs_brick
-from oslo_log import log as logging
+from oslo_service import loopingcall
 from oslo_utils import units
 
 from cinder import exception
-from cinder.openstack.common import loopingcall
 from cinder import test
 from cinder.tests.unit.volume.drivers.netapp.dataontap import fakes as fake
 from cinder.tests.unit.volume.drivers.netapp import fakes as na_fakes
@@ -35,9 +34,6 @@ from cinder.volume.drivers.netapp.dataontap import ssc_cmode
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume.drivers import nfs
 from cinder.volume import utils as volume_utils
-
-
-LOG = logging.getLogger(__name__)
 
 
 class NetAppCmodeNfsDriverTestCase(test.TestCase):

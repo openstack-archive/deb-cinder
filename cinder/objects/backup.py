@@ -56,6 +56,9 @@ class Backup(base.CinderPersistentObject, base.CinderObject,
         'service': fields.StringField(nullable=True),
 
         'object_count': fields.IntegerField(),
+
+        'temp_volume_id': fields.StringField(nullable=True),
+        'temp_snapshot_id': fields.StringField(nullable=True),
     }
 
     obj_extra_fields = ['name']
@@ -90,14 +93,14 @@ class Backup(base.CinderPersistentObject, base.CinderObject,
         if self.obj_attr_is_set('id'):
             raise exception.ObjectActionError(action='create',
                                               reason='already created')
-        updates = self.obj_get_changes()
+        updates = self.cinder_obj_get_changes()
 
         db_backup = db.backup_create(self._context, updates)
         self._from_db_object(self._context, self, db_backup)
 
     @base.remotable
     def save(self):
-        updates = self.obj_get_changes()
+        updates = self.cinder_obj_get_changes()
         if updates:
             db.backup_update(self._context, self.id, updates)
 

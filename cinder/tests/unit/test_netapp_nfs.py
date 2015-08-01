@@ -22,11 +22,9 @@ import unittest
 from lxml import etree
 import mock
 from mox3 import mox as mox_lib
-from oslo_log import log as logging
 import six
 
 from cinder import exception
-from cinder.i18n import _LW
 from cinder.image import image_utils
 from cinder import test
 from cinder import utils as cinder_utils
@@ -47,8 +45,6 @@ from cinder.volume.drivers.netapp import utils
 
 from oslo_config import cfg
 CONF = cfg.CONF
-
-LOG = logging.getLogger(__name__)
 
 
 CONNECTION_INFO = {'hostname': 'fake_host',
@@ -375,8 +371,6 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         if (share == 'testshare' and file_name == 'img-cache-id'):
             pass
         else:
-            LOG.warning(_LW("Share %(share)s and file name %(file_name)s")
-                        % {'share': share, 'file_name': file_name})
             self.fail('Return result is unexpected')
 
     def test_find_old_cache_files_notexists(self):
@@ -848,19 +842,22 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         img_loc = (None,
                    [{'metadata':
                      {'share_location': 'nfs://host/path',
-                      'mount_point': '/opt/stack/data/glance',
+                      'mountpoint': '/opt/stack/data/glance',
+                      'id': 'abc-123',
                       'type': 'nfs'},
                      'url': 'file:///opt/stack/data/glance/image-id'}])
-        location = drv._construct_image_nfs_url(img_loc)
-        if location != "nfs://host/path/image-id":
-            self.fail("Unexpected direct url.")
+
+        locations = drv._construct_image_nfs_url(img_loc)
+
+        self.assertIn("nfs://host/path/image-id", locations)
 
     def test_construct_image_url_direct(self):
         drv = self._driver
         img_loc = ("nfs://host/path/image-id", None)
-        location = drv._construct_image_nfs_url(img_loc)
-        if location != "nfs://host/path/image-id":
-            self.fail("Unexpected direct url.")
+
+        locations = drv._construct_image_nfs_url(img_loc)
+
+        self.assertIn("nfs://host/path/image-id", locations)
 
     def test_get_pool(self):
         pool = self._driver.get_pool({'provider_location': 'fake-share'})
@@ -1285,7 +1282,7 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
         drv._client = mock.Mock()
         drv._client.get_api_version = mock.Mock(return_value=(1, 20))
         drv._find_image_in_cache = mock.Mock(return_value=[])
-        drv._construct_image_nfs_url = mock.Mock(return_value="")
+        drv._construct_image_nfs_url = mock.Mock(return_value=["nfs://1"])
         drv._check_get_nfs_path_segs = mock.Mock(return_value=("test:test",
                                                                "dr"))
         drv._get_ip_verify_on_cluster = mock.Mock(return_value="192.1268.1.1")
@@ -1352,7 +1349,7 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
         drv._execute.assert_called_once_with('cof_path', 'ip1', 'ip1',
                                              '/openstack/img-cache-imgid',
                                              '/exp_path/name',
-                                             run_as_root=True,
+                                             run_as_root=False,
                                              check_exit_code=0)
         drv._post_clone_image.assert_called_with(volume)
         drv._get_provider_location.assert_called_with('vol_id')

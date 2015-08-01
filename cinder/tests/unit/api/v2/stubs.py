@@ -20,6 +20,7 @@ from cinder import exception as exc
 
 FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 FAKE_UUIDS = {}
+TEST_SNAPSHOT_UUID = '00000000-0000-0000-0000-000000000001'
 
 
 def stub_volume(id, **kwargs):
@@ -69,7 +70,8 @@ def stub_volume_create(self, context, size, name, description, snapshot,
     vol['size'] = size
     vol['display_name'] = name
     vol['display_description'] = description
-    vol['source_volid'] = None
+    source_volume = param.get('source_volume') or {}
+    vol['source_volid'] = source_volume.get('id')
     vol['bootable'] = False
     try:
         vol['snapshot_id'] = snapshot['id']
@@ -116,7 +118,7 @@ def stub_volume_get(self, context, volume_id, viewable_admin_meta=False):
 
 def stub_volume_get_notfound(self, context,
                              volume_id, viewable_admin_meta=False):
-    raise exc.NotFound
+    raise exc.VolumeNotFound(volume_id)
 
 
 def stub_volume_get_db(context, volume_id):
@@ -147,19 +149,20 @@ def stub_snapshot(id, **kwargs):
                 'created_at': None,
                 'display_name': 'Default name',
                 'display_description': 'Default description',
-                'project_id': 'fake'}
+                'project_id': 'fake',
+                'snapshot_metadata': []}
 
     snapshot.update(kwargs)
     return snapshot
 
 
-def stub_snapshot_get_all(self):
+def stub_snapshot_get_all(self, search_opts=None):
     return [stub_snapshot(100, project_id='fake'),
             stub_snapshot(101, project_id='superfake'),
             stub_snapshot(102, project_id='superduperfake')]
 
 
-def stub_snapshot_get_all_by_project(self, context):
+def stub_snapshot_get_all_by_project(self, context, search_opts=None):
     return [stub_snapshot(1)]
 
 
@@ -169,3 +172,14 @@ def stub_snapshot_update(self, context, *args, **param):
 
 def stub_service_get_all_by_topic(context, topic):
     return [{'availability_zone': "zone1:host1", "disabled": 0}]
+
+
+def stub_snapshot_get(self, context, snapshot_id):
+    if snapshot_id != TEST_SNAPSHOT_UUID:
+        raise exc.SnapshotNotFound(snapshot_id=snapshot_id)
+
+    return stub_snapshot(snapshot_id)
+
+
+def stub_consistencygroup_get_notfound(self, context, cg_id):
+    raise exc.ConsistencyGroupNotFound(consistencygroup_id=cg_id)

@@ -175,13 +175,14 @@ class BackupsController(wsgi.Controller):
 
     def delete(self, req, id):
         """Delete a backup."""
-        LOG.debug('delete called for member %s', id)
+        LOG.debug('Delete called for member %s.', id)
         context = req.environ['cinder.context']
 
         LOG.info(_LI('Delete backup with id: %s'), id, context=context)
 
         try:
-            self.backup_api.delete(context, id)
+            backup = self.backup_api.get(context, id)
+            self.backup_api.delete(context, backup)
         except exception.BackupNotFound as error:
             raise exc.HTTPNotFound(explanation=error.msg)
         except exception.InvalidBackup as error:
@@ -240,13 +241,12 @@ class BackupsController(wsgi.Controller):
     def create(self, req, body):
         """Create a new backup."""
         LOG.debug('Creating new backup %s', body)
-        if not self.is_valid_body(body, 'backup'):
-            raise exc.HTTPBadRequest()
+        self.assert_valid_body(body, 'backup')
 
         context = req.environ['cinder.context']
+        backup = body['backup']
 
         try:
-            backup = body['backup']
             volume_id = backup['volume_id']
         except KeyError:
             msg = _("Incorrect request body format")
@@ -255,7 +255,7 @@ class BackupsController(wsgi.Controller):
         name = backup.get('name', None)
         description = backup.get('description', None)
         incremental = backup.get('incremental', False)
-
+        force = backup.get('force', False)
         LOG.info(_LI("Creating backup of volume %(volume_id)s in container"
                      " %(container)s"),
                  {'volume_id': volume_id, 'container': container},
@@ -264,7 +264,7 @@ class BackupsController(wsgi.Controller):
         try:
             new_backup = self.backup_api.create(context, name, description,
                                                 volume_id, container,
-                                                incremental)
+                                                incremental, None, force)
         except exception.InvalidVolume as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.VolumeNotFound as error:
@@ -282,13 +282,12 @@ class BackupsController(wsgi.Controller):
         """Restore an existing backup to a volume."""
         LOG.debug('Restoring backup %(backup_id)s (%(body)s)',
                   {'backup_id': id, 'body': body})
-        if not self.is_valid_body(body, 'restore'):
-            msg = _("Incorrect request body format")
-            raise exc.HTTPBadRequest(explanation=msg)
+        self.assert_valid_body(body, 'restore')
 
         context = req.environ['cinder.context']
         restore = body['restore']
         volume_id = restore.get('volume_id', None)
+        name = restore.get('name', None)
 
         LOG.info(_LI("Restoring backup %(backup_id)s to volume %(volume_id)s"),
                  {'backup_id': id, 'volume_id': volume_id},
@@ -297,7 +296,8 @@ class BackupsController(wsgi.Controller):
         try:
             new_restore = self.backup_api.restore(context,
                                                   backup_id=id,
-                                                  volume_id=volume_id)
+                                                  volume_id=volume_id,
+                                                  name=name)
         except exception.InvalidInput as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.InvalidVolume as error:
@@ -344,9 +344,7 @@ class BackupsController(wsgi.Controller):
     def import_record(self, req, body):
         """Import a backup."""
         LOG.debug('Importing record from %s.', body)
-        if not self.is_valid_body(body, 'backup-record'):
-            msg = _("Incorrect request body format.")
-            raise exc.HTTPBadRequest(explanation=msg)
+        self.assert_valid_body(body, 'backup-record')
         context = req.environ['cinder.context']
         import_data = body['backup-record']
         # Verify that body elements are provided

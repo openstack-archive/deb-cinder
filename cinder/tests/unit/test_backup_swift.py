@@ -27,7 +27,6 @@ import zlib
 
 import mock
 from oslo_config import cfg
-from oslo_log import log as logging
 from swiftclient import client as swift
 
 from cinder.backup.drivers import swift as swift_dr
@@ -40,8 +39,6 @@ from cinder import test
 from cinder.tests.unit.backup import fake_swift_client
 from cinder.tests.unit.backup import fake_swift_client2
 
-
-LOG = logging.getLogger(__name__)
 
 CONF = cfg.CONF
 
@@ -219,7 +216,6 @@ class BackupSwiftTestCase(test.TestCase):
             backup_name = '%s_backup_%s' % (az, backup['id'])
             volume = 'volume_%s' % (backup['volume_id'])
             prefix = volume + '_' + backup_name
-            LOG.debug('_generate_object_name_prefix: %s', prefix)
             return prefix
 
         # Raise a pseudo exception.BackupDriverException.
@@ -251,7 +247,6 @@ class BackupSwiftTestCase(test.TestCase):
             backup_name = '%s_backup_%s' % (az, backup['id'])
             volume = 'volume_%s' % (backup['volume_id'])
             prefix = volume + '_' + backup_name
-            LOG.debug('_generate_object_name_prefix: %s', prefix)
             return prefix
 
         # Raise a pseudo exception.BackupDriverException.
@@ -297,7 +292,6 @@ class BackupSwiftTestCase(test.TestCase):
             backup_name = '%s_backup_%s' % (az, backup['id'])
             volume = 'volume_%s' % (backup['volume_id'])
             prefix = volume + '_' + backup_name
-            LOG.debug('_generate_object_name_prefix: %s', prefix)
             return prefix
 
         # Raise a pseudo exception.BackupDriverException.
@@ -351,7 +345,6 @@ class BackupSwiftTestCase(test.TestCase):
             backup_name = '%s_backup_%s' % (az, backup['id'])
             volume = 'volume_%s' % (backup['volume_id'])
             prefix = volume + '_' + backup_name
-            LOG.debug('_generate_object_name_prefix: %s', prefix)
             return prefix
 
         # Raise a pseudo exception.BackupDriverException.
@@ -478,7 +471,6 @@ class BackupSwiftTestCase(test.TestCase):
             backup_name = '%s_backup_%s' % (az, backup['id'])
             volume = 'volume_%s' % (backup['volume_id'])
             prefix = volume + '_' + backup_name
-            LOG.debug('_generate_object_name_prefix: %s', prefix)
             return prefix
 
         # Raise a pseudo exception.BackupDriverException.
@@ -569,7 +561,7 @@ class BackupSwiftTestCase(test.TestCase):
     def test_prepare_output_data_effective_compression(self):
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         # Set up buffer of 128 zeroed bytes
-        fake_data = buffer(bytearray(128))
+        fake_data = b'\0' * 128
 
         result = service._prepare_output_data(fake_data)
 
@@ -580,7 +572,7 @@ class BackupSwiftTestCase(test.TestCase):
         self.flags(backup_compression_algorithm='none')
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         # Set up buffer of 128 zeroed bytes
-        fake_data = buffer(bytearray(128))
+        fake_data = b'\0' * 128
 
         result = service._prepare_output_data(fake_data)
 
@@ -590,7 +582,7 @@ class BackupSwiftTestCase(test.TestCase):
     def test_prepare_output_data_ineffective_compression(self):
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         # Set up buffer of 128 zeroed bytes
-        fake_data = buffer(bytearray(128))
+        fake_data = b'\0' * 128
         # Pre-compress so that compression in the driver will be ineffective.
         already_compressed_data = service.compressor.compress(fake_data)
 

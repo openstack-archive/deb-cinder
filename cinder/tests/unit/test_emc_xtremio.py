@@ -13,64 +13,70 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-
 import mock
-from oslo_log import log as logging
-import six
 
 from cinder import exception
 from cinder import test
+from cinder.tests.unit import fake_snapshot
 from cinder.volume.drivers.emc import xtremio
 
-
-LOG = logging.getLogger(__name__)
 
 typ2id = {'volumes': 'vol-id',
           'snapshots': 'vol-id',
           'initiators': 'initiator-id',
           'initiator-groups': 'ig-id',
-          'lun-maps': 'mapping-id'}
+          'lun-maps': 'mapping-id',
+          'consistency-groups': 'cg-id',
+          'consistency-group-volumes': 'cg-vol-id',
+          }
 
 xms_data = {'xms': {1: {'version': '4.0.0'}},
-            'clusters': {'cluster1':
-                         {'name': 'cluster1',
-                          'sys-sw-version': "3.0.0-devel_ba23ee5381eeab73",
-                          'ud-ssd-space': '8146708710',
-                          'ud-ssd-space-in-use': '708710',
-                          'vol-size': '29884416',
-                          'chap-authentication-mode': 'disabled',
-                          'chap-discovery-mode': 'disabled',
-                          "index": 1},
-                         1: {'name': 'cluster1',
-                             'sys-sw-version': "3.0.0-devel_ba23ee5381eeab73",
+            'clusters': {1: {'name': 'brick1',
+                             'sys-sw-version': "4.0.0-devel_ba23ee5381eeab73",
                              'ud-ssd-space': '8146708710',
                              'ud-ssd-space-in-use': '708710',
                              'vol-size': '29884416',
                              'chap-authentication-mode': 'disabled',
                              'chap-discovery-mode': 'disabled',
-                             "index": 1}},
-            'target-groups': {'Default': {"index": 1, }},
+                             "index": 1,
+                             },
+                         },
+            'target-groups': {'Default': {"index": 1, },
+                              },
             'iscsi-portals': {'10.205.68.5/16':
                               {"port-address":
                                "iqn.2008-05.com.xtremio:001e67939c34",
                                "ip-port": 3260,
                                "ip-addr": "10.205.68.5/16",
                                "name": "10.205.68.5/16",
-                               "index": 1}},
+                               "index": 1,
+                               },
+                              },
             'targets': {'X1-SC2-fc1': {'index': 1, "name": "X1-SC2-fc1",
                                        "port-address":
                                        "21:00:00:24:ff:57:b2:36",
-                                       'port-state': 'up'},
+                                       'port-state': 'up',
+                                       },
                         'X1-SC2-fc2': {'index': 2, "name": "X1-SC2-fc2",
                                        "port-address":
                                        "21:00:00:24:ff:57:b2:55",
-                                       'port-state': 'up'}
+                                       'port-state': 'up',
+                                       }
                         },
             'volumes': {},
             'initiator-groups': {},
             'initiators': {},
             'lun-maps': {},
+            'consistency-groups': {},
+            'consistency-group-volumes': {},
             }
+
+
+def get_xms_obj_by_name(typ, name):
+    for item in xms_data[typ].values():
+        if 'name' in item and item['name'] == name:
+            return item
+    raise exception.NotFound()
 
 
 def clean_xms_data():
@@ -78,6 +84,8 @@ def clean_xms_data():
     xms_data['initiator-groups'] = {}
     xms_data['initiators'] = {}
     xms_data['lun-maps'] = {}
+    xms_data['consistency-group-volumes'] = {}
+    xms_data['consistency-groups'] = {}
 
 
 def fix_data(data, object_type):
@@ -92,7 +100,7 @@ def fix_data(data, object_type):
 
     d[typ2id[object_type]] = ["a91e8c81c2d14ae4865187ce4f866f8a",
                               d.get('name'),
-                              len(xms_data[object_type]) + 1]
+                              len(xms_data.get(object_type, [])) + 1]
     d['index'] = len(xms_data[object_type]) + 1
     return d
 
@@ -103,24 +111,30 @@ def get_xms_obj_key(data):
             return key
 
 
+def get_obj(typ, name, idx):
+    if name:
+        return {"content": get_xms_obj_by_name(typ, name)}
+    elif idx:
+        if idx not in xms_data.get(typ, {}):
+            raise exception.NotFound()
+        return {"content": xms_data[typ][idx]}
+
+
 def xms_request(object_type='volumes', request_typ='GET', data=None,
-                name=None, idx=None):
+                name=None, idx=None, ver='v1'):
     if object_type == 'snapshots':
         object_type = 'volumes'
 
-    obj_key = name if name else idx
+    try:
+        res = xms_data[object_type]
+    except KeyError:
+        raise exception.VolumeDriverException
     if request_typ == 'GET':
-        try:
-            res = xms_data[object_type]
-        except KeyError:
-            raise exception.VolumeDriverException
         if name or idx:
-            if obj_key not in res:
-                raise exception.NotFound()
-            return {"content": res[obj_key]}
+            return get_obj(object_type, name, idx)
         else:
             if data and data.get('full') == 1:
-                return {object_type: res.values()}
+                return {object_type: list(res.values())}
             else:
                 return {object_type: [{"href": "/%s/%d" % (object_type,
                                                            obj['index']),
@@ -128,49 +142,65 @@ def xms_request(object_type='volumes', request_typ='GET', data=None,
                                       for obj in res.values()]}
     elif request_typ == 'POST':
         data = fix_data(data, object_type)
-        data['index'] = len(xms_data[object_type]) + 1
-        xms_data[object_type][data['index']] = data
-        # find the name key
         name_key = get_xms_obj_key(data)
-        if object_type == 'lun-maps':
-            data['ig-name'] = data['ig-id']
-        if name_key:
-            if data[name_key] in xms_data[object_type]:
+        try:
+            if name_key and get_xms_obj_by_name(object_type, data[name_key]):
                 raise (exception
                        .VolumeBackendAPIException
                        ('Volume by this name already exists'))
-            xms_data[object_type][data[name_key]] = data
+        except exception.NotFound:
+            pass
+        data['index'] = len(xms_data[object_type]) + 1
+        xms_data[object_type][data['index']] = data
+        # find the name key
+        if name_key:
+            data['name'] = data[name_key]
+        if object_type == 'lun-maps':
+            data['ig-name'] = data['ig-id']
 
         return {"links": [{"href": "/%s/%d" %
                           (object_type, data[typ2id[object_type]][2])}]}
     elif request_typ == 'DELETE':
-        if obj_key in xms_data[object_type]:
-            data = xms_data[object_type][obj_key]
-            del xms_data[object_type][data['index']]
-            del xms_data[object_type][data[typ2id[object_type]][1]]
+        if object_type == 'consistency-group-volumes':
+            data = [cgv for cgv in
+                    xms_data['consistency-group-volumes'].values()
+                    if cgv['vol-id'] == data['vol-id']
+                    and cgv['cg-id'] == data['cg-id']][0]
         else:
-            LOG.error('Trying to delete a missing object %s',
-                      six.text_type(obj_key))
+            data = get_obj(object_type, name, idx)['content']
+        if data:
+            del xms_data[object_type][data['index']]
+        else:
             raise exception.NotFound()
     elif request_typ == 'PUT':
-        if obj_key in xms_data[object_type]:
-            obj = xms_data[object_type][obj_key]
-            obj.update(data)
-            key = get_xms_obj_key(data)
-            if key:
-                xms_data[object_type][data[key]] = obj
-        else:
-            LOG.error('Trying to update a missing object %s',
-                      six.text_type(obj_key))
-            raise exception.NotFound()
+        obj = get_obj(object_type, name, idx)['content']
+        data = fix_data(data, object_type)
+        del data['index']
+        obj.update(data)
 
 
 def xms_bad_request(object_type='volumes', request_typ='GET', data=None,
-                    name=None, idx=None):
+                    name=None, idx=None, ver='v1'):
     if request_typ == 'GET':
         raise exception.NotFound()
     elif request_typ == 'POST':
         raise exception.VolumeBackendAPIException('Failed to create ig')
+
+
+def xms_failed_rename_snapshot_request(object_type='volumes',
+                                       request_typ='GET', data=None,
+                                       name=None, idx=None, ver='v1'):
+    if request_typ == 'POST':
+        xms_data['volumes'][27] = {}
+        return {
+            "links": [
+                {
+                    "href": "https://host/api/json/v2/types/snapshots/27",
+                    "rel": "self"}]}
+    elif request_typ == 'PUT':
+        raise exception.VolumeBackendAPIException(data='Failed to delete')
+    elif request_typ == 'DELETE':
+        del xms_data['volumes'][27]
 
 
 class D(dict):
@@ -184,7 +214,8 @@ class CommonData(object):
                  'initiator': 'iqn.1993-08.org.debian:01:222',
                  'wwpns': ["123456789012345", "123456789054321"],
                  'wwnns': ["223456789012345", "223456789054321"],
-                 'host': 'fakehost'}
+                 'host': 'fakehost',
+                 }
 
     test_volume = {'name': 'vol1',
                    'size': 1,
@@ -194,14 +225,20 @@ class CommonData(object):
                    'project_id': 'project',
                    'display_name': 'vol1',
                    'display_description': 'test volume',
-                   'volume_type_id': None}
+                   'volume_type_id': None,
+                   'consistencygroup_id':
+                   '192eb39b-6c2f-420c-bae3-3cfd117f0345',
+                   }
     test_snapshot = D()
     test_snapshot.update({'name': 'snapshot1',
                           'size': 1,
                           'id': '192eb39b-6c2f-420c-bae3-3cfd117f0002',
                           'volume_name': 'vol-vol1',
                           'volume_id': '192eb39b-6c2f-420c-bae3-3cfd117f0001',
-                          'project_id': 'project'})
+                          'project_id': 'project',
+                          'consistencygroup_id':
+                          '192eb39b-6c2f-420c-bae3-3cfd117f0345',
+                          })
     test_snapshot.__dict__.update(test_snapshot)
     test_volume2 = {'name': 'vol2',
                     'size': 1,
@@ -211,7 +248,10 @@ class CommonData(object):
                     'project_id': 'project',
                     'display_name': 'vol2',
                     'display_description': 'test volume 2',
-                    'volume_type_id': None}
+                    'volume_type_id': None,
+                    'consistencygroup_id':
+                    '192eb39b-6c2f-420c-bae3-3cfd117f0345',
+                    }
     test_clone = {'name': 'clone1',
                   'size': 1,
                   'volume_name': 'vol3',
@@ -220,30 +260,49 @@ class CommonData(object):
                   'project_id': 'project',
                   'display_name': 'clone1',
                   'display_description': 'volume created from snapshot',
-                  'volume_type_id': None}
+                  'volume_type_id': None,
+                  'consistencygroup_id':
+                  '192eb39b-6c2f-420c-bae3-3cfd117f0345',
+                  }
     unmanaged1 = {'id': 'unmanaged1',
                   'name': 'unmanaged1',
-                  'size': 3}
+                  'size': 3,
+                  }
+    context = {'user': 'admin', }
+    group = {'id': '192eb39b-6c2f-420c-bae3-3cfd117f0345',
+             'name': 'cg1',
+             'status': 'OK',
+             }
+    cgsnapshot = mock.Mock(id='192eb39b-6c2f-420c-bae3-3cfd117f9876',
+                           consistencygroup_id=group['id'])
+
+    def cgsnap_getitem(self, val):
+        return self.__dict__[val]
+
+    cgsnapshot.__getitem__ = cgsnap_getitem
 
 
 @mock.patch('cinder.volume.drivers.emc.xtremio.XtremIOClient.req')
 class EMCXIODriverISCSITestCase(test.TestCase):
     def setUp(self):
         super(EMCXIODriverISCSITestCase, self).setUp()
+        clean_xms_data()
 
-        configuration = mock.Mock()
-        configuration.san_login = ''
-        configuration.san_password = ''
-        configuration.san_ip = ''
-        configuration.xtremio_cluster_name = ''
-        configuration.xtremio_provisioning_factor = 20.0
+        config = mock.Mock()
+        config.san_login = ''
+        config.san_password = ''
+        config.san_ip = ''
+        config.xtremio_cluster_name = 'brick1'
+        config.xtremio_provisioning_factor = 20.0
 
         def safe_get(key):
-            getattr(configuration, key)
+            getattr(config, key)
 
-        configuration.safe_get = safe_get
-        self.driver = xtremio.XtremIOISCSIDriver(configuration=configuration)
-
+        config.safe_get = safe_get
+        self.driver = xtremio.XtremIOISCSIDriver(configuration=config)
+        self.driver.client = xtremio.XtremIOClient4(config,
+                                                    config
+                                                    .xtremio_cluster_name)
         self.data = CommonData()
 
     def test_check_for_setup_error(self, req):
@@ -257,22 +316,28 @@ class EMCXIODriverISCSITestCase(test.TestCase):
 
     def test_create_extend_delete_volume(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         self.driver.create_volume(self.data.test_volume)
         self.driver.extend_volume(self.data.test_volume, 5)
         self.driver.delete_volume(self.data.test_volume)
 
     def test_create_delete_snapshot(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         self.driver.create_volume(self.data.test_volume)
         self.driver.create_snapshot(self.data.test_snapshot)
+        self.assertEqual(self.data.test_snapshot['id'],
+                         xms_data['volumes'][2]['name'])
         self.driver.delete_snapshot(self.data.test_snapshot)
         self.driver.delete_volume(self.data.test_volume)
 
+    def test_failed_rename_snapshot(self, req):
+        req.side_effect = xms_failed_rename_snapshot_request
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_snapshot,
+                          self.data.test_snapshot)
+        self.assertEqual(0, len(xms_data['volumes']))
+
     def test_volume_from_snapshot(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         xms_data['volumes'] = {}
         self.driver.create_volume(self.data.test_volume)
         self.driver.create_snapshot(self.data.test_snapshot)
@@ -284,7 +349,6 @@ class EMCXIODriverISCSITestCase(test.TestCase):
 
     def test_clone_volume(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         self.driver.create_volume(self.data.test_volume)
         self.driver.create_cloned_volume(self.data.test_clone,
                                          self.data.test_volume)
@@ -293,7 +357,6 @@ class EMCXIODriverISCSITestCase(test.TestCase):
 
     def test_duplicate_volume(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         self.driver.create_volume(self.data.test_volume)
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_volume, self.data.test_volume)
@@ -301,7 +364,6 @@ class EMCXIODriverISCSITestCase(test.TestCase):
 
     def test_no_portals_configured(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         portals = xms_data['iscsi-portals'].copy()
         xms_data['iscsi-portals'].clear()
         lunmap = {'lun': 4}
@@ -311,17 +373,44 @@ class EMCXIODriverISCSITestCase(test.TestCase):
 
     def test_initialize_terminate_connection(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         self.driver.create_volume(self.data.test_volume)
         map_data = self.driver.initialize_connection(self.data.test_volume,
                                                      self.data.connector)
         self.assertEqual(map_data['data']['target_lun'], 1)
+        i1 = xms_data['initiators'][1]
+        i1['ig-id'] = ['', i1['ig-id'], 1]
+        i1['chap-authentication-initiator-password'] = 'chap_password1'
+        i1['chap-discovery-initiator-password'] = 'chap_password2'
+        map_data = self.driver.initialize_connection(self.data.test_volume2,
+                                                     self.data.connector)
         self.driver.terminate_connection(self.data.test_volume,
                                          self.data.connector)
 
+    def test_initialize_chap_connection(self, req):
+        req.side_effect = xms_request
+        clean_xms_data()
+        self.driver.create_volume(self.data.test_volume)
+        map_data = self.driver.initialize_connection(self.data.test_volume,
+                                                     self.data.connector)
+        c1 = xms_data['clusters'][1]
+        c1['chap-authentication-mode'] = 'initiator'
+        c1['chap-discovery-mode'] = 'initiator'
+        i1 = xms_data['initiators'][1]
+        i1['ig-id'] = ['', i1['ig-id'], 1]
+        i1['chap-authentication-initiator-password'] = 'chap_password1'
+        i1['chap-discovery-initiator-password'] = 'chap_password2'
+        map_data = self.driver.initialize_connection(self.data.test_volume2,
+                                                     self.data.connector)
+        self.assertEqual('chap_password1', map_data['data']['auth_password'])
+        self.assertEqual('chap_password2',
+                         map_data['data']['discovery_auth_password'])
+        i1['chap-authentication-initiator-password'] = None
+        i1['chap-discovery-initiator-password'] = None
+        map_data = self.driver.initialize_connection(self.data.test_volume2,
+                                                     self.data.connector)
+
     def test_initialize_connection_bad_ig(self, req):
         req.side_effect = xms_bad_request
-        clean_xms_data()
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.initialize_connection,
                           self.data.test_volume,
@@ -330,17 +419,17 @@ class EMCXIODriverISCSITestCase(test.TestCase):
 
     def test_get_stats(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         stats = self.driver.get_volume_stats(True)
         self.assertEqual(stats['volume_backend_name'],
                          self.driver.backend_name)
 
     def test_manage_unmanage(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
-        xms_data['volumes'] = {'unmanaged1': {'vol-name': 'unmanaged1',
-                                              'index': 'unmanaged1',
-                                              'vol-size': '3'}}
+        xms_data['volumes'] = {1: {'name': 'unmanaged1',
+                                   'index': 1,
+                                   'vol-size': '3',
+                                   },
+                               }
         ref_vol = {"source-name": "unmanaged1"}
         invalid_ref = {"source-name": "invalid"}
         self.assertRaises(exception.ManageExistingInvalidReference,
@@ -355,26 +444,101 @@ class EMCXIODriverISCSITestCase(test.TestCase):
                           self.data.test_volume2)
         self.driver.unmanage(self.data.test_volume)
 
+    @mock.patch('cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
+    def test_cg_operations(self, get_all_for_cgsnapshot, req):
+        req.side_effect = xms_request
+        d = self.data
+        snapshot_obj = fake_snapshot.fake_snapshot_obj(d.context)
+        snapshot_obj.consistencygroup_id = d.group['id']
+        get_all_for_cgsnapshot.return_value = [snapshot_obj]
 
-@mock.patch('cinder.volume.drivers.emc.xtremio.XtremIOClient.req')
-class EMCXIODriverFibreChannelTestCase(test.TestCase):
+        self.driver.create_consistencygroup(d.context, d.group)
+        self.assertEqual(1, len(xms_data['consistency-groups']))
+        self.driver.update_consistencygroup(d.context, d.group,
+                                            add_volumes=[d.test_volume,
+                                                         d.test_volume2])
+        self.assertEqual(2, len(xms_data['consistency-group-volumes']))
+        self.driver.update_consistencygroup(d.context, d.group,
+                                            remove_volumes=[d.test_volume2])
+        self.assertEqual(1, len(xms_data['consistency-group-volumes']))
+        self.driver.db = mock.Mock()
+        (self.driver.db.
+         volume_get_all_by_group.return_value) = [mock.MagicMock()]
+        self.driver.create_cgsnapshot(d.context, d.cgsnapshot)
+        snaps_name = self.driver._get_cgsnap_name(d.cgsnapshot)
+        snaps = xms_data['volumes'][1]
+        snaps['index'] = 1
+        xms_data['snapshot-sets'] = {snaps_name: snaps, 1: snaps}
+        self.assertRaises(exception.InvalidInput,
+                          self.driver.create_consistencygroup_from_src,
+                          d.context, d.group, [])
+        self.driver.delete_cgsnapshot(d.context, d.cgsnapshot)
+        self.driver.delete_consistencygroup(d.context, d.group)
+
+
+@mock.patch('requests.request')
+class EMCXIODriverTestCase(test.TestCase):
     def setUp(self):
-        super(EMCXIODriverFibreChannelTestCase, self).setUp()
+        super(EMCXIODriverTestCase, self).setUp()
 
         configuration = mock.Mock()
         configuration.san_login = ''
         configuration.san_password = ''
         configuration.san_ip = ''
         configuration.xtremio_cluster_name = ''
-        configuration.xtremio_provisioning_factor = 20.0
+
+        def safe_get(key):
+            getattr(configuration, key)
+
+        configuration.safe_get = safe_get
+        self.driver = xtremio.XtremIOISCSIDriver(configuration=configuration)
+
+        self.data = CommonData()
+
+    def test_retry_request(self, req):
+        busy_response = mock.MagicMock()
+        busy_response.status_code = 400
+        busy_response.json.return_value = {
+            "message": "system_is_busy",
+            "error_code": 400
+        }
+        good_response = mock.MagicMock()
+        good_response.status_code = 200
+
+        EMCXIODriverTestCase.req_count = 0
+
+        def busy_request(*args, **kwargs):
+            if EMCXIODriverTestCase.req_count < 1:
+                EMCXIODriverTestCase.req_count += 1
+                return busy_response
+            return good_response
+
+        req.side_effect = busy_request
+        self.driver.create_volume(self.data.test_volume)
+
+
+@mock.patch('cinder.volume.drivers.emc.xtremio.XtremIOClient.req')
+class EMCXIODriverFibreChannelTestCase(test.TestCase):
+    def setUp(self):
+        super(EMCXIODriverFibreChannelTestCase, self).setUp()
+        clean_xms_data()
+
+        config = mock.Mock()
+        config.san_login = ''
+        config.san_password = ''
+        config.san_ip = ''
+        config.xtremio_cluster_name = ''
+        config.xtremio_provisioning_factor = 20.0
         self.driver = xtremio.XtremIOFibreChannelDriver(
-            configuration=configuration)
+            configuration=config)
+        self.driver.client = xtremio.XtremIOClient4(config,
+                                                    config.
+                                                    xtremio_cluster_name)
 
         self.data = CommonData()
 
     def test_initialize_terminate_connection(self, req):
         req.side_effect = xms_request
-        clean_xms_data()
         self.driver.create_volume(self.data.test_volume)
         map_data = self.driver.initialize_connection(self.data.test_volume,
                                                      self.data.connector)

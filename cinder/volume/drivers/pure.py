@@ -60,6 +60,8 @@ CHAP_SECRET_KEY = "PURE_TARGET_CHAP_SECRET"
 ERR_MSG_NOT_EXIST = "does not exist"
 ERR_MSG_PENDING_ERADICATION = "has been destroyed"
 
+CONNECT_LOCK_NAME = 'PureVolumeDriver_connect'
+
 
 def log_debug_trace(f):
     def wrapper(*args, **kwargs):
@@ -213,6 +215,7 @@ class PureBaseVolumeDriver(san.SanDriver):
         """
         raise NotImplementedError
 
+    @utils.synchronized(CONNECT_LOCK_NAME, external=True)
     def _disconnect(self, volume, connector, **kwargs):
         vol_name = self._get_vol_name(volume)
         host = self._get_host(connector)
@@ -247,7 +250,16 @@ class PureBaseVolumeDriver(san.SanDriver):
                                                   private=True)):
             LOG.info(_LI("Deleting unneeded host %(host_name)r."),
                      {"host_name": host_name})
-            self._array.delete_host(host_name)
+            try:
+                self._array.delete_host(host_name)
+            except purestorage.PureHTTPError as err:
+                with excutils.save_and_reraise_exception() as ctxt:
+                    if err.code == 400 and ERR_MSG_NOT_EXIST in err.text:
+                        # Happens if the host is already deleted.
+                        # This is fine though, just treat it as a warning.
+                        ctxt.reraise = False
+                        LOG.warning(_LW("Purity host deletion failed: "
+                                        "%(msg)s."), {"msg": err.text})
             return True
 
         return False
@@ -481,10 +493,10 @@ class PureBaseVolumeDriver(san.SanDriver):
         if len(connected_hosts) > 0:
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref,
-                reason=_("PureISCSIDriver manage_existing cannot manage a "
-                         "volume connected to hosts. Please disconnect the "
-                         "volume from existing hosts before importing."))
-
+                reason=_("%(driver)s manage_existing cannot manage a volume "
+                         "connected to hosts. Please disconnect this volume "
+                         "from existing hosts before importing"
+                         ) % {'driver': self.__class__.__name__})
         new_vol_name = self._get_vol_name(volume)
         LOG.info(_LI("Renaming existing volume %(ref_name)s to %(new_name)s"),
                  {"ref_name": ref_vol_name, "new_name": new_vol_name})
@@ -577,9 +589,11 @@ class PureBaseVolumeDriver(san.SanDriver):
                 if (err.code == 400 and
                         "Connection already exists" in err.text):
                     # Happens if the volume is already connected to the host.
+                    # Treat this as a success.
                     ctxt.reraise = False
-                    LOG.warning(_LW("Volume connection already exists with "
-                                    "message: %s"), err.text)
+                    LOG.debug("Volume connection already exists for Purity "
+                              "host with message: %s", err.text)
+
                     # Get the info for the existing connection
                     connected_hosts = \
                         self._array.list_volume_private_connections(vol_name)
@@ -592,6 +606,15 @@ class PureBaseVolumeDriver(san.SanDriver):
                 reason=_("Unable to connect or find connection to host"))
 
         return connection
+
+    def retype(self, context, volume, new_type, diff, host):
+        """Retype from one volume type to another on the same backend.
+
+        For a Pure Array there is currently no differentiation between types
+        of volumes. This means that changing from one type to another on the
+        same array should be a no-op.
+        """
+        return True, None
 
 
 class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
@@ -704,7 +727,7 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
             }
         return username, password, initiator_updates
 
-    @utils.synchronized('PureISCSIDriver._connect', external=True)
+    @utils.synchronized(CONNECT_LOCK_NAME, external=True)
     def _connect(self, volume, connector, initiator_data):
         """Connect the host and volume; return dict describing connection."""
         iqn = connector["initiator"]
@@ -793,7 +816,7 @@ class PureFCDriver(PureBaseVolumeDriver, driver.FibreChannelDriver):
     def initialize_connection(self, volume, connector, initiator_data=None):
         """Allow connection to connector and return connection info."""
 
-        connection = self._connect(volume, connector, initiator_data)
+        connection = self._connect(volume, connector)
         target_wwns = self._get_array_wwns()
         init_targ_map = self._build_initiator_target_map(target_wwns,
                                                          connector)
@@ -810,8 +833,8 @@ class PureFCDriver(PureBaseVolumeDriver, driver.FibreChannelDriver):
 
         return properties
 
-    @utils.synchronized('PureFCDriver._connect', external=True)
-    def _connect(self, volume, connector, initiator_data):
+    @utils.synchronized(CONNECT_LOCK_NAME, external=True)
+    def _connect(self, volume, connector):
         """Connect the host and volume; return dict describing connection."""
         wwns = connector["wwpns"]
 

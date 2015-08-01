@@ -24,13 +24,13 @@ import uuid
 
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_service import loopingcall
 from oslo_utils import excutils
 from oslo_utils import units
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
-from cinder.openstack.common import loopingcall
 from cinder import utils as cinder_utils
 from cinder.volume.drivers.netapp.eseries import client
 from cinder.volume.drivers.netapp.eseries import exception as eseries_exc
@@ -52,6 +52,7 @@ CONF.register_opts(na_opts.netapp_transport_opts)
 CONF.register_opts(na_opts.netapp_san_opts)
 
 
+@six.add_metaclass(cinder_utils.TraceWrapperMetaclass)
 class NetAppESeriesLibrary(object):
     """Executes commands relating to Volumes."""
 

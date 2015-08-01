@@ -43,6 +43,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging as messaging
 from oslo_serialization import jsonutils
+from oslo_service import periodic_task
 from oslo_utils import excutils
 from oslo_utils import importutils
 from oslo_utils import timeutils
@@ -59,7 +60,6 @@ from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import glance
 from cinder import manager
 from cinder import objects
-from cinder.openstack.common import periodic_task
 from cinder import quota
 from cinder import utils
 from cinder.volume import configuration as config
@@ -109,14 +109,18 @@ CONF = cfg.CONF
 CONF.register_opts(volume_manager_opts)
 
 MAPPING = {
-    'cinder.volume.drivers.huawei.huawei_hvs.HuaweiHVSISCSIDriver':
-    'cinder.volume.drivers.huawei.huawei_18000.Huawei18000ISCSIDriver',
-    'cinder.volume.drivers.huawei.huawei_hvs.HuaweiHVSFCDriver':
-    'cinder.volume.drivers.huawei.huawei_18000.Huawei18000FCDriver',
+    'cinder.volume.drivers.huawei.huawei_18000.Huawei18000ISCSIDriver':
+    'cinder.volume.drivers.huawei.huawei_driver.Huawei18000ISCSIDriver',
+    'cinder.volume.drivers.huawei.huawei_18000.Huawei18000FCDriver':
+    'cinder.volume.drivers.huawei.huawei_driver.Huawei18000FCDriver',
     'cinder.volume.drivers.fujitsu_eternus_dx_fc.FJDXFCDriver':
     'cinder.volume.drivers.fujitsu.eternus_dx_fc.FJDXFCDriver',
     'cinder.volume.drivers.fujitsu_eternus_dx_iscsi.FJDXISCSIDriver':
-    'cinder.volume.drivers.fujitsu.eternus_dx_iscsi.FJDXISCSIDriver', }
+    'cinder.volume.drivers.fujitsu.eternus_dx_iscsi.FJDXISCSIDriver',
+    'cinder.volume.drivers.hds.nfs.HDSNFSDriver':
+    'cinder.volume.drivers.hitachi.hnas_nfs.HDSNFSDriver',
+    'cinder.volume.drivers.hds.iscsi.HDSISCSIDriver':
+    'cinder.volume.drivers.hitachi.hnas_iscsi.HDSISCSIDriver'}
 
 
 def locked_volume_operation(f):
@@ -184,7 +188,7 @@ def locked_snapshot_operation(f):
 class VolumeManager(manager.SchedulerDependentManager):
     """Manages attachable block storage devices."""
 
-    RPC_API_VERSION = '1.23'
+    RPC_API_VERSION = '1.24'
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -402,15 +406,15 @@ class VolumeManager(manager.SchedulerDependentManager):
         return self.driver.initialized
 
     def create_volume(self, context, volume_id, request_spec=None,
-                      filter_properties=None, allow_reschedule=True,
-                      snapshot_id=None, image_id=None, source_volid=None,
-                      source_replicaid=None, consistencygroup_id=None,
-                      cgsnapshot_id=None):
+                      filter_properties=None, allow_reschedule=True):
 
         """Creates the volume."""
         context_elevated = context.elevated()
         if filter_properties is None:
             filter_properties = {}
+
+        if request_spec is None:
+            request_spec = {}
 
         try:
             # NOTE(flaper87): Driver initialization is
@@ -425,17 +429,15 @@ class VolumeManager(manager.SchedulerDependentManager):
                 allow_reschedule,
                 context,
                 request_spec,
-                filter_properties,
-                snapshot_id=snapshot_id,
-                image_id=image_id,
-                source_volid=source_volid,
-                source_replicaid=source_replicaid,
-                consistencygroup_id=consistencygroup_id,
-                cgsnapshot_id=cgsnapshot_id)
+                filter_properties)
         except Exception:
             msg = _("Create manager volume flow failed.")
             LOG.exception(msg, resource={'type': 'volume', 'id': volume_id})
             raise exception.CinderException(msg)
+
+        snapshot_id = request_spec.get('snapshot_id')
+        source_volid = request_spec.get('source_volid')
+        source_replicaid = request_spec.get('source_replicaid')
 
         if snapshot_id is not None:
             # Make sure the snapshot is not deleted until we are done with it.
@@ -464,24 +466,31 @@ class VolumeManager(manager.SchedulerDependentManager):
         # NOTE(dulek): Flag to indicate if volume was rescheduled. Used to
         # decide if allocated_capacity should be incremented.
         rescheduled = False
+        vol_ref = None
 
         try:
             if locked_action is None:
                 _run_flow()
             else:
                 _run_flow_locked()
-        except Exception as e:
-            if hasattr(e, 'rescheduled'):
-                rescheduled = e.rescheduled
-            raise
         finally:
             try:
                 vol_ref = flow_engine.storage.fetch('volume_ref')
-            except tfe.NotFound as e:
-                # Flow was reverted, fetching volume_ref from the DB.
-                vol_ref = self.db.volume_get(context, volume_id)
+            except tfe.NotFound:
+                # If there's no vol_ref, then flow is reverted. Lets check out
+                # if rescheduling occurred.
+                try:
+                    rescheduled = flow_engine.storage.get_revert_result(
+                        create_volume.OnFailureRescheduleTask.make_name(
+                            [create_volume.ACTION]))
+                except tfe.NotFound:
+                    pass
 
             if not rescheduled:
+                if not vol_ref:
+                    # Flow was reverted and not rescheduled, fetching
+                    # volume_ref from the DB, because it will be needed.
+                    vol_ref = self.db.volume_get(context, volume_id)
                 # NOTE(dulek): Volume wasn't rescheduled so we need to update
                 # volume stats as these are decremented on delete.
                 self._update_allocated_capacity(vol_ref)
@@ -1140,6 +1149,11 @@ class VolumeManager(manager.SchedulerDependentManager):
                                else 'rw')
             conn_info['data']['access_mode'] = access_mode
 
+        # Add encrypted flag to connection_info if not set in the driver.
+        if conn_info['data'].get('encrypted') is None:
+            encrypted = bool(volume.get('encryption_key_id'))
+            conn_info['data']['encrypted'] = encrypted
+
         LOG.info(_LI("Initialize volume connection completed successfully."),
                  resource=volume)
         return conn_info
@@ -1370,11 +1384,11 @@ class VolumeManager(manager.SchedulerDependentManager):
                       {'err': ex}, resource=volume)
 
         # Give driver (new_volume) a chance to update things as needed
+        # after a successful migration.
         # Note this needs to go through rpc to the host of the new volume
-        # the current host and driver object is for the "existing" volume
-        rpcapi.update_migrated_volume(ctxt,
-                                      volume,
-                                      new_volume)
+        # the current host and driver object is for the "existing" volume.
+        rpcapi.update_migrated_volume(ctxt, volume, new_volume,
+                                      orig_volume_status)
         self.db.finish_volume_migration(ctxt, volume_id, new_volume_id)
         self.db.volume_destroy(ctxt, new_volume_id)
         if orig_volume_status == 'in-use':
@@ -1898,7 +1912,6 @@ class VolumeManager(manager.SchedulerDependentManager):
         """Creates the consistency group."""
         context = context.elevated()
         group_ref = self.db.consistencygroup_get(context, group_id)
-        group_ref['host'] = self.host
 
         status = 'available'
         model_update = False
@@ -2576,14 +2589,23 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         return True
 
-    def update_migrated_volume(self, ctxt, volume, new_volume):
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               volume_status):
         """Finalize migration process on backend device."""
-
         model_update = None
-        model_update = self.driver.update_migrated_volume(ctxt,
-                                                          volume,
-                                                          new_volume)
+        try:
+            model_update = self.driver.update_migrated_volume(ctxt,
+                                                              volume,
+                                                              new_volume,
+                                                              volume_status)
+        except NotImplementedError:
+            # If update_migrated_volume is not implemented for the driver,
+            # _name_id and provider_location will be set with the values
+            # from new_volume.
+            model_update = {'_name_id': new_volume['_name_id'] or
+                            new_volume['id'],
+                            'provider_location':
+                            new_volume['provider_location']}
         if model_update:
-            self.db.volume_update(ctxt.elevated(),
-                                  volume['id'],
+            self.db.volume_update(ctxt.elevated(), volume['id'],
                                   model_update)
