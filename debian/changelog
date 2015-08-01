@@ -1,4 +1,4 @@
-cinder (1:7.0.0~b1-1) experimental; urgency=medium
+cinder (1:7.0.0~b2-1) experimental; urgency=medium
 
   * New upstream release.
   * Updated (build-)depends for this release.
