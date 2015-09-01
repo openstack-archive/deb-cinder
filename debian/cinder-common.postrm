@@ -22,9 +22,11 @@ if [ "$1" = "purge" ] && [ -f /usr/share/debconf/confmodule ] ; then
 	fi
 
 	rm -f /etc/cinder/cinder.conf /etc/cinder/api-paste.ini /etc/cinder/logging.conf
-	rmdir --ignore-fail-on-non-empty /etc/cinder
+	rmdir --ignore-fail-on-non-empty /etc/cinder || true
 	rm -f /etc/default/cinder-common
 	rm -rf /var/lib/cinder /var/log/cinder
 fi
 
 #DEBHELPER#
+
+exit 0

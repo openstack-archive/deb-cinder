@@ -1,16 +1,15 @@
 #!/usr/bin/make -f
 
 include /usr/share/openstack-pkg-tools/pkgos.make
-
-export OSLO_PACKAGE_VERSION=$(shell dpkg-parsechangelog -S Version | sed -e 's/^[[:digit:]]*://' -e 's/[-].*//' -e 's/~/.0/')
+export OSLO_PACKAGE_VERSION=$(shell dpkg-parsechangelog | grep Version: | cut -d' ' -f2 | sed -e 's/^[[:digit:]]*://' -e 's/[-].*//' -e 's/~/.0/' | head -n 1)
 
 %:
-	dh $@  --with python2,systemd
+	dh $@ --buildsystem=python_distutils --with python2,systemd,sphinxdoc
 
 override_dh_auto_test:
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 	@echo "===> Running tests"
-	set -e ; set -x ; for i in 2.7 $(PYTHON3S) ; do \
+	set -e ; set -x ; for i in 2.7 ; do \
 		PYMAJOR=`echo $$i | cut -d'.' -f1` ; \
 		echo "===> Testing with python$$i (python$$PYMAJOR)" ; \
 		rm -rf .testrepository ; \
@@ -24,12 +23,11 @@ ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 endif
 
 override_dh_clean:
-	dh_clean
+	dh_clean -O--buildsystem=python_distutils
 	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst debian/cinder-volume.postinst
 	rm -rf debian/*.upstart debian/*.service
 
 override_dh_install:
-	#tools/config/generate_sample.sh -b . -p cinder -o etc/cinder
 	dh_install --fail-missing -Xbin/cinder-all
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
@@ -46,28 +44,39 @@ override_dh_install:
 		--namespace cinder.openstack.common.periodic_task \
 		--namespace cinder.openstack.common.policy \
 		--namespace oslo_db.concurrency
-
-	#install -D -m 0644 $(CURDIR)/debian/cinder.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	install -D -m 0644 $(CURDIR)/etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Disable https in default setup, as this makes our CI fail
 	sed -i 's/#auth_protocol=https/auth_protocol=http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-	install -D -m 0644 $(CURDIR)/etc/cinder/logging_sample.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/logging.conf
-	sed -i 's|#rootwrap_config=<None>|rootwrap_config=/etc/cinder/rootwrap.conf|' $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
+
+	# Default to keystone auth
+	sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+
+	# Write only in /var/lib/cinder please
+	sed -i 's|#state_path=$pybasedir|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+
+	# Fix the missing sql_connection directive
 	echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	echo "sql_connection = sqlite:////var/lib/cinder/cinderdb" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-	sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-	sed -i 's|#state_path=$pybasedir|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+
+	install -D -m 0644 $(CURDIR)/etc/cinder/logging_sample.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/logging.conf
 
 override_dh_fixperms:
 	dh_fixperms -Xcinder_tgt.conf
 	chmod 0440 $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
 override_dh_auto_build:
-	dh_auto_build
+	dh_auto_build -O--buildsystem=python_distutils
 
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-common.config
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-common.postinst
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-api.config
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-api.postinst
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func cinder-volume.postinst
+
+override_dh_sphinxdoc:
+ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
+	python setup.py build_sphinx
+	cp -rf doc/build/html $(CURDIR)/debian/cinder-doc/usr/share/doc/cinder-doc
+	dh_sphinxdoc -O--buildsystem=python_distutils
+endif

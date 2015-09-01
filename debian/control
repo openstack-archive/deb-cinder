@@ -23,7 +23,7 @@ Build-Depends-Indep: python-anyjson,
                      python-fixtures (>= 1.3.1),
                      python-glanceclient (>= 1:0.18.0),
                      python-greenlet,
-                     python-hacking,
+                     python-hacking (>= 0.10.0),
                      python-iso8601,
                      python-keystonemiddleware (>= 2.0.0),
                      python-kombu,
@@ -32,7 +32,7 @@ Build-Depends-Indep: python-anyjson,
                      python-mock (>= 1.3),
                      python-mox3,
                      python-mysqldb,
-                     python-netaddr,
+                     python-netaddr (>= 0.7.12),
                      python-novaclient (>= 2:2.22.0),
                      python-os-brick,
                      python-os-testr,
@@ -54,8 +54,8 @@ Build-Depends-Indep: python-anyjson,
                      python-oslo.vmware (>= 1.16.0),
                      python-oslosphinx (>= 2.5.0),
                      python-oslotest (>= 1.7.0),
-                     python-osprofiler,
-                     python-paramiko,
+                     python-osprofiler (>= 0.3.0),
+                     python-paramiko (>= 1.13.0),
                      python-paste,
                      python-pastedeploy,
                      python-psutil,
@@ -67,9 +67,9 @@ Build-Depends-Indep: python-anyjson,
                      python-routes,
                      python-rtslib-fb,
                      python-six (>= 1.9.0),
-                     python-sqlalchemy,
+                     python-sqlalchemy (>= 0.9.7),
                      python-stevedore (>= 1.5.0),
-                     python-swiftclient,
+                     python-swiftclient (>= 1:2.2.0),
                      python-taskflow (>= 1.16.0),
                      python-tempest-lib (>= 0.6.1),
                      python-testtools (>= 1.4.0),
@@ -79,26 +79,27 @@ Build-Depends-Indep: python-anyjson,
 Standards-Version: 3.9.6
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/cinder.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/cinder.git
-Homepage: http://cinder.openstack.org/
+Homepage: http://github.com/openstack/cinder
 
 Package: python-cinder
 Section: python
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Depends: python-anyjson,
          python-babel,
          python-barbicanclient (>= 3.0.1),
+         python-ceph,
          python-crypto,
          python-eventlet (>= 0.17.4),
          python-glanceclient (>= 1:0.18.0),
          python-greenlet,
+         python-hp3parclient,
          python-iso8601,
          python-keystonemiddleware (>= 2.0.0),
          python-kombu,
          python-lxml,
          python-migrate (>= 0.9.6),
          python-mysqldb,
-         python-netaddr,
+         python-netaddr (>= 0.7.12),
          python-novaclient (>= 2:2.22.0),
          python-os-brick,
          python-oslo.concurrency (>= 2.1.0),
@@ -117,9 +118,8 @@ Depends: python-anyjson,
          python-oslo.utils (>= 1.9.0),
          python-oslo.versionedobjects (>= 0.5.0),
          python-oslo.vmware (>= 1.16.0),
-         python-osprofiler,
-         python-paramiko,
-         python-passlib,
+         python-osprofiler (>= 0.3.0),
+         python-paramiko (>= 1.13.0),
          python-paste,
          python-pastedeploy,
          python-pbr (>= 1.3),
@@ -132,9 +132,9 @@ Depends: python-anyjson,
          python-routes,
          python-rtslib-fb,
          python-six (>= 1.9.0),
-         python-sqlalchemy,
+         python-sqlalchemy (>= 0.9.7),
          python-stevedore (>= 1.5.0),
-         python-swiftclient,
+         python-swiftclient (>= 1:2.2.0),
          python-taskflow (>= 1.16.0),
          python-webob,
          ${misc:Depends},
@@ -153,7 +153,6 @@ Description: OpenStack block storage system - Python libraries
 
 Package: cinder-common
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Depends: adduser,
          dbconfig-common,
          debconf,
@@ -177,7 +176,6 @@ Description: OpenStack block storage system - common files
 
 Package: cinder-api
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Depends: adduser,
          cinder-common (= ${binary:Version}),
          debconf,
@@ -195,16 +193,15 @@ Description: OpenStack block storage system - API server
  It also has back-end drivers for many hardware and software storage solutions
  like Ceph, NFS, Net-APP, etc.
  .
- This package contains the API server on which clients will connect.
+ This package contains the Cinder API server.
 
 Package: cinder-volume
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Depends: adduser,
          cinder-common (= ${binary:Version}),
          lvm2,
          qemu-utils,
-         tgt (>= 1:1.0.17-1.1~),
+         tgt,
          ${misc:Depends},
          ${ostack-lsb-base},
          ${python:Depends},
@@ -219,11 +216,10 @@ Description: OpenStack block storage system - Volume server
  It also has back-end drivers for many hardware and software storage solutions
  like Ceph, NFS, Net-APP, etc.
  .
- This package contains the Volume server which will actually do the storage.
+ This package contains the Cinder Volume server.
 
 Package: cinder-scheduler
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Depends: cinder-common (= ${binary:Version}),
          ${misc:Depends},
          ${ostack-lsb-base},
@@ -238,11 +234,10 @@ Description: OpenStack block storage system - Scheduler server
  It also has back-end drivers for many hardware and software storage solutions
  like Ceph, NFS, Net-APP, etc.
  .
- This package contains the Scheduler server.
+ This package contains the Cinder Scheduler server.
 
 Package: cinder-backup
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~),
 Depends: adduser,
          cinder-common (= ${binary:Version}),
          ${misc:Depends},
@@ -259,3 +254,21 @@ Description: OpenStack block storage system - Backup server
  like Ceph, NFS, Net-APP, etc.
  .
  This package contains the Cinder backup service.
+
+Package: cinder-doc
+Architecture: all
+Section: doc
+Depends: ${misc:Depends},
+         ${sphinxdoc:Depends},
+Description: OpenStack block storage system - doc
+ Cinder is a block Storage-as-a-Service system for the OpenStack cloud
+ computing suite. It re-implements the features of Nova-volume, which it
+ directly replaces.
+ .
+ Cinder uses LVM partitions of your volume servers in order to provide iSCSI
+ permanent block storage devices for your virtual machines running on Nova.
+ It also has back-end drivers for many hardware and software storage
+ solutions
+ like Ceph, NFS, Net-APP, etc.
+ .
+ This package contains the documentation.

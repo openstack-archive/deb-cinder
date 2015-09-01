@@ -12,7 +12,6 @@
 ### END INIT INFO
 
 # Author: Thomas Goirand <zigo@debian.org>
-
 DESC="OpenStack Cinder Backup"
 PROJECT_NAME=cinder
 NAME=${PROJECT_NAME}-backup

@@ -4,7 +4,7 @@ set -e
 
 #PKGOS-INCLUDE#
 
-if [ "$1" = "configure" ] ; then
+if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/debconf/confmodule
 	pkgos_register_endpoint_postinst cinder cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
 	db_stop

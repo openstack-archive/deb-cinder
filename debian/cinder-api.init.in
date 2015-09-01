@@ -13,7 +13,6 @@
 ### END INIT INFO
 
 # Author: Thomas Goirand <zigo@debian.org>
-
 DESC="OpenStack Cinder Api"
 PROJECT_NAME=cinder
 NAME=${PROJECT_NAME}-api
