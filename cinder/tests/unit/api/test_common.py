@@ -22,12 +22,15 @@ from testtools import matchers
 import webob
 import webob.exc
 
+from oslo_config import cfg
+
 from cinder.api import common
 from cinder import test
 
 
 NS = "{http://docs.openstack.org/compute/api/v1.1}"
 ATOMNS = "{http://www.w3.org/2005/Atom}"
+CONF = cfg.CONF
 
 
 class LimiterTest(test.TestCase):
@@ -49,25 +52,25 @@ class LimiterTest(test.TestCase):
     def test_limiter_offset_zero(self):
         """Test offset key works with 0."""
         req = webob.Request.blank('/?offset=0')
-        self.assertEqual(common.limited(self.tiny, req), self.tiny)
-        self.assertEqual(common.limited(self.small, req), self.small)
-        self.assertEqual(common.limited(self.medium, req), self.medium)
-        self.assertEqual(common.limited(self.large, req), self.large[:1000])
+        self.assertEqual(self.tiny, common.limited(self.tiny, req))
+        self.assertEqual(self.small, common.limited(self.small, req))
+        self.assertEqual(self.medium, common.limited(self.medium, req))
+        self.assertEqual(self.large[:1000], common.limited(self.large, req))
 
     def test_limiter_offset_medium(self):
         """Test offset key works with a medium sized number."""
         req = webob.Request.blank('/?offset=10')
-        self.assertEqual(common.limited(self.tiny, req), [])
-        self.assertEqual(common.limited(self.small, req), self.small[10:])
-        self.assertEqual(common.limited(self.medium, req), self.medium[10:])
-        self.assertEqual(common.limited(self.large, req), self.large[10:1010])
+        self.assertEqual([], common.limited(self.tiny, req))
+        self.assertEqual(self.small[10:], common.limited(self.small, req))
+        self.assertEqual(self.medium[10:], common.limited(self.medium, req))
+        self.assertEqual(self.large[10:1010], common.limited(self.large, req))
 
     def test_limiter_offset_over_max(self):
         """Test offset key works with a number over 1000 (max_limit)."""
         req = webob.Request.blank('/?offset=1001')
-        self.assertEqual(common.limited(self.tiny, req), [])
-        self.assertEqual(common.limited(self.small, req), [])
-        self.assertEqual(common.limited(self.medium, req), [])
+        self.assertEqual([], common.limited(self.tiny, req))
+        self.assertEqual([], common.limited(self.small, req))
+        self.assertEqual([], common.limited(self.medium, req))
         self.assertEqual(
             common.limited(self.large, req), self.large[1001:2001])
 
@@ -86,18 +89,18 @@ class LimiterTest(test.TestCase):
     def test_limiter_nothing(self):
         """Test request with no offset or limit."""
         req = webob.Request.blank('/')
-        self.assertEqual(common.limited(self.tiny, req), self.tiny)
-        self.assertEqual(common.limited(self.small, req), self.small)
-        self.assertEqual(common.limited(self.medium, req), self.medium)
-        self.assertEqual(common.limited(self.large, req), self.large[:1000])
+        self.assertEqual(self.tiny, common.limited(self.tiny, req))
+        self.assertEqual(self.small, common.limited(self.small, req))
+        self.assertEqual(self.medium, common.limited(self.medium, req))
+        self.assertEqual(self.large[:1000], common.limited(self.large, req))
 
     def test_limiter_limit_zero(self):
         """Test limit of zero."""
         req = webob.Request.blank('/?limit=0')
-        self.assertEqual(common.limited(self.tiny, req), self.tiny)
-        self.assertEqual(common.limited(self.small, req), self.small)
-        self.assertEqual(common.limited(self.medium, req), self.medium)
-        self.assertEqual(common.limited(self.large, req), self.large[:1000])
+        self.assertEqual(self.tiny, common.limited(self.tiny, req))
+        self.assertEqual(self.small, common.limited(self.small, req))
+        self.assertEqual(self.medium, common.limited(self.medium, req))
+        self.assertEqual(self.large[:1000], common.limited(self.large, req))
 
     def test_limiter_limit_bad(self):
         """Test with a bad limit."""
@@ -108,45 +111,45 @@ class LimiterTest(test.TestCase):
     def test_limiter_limit_medium(self):
         """Test limit of 10."""
         req = webob.Request.blank('/?limit=10')
-        self.assertEqual(common.limited(self.tiny, req), self.tiny)
-        self.assertEqual(common.limited(self.small, req), self.small)
-        self.assertEqual(common.limited(self.medium, req), self.medium[:10])
-        self.assertEqual(common.limited(self.large, req), self.large[:10])
+        self.assertEqual(self.tiny, common.limited(self.tiny, req))
+        self.assertEqual(self.small, common.limited(self.small, req))
+        self.assertEqual(self.medium[:10], common.limited(self.medium, req))
+        self.assertEqual(self.large[:10], common.limited(self.large, req))
 
     def test_limiter_limit_over_max(self):
         """Test limit of 3000."""
         req = webob.Request.blank('/?limit=3000')
-        self.assertEqual(common.limited(self.tiny, req), self.tiny)
-        self.assertEqual(common.limited(self.small, req), self.small)
-        self.assertEqual(common.limited(self.medium, req), self.medium)
-        self.assertEqual(common.limited(self.large, req), self.large[:1000])
+        self.assertEqual(self.tiny, common.limited(self.tiny, req))
+        self.assertEqual(self.small, common.limited(self.small, req))
+        self.assertEqual(self.medium, common.limited(self.medium, req))
+        self.assertEqual(self.large[:1000], common.limited(self.large, req))
 
     def test_limiter_limit_and_offset(self):
         """Test request with both limit and offset."""
         items = range(2000)
         req = webob.Request.blank('/?offset=1&limit=3')
-        self.assertEqual(common.limited(items, req), items[1:4])
+        self.assertEqual(items[1:4], common.limited(items, req))
         req = webob.Request.blank('/?offset=3&limit=0')
-        self.assertEqual(common.limited(items, req), items[3:1003])
+        self.assertEqual(items[3:1003], common.limited(items, req))
         req = webob.Request.blank('/?offset=3&limit=1500')
-        self.assertEqual(common.limited(items, req), items[3:1003])
+        self.assertEqual(items[3:1003], common.limited(items, req))
         req = webob.Request.blank('/?offset=3000&limit=10')
-        self.assertEqual(common.limited(items, req), [])
+        self.assertEqual([], common.limited(items, req))
 
     def test_limiter_custom_max_limit(self):
         """Test a max_limit other than 1000."""
         items = range(2000)
         req = webob.Request.blank('/?offset=1&limit=3')
         self.assertEqual(
-            common.limited(items, req, max_limit=2000), items[1:4])
+            items[1:4], common.limited(items, req, max_limit=2000))
         req = webob.Request.blank('/?offset=3&limit=0')
         self.assertEqual(
-            common.limited(items, req, max_limit=2000), items[3:])
+            items[3:], common.limited(items, req, max_limit=2000))
         req = webob.Request.blank('/?offset=3&limit=2500')
         self.assertEqual(
-            common.limited(items, req, max_limit=2000), items[3:])
+            items[3:], common.limited(items, req, max_limit=2000))
         req = webob.Request.blank('/?offset=3000&limit=10')
-        self.assertEqual(common.limited(items, req, max_limit=2000), [])
+        self.assertEqual([], common.limited(items, req, max_limit=2000))
 
     def test_limiter_negative_limit(self):
         """Test a negative limit."""
@@ -172,37 +175,47 @@ class PaginationParamsTest(test.TestCase):
         """Test nonnumerical limit param."""
         req = webob.Request.blank('/?limit=hello')
         self.assertRaises(
-            webob.exc.HTTPBadRequest, common.get_pagination_params, req)
+            webob.exc.HTTPBadRequest, common.get_pagination_params,
+            req.GET.copy())
 
-    def test_no_params(self):
+    @mock.patch.object(common, 'CONF')
+    def test_no_params(self, mock_cfg):
         """Test no params."""
+        mock_cfg.osapi_max_limit = 100
         req = webob.Request.blank('/')
-        self.assertEqual(common.get_pagination_params(req), {})
+        expected = (None, 100, 0)
+        self.assertEqual(expected,
+                         common.get_pagination_params(req.GET.copy()))
 
     def test_valid_marker(self):
         """Test valid marker param."""
-        req = webob.Request.blank(
-            '/?marker=263abb28-1de6-412f-b00b-f0ee0c4333c2')
-        self.assertEqual(common.get_pagination_params(req),
-                         {'marker': '263abb28-1de6-412f-b00b-f0ee0c4333c2'})
+        marker = '263abb28-1de6-412f-b00b-f0ee0c4333c2'
+        req = webob.Request.blank('/?marker=' + marker)
+        expected = (marker, CONF.osapi_max_limit, 0)
+        self.assertEqual(expected,
+                         common.get_pagination_params(req.GET.copy()))
 
     def test_valid_limit(self):
         """Test valid limit param."""
         req = webob.Request.blank('/?limit=10')
-        self.assertEqual(common.get_pagination_params(req), {'limit': 10})
+        expected = (None, 10, 0)
+        self.assertEqual(expected,
+                         common.get_pagination_params(req.GET.copy()))
 
     def test_invalid_limit(self):
         """Test invalid limit param."""
         req = webob.Request.blank('/?limit=-2')
         self.assertRaises(
-            webob.exc.HTTPBadRequest, common.get_pagination_params, req)
+            webob.exc.HTTPBadRequest, common.get_pagination_params,
+            req.GET.copy())
 
     def test_valid_limit_and_marker(self):
         """Test valid limit and marker parameters."""
         marker = '263abb28-1de6-412f-b00b-f0ee0c4333c2'
         req = webob.Request.blank('/?limit=20&marker=%s' % marker)
-        self.assertEqual(common.get_pagination_params(req),
-                         {'marker': marker, 'limit': 20})
+        expected = (marker, 20, 0)
+        self.assertEqual(expected,
+                         common.get_pagination_params(req.GET.copy()))
 
 
 class SortParamUtilsTest(test.TestCase):
@@ -279,7 +292,7 @@ class SortParamUtilsTest(test.TestCase):
         common.get_sort_params(params)
         self.assertEqual({}, params)
 
-        params = {'sort_dir': 'key1', 'sort_dir': 'dir1'}
+        params = {'sort_key': 'key1', 'sort_dir': 'dir1'}
         common.get_sort_params(params)
         self.assertEqual({}, params)
 
@@ -306,31 +319,31 @@ class MiscFunctionsTest(test.TestCase):
         fixture = 'http://www.testsite.com/v1/images'
         expected = 'http://www.testsite.com/images'
         actual = common.remove_version_from_href(fixture)
-        self.assertEqual(actual, expected)
+        self.assertEqual(expected, actual)
 
     def test_remove_version_from_href(self):
         fixture = 'http://www.testsite.com/v1.1/images'
         expected = 'http://www.testsite.com/images'
         actual = common.remove_version_from_href(fixture)
-        self.assertEqual(actual, expected)
+        self.assertEqual(expected, actual)
 
     def test_remove_version_from_href_2(self):
         fixture = 'http://www.testsite.com/v1.1/'
         expected = 'http://www.testsite.com/'
         actual = common.remove_version_from_href(fixture)
-        self.assertEqual(actual, expected)
+        self.assertEqual(expected, actual)
 
     def test_remove_version_from_href_3(self):
         fixture = 'http://www.testsite.com/v10.10'
         expected = 'http://www.testsite.com'
         actual = common.remove_version_from_href(fixture)
-        self.assertEqual(actual, expected)
+        self.assertEqual(expected, actual)
 
     def test_remove_version_from_href_4(self):
         fixture = 'http://www.testsite.com/v1.1/images/v10.5'
         expected = 'http://www.testsite.com/images/v10.5'
         actual = common.remove_version_from_href(fixture)
-        self.assertEqual(actual, expected)
+        self.assertEqual(expected, actual)
 
     def test_remove_version_from_href_bad_request(self):
         fixture = 'http://www.testsite.com/1.1/images'
@@ -354,25 +367,35 @@ class MiscFunctionsTest(test.TestCase):
 class TestCollectionLinks(test.TestCase):
     """Tests the _get_collection_links method."""
 
-    def _validate_next_link(self, href_link_mock, item_count,
-                            osapi_max_limit, limit, should_link_exist):
-        req = mock.MagicMock()
-        href_link_mock.return_value = [{"rel": "next",
-                                        "href": "fake_link"}]
+    def _validate_next_link(self, item_count, osapi_max_limit, limit,
+                            should_link_exist):
+        req = webob.Request.blank('/?limit=%s' % limit if limit else '/')
+        link_return = [{"rel": "next", "href": "fake_link"}]
         self.flags(osapi_max_limit=osapi_max_limit)
         if limit is None:
-            params = mock.PropertyMock(return_value=dict())
             limited_list_size = min(item_count, osapi_max_limit)
         else:
-            params = mock.PropertyMock(return_value=dict(limit=limit))
-            limited_list_size = min(item_count, osapi_max_limit,
-                                    limit)
+            limited_list_size = min(item_count, osapi_max_limit, limit)
         limited_list = [{"uuid": str(i)} for i in range(limited_list_size)]
-        type(req).params = params
         builder = common.ViewBuilder()
-        results = builder._get_collection_links(req, limited_list,
-                                                mock.sentinel.coll_key,
-                                                item_count, "uuid")
+
+        def get_pagination_params(params, max_limit=CONF.osapi_max_limit,
+                                  original_call=common.get_pagination_params):
+            return original_call(params, max_limit)
+
+        def _get_limit_param(params, max_limit=CONF.osapi_max_limit,
+                             original_call=common._get_limit_param):
+            return original_call(params, max_limit)
+
+        with mock.patch.object(common, 'get_pagination_params',
+                               get_pagination_params), \
+                mock.patch.object(common, '_get_limit_param',
+                                  _get_limit_param), \
+                mock.patch.object(common.ViewBuilder, '_generate_next_link',
+                                  return_value=link_return) as href_link_mock:
+            results = builder._get_collection_links(req, limited_list,
+                                                    mock.sentinel.coll_key,
+                                                    item_count, "uuid")
         if should_link_exist:
             href_link_mock.assert_called_once_with(limited_list, "uuid",
                                                    req,
@@ -382,171 +405,133 @@ class TestCollectionLinks(test.TestCase):
             self.assertFalse(href_link_mock.called)
             self.assertThat(results, matchers.HasLength(0))
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_equals_osapi_max_no_limit(self, href_link_mock):
+    def test_items_equals_osapi_max_no_limit(self):
         item_count = 5
         osapi_max_limit = 5
         limit = None
-        should_link_exist = False
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        should_link_exist = True
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_equals_osapi_max_greater_than_limit(self,
-                                                       href_link_mock):
+    def test_items_equals_osapi_max_greater_than_limit(self):
         item_count = 5
         osapi_max_limit = 5
         limit = 4
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_equals_osapi_max_equals_limit(self, href_link_mock):
+    def test_items_equals_osapi_max_equals_limit(self):
         item_count = 5
         osapi_max_limit = 5
         limit = 5
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_equals_osapi_max_less_than_limit(self, href_link_mock):
+    def test_items_equals_osapi_max_less_than_limit(self):
         item_count = 5
         osapi_max_limit = 5
         limit = 6
-        should_link_exist = False
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        should_link_exist = True
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_less_than_osapi_max_no_limit(self, href_link_mock):
+    def test_items_less_than_osapi_max_no_limit(self):
         item_count = 5
         osapi_max_limit = 7
         limit = None
         should_link_exist = False
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_limit_less_than_items_less_than_osapi_max(self, href_link_mock):
+    def test_limit_less_than_items_less_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 7
         limit = 4
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_limit_equals_items_less_than_osapi_max(self, href_link_mock):
+    def test_limit_equals_items_less_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 7
         limit = 5
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_less_than_limit_less_than_osapi_max(self, href_link_mock):
+    def test_items_less_than_limit_less_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 7
         limit = 6
         should_link_exist = False
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_less_than_osapi_max_equals_limit(self, href_link_mock):
+    def test_items_less_than_osapi_max_equals_limit(self):
         item_count = 5
         osapi_max_limit = 7
         limit = 7
         should_link_exist = False
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_less_than_osapi_max_less_than_limit(self, href_link_mock):
+    def test_items_less_than_osapi_max_less_than_limit(self):
         item_count = 5
         osapi_max_limit = 7
         limit = 8
         should_link_exist = False
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_greater_than_osapi_max_no_limit(self, href_link_mock):
+    def test_items_greater_than_osapi_max_no_limit(self):
         item_count = 5
         osapi_max_limit = 3
         limit = None
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_limit_less_than_items_greater_than_osapi_max(self,
-                                                          href_link_mock):
+    def test_limit_less_than_items_greater_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 3
         limit = 2
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_greater_than_osapi_max_equals_limit(self,
-                                                       href_link_mock):
+    def test_items_greater_than_osapi_max_equals_limit(self):
         item_count = 5
         osapi_max_limit = 3
         limit = 3
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_greater_than_limit_greater_than_osapi_max(self,
-                                                             href_link_mock):
+    def test_items_greater_than_limit_greater_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 3
         limit = 4
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_items_equals_limit_greater_than_osapi_max(self,
-                                                       href_link_mock):
+    def test_items_equals_limit_greater_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 3
         limit = 5
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
-    @mock.patch('cinder.api.common.ViewBuilder._generate_next_link')
-    def test_limit_greater_than_items_greater_than_osapi_max(self,
-                                                             href_link_mock):
+    def test_limit_greater_than_items_greater_than_osapi_max(self):
         item_count = 5
         osapi_max_limit = 3
         limit = 6
         should_link_exist = True
-        self._validate_next_link(href_link_mock, item_count,
-                                 osapi_max_limit,
-                                 limit, should_link_exist)
+        self._validate_next_link(item_count, osapi_max_limit, limit,
+                                 should_link_exist)
 
 
 class LinkPrefixTest(test.TestCase):
@@ -564,4 +549,24 @@ class LinkPrefixTest(test.TestCase):
             "http://foo.x.com/v1",
             "http://new.prefix.com:20455/new_extra_prefix")
         self.assertEqual("http://new.prefix.com:20455/new_extra_prefix/v1",
+                         result)
+
+
+class RequestUrlTest(test.TestCase):
+    def test_get_request_url_no_forward(self):
+        app_url = 'http://127.0.0.1/v2;param?key=value#frag'
+        request = type('', (), {
+            'application_url': app_url,
+            'headers': {}
+        })
+        result = common.get_request_url(request)
+        self.assertEqual(app_url, result)
+
+    def test_get_request_url_forward(self):
+        request = type('', (), {
+            'application_url': 'http://127.0.0.1/v2;param?key=value#frag',
+            'headers': {'X-Forwarded-Host': '192.168.0.243:24'}
+        })
+        result = common.get_request_url(request)
+        self.assertEqual('http://192.168.0.243:24/v2;param?key=value#frag',
                          result)

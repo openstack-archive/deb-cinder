@@ -431,6 +431,7 @@ class XtremIOVolumeDriver(san.SanDriver):
 
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
+
         If 'refresh' is True, run update the stats first.
         """
         if refresh:
@@ -566,7 +567,8 @@ class XtremIOVolumeDriver(san.SanDriver):
         return model_update, volumes
 
     def create_consistencygroup_from_src(self, context, group, volumes,
-                                         cgsnapshot=None, snapshots=None):
+                                         cgsnapshot=None, snapshots=None,
+                                         source_cg=None, source_vols=None):
         """Creates a consistencygroup from source.
 
         :param context: the context of the caller.
@@ -765,7 +767,8 @@ class XtremIOISCSIDriver(XtremIOVolumeDriver, driver.ISCSIDriver):
         }
 
     def _get_iscsi_properties(self, lunmap):
-        """Gets iscsi configuration
+        """Gets iscsi configuration.
+
         :target_discovered:    boolean indicating whether discovery was used
         :target_iqn:    the IQN of the iSCSI target
         :target_portal:    the portal of the iSCSI target

@@ -206,10 +206,11 @@ def volume_get(context, volume_id):
 
 
 def volume_get_all(context, marker, limit, sort_keys=None, sort_dirs=None,
-                   filters=None):
+                   filters=None, offset=None):
     """Get all volumes."""
     return IMPL.volume_get_all(context, marker, limit, sort_keys=sort_keys,
-                               sort_dirs=sort_dirs, filters=filters)
+                               sort_dirs=sort_dirs, filters=filters,
+                               offset=offset)
 
 
 def volume_get_all_by_host(context, host, filters=None):
@@ -223,12 +224,14 @@ def volume_get_all_by_group(context, group_id, filters=None):
 
 
 def volume_get_all_by_project(context, project_id, marker, limit,
-                              sort_keys=None, sort_dirs=None, filters=None):
+                              sort_keys=None, sort_dirs=None, filters=None,
+                              offset=None):
     """Get all volumes belonging to a project."""
     return IMPL.volume_get_all_by_project(context, project_id, marker, limit,
                                           sort_keys=sort_keys,
                                           sort_dirs=sort_dirs,
-                                          filters=filters)
+                                          filters=filters,
+                                          offset=offset)
 
 
 def volume_get_iscsi_target_num(context, volume_id):
@@ -289,14 +292,20 @@ def snapshot_get(context, snapshot_id):
     return IMPL.snapshot_get(context, snapshot_id)
 
 
-def snapshot_get_all(context, filters=None):
+def snapshot_get_all(context, filters=None, marker=None, limit=None,
+                     sort_keys=None, sort_dirs=None, offset=None):
     """Get all snapshots."""
-    return IMPL.snapshot_get_all(context, filters)
+    return IMPL.snapshot_get_all(context, filters, marker, limit, sort_keys,
+                                 sort_dirs, offset)
 
 
-def snapshot_get_all_by_project(context, project_id, filters=None):
+def snapshot_get_all_by_project(context, project_id, filters=None, marker=None,
+                                limit=None, sort_keys=None, sort_dirs=None,
+                                offset=None):
     """Get all snapshots belonging to a project."""
-    return IMPL.snapshot_get_all_by_project(context, project_id, filters)
+    return IMPL.snapshot_get_all_by_project(context, project_id, filters,
+                                            marker, limit, sort_keys,
+                                            sort_dirs, offset)
 
 
 def snapshot_get_by_host(context, host, filters=None):
@@ -528,8 +537,10 @@ def volume_type_extra_specs_delete(context, volume_type_id, key):
 def volume_type_extra_specs_update_or_create(context,
                                              volume_type_id,
                                              extra_specs):
-    """Create or update volume type extra specs. This adds or modifies the
-    key/value pairs specified in the extra specs dict argument
+    """Create or update volume type extra specs.
+
+    This adds or modifies the key/value pairs specified in the extra specs dict
+    argument.
     """
     return IMPL.volume_type_extra_specs_update_or_create(context,
                                                          volume_type_id,
@@ -694,7 +705,9 @@ def volume_glance_metadata_delete_by_snapshot(context, snapshot_id):
 def volume_glance_metadata_copy_from_volume_to_volume(context,
                                                       src_volume_id,
                                                       volume_id):
-    """Update the Glance metadata for a volume by copying all of the key:value
+    """Update the Glance metadata for a volume.
+
+    Update the Glance metadata for a volume by copying all of the key:value
     pairs from the originating volume.
 
     This is so that a volume created from the volume (clone) will retain the
@@ -722,6 +735,21 @@ def quota_get(context, project_id, resource):
 def quota_get_all_by_project(context, project_id):
     """Retrieve all quotas associated with a given project."""
     return IMPL.quota_get_all_by_project(context, project_id)
+
+
+def quota_allocated_get_all_by_project(context, project_id):
+    """Retrieve all allocated quotas associated with a given project."""
+    return IMPL.quota_allocated_get_all_by_project(context, project_id)
+
+
+def quota_allocated_update(context, project_id,
+                           resource, allocated):
+    """Update allocated quota to subprojects or raise if it does not exist.
+
+    :raises: cinder.exception.ProjectQuotaNotFound
+    """
+    return IMPL.quota_allocated_update(context, project_id,
+                                       resource, allocated)
 
 
 def quota_update(context, project_id, resource, limit):
@@ -820,14 +848,17 @@ def reservation_expire(context):
 ###################
 
 
-def backup_get(context, backup_id):
+def backup_get(context, backup_id, read_deleted=None, project_only=True):
     """Get a backup or raise if it does not exist."""
-    return IMPL.backup_get(context, backup_id)
+    return IMPL.backup_get(context, backup_id, read_deleted, project_only)
 
 
-def backup_get_all(context, filters=None):
+def backup_get_all(context, filters=None, marker=None, limit=None,
+                   offset=None, sort_keys=None, sort_dirs=None):
     """Get all backups."""
-    return IMPL.backup_get_all(context, filters=filters)
+    return IMPL.backup_get_all(context, filters=filters, marker=marker,
+                               limit=limit, offset=offset, sort_keys=sort_keys,
+                               sort_dirs=sort_dirs)
 
 
 def backup_get_all_by_host(context, host):
@@ -840,10 +871,15 @@ def backup_create(context, values):
     return IMPL.backup_create(context, values)
 
 
-def backup_get_all_by_project(context, project_id, filters=None):
+def backup_get_all_by_project(context, project_id, filters=None, marker=None,
+                              limit=None, offset=None, sort_keys=None,
+                              sort_dirs=None):
     """Get all backups belonging to a project."""
     return IMPL.backup_get_all_by_project(context, project_id,
-                                          filters=filters)
+                                          filters=filters, marker=marker,
+                                          limit=limit, offset=offset,
+                                          sort_keys=sort_keys,
+                                          sort_dirs=sort_dirs)
 
 
 def backup_get_all_by_volume(context, volume_id, filters=None):
@@ -996,3 +1032,39 @@ def driver_initiator_data_update(context, initiator, namespace, updates):
 def driver_initiator_data_get(context, initiator, namespace):
     """Query for an DriverPrivateData that has the specified key"""
     return IMPL.driver_initiator_data_get(context, initiator, namespace)
+
+
+###################
+
+
+def image_volume_cache_create(context, host, image_id, image_updated_at,
+                              volume_id, size):
+    """Create a new image volume cache entry."""
+    return IMPL.image_volume_cache_create(context,
+                                          host,
+                                          image_id,
+                                          image_updated_at,
+                                          volume_id,
+                                          size)
+
+
+def image_volume_cache_delete(context, volume_id):
+    """Delete an image volume cache entry specified by volume id."""
+    return IMPL.image_volume_cache_delete(context, volume_id)
+
+
+def image_volume_cache_get_and_update_last_used(context, image_id, host):
+    """Query for an image volume cache entry."""
+    return IMPL.image_volume_cache_get_and_update_last_used(context,
+                                                            image_id,
+                                                            host)
+
+
+def image_volume_cache_get_by_volume_id(context, volume_id):
+    """Query to see if a volume id is an image-volume contained in the cache"""
+    return IMPL.image_volume_cache_get_by_volume_id(context, volume_id)
+
+
+def image_volume_cache_get_all_for_host(context, host):
+    """Query for all image volume cache entry for a host."""
+    return IMPL.image_volume_cache_get_all_for_host(context, host)

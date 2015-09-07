@@ -2,6 +2,7 @@
 # Copyright (c) 2015 Alex Meade
 # Copyright (c) 2015 Rushil Chugh
 # Copyright (c) 2015 Yogesh Kshirsagar
+# Copyright (c) 2015 Michael Price
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,6 +21,7 @@ import copy
 import ddt
 
 import mock
+import six
 
 from cinder import exception
 from cinder import test
@@ -70,141 +72,174 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
 
         self.assertTrue(mock_check_flags.called)
 
-    def test_update_ssc_info(self):
+    def test_get_storage_pools(self):
+        pool_labels = list()
+        # Retrieve the first pool's label
+        for pool in eseries_fake.STORAGE_POOLS:
+            pool_labels.append(pool['label'])
+            break
+        self.library.configuration.netapp_storage_pools = (
+            ",".join(pool_labels))
+
+        filtered_pools = self.library._get_storage_pools()
+
+        filtered_pool_labels = [pool['label'] for pool in filtered_pools]
+        self.assertListEqual(pool_labels, filtered_pool_labels)
+
+    def test_get_volume(self):
+        fake_volume = copy.deepcopy(get_fake_volume())
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        self.library._client.list_volume = mock.Mock(return_value=volume)
+
+        result = self.library._get_volume(fake_volume['id'])
+
+        self.assertEqual(1, self.library._client.list_volume.call_count)
+        self.assertDictMatch(volume, result)
+
+    def test_get_volume_bad_input(self):
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        self.library._client.list_volume = mock.Mock(return_value=volume)
+
+        self.assertRaises(exception.InvalidInput, self.library._get_volume,
+                          None)
+
+    def test_get_volume_bad_uuid(self):
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        self.library._client.list_volume = mock.Mock(return_value=volume)
+
+        self.assertRaises(ValueError, self.library._get_volume, '1')
+
+    def test_update_ssc_info_no_ssc(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'driveMediaType': 'ssd'}]
-
-        self.library._get_storage_pools = mock.Mock(return_value=['test_vg1'])
-        self.library._client.list_storage_pools = mock.Mock(return_value=[])
+        pools = [{'volumeGroupRef': 'test_vg1', 'label': 'test_vg1',
+                  'raidLevel': 'raid6', 'securityType': 'enabled'}]
+        self.library._client = mock.Mock()
+        self.library._client.features.SSC_API_V2 = na_utils.FeatureState(
+            False, minimum_version="1.53.9000.1")
+        self.library._client.SSC_VALID_VERSIONS = [(1, 53, 9000, 1),
+                                                   (1, 53, 9010, 15)]
+        self.library.configuration.netapp_storage_pools = "test_vg1"
+        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
         self.library._client.list_drives = mock.Mock(return_value=drives)
 
         self.library._update_ssc_info()
 
+        self.assertEqual(
+            {'test_vg1': {'netapp_disk_encryption': 'true',
+                          'netapp_disk_type': 'SSD',
+                          'netapp_raid_type': 'raid6'}},
+            self.library._ssc_stats)
+
+    @ddt.data(True, False)
+    def test_update_ssc_info(self, data_assurance_supported):
+        self.library._client = mock.Mock()
+        self.library._client.features.SSC_API_V2 = na_utils.FeatureState(
+            True, minimum_version="1.53.9000.1")
+        self.library._client.list_ssc_storage_pools = mock.Mock(
+            return_value=eseries_fake.SSC_POOLS)
+        self.library._get_storage_pools = mock.Mock(
+            return_value=eseries_fake.STORAGE_POOLS)
+        # Data Assurance is not supported on some storage backends
+        self.library._is_data_assurance_supported = mock.Mock(
+            return_value=data_assurance_supported)
+
+        self.library._update_ssc_info()
+
+        for pool in eseries_fake.SSC_POOLS:
+            poolId = pool['poolId']
+
+            raid_lvl = self.library.SSC_RAID_TYPE_MAPPING.get(
+                pool['raidLevel'], 'unknown')
+
+            if pool['pool']["driveMediaType"] == 'ssd':
+                disk_type = 'SSD'
+            else:
+                disk_type = pool['pool']['drivePhysicalType']
+                disk_type = (
+                    self.library.SSC_DISK_TYPE_MAPPING.get(
+                        disk_type, 'unknown'))
+
+            da_enabled = pool['dataAssuranceCapable'] and (
+                data_assurance_supported)
+
+            thin_provisioned = pool['thinProvisioningCapable']
+
+            expected = {
+                'netapp_disk_encryption':
+                    six.text_type(pool['encrypted']).lower(),
+                'netapp_eseries_flash_read_cache':
+                    six.text_type(pool['flashCacheCapable']).lower(),
+                'netapp_thin_provisioned':
+                    six.text_type(thin_provisioned).lower(),
+                'netapp_eseries_data_assurance':
+                    six.text_type(da_enabled).lower(),
+                'netapp_eseries_disk_spindle_speed': pool['spindleSpeed'],
+                'netapp_raid_type': raid_lvl,
+                'netapp_disk_type': disk_type
+            }
+            actual = self.library._ssc_stats[poolId]
+            self.assertDictMatch(expected, actual)
+
+    @ddt.data(('FC', True), ('iSCSI', False))
+    @ddt.unpack
+    def test_is_data_assurance_supported(self, backend_storage_protocol,
+                                         enabled):
+        self.mock_object(self.library, 'driver_protocol',
+                         backend_storage_protocol)
+
+        actual = self.library._is_data_assurance_supported()
+
+        self.assertEqual(enabled, actual)
+
+    @ddt.data('scsi', 'fibre', 'sas', 'sata', 'garbage')
+    def test_update_ssc_disk_types(self, disk_type):
+        drives = [{'currentVolumeGroupRef': 'test_vg1',
+                   'interfaceType': {'driveType': disk_type}}]
+        pools = [{'volumeGroupRef': 'test_vg1'}]
+
+        self.library._client.list_drives = mock.Mock(return_value=drives)
+        self.library._client.get_storage_pool = mock.Mock(return_value=pools)
+
+        ssc_stats = self.library._update_ssc_disk_types(pools)
+
+        expected = self.library.SSC_DISK_TYPE_MAPPING.get(disk_type, 'unknown')
+        self.assertEqual({'test_vg1': {'netapp_disk_type': expected}},
+                         ssc_stats)
+
+    @ddt.data('scsi', 'fibre', 'sas', 'sata', 'garbage')
+    def test_update_ssc_disk_types_ssd(self, disk_type):
+        drives = [{'currentVolumeGroupRef': 'test_vg1',
+                   'driveMediaType': 'ssd', 'driveType': disk_type}]
+        pools = [{'volumeGroupRef': 'test_vg1'}]
+
+        self.library._client.list_drives = mock.Mock(return_value=drives)
+        self.library._client.get_storage_pool = mock.Mock(return_value=pools)
+
+        ssc_stats = self.library._update_ssc_disk_types(pools)
+
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'SSD'}},
-                         self.library._ssc_stats)
-
-    def test_update_ssc_disk_types_ssd(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'driveMediaType': 'ssd'}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'SSD'}},
                          ssc_stats)
 
-    def test_update_ssc_disk_types_scsi(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'interfaceType': {'driveType': 'scsi'}}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'SCSI'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_types_fcal(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'interfaceType': {'driveType': 'fibre'}}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'FCAL'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_types_sata(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'interfaceType': {'driveType': 'sata'}}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'SATA'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_types_sas(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'interfaceType': {'driveType': 'sas'}}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'SAS'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_types_unknown(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'interfaceType': {'driveType': 'unknown'}}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'unknown'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_types_undefined(self):
-        drives = [{'currentVolumeGroupRef': 'test_vg1',
-                   'interfaceType': {'driveType': '__UNDEFINED'}}]
-        self.library._client.list_drives = mock.Mock(return_value=drives)
-
-        ssc_stats = self.library._update_ssc_disk_types(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'unknown'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_encryption_SecType_enabled(self):
-        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
+    @ddt.data('enabled', 'none', 'capable', 'unknown', '__UNDEFINED',
+              'garbage')
+    def test_update_ssc_disk_encryption(self, securityType):
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': securityType}]
         self.library._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.library._update_ssc_disk_encryption(['test_vg1'])
+        ssc_stats = self.library._update_ssc_disk_encryption(pools)
 
-        self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'true'}},
+        # Convert the boolean value to a lower-case string value
+        expected = 'true' if securityType == "enabled" else 'false'
+        self.assertEqual({'test_vg1': {'netapp_disk_encryption': expected}},
                          ssc_stats)
-
-    def test_update_ssc_disk_encryption_SecType_unknown(self):
-        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'unknown'}]
-        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
-
-        ssc_stats = self.library._update_ssc_disk_encryption(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_encryption_SecType_none(self):
-        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'none'}]
-        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
-
-        ssc_stats = self.library._update_ssc_disk_encryption(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_encryption_SecType_capable(self):
-        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'capable'}]
-        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
-
-        ssc_stats = self.library._update_ssc_disk_encryption(['test_vg1'])
-
-        self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'}},
-                         ssc_stats)
-
-    def test_update_ssc_disk_encryption_SecType_garbage(self):
-        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'garbage'}]
-        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
-
-        ssc_stats = self.library._update_ssc_disk_encryption(['test_vg1'])
-
-        self.assertRaises(TypeError, 'test_vg1',
-                          {'netapp_disk_encryption': 'false'}, ssc_stats)
 
     def test_update_ssc_disk_encryption_multiple(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'none'},
                  {'volumeGroupRef': 'test_vg2', 'securityType': 'enabled'}]
         self.library._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.library._update_ssc_disk_encryption(['test_vg1',
-                                                              'test_vg2'])
+        ssc_stats = self.library._update_ssc_disk_encryption(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'},
                           'test_vg2': {'netapp_disk_encryption': 'true'}},
@@ -223,6 +258,9 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
 
     def test_terminate_connection_iscsi_volume_not_mapped(self):
         connector = {'initiator': eseries_fake.INITIATOR_NAME}
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        volume['listOfMappings'] = []
+        self.library._get_volume = mock.Mock(return_value=volume)
         self.assertRaises(eseries_exc.VolumeNotMapped,
                           self.library.terminate_connection_iscsi,
                           get_fake_volume(),
@@ -234,8 +272,8 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         fake_eseries_volume['listOfMappings'] = [
             eseries_fake.VOLUME_MAPPING
         ]
-        self.mock_object(self.library._client, 'list_volumes',
-                         mock.Mock(return_value=[fake_eseries_volume]))
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
         self.mock_object(host_mapper, 'unmap_volume_from_host')
 
         self.library.terminate_connection_iscsi(get_fake_volume(), connector)
@@ -260,6 +298,12 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         self.mock_object(host_mapper, 'map_volume_to_single_host',
                          mock.Mock(
                              return_value=eseries_fake.VOLUME_MAPPING))
+        fake_eseries_volume = copy.deepcopy(eseries_fake.VOLUME)
+        fake_eseries_volume['listOfMappings'] = [
+            eseries_fake.VOLUME_MAPPING
+        ]
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
 
         self.library.initialize_connection_iscsi(get_fake_volume(), connector)
 
@@ -280,6 +324,12 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         self.mock_object(host_mapper, 'map_volume_to_single_host',
                          mock.Mock(
                              return_value=eseries_fake.VOLUME_MAPPING))
+        fake_eseries_volume = copy.deepcopy(eseries_fake.VOLUME)
+        fake_eseries_volume['listOfMappings'] = [
+            eseries_fake.VOLUME_MAPPING
+        ]
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
 
         self.library.initialize_connection_iscsi(get_fake_volume(), connector)
 
@@ -296,6 +346,9 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         self.mock_object(host_mapper, 'map_volume_to_single_host',
                          mock.Mock(
                              return_value=eseries_fake.VOLUME_MAPPING))
+        fake_eseries_volume = copy.deepcopy(eseries_fake.VOLUME)
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
 
         self.library.initialize_connection_iscsi(get_fake_volume(), connector)
 
@@ -391,6 +444,10 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
             'type': 'fc',
             'address': eseries_fake.WWPN
         }]
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        volume['listOfMappings'] = []
+        self.mock_object(self.library, '_get_volume',
+                         mock.Mock(return_value=volume))
 
         self.mock_object(self.library._client, 'list_hosts',
                          mock.Mock(return_value=[fake_host]))
@@ -414,8 +471,8 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         ]
         self.mock_object(self.library._client, 'list_hosts',
                          mock.Mock(return_value=[fake_host]))
-        self.mock_object(self.library._client, 'list_volumes',
-                         mock.Mock(return_value=[fake_eseries_volume]))
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
         self.mock_object(host_mapper, 'unmap_volume_from_host')
 
         self.library.terminate_connection_fc(get_fake_volume(), connector)
@@ -440,8 +497,8 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         ]
         self.mock_object(self.library._client, 'list_hosts',
                          mock.Mock(return_value=[fake_host]))
-        self.mock_object(self.library._client, 'list_volumes',
-                         mock.Mock(return_value=[fake_eseries_volume]))
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
         self.mock_object(host_mapper, 'unmap_volume_from_host')
         self.mock_object(self.library._client, 'get_volume_mappings_for_host',
                          mock.Mock(return_value=[copy.deepcopy
@@ -477,8 +534,8 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         ]
         self.mock_object(self.library._client, 'list_hosts',
                          mock.Mock(return_value=[fake_host]))
-        self.mock_object(self.library._client, 'list_volumes',
-                         mock.Mock(return_value=[fake_eseries_volume]))
+        self.mock_object(self.library._client, 'list_volume',
+                         mock.Mock(return_value=fake_eseries_volume))
         self.mock_object(host_mapper, 'unmap_volume_from_host')
         self.mock_object(self.library._client, 'get_volume_mappings_for_host',
                          mock.Mock(return_value=[]))
@@ -609,10 +666,75 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         self.assertDictEqual(eseries_fake.FC_I_T_MAP, initiator_target_map)
         self.assertEqual(4, num_paths)
 
+    @ddt.data(('raid0', 'raid0'), ('raid1', 'raid1'), ('raid3', 'raid5'),
+              ('raid5', 'raid5'), ('raid6', 'raid6'), ('raidDiskPool', 'DDP'))
+    @ddt.unpack
+    def test_update_ssc_raid_type(self, raid_lvl, raid_lvl_mapping):
+        pools = [{'volumeGroupRef': 'test_vg1', 'raidLevel': raid_lvl}]
+        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
 
+        ssc_stats = self.library._update_ssc_raid_type(pools)
+
+        self.assertEqual({'test_vg1': {'netapp_raid_type': raid_lvl_mapping}},
+                         ssc_stats)
+
+    @ddt.data('raidAll', '__UNDEFINED', 'unknown',
+              'raidUnsupported', 'garbage')
+    def test_update_ssc_raid_type_invalid(self, raid_lvl):
+        pools = [{'volumeGroupRef': 'test_vg1', 'raidLevel': raid_lvl}]
+        self.library._client.list_storage_pools = mock.Mock(return_value=pools)
+
+        ssc_stats = self.library._update_ssc_raid_type(pools)
+
+        self.assertEqual({'test_vg1': {'netapp_raid_type': 'unknown'}},
+                         ssc_stats)
+
+    def test_create_asup(self):
+        self.library._client = mock.Mock()
+        self.library._client.features.AUTOSUPPORT = na_utils.FeatureState()
+        self.library._client.api_operating_mode = (
+            eseries_fake.FAKE_ASUP_DATA['operating-mode'])
+        self.library._app_version = eseries_fake.FAKE_APP_VERSION
+        self.mock_object(
+            self.library._client, 'get_firmware_version',
+            mock.Mock(return_value=(
+                eseries_fake.FAKE_ASUP_DATA['system-version'])))
+        self.mock_object(
+            self.library._client, 'get_serial_numbers',
+            mock.Mock(return_value=eseries_fake.FAKE_SERIAL_NUMBERS))
+        self.mock_object(
+            self.library._client, 'get_model_name',
+            mock.Mock(
+                return_value=eseries_fake.FAKE_CONTROLLERS[0]['modelName']))
+        self.mock_object(
+            self.library._client, 'set_counter',
+            mock.Mock(return_value={'value': 1}))
+        mock_invoke = self.mock_object(
+            self.library._client, 'add_autosupport_data')
+
+        self.library._create_asup(eseries_fake.FAKE_CINDER_HOST)
+
+        mock_invoke.assert_called_with(eseries_fake.FAKE_KEY,
+                                       eseries_fake.FAKE_ASUP_DATA)
+
+    def test_create_asup_not_supported(self):
+        self.library._client = mock.Mock()
+        self.library._client.features.AUTOSUPPORT = na_utils.FeatureState(
+            supported=False)
+        mock_invoke = self.mock_object(
+            self.library._client, 'add_autosupport_data')
+
+        self.library._create_asup(eseries_fake.FAKE_CINDER_HOST)
+
+        mock_invoke.assert_not_called()
+
+
+@ddt.ddt
 class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
-    """Test driver behavior when the netapp_enable_multiattach
-    configuration option is True.
+    """Test driver when netapp_enable_multiattach is enabled.
+
+    Test driver behavior when the netapp_enable_multiattach configuration
+    option is True.
     """
 
     def setUp(self):
@@ -662,6 +784,49 @@ class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
 
         self.library.create_volume(get_fake_volume())
         self.assertTrue(self.library._client.create_volume.call_count)
+
+    @ddt.data(('netapp_eseries_flash_read_cache', 'flash_cache', 'true'),
+              ('netapp_eseries_flash_read_cache', 'flash_cache', 'false'),
+              ('netapp_eseries_flash_read_cache', 'flash_cache', None),
+              ('netapp_thin_provisioned', 'thin_provision', 'true'),
+              ('netapp_thin_provisioned', 'thin_provision', 'false'),
+              ('netapp_thin_provisioned', 'thin_provision', None),
+              ('netapp_eseries_data_assurance', 'data_assurance', 'true'),
+              ('netapp_eseries_data_assurance', 'data_assurance', 'false'),
+              ('netapp_eseries_data_assurance', 'data_assurance', None),
+              ('netapp:write_cache', 'write_cache', 'true'),
+              ('netapp:write_cache', 'write_cache', 'false'),
+              ('netapp:write_cache', 'write_cache', None),
+              ('netapp:read_cache', 'read_cache', 'true'),
+              ('netapp:read_cache', 'read_cache', 'false'),
+              ('netapp:read_cache', 'read_cache', None),
+              ('netapp_eseries_flash_read_cache', 'flash_cache', 'True'),
+              ('netapp_eseries_flash_read_cache', 'flash_cache', '1'),
+              ('netapp_eseries_data_assurance', 'data_assurance', ''))
+    @ddt.unpack
+    def test_create_volume_with_extra_spec(self, spec, key, value):
+        fake_volume = get_fake_volume()
+        extra_specs = {spec: value}
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+
+        self.library._client.create_volume = mock.Mock(
+            return_value=volume)
+        # Make this utility method return our extra spec
+        mocked_spec_method = self.mock_object(na_utils,
+                                              'get_volume_extra_specs')
+        mocked_spec_method.return_value = extra_specs
+
+        self.library.create_volume(fake_volume)
+
+        self.assertEqual(1, self.library._client.create_volume.call_count)
+        # Ensure create_volume is called with the correct argument
+        args, kwargs = self.library._client.create_volume.call_args
+        self.assertIn(key, kwargs)
+        if(value is not None):
+            expected = na_utils.to_bool(value)
+        else:
+            expected = value
+        self.assertEqual(expected, kwargs[key])
 
     def test_create_volume_too_many_volumes(self):
         self.library._client.list_volumes = mock.Mock(
@@ -772,6 +937,12 @@ class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
             1, self.library._client.delete_snapshot_volume.call_count)
         # Ensure the volume we created is not cleaned up
         self.assertEqual(0, self.library._client.delete_volume.call_count)
+
+    def test_delete_non_existing_volume(self):
+        volume2 = get_fake_volume()
+        # Change to a nonexistent id.
+        volume2['name_id'] = '88888888-4444-4444-4444-cccccccccccc'
+        self.assertIsNone(self.library.delete_volume(volume2))
 
     def test_map_volume_to_host_volume_not_mapped(self):
         """Map the volume directly to destination host."""

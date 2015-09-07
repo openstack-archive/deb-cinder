@@ -22,6 +22,18 @@ FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 FAKE_UUIDS = {}
 TEST_SNAPSHOT_UUID = '00000000-0000-0000-0000-000000000001'
 
+DEFAULT_VOL_NAME = "displayname"
+DEFAULT_VOL_DESCRIPTION = "displaydesc"
+DEFAULT_VOL_SIZE = 1
+DEFAULT_VOL_TYPE = "vol_type_name"
+DEFAULT_VOL_STATUS = "fakestatus"
+DEFAULT_VOL_ID = '1'
+
+# TODO(vbala): api.v1 tests use hard-coded "fakeaz" for verifying
+# post-conditions. Update value to "zone1:host1" once we remove
+# api.v1 tests and use it in api.v2 tests.
+DEFAULT_AZ = "fakeaz"
+
 
 def stub_volume(id, **kwargs):
     volume = {
@@ -29,15 +41,14 @@ def stub_volume(id, **kwargs):
         'user_id': 'fakeuser',
         'project_id': 'fakeproject',
         'host': 'fakehost',
-        'size': 1,
-        'availability_zone': 'fakeaz',
-        'status': 'fakestatus',
+        'size': DEFAULT_VOL_SIZE,
+        'availability_zone': DEFAULT_AZ,
+        'status': DEFAULT_VOL_STATUS,
         'migration_status': None,
         'attach_status': 'attached',
-        'bootable': 'false',
         'name': 'vol name',
-        'display_name': 'displayname',
-        'display_description': 'displaydesc',
+        'display_name': DEFAULT_VOL_NAME,
+        'display_description': DEFAULT_VOL_DESCRIPTION,
         'updated_at': datetime.datetime(1900, 1, 1, 1, 1, 1),
         'created_at': datetime.datetime(1900, 1, 1, 1, 1, 1),
         'snapshot_id': None,
@@ -48,7 +59,7 @@ def stub_volume(id, **kwargs):
                                   {'key': 'readonly', 'value': 'False'}],
         'bootable': False,
         'launched_at': datetime.datetime(1900, 1, 1, 1, 1, 1),
-        'volume_type': {'name': 'vol_type_name'},
+        'volume_type': {'name': DEFAULT_VOL_TYPE},
         'replication_status': 'disabled',
         'replication_extended_status': None,
         'replication_driver_data': None,
@@ -64,9 +75,9 @@ def stub_volume(id, **kwargs):
     return volume
 
 
-def stub_volume_create(self, context, size, name, description, snapshot,
+def stub_volume_create(self, context, size, name, description, snapshot=None,
                        **param):
-    vol = stub_volume('1')
+    vol = stub_volume(DEFAULT_VOL_ID)
     vol['size'] = size
     vol['display_name'] = name
     vol['display_description'] = description
@@ -113,7 +124,12 @@ def stub_volume_delete(self, context, *args, **param):
 
 
 def stub_volume_get(self, context, volume_id, viewable_admin_meta=False):
-    return stub_volume(volume_id)
+    if viewable_admin_meta:
+        return stub_volume(volume_id)
+    else:
+        volume = stub_volume(volume_id)
+        del volume['volume_admin_metadata']
+        return volume
 
 
 def stub_volume_get_notfound(self, context,
@@ -122,12 +138,17 @@ def stub_volume_get_notfound(self, context,
 
 
 def stub_volume_get_db(context, volume_id):
-    return stub_volume(volume_id)
+    if context.is_admin:
+        return stub_volume(volume_id)
+    else:
+        volume = stub_volume(volume_id)
+        del volume['volume_admin_metadata']
+        return volume
 
 
 def stub_volume_get_all(context, search_opts=None, marker=None, limit=None,
                         sort_keys=None, sort_dirs=None, filters=None,
-                        viewable_admin_meta=False):
+                        viewable_admin_meta=False, offset=None):
     return [stub_volume(100, project_id='fake'),
             stub_volume(101, project_id='superfake'),
             stub_volume(102, project_id='superduperfake')]
@@ -136,9 +157,9 @@ def stub_volume_get_all(context, search_opts=None, marker=None, limit=None,
 def stub_volume_get_all_by_project(self, context, marker, limit,
                                    sort_keys=None, sort_dirs=None,
                                    filters=None,
-                                   viewable_admin_meta=False):
+                                   viewable_admin_meta=False, offset=None):
     filters = filters or {}
-    return [stub_volume_get(self, context, '1')]
+    return [stub_volume_get(self, context, '1', viewable_admin_meta=True)]
 
 
 def stub_snapshot(id, **kwargs):
@@ -156,13 +177,16 @@ def stub_snapshot(id, **kwargs):
     return snapshot
 
 
-def stub_snapshot_get_all(self, search_opts=None):
+def stub_snapshot_get_all(context, filters=None, marker=None, limit=None,
+                          sort_keys=None, sort_dirs=None, offset=None):
     return [stub_snapshot(100, project_id='fake'),
             stub_snapshot(101, project_id='superfake'),
             stub_snapshot(102, project_id='superduperfake')]
 
 
-def stub_snapshot_get_all_by_project(self, context, search_opts=None):
+def stub_snapshot_get_all_by_project(context, project_id, filters=None,
+                                     marker=None, limit=None, sort_keys=None,
+                                     sort_dirs=None, offset=None):
     return [stub_snapshot(1)]
 
 
@@ -170,7 +194,7 @@ def stub_snapshot_update(self, context, *args, **param):
     pass
 
 
-def stub_service_get_all_by_topic(context, topic):
+def stub_service_get_all_by_topic(context, topic, disabled=None):
     return [{'availability_zone': "zone1:host1", "disabled": 0}]
 
 

@@ -24,7 +24,12 @@ from cinder.volume.drivers.netapp.dataontap import block_cmode
 LOG = logging.getLogger(__name__)
 
 
-class NetAppCmodeISCSIDriver(driver.ISCSIDriver):
+class NetAppCmodeISCSIDriver(driver.BaseVD,
+                             driver.ManageableVD,
+                             driver.ExtendVD,
+                             driver.CloneableVD,
+                             driver.TransferVD,
+                             driver.SnapshotVD):
     """NetApp C-mode iSCSI volume driver."""
 
     DRIVER_NAME = 'NetApp_iSCSI_Cluster_direct'
@@ -67,7 +72,7 @@ class NetAppCmodeISCSIDriver(driver.ISCSIDriver):
     def ensure_export(self, context, volume):
         return self.library.ensure_export(context, volume)
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         return self.library.create_export(context, volume)
 
     def remove_export(self, context, volume):

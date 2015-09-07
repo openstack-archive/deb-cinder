@@ -15,21 +15,29 @@
 """Volume-related Utilities and helpers."""
 
 
+import ast
 import math
+import re
+import time
+import uuid
 
 from Crypto.Random import random
+import eventlet
+from eventlet import tpool
 from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import strutils
 from oslo_utils import timeutils
 from oslo_utils import units
+import six
 from six.moves import range
 
 from cinder.brick.local_dev import lvm as brick_lvm
+from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.i18n import _LI, _LW
+from cinder.i18n import _, _LI, _LW, _LE
 from cinder import rpc
 from cinder import utils
 from cinder.volume import throttling
@@ -84,6 +92,7 @@ def _usage_from_volume(context, volume_ref, **kw):
 
 
 def _usage_from_backup(backup_ref, **kw):
+    num_dependent_backups = backup_ref['num_dependent_backups']
     usage_info = dict(tenant_id=backup_ref['project_id'],
                       user_id=backup_ref['user_id'],
                       availability_zone=backup_ref['availability_zone'],
@@ -96,7 +105,10 @@ def _usage_from_backup(backup_ref, **kw):
                       size=backup_ref['size'],
                       service_metadata=backup_ref['service_metadata'],
                       service=backup_ref['service'],
-                      fail_reason=backup_ref['fail_reason'])
+                      fail_reason=backup_ref['fail_reason'],
+                      parent_id=backup_ref['parent_id'],
+                      num_dependent_backups=num_dependent_backups,
+                      )
 
     usage_info.update(kw)
     return usage_info
@@ -131,19 +143,19 @@ def notify_about_backup_usage(context, backup, event_suffix,
                                           usage_info)
 
 
-def _usage_from_snapshot(snapshot_ref, **extra_usage_info):
+def _usage_from_snapshot(snapshot, **extra_usage_info):
     usage_info = {
-        'tenant_id': snapshot_ref['project_id'],
-        'user_id': snapshot_ref['user_id'],
-        'availability_zone': snapshot_ref['volume']['availability_zone'],
-        'volume_id': snapshot_ref['volume_id'],
-        'volume_size': snapshot_ref['volume_size'],
-        'snapshot_id': snapshot_ref['id'],
-        'display_name': snapshot_ref['display_name'],
-        'created_at': str(snapshot_ref['created_at']),
-        'status': snapshot_ref['status'],
-        'deleted': null_safe_str(snapshot_ref['deleted']),
-        'metadata': null_safe_str(snapshot_ref.get('metadata')),
+        'tenant_id': snapshot.project_id,
+        'user_id': snapshot.user_id,
+        'availability_zone': snapshot.volume['availability_zone'],
+        'volume_id': snapshot.volume_id,
+        'volume_size': snapshot.volume_size,
+        'snapshot_id': snapshot.id,
+        'display_name': snapshot.display_name,
+        'created_at': str(snapshot.created_at),
+        'status': snapshot.status,
+        'deleted': null_safe_str(snapshot.deleted),
+        'metadata': null_safe_str(snapshot.metadata),
     }
 
     usage_info.update(extra_usage_info)
@@ -198,13 +210,13 @@ def notify_about_replication_error(context, volume, suffix,
 
 
 def _usage_from_consistencygroup(group_ref, **kw):
-    usage_info = dict(tenant_id=group_ref['project_id'],
-                      user_id=group_ref['user_id'],
-                      availability_zone=group_ref['availability_zone'],
-                      consistencygroup_id=group_ref['id'],
-                      name=group_ref['name'],
-                      created_at=group_ref['created_at'].isoformat(),
-                      status=group_ref['status'])
+    usage_info = dict(tenant_id=group_ref.project_id,
+                      user_id=group_ref.user_id,
+                      availability_zone=group_ref.availability_zone,
+                      consistencygroup_id=group_ref.id,
+                      name=group_ref.name,
+                      created_at=group_ref.created_at.isoformat(),
+                      status=group_ref.status)
 
     usage_info.update(kw)
     return usage_info
@@ -293,8 +305,9 @@ def check_for_odirect_support(src, dest, flag='oflag=direct'):
         return False
 
 
-def _copy_volume(prefix, srcstr, deststr, size_in_m, blocksize, sync=False,
-                 execute=utils.execute, ionice=None, sparse=False):
+def _copy_volume_with_path(prefix, srcstr, deststr, size_in_m, blocksize,
+                           sync=False, execute=utils.execute, ionice=None,
+                           sparse=False):
     # Use O_DIRECT to avoid thrashing the system buffer cache
     extra_flags = []
     if check_for_odirect_support(srcstr, deststr, 'iflag=direct'):
@@ -346,15 +359,107 @@ def _copy_volume(prefix, srcstr, deststr, size_in_m, blocksize, sync=False,
              {'size_in_m': size_in_m, 'mbps': mbps})
 
 
-def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
+def _open_volume_with_path(path, mode):
+    try:
+        with utils.temporary_chown(path):
+            handle = open(path, mode)
+            return handle
+    except Exception:
+        LOG.error(_LE("Failed to open volume from %(path)s."), {'path': path})
+
+
+def _transfer_data(src, dest, length, chunk_size):
+    """Transfer data between files (Python IO objects)."""
+
+    chunks = int(math.ceil(length / chunk_size))
+    remaining_length = length
+
+    LOG.debug("%(chunks)s chunks of %(bytes)s bytes to be transferred.",
+              {'chunks': chunks, 'bytes': chunk_size})
+
+    for chunk in xrange(0, chunks):
+        before = time.time()
+        data = tpool.execute(src.read, min(chunk_size, remaining_length))
+
+        # If we have reached end of source, discard any extraneous bytes from
+        # destination volume if trim is enabled and stop writing.
+        if data == '':
+            break
+
+        tpool.execute(dest.write, data)
+        remaining_length -= len(data)
+        delta = (time.time() - before)
+        rate = (chunk_size / delta) / units.Ki
+        LOG.debug("Transferred chunk %(chunk)s of %(chunks)s (%(rate)dK/s).",
+                  {'chunk': chunk + 1, 'chunks': chunks, 'rate': rate})
+
+        # yield to any other pending operations
+        eventlet.sleep(0)
+
+    tpool.execute(dest.flush)
+
+
+def _copy_volume_with_file(src, dest, size_in_m):
+    src_handle = src
+    if isinstance(src, six.string_types):
+        src_handle = _open_volume_with_path(src, 'rb')
+
+    dest_handle = dest
+    if isinstance(dest, six.string_types):
+        dest_handle = _open_volume_with_path(dest, 'wb')
+
+    if not src_handle:
+        raise exception.DeviceUnavailable(
+            _("Failed to copy volume, source device unavailable."))
+
+    if not dest_handle:
+        raise exception.DeviceUnavailable(
+            _("Failed to copy volume, destination device unavailable."))
+
+    start_time = timeutils.utcnow()
+
+    _transfer_data(src_handle, dest_handle, size_in_m * units.Mi, units.Mi * 4)
+
+    duration = max(1, timeutils.delta_seconds(start_time, timeutils.utcnow()))
+
+    if isinstance(src, six.string_types):
+        src_handle.close()
+    if isinstance(dest, six.string_types):
+        dest_handle.close()
+
+    mbps = (size_in_m / duration)
+    LOG.info(_LI("Volume copy completed (%(size_in_m).2f MB at "
+                 "%(mbps).2f MB/s)."),
+             {'size_in_m': size_in_m, 'mbps': mbps})
+
+
+def copy_volume(src, dest, size_in_m, blocksize, sync=False,
                 execute=utils.execute, ionice=None, throttle=None,
                 sparse=False):
-    if not throttle:
-        throttle = throttling.Throttle.get_default()
-    with throttle.subcommand(srcstr, deststr) as throttle_cmd:
-        _copy_volume(throttle_cmd['prefix'], srcstr, deststr,
-                     size_in_m, blocksize, sync=sync,
-                     execute=execute, ionice=ionice, sparse=sparse)
+    """Copy data from the source volume to the destination volume.
+
+    The parameters 'src' and 'dest' are both typically of type str, which
+    represents the path to each volume on the filesystem.  Connectors can
+    optionally return a volume handle of type RawIOBase for volumes that are
+    not available on the local filesystem for open/close operations.
+
+    If either 'src' or 'dest' are not of type str, then they are assumed to be
+    of type RawIOBase or any derivative that supports file operations such as
+    read and write.  In this case, the handles are treated as file handles
+    instead of file paths and, at present moment, throttling is unavailable.
+    """
+
+    if (isinstance(src, six.string_types) and
+            isinstance(dest, six.string_types)):
+        if not throttle:
+            throttle = throttling.Throttle.get_default()
+        with throttle.subcommand(src, dest) as throttle_cmd:
+            _copy_volume_with_path(throttle_cmd['prefix'], src, dest,
+                                   size_in_m, blocksize, sync=sync,
+                                   execute=execute, ionice=ionice,
+                                   sparse=sparse)
+    else:
+        _copy_volume_with_file(src, dest, size_in_m)
 
 
 def clear_volume(volume_size, volume_path, volume_clear=None,
@@ -541,3 +646,78 @@ def read_proc_mounts():
     """
     with open('/proc/mounts') as mounts:
         return mounts.readlines()
+
+
+def _extract_id(vol_name):
+    regex = re.compile(
+        CONF.volume_name_template.replace('%s', '(?P<uuid>.+)'))
+    match = regex.match(vol_name)
+    return match.group('uuid') if match else None
+
+
+def check_already_managed_volume(db, vol_name):
+    """Check cinder db for already managed volume.
+
+    :param db: database api parameter
+    :param vol_name: volume name parameter
+    :returns: bool -- return True, if db entry with specified
+                      volume name exist, otherwise return False
+    """
+    vol_id = _extract_id(vol_name)
+    try:
+        if vol_id and uuid.UUID(vol_id, version=4):
+            db.volume_get(context.get_admin_context(), vol_id)
+            return True
+    except (exception.VolumeNotFound, ValueError):
+        return False
+    return False
+
+
+def convert_config_string_to_dict(config_string):
+    """Convert config file replication string to a dict.
+
+    The only supported form is as follows:
+    "{'key-1'='val-1' 'key-2'='val-2'...}"
+
+    :param config_string: Properly formatted string to convert to dict.
+    :response: dict of string values
+    """
+
+    resultant_dict = {}
+
+    try:
+        st = config_string.replace("=", ":")
+        st = st.replace(" ", ", ")
+        resultant_dict = ast.literal_eval(st)
+    except Exception:
+        LOG.warning(_LW("Error encountered translating config_string: "
+                        "%(config_string)s to dict"),
+                    {'config_string': config_string})
+
+    return resultant_dict
+
+
+def process_reserve_over_quota(context, overs, usages, quotas, size):
+    def _consumed(name):
+        return (usages[name]['reserved'] + usages[name]['in_use'])
+
+    for over in overs:
+        if 'gigabytes' in over:
+            msg = _LW("Quota exceeded for %(s_pid)s, tried to create "
+                      "%(s_size)sG snapshot (%(d_consumed)dG of "
+                      "%(d_quota)dG already consumed).")
+            LOG.warning(msg, {'s_pid': context.project_id,
+                              's_size': size,
+                              'd_consumed': _consumed(over),
+                              'd_quota': quotas[over]})
+            raise exception.VolumeSizeExceedsAvailableQuota(
+                requested=size,
+                consumed=_consumed('gigabytes'),
+                quota=quotas['gigabytes'])
+        elif 'snapshots' in over:
+            msg = _LW("Quota exceeded for %(s_pid)s, tried to create "
+                      "snapshot (%(d_consumed)d snapshots "
+                      "already consumed).")
+            LOG.warning(msg, {'s_pid': context.project_id,
+                              'd_consumed': _consumed(over)})
+            raise exception.SnapshotLimitExceeded(allowed=quotas[over])

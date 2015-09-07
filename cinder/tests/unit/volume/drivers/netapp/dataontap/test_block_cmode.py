@@ -17,26 +17,32 @@
 Mock unit tests for the NetApp block storage C-mode library
 """
 
+import ddt
 import mock
 from oslo_service import loopingcall
 
 from cinder import exception
 from cinder import test
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fake_api as netapp_api)
 import cinder.tests.unit.volume.drivers.netapp.dataontap.fakes as fake
 import cinder.tests.unit.volume.drivers.netapp.fakes as na_fakes
 from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap import block_cmode
-from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap.client import client_base
 from cinder.volume.drivers.netapp.dataontap import ssc_cmode
 from cinder.volume.drivers.netapp import utils as na_utils
 
 
+@ddt.ddt
 class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
     """Test case for NetApp's C-Mode iSCSI library."""
 
     def setUp(self):
         super(NetAppBlockStorageCmodeLibraryTestCase, self).setUp()
+
+        # Inject fake netapp_lib module classes.
+        netapp_api.mock_netapp_lib([block_cmode])
 
         kwargs = {'configuration': self.get_config_cmode()}
         self.library = block_cmode.NetAppBlockStorageCmodeLibrary(
@@ -164,30 +170,27 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.zapi_client = mock.Mock()
         self.library.zapi_client.get_lun_by_args.return_value = [
             mock.Mock(spec=netapp_api.NaElement)]
-        lun = netapp_api.NaElement.create_node_with_children(
-            'lun-info',
-            **{'alignment': 'indeterminate',
-               'block-size': '512',
-               'comment': '',
-               'creation-timestamp': '1354536362',
-               'is-space-alloc-enabled': 'false',
-               'is-space-reservation-enabled': 'true',
-               'mapped': 'false',
-               'multiprotocol-type': 'linux',
-               'online': 'true',
-               'path': '/vol/fakeLUN/lun1',
-               'prefix-size': '0',
-               'qtree': '',
-               'read-only': 'false',
-               'serial-number': '2FfGI$APyN68',
-               'share-state': 'none',
-               'size': '20971520',
-               'size-used': '0',
-               'staging': 'false',
-               'suffix-size': '0',
-               'uuid': 'cec1f3d7-3d41-11e2-9cf4-123478563412',
-               'volume': 'fakeLUN',
-               'vserver': 'fake_vserver'})
+        lun = fake.FAKE_LUN
+        self.library._get_lun_by_args = mock.Mock(return_value=[lun])
+        self.library._add_lun_to_table = mock.Mock()
+        self.library._update_stale_vols = mock.Mock()
+
+        self.library._clone_lun('fakeLUN', 'newFakeLUN', 'false')
+
+        self.library.zapi_client.clone_lun.assert_called_once_with(
+            'fakeLUN', 'fakeLUN', 'newFakeLUN', 'false', block_count=0,
+            dest_block=0, src_block=0, qos_policy_group_name=None)
+
+    def test_clone_lun_no_space_reservation(self):
+        """Test for when space_reservation is not passed."""
+
+        self.library._get_lun_attr = mock.Mock(return_value={'Volume':
+                                                             'fakeLUN'})
+        self.library.zapi_client = mock.Mock()
+        self.library.lun_space_reservation = 'false'
+        self.library.zapi_client.get_lun_by_args.return_value = [
+            mock.Mock(spec=netapp_api.NaElement)]
+        lun = fake.FAKE_LUN
         self.library._get_lun_by_args = mock.Mock(return_value=[lun])
         self.library._add_lun_to_table = mock.Mock()
         self.library._update_stale_vols = mock.Mock()
@@ -195,7 +198,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library._clone_lun('fakeLUN', 'newFakeLUN')
 
         self.library.zapi_client.clone_lun.assert_called_once_with(
-            'fakeLUN', 'fakeLUN', 'newFakeLUN', 'true', block_count=0,
+            'fakeLUN', 'fakeLUN', 'newFakeLUN', 'false', block_count=0,
             dest_block=0, src_block=0, qos_policy_group_name=None)
 
     def test_get_fc_target_wwpns(self):
@@ -215,7 +218,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
 
         self.library.get_volume_stats(refresh=True)
 
-        self.assertEqual(self.library.zapi_client.provide_ems.call_count, 1)
+        self.assertEqual(1, self.library.zapi_client.provide_ems.call_count)
 
     def test_create_lun(self):
         self.library._update_stale_vols = mock.Mock()
@@ -256,6 +259,91 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
             target_details_list)
 
         self.assertEqual(target_details_list[2], result)
+
+    def test_get_pool_stats_no_volumes(self):
+
+        self.library.ssc_vols = []
+
+        result = self.library._get_pool_stats()
+
+        self.assertListEqual([], result)
+
+    @ddt.data({'thin': True, 'netapp_lun_space_reservation': 'enabled'},
+              {'thin': True, 'netapp_lun_space_reservation': 'disabled'},
+              {'thin': False, 'netapp_lun_space_reservation': 'enabled'},
+              {'thin': False, 'netapp_lun_space_reservation': 'disabled'})
+    @ddt.unpack
+    def test_get_pool_stats(self, thin, netapp_lun_space_reservation):
+
+        class test_volume(object):
+            self.id = None
+            self.aggr = None
+
+        test_volume = test_volume()
+        test_volume.id = {'vserver': 'openstack', 'name': 'vola'}
+        test_volume.aggr = {
+            'disk_type': 'SSD',
+            'ha_policy': 'cfo',
+            'junction': '/vola',
+            'name': 'aggr1',
+            'raid_type': 'raiddp'
+        }
+        test_volume.space = {
+            'size_total_bytes': '10737418240',
+            'space-guarantee': 'file',
+            'size_avl_bytes': '2147483648',
+            'space-guarantee-enabled': False,
+            'thin_provisioned': False
+        }
+        test_volume.sis = {'dedup': False, 'compression': False}
+        test_volume.state = {
+            'status': 'online',
+            'vserver_root': False,
+            'junction_active': True
+        }
+        test_volume.qos = {'qos_policy_group': None}
+
+        ssc_map = {
+            'mirrored': {},
+            'dedup': {},
+            'compression': {},
+            'thin': {test_volume if thin else None},
+            'all': [test_volume]
+        }
+        self.library.ssc_vols = ssc_map
+        self.library.reserved_percentage = 5
+        self.library.max_over_subscription_ratio = 10
+        self.library.configuration.netapp_lun_space_reservation = (
+            netapp_lun_space_reservation)
+
+        netapp_thin = 'true' if thin else 'false'
+        netapp_thick = 'false' if thin else 'true'
+
+        thick = not thin and (netapp_lun_space_reservation == 'enabled')
+
+        result = self.library._get_pool_stats()
+
+        expected = [{'pool_name': 'vola',
+                     'netapp_unmirrored': 'true',
+                     'QoS_support': True,
+                     'thin_provisioned_support': not thick,
+                     'thick_provisioned_support': thick,
+                     'provisioned_capacity_gb': 8.0,
+                     'netapp_thick_provisioned': netapp_thick,
+                     'netapp_nocompression': 'true',
+                     'free_capacity_gb': 2.0,
+                     'netapp_thin_provisioned': netapp_thin,
+                     'total_capacity_gb': 10.0,
+                     'netapp_compression': 'false',
+                     'netapp_mirrored': 'false',
+                     'netapp_dedup': 'false',
+                     'reserved_percentage': 5,
+                     'max_over_subscription_ratio': 10.0,
+                     'netapp_raid_type': 'raiddp',
+                     'netapp_disk_type': 'SSD',
+                     'netapp_nodedup': 'true'}]
+
+        self.assertEqual(expected, result)
 
     def test_delete_volume(self):
         self.mock_object(block_base.NetAppLun, 'get_metadata_property',

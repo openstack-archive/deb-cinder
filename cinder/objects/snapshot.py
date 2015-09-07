@@ -57,6 +57,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         'provider_location': fields.StringField(nullable=True),
         'provider_id': fields.UUIDField(nullable=True),
         'metadata': fields.DictOfStringsField(),
+        'provider_auth': fields.StringField(nullable=True),
 
         'volume': fields.ObjectField('Volume', nullable=True),
     }
@@ -86,17 +87,18 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
     def _reset_metadata_tracking(self, fields=None):
         if fields is None or 'metadata' in fields:
             self._orig_metadata = (dict(self.metadata)
-                                   if 'metadata' in self else {})
+                                   if self.obj_attr_is_set('metadata') else {})
 
     def obj_what_changed(self):
         changes = super(Snapshot, self).obj_what_changed()
-        if 'metadata' in self and self.metadata != self._orig_metadata:
+        if hasattr(self, 'metadata') and self.metadata != self._orig_metadata:
             changes.add('metadata')
 
         return changes
 
     def obj_make_compatible(self, primitive, target_version):
         """Make an object representation compatible with a target version."""
+        super(Snapshot, self).obj_make_compatible(primitive, target_version)
         target_version = utils.convert_version_to_tuple(target_version)
 
     @staticmethod
@@ -109,7 +111,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
             value = db_snapshot.get(name)
             if isinstance(field, fields.IntegerField):
                 value = value if value is not None else 0
-            snapshot[name] = value
+            setattr(snapshot, name, value)
 
         if 'volume' in expected_attrs:
             volume = objects.Volume(context)
@@ -213,11 +215,12 @@ class SnapshotList(base.ObjectListBase, base.CinderObject):
     }
 
     @base.remotable_classmethod
-    def get_all(cls, context, search_opts):
-        snapshots = db.snapshot_get_all(context, search_opts)
+    def get_all(cls, context, search_opts, marker=None, limit=None,
+                sort_keys=None, sort_dirs=None, offset=None):
+        snapshots = db.snapshot_get_all(context, search_opts, marker, limit,
+                                        sort_keys, sort_dirs, offset)
         return base.obj_make_list(context, cls(), objects.Snapshot,
-                                  snapshots,
-                                  expected_attrs=['metadata'])
+                                  snapshots, expected_attrs=['metadata'])
 
     @base.remotable_classmethod
     def get_by_host(cls, context, host, filters=None):
@@ -226,9 +229,12 @@ class SnapshotList(base.ObjectListBase, base.CinderObject):
                                   snapshots, expected_attrs=['metadata'])
 
     @base.remotable_classmethod
-    def get_all_by_project(cls, context, project_id, search_opts):
-        snapshots = db.snapshot_get_all_by_project(context, project_id,
-                                                   search_opts)
+    def get_all_by_project(cls, context, project_id, search_opts, marker=None,
+                           limit=None, sort_keys=None, sort_dirs=None,
+                           offset=None):
+        snapshots = db.snapshot_get_all_by_project(
+            context, project_id, search_opts, marker, limit, sort_keys,
+            sort_dirs, offset)
         return base.obj_make_list(context, cls(context), objects.Snapshot,
                                   snapshots, expected_attrs=['metadata'])
 

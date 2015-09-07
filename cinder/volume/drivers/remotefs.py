@@ -25,6 +25,7 @@ import time
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import units
+import six
 
 from cinder import compute
 from cinder import db
@@ -50,6 +51,7 @@ nas_opts = [
                secret=True),
     cfg.IntOpt('nas_ssh_port',
                default=22,
+               min=1, max=65535,
                help='SSH port to use to connect to NAS system.'),
     cfg.StrOpt('nas_private_key',
                default='',
@@ -81,22 +83,34 @@ nas_opts = [
     cfg.StrOpt('nas_mount_options',
                default=None,
                help=('Options used to mount the storage backend file system '
-                     'where Cinder volumes are stored.'))
+                     'where Cinder volumes are stored.')),
+]
+
+old_vol_type_opts = [cfg.DeprecatedOpt('glusterfs_sparsed_volumes'),
+                     cfg.DeprecatedOpt('glusterfs_qcow2_volumes')]
+
+volume_opts = [
+    cfg.StrOpt('nas_volume_prov_type',
+               default='thin',
+               choices=['thin', 'thick'],
+               deprecated_opts=old_vol_type_opts,
+               help=('Provisioning type that will be used when '
+                     'creating volumes.')),
 ]
 
 CONF = cfg.CONF
 CONF.register_opts(nas_opts)
+CONF.register_opts(volume_opts)
 
 
 def locked_volume_id_operation(f, external=False):
     """Lock decorator for volume operations.
 
        Takes a named lock prior to executing the operation. The lock is named
-       with the id of the volume. This lock can then be used
-       by other operations to avoid operation conflicts on shared volumes.
+       with the id of the volume. This lock can be used by driver methods
+       to prevent conflicts with other operations modifying the same volume.
 
-       May be applied to methods of signature:
-          method(<self>, volume, *, **)
+       May be applied to methods that take a 'volume' or 'snapshot' argument.
     """
 
     def lvo_inner1(inst, *args, **kwargs):
@@ -137,6 +151,7 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
 
         if self.configuration:
             self.configuration.append_config_values(nas_opts)
+            self.configuration.append_config_values(volume_opts)
 
     def check_for_setup_error(self):
         """Just to override parent behavior."""
@@ -242,9 +257,7 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
         self._set_rw_permissions(volume_path)
 
     def _ensure_shares_mounted(self):
-        """Look for remote shares in the flags and tries to mount them
-        locally.
-        """
+        """Look for remote shares in the flags and mount them locally."""
         mounted_shares = []
 
         self._load_shares_config(getattr(self.configuration,
@@ -283,7 +296,7 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
         """Synchronously recreates an export for a logical volume."""
         self._ensure_share_mounted(volume['provider_location'])
 
-    def create_export(self, ctx, volume):
+    def create_export(self, ctx, volume, connector):
         """Exports the volume.
 
         Can optionally return a dictionary of changes
@@ -296,8 +309,10 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
         pass
 
     def delete_snapshot(self, snapshot):
-        """Do nothing for this driver, but allow manager to handle deletion
-           of snapshot in error state.
+        """Delete snapshot.
+
+        Do nothing for this driver, but allow manager to handle deletion
+        of snapshot in error state.
         """
         pass
 
@@ -321,6 +336,11 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
                       'bs=%dM' % block_size_mb,
                       'count=%d' % block_count,
                       run_as_root=self._execute_as_root)
+
+    def _fallocate(self, path, size):
+        """Creates a raw file of given size in GiB using fallocate."""
+        self._execute('fallocate', '--length=%sG' % size,
+                      path, run_as_root=True)
 
     def _create_qcow2_file(self, path, size_gb):
         """Creates a QCOW2 file of a given size in GiB."""
@@ -363,7 +383,8 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
                       run_as_root=self._execute_as_root)
 
     def local_path(self, volume):
-        """Get volume path (mounted locally fs path) for given volume
+        """Get volume path (mounted locally fs path) for given volume.
+
         :param volume: volume reference
         """
         remotefs_share = volume['provider_location']
@@ -452,7 +473,9 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
                 # results in share_info =
                 #  [ 'address:/vol', '-o options=123,rw --other' ]
 
-                share_address = share_info[0].strip().decode('unicode_escape')
+                share_address = share_info[0].strip()
+                # Replace \040 with a space, to support paths with spaces
+                share_address = share_address.replace("\\040", " ")
                 share_opts = None
                 if len(share_info) > 1:
                     share_opts = share_info[1].strip()
@@ -535,8 +558,8 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
         NAS file operations. This base method will set the NAS security
         options to false.
         """
-        doc_html = "http://docs.openstack.org/admin-guide-cloud/content" \
-                   "/nfs_backend.html"
+        doc_html = "http://docs.openstack.org/admin-guide-cloud" \
+                   "/blockstorage_nfs_backend.html"
         self.configuration.nas_secure_file_operations = 'false'
         LOG.warning(_LW("The NAS file operations will be run as root: "
                         "allowing root level access at the storage backend. "
@@ -746,19 +769,24 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
         return output
 
     def _get_hash_str(self, base_str):
-        """Return a string that represents hash of base_str
-        (in a hex format).
+        """Return a string that represents hash of base_str.
+
+        Returns string in a hex format.
         """
+        if isinstance(base_str, six.text_type):
+            base_str = base_str.encode('utf-8')
         return hashlib.md5(base_str).hexdigest()
 
     def _get_mount_point_for_share(self, share):
         """Return mount point for share.
+
         :param share: example 172.18.194.100:/var/fs
         """
         return self._remotefsclient.get_mount_point(share)
 
     def _get_available_capacity(self, share):
         """Calculate available space on the share.
+
         :param share: example 172.18.194.100:/var/fs
         """
         mount_point = self._get_mount_point_for_share(share)
@@ -919,8 +947,8 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
             msg = _('Volume status must be "available" or "in-use".')
             raise exception.InvalidVolume(msg)
 
-        self._ensure_share_writable(
-            self._local_volume_dir(snapshot['volume']))
+        vol_path = self._local_volume_dir(snapshot['volume'])
+        self._ensure_share_writable(vol_path)
 
         # Determine the true snapshot file for this snapshot
         # based on the .info file
@@ -946,7 +974,20 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
             snapshot_path,
             snapshot['volume']['name'])
 
-        vol_path = self._local_volume_dir(snapshot['volume'])
+        base_file = snapshot_path_img_info.backing_file
+        if base_file is None:
+            # There should always be at least the original volume
+            # file as base.
+            LOG.warning(_LW('No backing file found for %s, allowing '
+                            'snapshot to be deleted.'), snapshot_path)
+
+            # Snapshot may be stale, so just delete it and update the
+            # info file instead of blocking
+            return self._delete_stale_snapshot(snapshot)
+
+        base_path = os.path.join(vol_path, base_file)
+        base_file_img_info = self._qemu_img_info(base_path,
+                                                 snapshot['volume']['name'])
 
         # Find what file has this as its backing file
         active_file = self.get_active_image_from_info(snapshot['volume'])
@@ -956,22 +997,6 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
             # Online delete
             context = snapshot['context']
 
-            base_file = snapshot_path_img_info.backing_file
-            if base_file is None:
-                # There should always be at least the original volume
-                # file as base.
-                LOG.warning(_LW('No backing file found for %s, allowing '
-                                'snapshot to be deleted.'), snapshot_path)
-
-                # Snapshot may be stale, so just delete it and update the
-                # info file instead of blocking
-                return self._delete_stale_snapshot(snapshot)
-
-            base_path = os.path.join(
-                self._local_volume_dir(snapshot['volume']), base_file)
-            base_file_img_info = self._qemu_img_info(
-                base_path,
-                snapshot['volume']['name'])
             new_base_file = base_file_img_info.backing_file
 
             base_id = None
@@ -997,28 +1022,21 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
                                                 online_delete_info)
 
         if snapshot_file == active_file:
-            # Need to merge snapshot_file into its backing file
             # There is no top file
             #      T0       |        T1         |
             #     base      |   snapshot_file   | None
-            # (guaranteed to|  (being deleted)  |
-            #    exist)     |                   |
-
-            base_file = snapshot_path_img_info.backing_file
+            # (guaranteed to|  (being deleted,  |
+            #    exist)     |   commited down)  |
 
             self._img_commit(snapshot_path)
-
-            # Remove snapshot_file from info
-            del(snap_info[snapshot['id']])
             # Active file has changed
             snap_info['active'] = base_file
-            self._write_info_file(info_path, snap_info)
         else:
-            #      T0        |      T1        |     T2         |       T3
-            #     base       |  snapshot_file |  higher_file   |  highest_file
-            # (guaranteed to | (being deleted)|(guaranteed to  |   (may exist,
-            #   exist, not   |                | exist, being   |    needs ptr
-            #   used here)   |                | committed down)|  update if so)
+            #      T0        |      T1         |     T2         |      T3
+            #     base       |  snapshot_file  |  higher_file   | highest_file
+            # (guaranteed to | (being deleted, | (guaranteed to |  (may exist)
+            #   exist, not   |  commited down) |  exist, needs  |
+            #   used here)   |                 |   ptr update)  |
 
             backing_chain = self._get_backing_chain_for_path(
                 snapshot['volume'], active_file_path)
@@ -1043,37 +1061,15 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
                     higher_file
                 raise exception.RemoteFSException(msg)
 
-            # Is there a file depending on higher_file?
-            highest_file = next((os.path.basename(f['filename'])
-                                for f in backing_chain
-                                if f.get('backing-filename', '') ==
-                                higher_file),
-                                None)
-            if highest_file is None:
-                LOG.debug('No file depends on %s.', higher_file)
+            self._img_commit(snapshot_path)
 
-            # Committing higher_file into snapshot_file
-            # And update pointer in highest_file
             higher_file_path = os.path.join(vol_path, higher_file)
-            self._img_commit(higher_file_path)
-            if highest_file is not None:
-                highest_file_path = os.path.join(vol_path, highest_file)
-                snapshot_file_fmt = snapshot_path_img_info.file_format
-                self._rebase_img(highest_file_path, snapshot_file,
-                                 snapshot_file_fmt)
+            base_file_fmt = base_file_img_info.file_format
+            self._rebase_img(higher_file_path, base_file, base_file_fmt)
 
-            # Remove snapshot_file from info
-            del(snap_info[snapshot['id']])
-            snap_info[higher_id] = snapshot_file
-            if higher_file == active_file:
-                if highest_file is not None:
-                    msg = _('Check condition failed: '
-                            '%s expected to be None.') % 'highest_file'
-                    raise exception.RemoteFSException(msg)
-                # Active file has changed
-                snap_info['active'] = snapshot_file
-
-            self._write_info_file(info_path, snap_info)
+        # Remove snapshot_file from info
+        del(snap_info[snapshot['id']])
+        self._write_info_file(info_path, snap_info)
 
     def _create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot.
@@ -1212,19 +1208,16 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
         5. Snapshot deletion when volume is detached ('available' state):
 
             * When first snapshot is deleted, Cinder does the snapshot
-              deletion. volume-1234.aaaa is removed (logically) from the
-              snapshot chain. The data from volume-1234.bbbb is merged into
-              it.
+              deletion. volume-1234.aaaa is removed from the snapshot chain.
+              The data from it is merged into its parent.
 
-              Since bbbb's data was committed into the aaaa file, we have
-              "removed" aaaa's snapshot point but the .aaaa file now
-              represents snapshot with id "bbbb". Also .aaaa file becomes the
-              "active" disk image as it represent snapshot with id "bbbb".
+              volume-1234.bbbb is rebased, having volume-1234 as its new
+              parent.
 
-              volume-1234 <- volume-1234.aaaa(* now with bbbb's data)
+              volume-1234 <- volume-1234.bbbb
 
-              info file: { 'active': 'volume-1234.aaaa',  (* changed!)
-                           'bbbb':   'volume-1234.aaaa'   (* changed!)
+              info file: { 'active': 'volume-1234.bbbb',
+                           'bbbb':   'volume-1234.bbbb'
                          }
 
             * When second snapshot is deleted, Cinder does the snapshot

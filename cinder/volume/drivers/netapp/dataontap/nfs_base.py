@@ -39,6 +39,7 @@ from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
 from cinder import utils
+from cinder.volume import driver
 from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume.drivers import nfs
@@ -50,7 +51,11 @@ CONF = cfg.CONF
 
 
 @six.add_metaclass(utils.TraceWrapperWithABCMetaclass)
-class NetAppNfsDriver(nfs.NfsDriver):
+class NetAppNfsDriver(driver.ManageableVD,
+                      driver.CloneableVD,
+                      driver.CloneableImageVD,
+                      driver.SnapshotVD,
+                      nfs.NfsDriver):
     """Base class for NetApp NFS driver for Data ONTAP."""
 
     # do not increment this as it may be used in volume type definitions
@@ -277,11 +282,12 @@ class NetAppNfsDriver(nfs.NfsDriver):
                 time.sleep(tries ** 2)
 
     def _get_volume_path(self, nfs_share, volume_name):
-        """Get volume path (local fs path) for given volume name on given nfs
-        share.
+        """Get volume path.
 
-        @param nfs_share string, example 172.18.194.100:/var/nfs
-        @param volume_name string,
+        Get volume path (local fs path) for given volume name on given nfs
+        share.
+        :param nfs_share: string, example 172.18.194.100:/var/nfs
+        :param volume_name: string,
             example volume-91ee65ec-c473-4391-8c09-162b00c68a8c
         """
 
@@ -746,28 +752,16 @@ class NetAppNfsDriver(nfs.NfsDriver):
     def _get_share_capacity_info(self, nfs_share):
         """Returns the share capacity metrics needed by the scheduler."""
 
-        used_ratio = self.configuration.nfs_used_ratio
-        oversub_ratio = self.configuration.nfs_oversub_ratio
-
-        # The scheduler's capacity filter will reduce the amount of
-        # free space that we report to it by the reserved percentage.
-        reserved_ratio = 1 - used_ratio
-        reserved_percentage = round(100 * reserved_ratio)
-
-        total_size, total_available = self._get_capacity_info(nfs_share)
-
-        apparent_size = total_size * oversub_ratio
-        apparent_size_gb = na_utils.round_down(
-            apparent_size / units.Gi, '0.01')
-
-        apparent_free_size = total_available * oversub_ratio
-        apparent_free_gb = na_utils.round_down(
-            float(apparent_free_size) / units.Gi, '0.01')
-
         capacity = dict()
-        capacity['reserved_percentage'] = reserved_percentage
-        capacity['total_capacity_gb'] = apparent_size_gb
-        capacity['free_capacity_gb'] = apparent_free_gb
+        capacity['reserved_percentage'] = self.reserved_percentage
+        capacity['max_over_subscription_ratio'] = self.over_subscription_ratio
+        total_size, total_available = self._get_capacity_info(nfs_share)
+        capacity['total_capacity_gb'] = na_utils.round_down(
+            total_size / units.Gi, '0.01')
+        capacity['free_capacity_gb'] = na_utils.round_down(
+            total_available / units.Gi, '0.01')
+        capacity['provisioned_capacity_gb'] = (round(
+            capacity['total_capacity_gb'] - capacity['free_capacity_gb'], 2))
 
         return capacity
 

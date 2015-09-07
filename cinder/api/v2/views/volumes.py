@@ -30,16 +30,16 @@ class ViewBuilder(common.ViewBuilder):
         """Initialize view builder."""
         super(ViewBuilder, self).__init__()
 
-    def summary_list(self, request, volumes, volume_count):
+    def summary_list(self, request, volumes, volume_count=None):
         """Show a list of volumes without many details."""
         return self._list_view(self.summary, request, volumes,
                                volume_count)
 
-    def detail_list(self, request, volumes, volume_count):
+    def detail_list(self, request, volumes, volume_count=None):
         """Detailed view of a list of volumes."""
         return self._list_view(self.detail, request, volumes,
                                volume_count,
-                               coll_name=self._collection_name + '/detail')
+                               self._collection_name + '/detail')
 
     def summary(self, request, volume):
         """Generic, non-detailed view of an volume."""
@@ -54,7 +54,7 @@ class ViewBuilder(common.ViewBuilder):
 
     def detail(self, request, volume):
         """Detailed view of a single volume."""
-        return {
+        volume_ref = {
             'volume': {
                 'id': volume.get('id'),
                 'status': volume.get('status'),
@@ -74,9 +74,13 @@ class ViewBuilder(common.ViewBuilder):
                 'encrypted': self._is_volume_encrypted(volume),
                 'replication_status': volume.get('replication_status'),
                 'consistencygroup_id': volume.get('consistencygroup_id'),
-                'multiattach': volume.get('multiattach')
+                'multiattach': volume.get('multiattach'),
             }
         }
+        if request.environ['cinder.context'].is_admin:
+            volume_ref['volume']['migration_status'] = (
+                volume.get('migration_status'))
+        return volume_ref
 
     def _is_volume_encrypted(self, volume):
         """Determine if volume is encrypted."""

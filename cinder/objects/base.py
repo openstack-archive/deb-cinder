@@ -43,6 +43,11 @@ class CinderObject(base.VersionedObject):
     # from one another.
     OBJ_PROJECT_NAMESPACE = 'cinder'
 
+    # NOTE(thangp): As more objects are added to cinder, each object should
+    # have a custom map of version compatibility.  This just anchors the base
+    # version compatibility.
+    VERSION_COMPATIBILITY = {'7.0.0': '1.0'}
+
     def cinder_obj_get_changes(self):
         """Returns a dict of changed fields with tz unaware datetimes.
 
@@ -103,6 +108,7 @@ class CinderObjectDictCompat(base.VersionedObjectDictCompat):
 
 class CinderPersistentObject(object):
     """Mixin class for Persistent objects.
+
     This adds the fields that we use in common for all persistent objects.
     """
     fields = {
@@ -133,6 +139,13 @@ class CinderPersistentObject(object):
             yield
         finally:
             self._context = original_context
+
+
+class CinderComparableObject(base.ComparableVersionedObject):
+    def __eq__(self, obj):
+        if hasattr(obj, 'obj_to_primitive'):
+            return self.obj_to_primitive() == obj.obj_to_primitive()
+        return False
 
 
 class ObjectListBase(base.ObjectListBase):

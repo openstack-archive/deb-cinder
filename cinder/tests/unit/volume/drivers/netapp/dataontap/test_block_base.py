@@ -28,9 +28,11 @@ from oslo_utils import units
 from cinder import exception
 from cinder.i18n import _
 from cinder import test
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fake_api as netapp_api)
 from cinder.tests.unit.volume.drivers.netapp.dataontap import fakes as fake
+import cinder.tests.unit.volume.drivers.netapp.fakes as na_fakes
 from cinder.volume.drivers.netapp.dataontap import block_base
-from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume import utils as volume_utils
 
@@ -40,7 +42,10 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
     def setUp(self):
         super(NetAppBlockStorageLibraryTestCase, self).setUp()
 
-        kwargs = {'configuration': mock.Mock()}
+        # Inject fake netapp_lib module classes.
+        netapp_api.mock_netapp_lib([block_base])
+
+        kwargs = {'configuration': self.get_config_base()}
         self.library = block_base.NetAppBlockStorageLibrary(
             'driver', 'protocol', **kwargs)
         self.library.zapi_client = mock.Mock()
@@ -50,26 +55,56 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
     def tearDown(self):
         super(NetAppBlockStorageLibraryTestCase, self).tearDown()
 
+    def get_config_base(self):
+        return na_fakes.create_configuration()
+
+    def test_get_reserved_percentage_default_multipler(self):
+
+        default = 1.2
+        reserved_percentage = 20.0
+        self.library.configuration.netapp_size_multiplier = default
+        self.library.configuration.reserved_percentage = reserved_percentage
+        self.mock_object(block_base, 'LOG')
+
+        result = self.library._get_reserved_percentage()
+
+        self.assertEqual(reserved_percentage, result)
+        self.assertFalse(block_base.LOG.warn.called)
+
+    def test_get_reserved_percentage(self):
+
+        multiplier = 2.0
+        self.library.configuration.netapp_size_multiplier = multiplier
+        self.mock_object(block_base, 'LOG')
+
+        result = self.library._get_reserved_percentage()
+
+        reserved_ratio = round(1 - (1 / multiplier), 2)
+        reserved_percentage = 100 * int(reserved_ratio)
+
+        self.assertEqual(reserved_percentage, result)
+        self.assertTrue(block_base.LOG.warn.called)
+
     @mock.patch.object(block_base.NetAppBlockStorageLibrary,
                        '_get_lun_attr',
                        mock.Mock(return_value={'Volume': 'vol1'}))
     def test_get_pool(self):
         pool = self.library.get_pool({'name': 'volume-fake-uuid'})
-        self.assertEqual(pool, 'vol1')
+        self.assertEqual('vol1', pool)
 
     @mock.patch.object(block_base.NetAppBlockStorageLibrary,
                        '_get_lun_attr',
                        mock.Mock(return_value=None))
     def test_get_pool_no_metadata(self):
         pool = self.library.get_pool({'name': 'volume-fake-uuid'})
-        self.assertEqual(pool, None)
+        self.assertEqual(None, pool)
 
     @mock.patch.object(block_base.NetAppBlockStorageLibrary,
                        '_get_lun_attr',
                        mock.Mock(return_value=dict()))
     def test_get_pool_volume_unknown(self):
         pool = self.library.get_pool({'name': 'volume-fake-uuid'})
-        self.assertEqual(pool, None)
+        self.assertEqual(None, pool)
 
     def test_create_volume(self):
         volume_size_in_bytes = int(fake.SIZE) * units.Gi
@@ -142,7 +177,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
                                        fake.FC_FORMATTED_INITIATORS,
                                        protocol, None)
 
-        self.assertEqual(lun_id, '1')
+        self.assertEqual('1', lun_id)
         mock_get_or_create_igroup.assert_called_once_with(
             fake.FC_FORMATTED_INITIATORS, protocol, os)
         self.zapi_client.map_lun.assert_called_once_with(
@@ -189,7 +224,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         lun_id = self.library._map_lun(
             'fake_volume', fake.FC_FORMATTED_INITIATORS, protocol, None)
 
-        self.assertEqual(lun_id, '2')
+        self.assertEqual('2', lun_id)
         mock_find_mapped_lun_igroup.assert_called_once_with(
             fake.LUN_PATH, fake.FC_FORMATTED_INITIATORS)
 
@@ -258,7 +293,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         igroup_name, os, ig_type = self.library._get_or_create_igroup(
             fake.FC_FORMATTED_INITIATORS, 'fcp', 'linux')
 
-        self.assertEqual(igroup_name, 'openstack-' + fake.UUID1)
+        self.assertEqual('openstack-' + fake.UUID1, igroup_name)
         self.zapi_client.create_igroup.assert_called_once_with(
             igroup_name, 'fcp', 'linux')
         self.assertEqual(len(fake.FC_FORMATTED_INITIATORS),
@@ -382,6 +417,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
     def test_do_setup_san_configured(self, mock_check_flags):
         self.library.configuration.netapp_lun_ostype = 'windows'
         self.library.configuration.netapp_host_type = 'solaris'
+        self.library.configuration.netapp_lun_space_reservation = 'disabled'
         self.library.do_setup(mock.Mock())
         self.assertTrue(mock_check_flags.called)
         self.assertEqual('windows', self.library.lun_ostype)
@@ -391,10 +427,31 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
     def test_do_setup_san_unconfigured(self, mock_check_flags):
         self.library.configuration.netapp_lun_ostype = None
         self.library.configuration.netapp_host_type = None
+        self.library.configuration.netapp_lun_space_reservation = 'enabled'
         self.library.do_setup(mock.Mock())
         self.assertTrue(mock_check_flags.called)
         self.assertEqual('linux', self.library.lun_ostype)
         self.assertEqual('linux', self.library.host_type)
+
+    def test_do_setup_space_reservation_disabled(self):
+        self.mock_object(na_utils, 'check_flags')
+        self.library.configuration.netapp_lun_ostype = None
+        self.library.configuration.netapp_host_type = None
+        self.library.configuration.netapp_lun_space_reservation = 'disabled'
+
+        self.library.do_setup(mock.Mock())
+
+        self.assertEqual('false', self.library.lun_space_reservation)
+
+    def test_do_setup_space_reservation_enabled(self):
+        self.mock_object(na_utils, 'check_flags')
+        self.library.configuration.netapp_lun_ostype = None
+        self.library.configuration.netapp_host_type = None
+        self.library.configuration.netapp_lun_space_reservation = 'enabled'
+
+        self.library.do_setup(mock.Mock())
+
+        self.assertEqual('true', self.library.lun_space_reservation)
 
     def test_get_existing_vol_manage_missing_id_path(self):
         self.assertRaises(exception.ManageExistingInvalidReference,
@@ -675,6 +732,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
         self.mock_object(self.library, 'extend_volume')
         self.mock_object(self.library, 'delete_volume')
         self.mock_object(self.library, '_mark_qos_policy_group_for_deletion')
+        self.library.lun_space_reservation = 'false'
 
         self.library._clone_source_to_destination(fake.CLONE_SOURCE,
                                                   fake.CLONE_DESTINATION)
@@ -685,7 +743,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
             fake.CLONE_DESTINATION, fake.EXTRA_SPECS)
         self.library._clone_lun.assert_called_once_with(
             fake.CLONE_SOURCE_NAME, fake.CLONE_DESTINATION_NAME,
-            space_reserved='true',
+            space_reserved='false',
             qos_policy_group_name=fake.QOS_POLICY_GROUP_NAME)
         self.library.extend_volume.assert_called_once_with(
             fake.CLONE_DESTINATION, fake.CLONE_DESTINATION_SIZE,
@@ -704,6 +762,7 @@ class NetAppBlockStorageLibraryTestCase(test.TestCase):
             side_effect=Exception))
         self.mock_object(self.library, 'delete_volume')
         self.mock_object(self.library, '_mark_qos_policy_group_for_deletion')
+        self.library.lun_space_reservation = 'true'
 
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.library._clone_source_to_destination,

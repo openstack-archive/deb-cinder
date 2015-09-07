@@ -40,7 +40,7 @@ import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
-import cinder.volume.driver
+from cinder.volume import driver
 from cinder.volume.drivers.san.hp import hp_3par_common as hpcommon
 from cinder.volume.drivers.san import san
 from cinder.volume import utils as volume_utils
@@ -51,7 +51,14 @@ CHAP_USER_KEY = "HPQ-cinder-CHAP-name"
 CHAP_PASS_KEY = "HPQ-cinder-CHAP-secret"
 
 
-class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
+class HP3PARISCSIDriver(driver.TransferVD,
+                        driver.ManageableVD,
+                        driver.ExtendVD,
+                        driver.CloneableVD,
+                        driver.SnapshotVD,
+                        driver.MigrateVD,
+                        driver.ConsistencyGroupVD,
+                        driver.BaseVD):
     """OpenStack iSCSI driver to enable 3PAR storage array.
 
     Version history:
@@ -89,10 +96,13 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
         2.0.17 - Python 3 fixes
         2.0.18 - Improved VLUN creation and deletion logic. #1469816
         2.0.19 - Changed initialize_connection to use getHostVLUNs. #1475064
+        2.0.20 - Adding changes to support 3PAR iSCSI multipath.
+        2.0.21 - Adds consistency group support
+        2.0.22 - Update driver to use ABC metaclasses
 
     """
 
-    VERSION = "2.0.19"
+    VERSION = "2.0.22"
 
     def __init__(self, *args, **kwargs):
         super(HP3PARISCSIDriver, self).__init__(*args, **kwargs)
@@ -121,16 +131,16 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
     def get_volume_stats(self, refresh=False):
         common = self._login()
         try:
-            stats = common.get_volume_stats(
+            self._stats = common.get_volume_stats(
                 refresh,
                 self.get_filter_function(),
                 self.get_goodness_function())
-            stats['storage_protocol'] = 'iSCSI'
-            stats['driver_version'] = self.VERSION
+            self._stats['storage_protocol'] = 'iSCSI'
+            self._stats['driver_version'] = self.VERSION
             backend_name = self.configuration.safe_get('volume_backend_name')
-            stats['volume_backend_name'] = (backend_name or
-                                            self.__class__.__name__)
-            return stats
+            self._stats['volume_backend_name'] = (backend_name or
+                                                  self.__class__.__name__)
+            return self._stats
         finally:
             self._logout(common)
 
@@ -291,48 +301,98 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
                 volume,
                 connector)
 
-            least_used_nsp = None
+            if connector['multipath']:
+                ready_ports = common.client.getiSCSIPorts(
+                    state=common.client.PORT_STATE_READY)
 
-            # check if a VLUN already exists for this host
-            existing_vlun = common.find_existing_vlun(volume, host)
+                target_portals = []
+                target_iqns = []
+                target_luns = []
 
-            if existing_vlun:
-                # We override the nsp here on purpose to force the
-                # volume to be exported out the same IP as it already is.
-                # This happens during nova live-migration, we want to
-                # disable the picking of a different IP that we export
-                # the volume to, or nova complains.
-                least_used_nsp = common.build_nsp(existing_vlun['portPos'])
+                # Target portal ips are defined in cinder.conf.
+                target_portal_ips = self.iscsi_ips.keys()
 
-            if not least_used_nsp:
-                least_used_nsp = self._get_least_used_nsp_for_host(
-                    common,
-                    host['name'])
+                # Collect all existing VLUNs for this volume/host combination.
+                existing_vluns = common.find_existing_vluns(volume, host)
 
-            vlun = None
-            if existing_vlun is None:
-                # now that we have a host, create the VLUN
-                vlun = common.create_vlun(volume, host, least_used_nsp)
+                # Cycle through each ready iSCSI port and determine if a new
+                # VLUN should be created or an existing one used.
+                for port in ready_ports:
+                    iscsi_ip = port['IPAddr']
+                    if iscsi_ip in target_portal_ips:
+                        vlun = None
+                        # check for an already existing VLUN matching the
+                        # nsp for this iSCSI IP. If one is found, use it
+                        # instead of creating a new VLUN.
+                        for v in existing_vluns:
+                            portPos = common.build_portPos(
+                                self.iscsi_ips[iscsi_ip]['nsp'])
+                            if v['portPos'] == portPos:
+                                vlun = v
+                                break
+                        else:
+                            vlun = common.create_vlun(
+                                volume, host, self.iscsi_ips[iscsi_ip]['nsp'])
+                        iscsi_ip_port = "%s:%s" % (
+                            iscsi_ip, self.iscsi_ips[iscsi_ip]['ip_port'])
+                        target_portals.append(iscsi_ip_port)
+                        target_iqns.append(port['iSCSIName'])
+                        target_luns.append(vlun['lun'])
+                    else:
+                        LOG.warning(_LW("iSCSI IP: '%s' was not found in "
+                                        "hp3par_iscsi_ips list defined in "
+                                        "cinder.conf."), iscsi_ip)
+
+                info = {'driver_volume_type': 'iscsi',
+                        'data': {'target_portals': target_portals,
+                                 'target_iqns': target_iqns,
+                                 'target_luns': target_luns,
+                                 'target_discovered': True
+                                 }
+                        }
             else:
-                vlun = existing_vlun
+                least_used_nsp = None
 
-            if least_used_nsp is None:
-                LOG.warning(_LW("Least busy iSCSI port not found, "
-                                "using first iSCSI port in list."))
-                iscsi_ip = self.iscsi_ips.keys()[0]
-            else:
-                iscsi_ip = self._get_ip_using_nsp(least_used_nsp)
+                # check if a VLUN already exists for this host
+                existing_vlun = common.find_existing_vlun(volume, host)
 
-            iscsi_ip_port = self.iscsi_ips[iscsi_ip]['ip_port']
-            iscsi_target_iqn = self.iscsi_ips[iscsi_ip]['iqn']
-            info = {'driver_volume_type': 'iscsi',
-                    'data': {'target_portal': "%s:%s" %
-                             (iscsi_ip, iscsi_ip_port),
-                             'target_iqn': iscsi_target_iqn,
-                             'target_lun': vlun['lun'],
-                             'target_discovered': True
-                             }
-                    }
+                if existing_vlun:
+                    # We override the nsp here on purpose to force the
+                    # volume to be exported out the same IP as it already is.
+                    # This happens during nova live-migration, we want to
+                    # disable the picking of a different IP that we export
+                    # the volume to, or nova complains.
+                    least_used_nsp = common.build_nsp(existing_vlun['portPos'])
+
+                if not least_used_nsp:
+                    least_used_nsp = self._get_least_used_nsp_for_host(
+                        common,
+                        host['name'])
+
+                vlun = None
+                if existing_vlun is None:
+                    # now that we have a host, create the VLUN
+                    vlun = common.create_vlun(volume, host, least_used_nsp)
+                else:
+                    vlun = existing_vlun
+
+                if least_used_nsp is None:
+                    LOG.warning(_LW("Least busy iSCSI port not found, "
+                                    "using first iSCSI port in list."))
+                    iscsi_ip = self.iscsi_ips.keys()[0]
+                else:
+                    iscsi_ip = self._get_ip_using_nsp(least_used_nsp)
+
+                iscsi_ip_port = self.iscsi_ips[iscsi_ip]['ip_port']
+                iscsi_target_iqn = self.iscsi_ips[iscsi_ip]['iqn']
+                info = {'driver_volume_type': 'iscsi',
+                        'data': {'target_portal': "%s:%s" %
+                                 (iscsi_ip, iscsi_ip_port),
+                                 'target_iqn': iscsi_target_iqn,
+                                 'target_lun': vlun['lun'],
+                                 'target_discovered': True
+                                 }
+                        }
 
             if self.configuration.hp3par_iscsi_chap_enabled:
                 info['data']['auth_method'] = 'CHAP'
@@ -554,7 +614,7 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
 
         return model_update
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         common = self._login()
         try:
             return self._do_export(common, volume)
@@ -670,6 +730,54 @@ class HP3PARISCSIDriver(cinder.volume.driver.ISCSIDriver):
         common = self._login()
         try:
             common.extend_volume(volume, new_size)
+        finally:
+            self._logout(common)
+
+    def create_consistencygroup(self, context, group):
+        common = self._login()
+        try:
+            common.create_consistencygroup(context, group)
+        finally:
+            self._logout(common)
+
+    def create_consistencygroup_from_src(self, context, group, volumes,
+                                         cgsnapshot=None, snapshots=None,
+                                         source_cg=None, source_vols=None):
+        common = self._login()
+        try:
+            return common.create_consistencygroup_from_src(
+                context, group, volumes, cgsnapshot, snapshots, source_cg,
+                source_vols)
+        finally:
+            self._logout(common)
+
+    def delete_consistencygroup(self, context, group):
+        common = self._login()
+        try:
+            return common.delete_consistencygroup(context, group)
+        finally:
+            self._logout(common)
+
+    def update_consistencygroup(self, context, group,
+                                add_volumes=None, remove_volumes=None):
+        common = self._login()
+        try:
+            return common.update_consistencygroup(context, group, add_volumes,
+                                                  remove_volumes)
+        finally:
+            self._logout(common)
+
+    def create_cgsnapshot(self, context, cgsnapshot):
+        common = self._login()
+        try:
+            return common.create_cgsnapshot(context, cgsnapshot)
+        finally:
+            self._logout(common)
+
+    def delete_cgsnapshot(self, context, cgsnapshot):
+        common = self._login()
+        try:
+            return common.delete_cgsnapshot(context, cgsnapshot)
         finally:
             self._logout(common)
 

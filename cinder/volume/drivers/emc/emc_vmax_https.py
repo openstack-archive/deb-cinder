@@ -14,26 +14,27 @@
 #    under the License.
 
 import base64
-import httplib
 import os
 import socket
 import ssl
 import string
 import struct
-import urllib
 
 from eventlet import patcher
-import OpenSSL
+try:
+    import OpenSSL
+except ImportError:
+    OpenSSL = None
 from oslo_log import log as logging
 import six
+from six.moves import http_client
+from six.moves import urllib
 
 from cinder.i18n import _, _LI
 
 # Handle case where we are running in a monkey patched environment
-if patcher.is_monkey_patched('socket'):
+if OpenSSL and patcher.is_monkey_patched('socket'):
     from eventlet.green.OpenSSL import SSL
-else:
-    raise ImportError
 
 try:
     import pywbem
@@ -74,7 +75,7 @@ def get_default_ca_certs():
 class OpenSSLConnectionDelegator(object):
     """An OpenSSL.SSL.Connection delegator.
 
-    Supplies an additional 'makefile' method which httplib requires
+    Supplies an additional 'makefile' method which http_client requires
     and is not present in OpenSSL.SSL.Connection.
     Note: Since it is not possible to inherit from OpenSSL.SSL.Connection
     a delegator must be used.
@@ -89,7 +90,7 @@ class OpenSSLConnectionDelegator(object):
         return socket._fileobject(self.connection, *args, **kwargs)
 
 
-class HTTPSConnection(httplib.HTTPSConnection):
+class HTTPSConnection(http_client.HTTPSConnection):
     def __init__(self, host, port=None, key_file=None, cert_file=None,
                  strict=None, ca_certs=None, no_verification=False):
         if not pywbemAvailable:
@@ -101,9 +102,9 @@ class HTTPSConnection(httplib.HTTPSConnection):
         else:
             excp_lst = ()
         try:
-            httplib.HTTPSConnection.__init__(self, host, port,
-                                             key_file=key_file,
-                                             cert_file=cert_file)
+            http_client.HTTPSConnection.__init__(self, host, port,
+                                                 key_file=key_file,
+                                                 cert_file=cert_file)
 
             self.key_file = None if key_file is None else key_file
             self.cert_file = None if cert_file is None else cert_file
@@ -255,7 +256,7 @@ def wbem_request(url, data, creds, headers=None, debug=0, x509=None,
     """Send request over HTTP.
 
     Send XML data over HTTP to the specified url. Return the
-    response in XML.  Uses Python's build-in httplib.  x509 may be a
+    response in XML.  Uses Python's build-in http_client.  x509 may be a
     dictionary containing the location of the SSL certificate and key
     files.
     """
@@ -274,7 +275,7 @@ def wbem_request(url, data, creds, headers=None, debug=0, x509=None,
     localAuthHeader = None
     tryLimit = 5
 
-    if isinstance(data, unicode):
+    if isinstance(data, six.text_type):
         data = data.encode('utf-8')
     data = '<?xml version="1.0" encoding="utf-8" ?>\n' + data
 
@@ -309,10 +310,10 @@ def wbem_request(url, data, creds, headers=None, debug=0, x509=None,
             h.putheader('PegasusAuthorization', 'Local "%s"' % locallogin)
 
         for hdr in headers:
-            if isinstance(hdr, unicode):
+            if isinstance(hdr, six.text_type):
                 hdr = hdr.encode('utf-8')
             s = map(lambda x: string.strip(x), string.split(hdr, ":", 1))
-            h.putheader(urllib.quote(s[0]), urllib.quote(s[1]))
+            h.putheader(urllib.parse.quote(s[0]), urllib.parse.quote(s[1]))
 
         try:
             h.endheaders()
@@ -328,12 +329,12 @@ def wbem_request(url, data, creds, headers=None, debug=0, x509=None,
             if response.status != 200:
                 raise pywbem.cim_http.Error('HTTP error')
 
-        except httplib.BadStatusLine as arg:
+        except http_client.BadStatusLine as arg:
             msg = (_("Bad Status line returned: %(arg)s.")
                    % {'arg': arg})
             raise pywbem.cim_http.Error(msg)
         except socket.error as arg:
-            msg = (_("Socket error:: %(arg)s.")
+            msg = (_("Socket error: %(arg)s.")
                    % {'arg': arg})
             raise pywbem.cim_http.Error(msg)
         except socket.sslerror as arg:

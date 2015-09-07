@@ -25,7 +25,10 @@ from cinder import db
 from cinder import objects
 from cinder import test
 from cinder.tests.unit import fake_snapshot
+from cinder.tests.unit import fake_volume
+from cinder.tests.unit import utils as tests_utils
 from cinder.volume import rpcapi as volume_rpcapi
+from cinder.volume import utils
 
 
 CONF = cfg.CONF
@@ -42,23 +45,51 @@ class VolumeRpcAPITestCase(test.TestCase):
         vol['status'] = "available"
         vol['attach_status'] = "detached"
         vol['metadata'] = {"test_key": "test_val"}
+        vol['size'] = 1
         volume = db.volume_create(self.context, vol)
 
-        snpshot = {
-            'id': 1,
-            'volume_id': 'fake_id',
+        kwargs = {
             'status': "creating",
             'progress': '0%',
-            'volume_size': 0,
             'display_name': 'fake_name',
             'display_description': 'fake_description'}
-        snapshot = db.snapshot_create(self.context, snpshot)
+        snapshot = tests_utils.create_snapshot(self.context, vol['id'],
+                                               **kwargs)
+
+        source_group = tests_utils.create_consistencygroup(
+            self.context,
+            availability_zone=CONF.storage_availability_zone,
+            volume_type='type1,type2',
+            host='fakehost@fakedrv#fakepool')
+
+        cgsnapshot = tests_utils.create_cgsnapshot(
+            self.context,
+            consistencygroup_id=source_group['id'])
+
+        group = tests_utils.create_consistencygroup(
+            self.context,
+            availability_zone=CONF.storage_availability_zone,
+            volume_type='type1,type2',
+            host='fakehost@fakedrv#fakepool',
+            cgsnapshot_id=cgsnapshot['id'])
+
+        group2 = tests_utils.create_consistencygroup(
+            self.context,
+            availability_zone=CONF.storage_availability_zone,
+            volume_type='type1,type2',
+            host='fakehost@fakedrv#fakepool',
+            source_cgid=source_group['id'])
+
+        group = objects.ConsistencyGroup.get_by_id(self.context, group.id)
+        group2 = objects.ConsistencyGroup.get_by_id(self.context, group2.id)
         self.fake_volume = jsonutils.to_primitive(volume)
         self.fake_volume_metadata = volume["volume_metadata"]
-        self.fake_snapshot = jsonutils.to_primitive(snapshot)
-        self.fake_snapshot_obj = fake_snapshot.fake_snapshot_obj(self.context,
-                                                                 **snpshot)
+        self.fake_snapshot = snapshot
         self.fake_reservations = ["RESERVATION"]
+        self.fake_cg = group
+        self.fake_cg2 = group2
+        self.fake_src_cg = jsonutils.to_primitive(source_group)
+        self.fake_cgsnap = jsonutils.to_primitive(cgsnapshot)
 
     def test_serialized_volume_has_id(self):
         self.assertIn('id', self.fake_volume)
@@ -90,7 +121,7 @@ class VolumeRpcAPITestCase(test.TestCase):
         if 'snapshot' in expected_msg:
             snapshot = expected_msg['snapshot']
             del expected_msg['snapshot']
-            expected_msg['snapshot_id'] = snapshot['id']
+            expected_msg['snapshot_id'] = snapshot.id
             expected_msg['snapshot'] = snapshot
         if 'host' in expected_msg:
             del expected_msg['host']
@@ -105,12 +136,24 @@ class VolumeRpcAPITestCase(test.TestCase):
             del expected_msg['new_volume']
             expected_msg['new_volume_id'] = volume['id']
 
+        if 'cgsnapshot' in expected_msg:
+            cgsnapshot = expected_msg['cgsnapshot']
+            if cgsnapshot:
+                del expected_msg['cgsnapshot']
+                expected_msg['cgsnapshot_id'] = cgsnapshot['id']
+            else:
+                expected_msg['cgsnapshot_id'] = None
+
         if 'host' in kwargs:
             host = kwargs['host']
+        elif 'group' in kwargs:
+            host = kwargs['group']['host']
+        elif 'volume' not in kwargs and 'snapshot' in kwargs:
+            host = 'fake_host'
         else:
             host = kwargs['volume']['host']
 
-        target['server'] = host
+        target['server'] = utils.extract_host(host)
         target['topic'] = '%s.%s' % (CONF.volume_topic, host)
 
         self.fake_args = None
@@ -132,17 +175,21 @@ class VolumeRpcAPITestCase(test.TestCase):
 
         retval = getattr(rpcapi, method)(ctxt, **kwargs)
 
-        self.assertEqual(retval, expected_retval)
+        self.assertEqual(expected_retval, retval)
         expected_args = [ctxt, method]
 
         for arg, expected_arg in zip(self.fake_args, expected_args):
-            self.assertEqual(arg, expected_arg)
+            self.assertEqual(expected_arg, arg)
 
         for kwarg, value in self.fake_kwargs.items():
             if isinstance(value, objects.Snapshot):
                 expected_snapshot = expected_msg[kwarg].obj_to_primitive()
                 snapshot = value.obj_to_primitive()
                 self.assertEqual(expected_snapshot, snapshot)
+            elif isinstance(value, objects.ConsistencyGroup):
+                expected_cg = expected_msg[kwarg].obj_to_primitive()
+                cg = value.obj_to_primitive()
+                self.assertEqual(expected_cg, cg)
             else:
                 self.assertEqual(expected_msg[kwarg], value)
 
@@ -178,13 +225,21 @@ class VolumeRpcAPITestCase(test.TestCase):
         self._test_volume_api('create_snapshot',
                               rpc_method='cast',
                               volume=self.fake_volume,
-                              snapshot=self.fake_snapshot_obj)
+                              snapshot=self.fake_snapshot)
 
     def test_delete_snapshot(self):
         self._test_volume_api('delete_snapshot',
                               rpc_method='cast',
-                              snapshot=self.fake_snapshot_obj,
-                              host='fake_host')
+                              snapshot=self.fake_snapshot,
+                              host='fake_host',
+                              unmanage_only=False)
+
+    def test_delete_snapshot_with_unmanage_only(self):
+        self._test_volume_api('delete_snapshot',
+                              rpc_method='cast',
+                              snapshot=self.fake_snapshot,
+                              host='fake_host',
+                              unmanage_only=True)
 
     def test_attach_volume_to_instance(self):
         self._test_volume_api('attach_volume',
@@ -296,6 +351,27 @@ class VolumeRpcAPITestCase(test.TestCase):
                               ref={'lv_name': 'foo'},
                               version='1.15')
 
+    def test_manage_existing_snapshot(self):
+        volume_update = {'host': 'fake_host'}
+        snpshot = {
+            'id': 1,
+            'volume_id': 'fake_id',
+            'status': "creating",
+            'progress': '0%',
+            'volume_size': 0,
+            'display_name': 'fake_name',
+            'display_description': 'fake_description',
+            'volume': fake_volume.fake_db_volume(**volume_update),
+            'expected_attrs': ['volume'], }
+        my_fake_snapshot_obj = fake_snapshot.fake_snapshot_obj(self.context,
+                                                               **snpshot)
+        self._test_volume_api('manage_existing_snapshot',
+                              rpc_method='cast',
+                              snapshot=my_fake_snapshot_obj,
+                              ref='foo',
+                              host='fake_host',
+                              version='1.28')
+
     def test_promote_replica(self):
         self._test_volume_api('promote_replica',
                               rpc_method='cast',
@@ -307,3 +383,32 @@ class VolumeRpcAPITestCase(test.TestCase):
                               rpc_method='cast',
                               volume=self.fake_volume,
                               version='1.17')
+
+    def test_create_consistencygroup_from_src_cgsnapshot(self):
+        self._test_volume_api('create_consistencygroup_from_src',
+                              rpc_method='cast',
+                              group=self.fake_cg,
+                              cgsnapshot=self.fake_cgsnap,
+                              source_cg=None,
+                              version='1.26')
+
+    def test_create_consistencygroup_from_src_cg(self):
+        self._test_volume_api('create_consistencygroup_from_src',
+                              rpc_method='cast',
+                              group=self.fake_cg2,
+                              cgsnapshot=None,
+                              source_cg=self.fake_src_cg,
+                              version='1.26')
+
+    def test_get_capabilities(self):
+        self._test_volume_api('get_capabilities',
+                              rpc_method='call',
+                              host='fake_host',
+                              discover=True,
+                              version='1.29')
+
+    def test_remove_export(self):
+        self._test_volume_api('remove_export',
+                              rpc_method='cast',
+                              volume=self.fake_volume,
+                              version='1.30')

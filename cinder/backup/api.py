@@ -19,11 +19,11 @@
 Handles all requests relating to the volume backups service.
 """
 
-
 from eventlet import greenthread
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+from oslo_utils import strutils
 
 from cinder.backup import rpcapi as backup_rpcapi
 from cinder import context
@@ -89,7 +89,7 @@ class API(base.Base):
 
         # Don't allow backup to be deleted if there are incremental
         # backups dependent on it.
-        deltas = self.get_all(context, {'parent_id': backup.id})
+        deltas = self.get_all(context, search_opts={'parent_id': backup.id})
         if deltas and len(deltas):
             msg = _('Incremental backups exist for this backup.')
             raise exception.InvalidBackup(reason=msg)
@@ -98,18 +98,25 @@ class API(base.Base):
         backup.save()
         self.backup_rpcapi.delete_backup(context, backup)
 
-    def get_all(self, context, search_opts=None):
-        if search_opts is None:
-            search_opts = {}
+    def get_all(self, context, search_opts=None, marker=None, limit=None,
+                offset=None, sort_keys=None, sort_dirs=None):
         check_policy(context, 'get_all')
 
-        if context.is_admin:
-            backups = objects.BackupList.get_all(context, filters=search_opts)
+        search_opts = search_opts or {}
+
+        all_tenants = search_opts.pop('all_tenants', '0')
+        if not utils.is_valid_boolstr(all_tenants):
+            msg = _("all_tenants must be a boolean, got '%s'.") % all_tenants
+            raise exception.InvalidParameterValue(err=msg)
+
+        if context.is_admin and strutils.bool_from_string(all_tenants):
+            backups = objects.BackupList.get_all(context, search_opts,
+                                                 marker, limit, offset,
+                                                 sort_keys, sort_dirs)
         else:
             backups = objects.BackupList.get_all_by_project(
-                context,
-                context.project_id,
-                filters=search_opts
+                context, context.project_id, search_opts,
+                marker, limit, offset, sort_keys, sort_dirs
             )
 
         return backups
@@ -118,12 +125,11 @@ class API(base.Base):
         """Check if there is a backup service available."""
         topic = CONF.backup_topic
         ctxt = context.get_admin_context()
-        services = self.db.service_get_all_by_topic(ctxt,
-                                                    topic,
-                                                    disabled=False)
+        services = objects.ServiceList.get_all_by_topic(
+            ctxt, topic, disabled=False)
         for srv in services:
-            if (srv['availability_zone'] == volume['availability_zone'] and
-                    srv['host'] == volume_host and
+            if (srv.availability_zone == volume['availability_zone'] and
+                    srv.host == volume_host and
                     utils.service_is_up(srv)):
                 return True
         return False
@@ -135,8 +141,8 @@ class API(base.Base):
         """
         topic = CONF.backup_topic
         ctxt = context.get_admin_context()
-        services = self.db.service_get_all_by_topic(ctxt, topic)
-        return [srv['host'] for srv in services if not srv['disabled']]
+        services = objects.ServiceList.get_all_by_topic(ctxt, topic)
+        return [srv.host for srv in services if not srv.disabled]
 
     def create(self, context, name, description, volume_id,
                container, incremental=False, availability_zone=None,
@@ -316,7 +322,8 @@ class API(base.Base):
                                           volume_id)
 
         d = {'backup_id': backup_id,
-             'volume_id': volume_id, }
+             'volume_id': volume_id,
+             'volume_name': volume['display_name'], }
 
         return d
 
@@ -362,6 +369,68 @@ class API(base.Base):
 
         return export_data
 
+    def _get_import_backup(self, context, backup_url):
+        """Prepare database backup record for import.
+
+        This method decodes provided backup_url and expects to find the id of
+        the backup in there.
+
+        Then checks the DB for the presence of this backup record and if it
+        finds it and is not deleted it will raise an exception because the
+        record cannot be created or used.
+
+        If the record is in deleted status then we must be trying to recover
+        this record, so we'll reuse it.
+
+        If the record doesn't already exist we create it with provided id.
+
+        :param context: running context
+        :param backup_url: backup description to be used by the backup driver
+        :return: BackupImport object
+        :raises: InvalidBackup
+        :raises: InvalidInput
+        """
+        # Deserialize string backup record into a dictionary
+        backup_record = objects.Backup.decode_record(backup_url)
+
+        # ID is a required field since it's what links incremental backups
+        if 'id' not in backup_record:
+            msg = _('Provided backup record is missing an id')
+            raise exception.InvalidInput(reason=msg)
+
+        kwargs = {
+            'user_id': context.user_id,
+            'project_id': context.project_id,
+            'volume_id': '0000-0000-0000-0000',
+            'status': 'creating',
+        }
+
+        try:
+            # Try to get the backup with that ID in all projects even among
+            # deleted entries.
+            backup = objects.BackupImport.get_by_id(context,
+                                                    backup_record['id'],
+                                                    read_deleted='yes',
+                                                    project_only=False)
+
+            # If record exists and it's not deleted we cannot proceed with the
+            # import
+            if backup.status != 'deleted':
+                msg = _('Backup already exists in database.')
+                raise exception.InvalidBackup(reason=msg)
+
+            # Otherwise we'll "revive" delete backup record
+            backup.update(kwargs)
+            backup.save()
+
+        except exception.BackupNotFound:
+            # If record doesn't exist create it with the specific ID
+            backup = objects.BackupImport(context=context,
+                                          id=backup_record['id'], **kwargs)
+            backup.create()
+
+        return backup
+
     def import_record(self, context, backup_service, backup_url):
         """Make the RPC call to import a volume backup.
 
@@ -370,6 +439,7 @@ class API(base.Base):
         :param backup_url: backup description to be used by the backup driver
         :raises: InvalidBackup
         :raises: ServiceNotFound
+        :raises: InvalidInput
         """
         check_policy(context, 'backup-import')
 
@@ -383,14 +453,9 @@ class API(base.Base):
         if len(hosts) == 0:
             raise exception.ServiceNotFound(service_id=backup_service)
 
-        kwargs = {
-            'user_id': context.user_id,
-            'project_id': context.project_id,
-            'volume_id': '0000-0000-0000-0000',
-            'status': 'creating',
-        }
-        backup = objects.Backup(context=context, **kwargs)
-        backup.create()
+        # Get Backup object that will be used to import this backup record
+        backup = self._get_import_backup(context, backup_url)
+
         first_host = hosts.pop()
         self.backup_rpcapi.import_record(context,
                                          first_host,

@@ -22,7 +22,6 @@ Scheduler Service
 import eventlet
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_log import versionutils
 import oslo_messaging as messaging
 from oslo_utils import excutils
 from oslo_utils import importutils
@@ -56,7 +55,7 @@ LOG = logging.getLogger(__name__)
 class SchedulerManager(manager.Manager):
     """Chooses a host to create volumes."""
 
-    RPC_API_VERSION = '1.7'
+    RPC_API_VERSION = '1.8'
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -64,17 +63,6 @@ class SchedulerManager(manager.Manager):
                  *args, **kwargs):
         if not scheduler_driver:
             scheduler_driver = CONF.scheduler_driver
-        if scheduler_driver in ['cinder.scheduler.chance.ChanceScheduler',
-                                'cinder.scheduler.simple.SimpleScheduler']:
-            scheduler_driver = ('cinder.scheduler.filter_scheduler.'
-                                'FilterScheduler')
-            versionutils.report_deprecated_feature(LOG, _(
-                'ChanceScheduler and SimpleScheduler have been '
-                'deprecated due to lack of support for advanced '
-                'features like: volume types, volume encryption,'
-                ' QoS etc. These two schedulers can be fully '
-                'replaced by FilterScheduler with certain '
-                'combination of filters and weighers.'))
         self.driver = importutils.import_object(scheduler_driver)
         super(SchedulerManager, self).__init__(*args, **kwargs)
         self._startup_delay = True
@@ -102,29 +90,29 @@ class SchedulerManager(manager.Manager):
             eventlet.sleep(1)
 
     def create_consistencygroup(self, context, topic,
-                                group_id,
+                                group,
                                 request_spec_list=None,
                                 filter_properties_list=None):
 
         self._wait_for_scheduler()
         try:
             self.driver.schedule_create_consistencygroup(
-                context, group_id,
+                context, group,
                 request_spec_list,
                 filter_properties_list)
         except exception.NoValidHost:
             LOG.error(_LE("Could not find a host for consistency group "
                           "%(group_id)s."),
-                      {'group_id': group_id})
-            db.consistencygroup_update(context, group_id,
-                                       {'status': 'error'})
+                      {'group_id': group.id})
+            group.status = 'error'
+            group.save()
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.exception(_LE("Failed to create consistency group "
                                   "%(group_id)s."),
-                              {'group_id': group_id})
-                db.consistencygroup_update(context, group_id,
-                                           {'status': 'error'})
+                              {'group_id': group.id})
+                group.status = 'error'
+                group.save()
 
     def create_volume(self, context, topic, volume_id, snapshot_id=None,
                       image_id=None, request_spec=None,
@@ -158,7 +146,14 @@ class SchedulerManager(manager.Manager):
         self._wait_for_scheduler()
 
         def _migrate_volume_set_error(self, context, ex, request_spec):
-            volume_state = {'volume_state': {'migration_status': None}}
+            volume = db.volume_get(context, request_spec['volume_id'])
+            if volume.status == 'maintenance':
+                previous_status = (
+                    volume.previous_status or 'maintenance')
+                volume_state = {'volume_state': {'migration_status': 'error',
+                                                 'status': previous_status}}
+            else:
+                volume_state = {'volume_state': {'migration_status': 'error'}}
             self._set_volume_state_and_notify('migrate_volume_to_host',
                                               volume_state,
                                               context, ex, request_spec)
@@ -195,12 +190,9 @@ class SchedulerManager(manager.Manager):
                                      volume_ref, msg, reservations):
             if reservations:
                 QUOTAS.rollback(context, reservations)
-            if (volume_ref['volume_attachment'] is None or
-               len(volume_ref['volume_attachment']) == 0):
-                orig_status = 'available'
-            else:
-                orig_status = 'in-use'
-            volume_state = {'volume_state': {'status': orig_status}}
+            previous_status = (
+                volume_ref.previous_status or volume_ref.status)
+            volume_state = {'volume_state': {'status': previous_status}}
             self._set_volume_state_and_notify('retype', volume_state,
                                               context, ex, request_spec, msg)
 

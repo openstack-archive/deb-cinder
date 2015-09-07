@@ -24,14 +24,18 @@ import copy
 import threading
 
 from oslo_log import log as logging
+from oslo_utils import importutils
 from oslo_utils import timeutils
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LI, _LW
 from cinder import utils
-from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp import utils as na_utils
+
+netapp_lib = importutils.try_import('netapp_lib')
+if netapp_lib:
+    from netapp_lib.api.zapi import zapi as netapp_api
 
 
 LOG = logging.getLogger(__name__)
@@ -258,7 +262,6 @@ def query_aggr_options(na_server, aggr_name):
 
         Currently queries for raid and ha-policy.
     """
-
     add_elems = {'aggregate': aggr_name}
     attrs = {}
     try:
@@ -520,7 +523,7 @@ def refresh_cluster_ssc(backend, na_server, vserver, synchronous=False):
         return
     elif (getattr(backend, 'ssc_run_time', None) is None or
           (backend.ssc_run_time and
-           timeutils.is_newer_than(backend.ssc_run_time, delta_secs))):
+           timeutils.is_older_than(backend.ssc_run_time, delta_secs))):
         if synchronous:
             get_cluster_latest_ssc(backend, na_server, vserver)
         else:

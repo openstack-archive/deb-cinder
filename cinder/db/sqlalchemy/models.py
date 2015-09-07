@@ -69,6 +69,14 @@ class Service(BASE, CinderBase):
     # periodic updates
     modified_at = Column(DateTime)
 
+    # Version columns to support rolling upgrade.
+    # Current version is what the service is running now (i.e. minimum).
+    # Available version is what the service can support (i.e. max).
+    rpc_current_version = Column(String(36))
+    rpc_available_version = Column(String(36))
+    object_current_version = Column(String(36))
+    object_available_version = Column(String(36))
+
 
 class ConsistencyGroup(BASE, CinderBase):
     """Represents a consistencygroup."""
@@ -85,6 +93,7 @@ class ConsistencyGroup(BASE, CinderBase):
     volume_type_id = Column(String(255))
     status = Column(String(255))
     cgsnapshot_id = Column(String(36))
+    source_cgid = Column(String(36))
 
 
 class Cgsnapshot(BASE, CinderBase):
@@ -459,6 +468,7 @@ class Snapshot(BASE, CinderBase):
 
     provider_location = Column(String(255))
     provider_id = Column(String(255))
+    provider_auth = Column(String(255))
 
     volume = relationship(Volume, backref="snapshots",
                           foreign_keys=volume_id,
@@ -530,6 +540,7 @@ class Backup(BASE, CinderBase):
     object_count = Column(Integer)
     temp_volume_id = Column(String(36))
     temp_snapshot_id = Column(String(36))
+    num_dependent_backups = Column(Integer)
 
     @validates('fail_reason')
     def validate_fail_reason(self, key, fail_reason):
@@ -588,6 +599,18 @@ class DriverInitiatorData(BASE, models.TimestampMixin, models.ModelBase):
     namespace = Column(String(255), nullable=False)
     key = Column(String(255), nullable=False)
     value = Column(String(255))
+
+
+class ImageVolumeCacheEntry(BASE, models.ModelBase):
+    """Represents an image volume cache entry"""
+    __tablename__ = 'image_volume_cache_entries'
+    id = Column(Integer, primary_key=True, nullable=False)
+    host = Column(String(255), index=True, nullable=False)
+    image_id = Column(String(36), index=True, nullable=False)
+    image_updated_at = Column(DateTime, nullable=False)
+    volume_id = Column(String(36), nullable=False)
+    size = Column(Integer, nullable=False)
+    last_used = Column(DateTime, default=lambda: timeutils.utcnow())
 
 
 def register_models():

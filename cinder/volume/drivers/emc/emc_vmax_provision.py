@@ -338,8 +338,8 @@ class EMCVMAXProvision(object):
                                                       time.time())})
 
     def unbind_volume_from_storage_pool(
-            self, conn, storageConfigService, volumeInstanceName,
-            volumeName, extraSpecs):
+            self, conn, storageConfigService,
+            volumeInstanceName, volumeName, extraSpecs):
         """Unbind a volume from a pool and return the unbound volume.
 
         :param conn: the connection information to the ecom server
@@ -1079,8 +1079,7 @@ class EMCVMAXProvision(object):
              'relationName': relationName,
              'srcGroup': srcGroupInstanceName,
              'tgtGroup': tgtGroupInstanceName})
-        # SyncType 8 - clone.
-        # CopyState 4 - Synchronized.
+        # 8 for clone.
         rc, job = conn.InvokeMethod(
             'CreateGroupReplica',
             replicationService,

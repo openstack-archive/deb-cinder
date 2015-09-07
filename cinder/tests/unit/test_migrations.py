@@ -847,6 +847,83 @@ class MigrationsMixin(test_migrations.WalkVersionsMixin):
         volumes = db_utils.get_table(engine, 'volumes')
         self.assertNotIn('previous_status', volumes.c)
 
+    def _check_051(self, engine, data):
+        consistencygroups = db_utils.get_table(engine, 'consistencygroups')
+        self.assertIsInstance(consistencygroups.c.source_cgid.type,
+                              sqlalchemy.types.VARCHAR)
+
+    def _post_downgrade_051(self, engine):
+        consistencygroups = db_utils.get_table(engine, 'consistencygroups')
+        self.assertNotIn('source_cgid', consistencygroups.c)
+
+    def _check_052(self, engine, data):
+        snapshots = db_utils.get_table(engine, 'snapshots')
+        self.assertIsInstance(snapshots.c.provider_auth.type,
+                              sqlalchemy.types.VARCHAR)
+
+    def _post_downgrade_052(self, engine):
+        snapshots = db_utils.get_table(engine, 'snapshots')
+        self.assertNotIn('provider_auth', snapshots.c)
+
+    def _check_053(self, engine, data):
+        services = db_utils.get_table(engine, 'services')
+        self.assertIsInstance(services.c.rpc_current_version.type,
+                              sqlalchemy.types.VARCHAR)
+        self.assertIsInstance(services.c.rpc_available_version.type,
+                              sqlalchemy.types.VARCHAR)
+        self.assertIsInstance(services.c.object_current_version.type,
+                              sqlalchemy.types.VARCHAR)
+        self.assertIsInstance(services.c.object_available_version.type,
+                              sqlalchemy.types.VARCHAR)
+
+    def _post_downgrade_053(self, engine):
+        services = db_utils.get_table(engine, 'services')
+        self.assertNotIn('rpc_current_version', services.c)
+        self.assertNotIn('rpc_available_version', services.c)
+        self.assertNotIn('object_current_version', services.c)
+        self.assertNotIn('object_available_version', services.c)
+
+    def _check_054(self, engine, data):
+        backups = db_utils.get_table(engine, 'backups')
+        self.assertIsInstance(backups.c.num_dependent_backups.type,
+                              sqlalchemy.types.INTEGER)
+
+    def _post_downgrade_054(self, engine):
+        backups = db_utils.get_table(engine, 'backups')
+        self.assertNotIn('num_dependent_backups', backups.c)
+
+    def _check_055(self, engine, data):
+        """Test adding image_volume_cache_entries table."""
+        has_table = engine.dialect.has_table(engine.connect(),
+                                             "image_volume_cache_entries")
+        self.assertTrue(has_table)
+
+        private_data = db_utils.get_table(
+            engine,
+            'image_volume_cache_entries'
+        )
+
+        self.assertIsInstance(private_data.c.id.type,
+                              sqlalchemy.types.INTEGER)
+        self.assertIsInstance(private_data.c.host.type,
+                              sqlalchemy.types.VARCHAR)
+        self.assertIsInstance(private_data.c.image_id.type,
+                              sqlalchemy.types.VARCHAR)
+        self.assertIsInstance(private_data.c.image_updated_at.type,
+                              self.TIME_TYPE)
+        self.assertIsInstance(private_data.c.volume_id.type,
+                              sqlalchemy.types.VARCHAR)
+        self.assertIsInstance(private_data.c.size.type,
+                              sqlalchemy.types.INTEGER)
+        self.assertIsInstance(private_data.c.last_used.type,
+                              self.TIME_TYPE)
+
+    def _post_downgrade_055(self, engine):
+        """Test removing image_volume_cache_entries table."""
+        has_table = engine.dialect.has_table(engine.connect(),
+                                             "image_volume_cache_entries")
+        self.assertFalse(has_table)
+
     def test_walk_versions(self):
         self.walk_versions(True, False)
 

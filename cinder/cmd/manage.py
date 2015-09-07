@@ -57,14 +57,12 @@ from __future__ import print_function
 
 import os
 import sys
-import warnings
-
-warnings.simplefilter('once', DeprecationWarning)
 
 from oslo_config import cfg
 from oslo_db.sqlalchemy import migration
 from oslo_log import log as logging
 import oslo_messaging as messaging
+from oslo_utils import timeutils
 from oslo_utils import uuidutils
 
 from cinder import i18n
@@ -76,6 +74,7 @@ from cinder import context
 from cinder import db
 from cinder.db import migration as db_migration
 from cinder.db.sqlalchemy import api as db_api
+from cinder import exception
 from cinder.i18n import _
 from cinder import objects
 from cinder import rpc
@@ -97,7 +96,8 @@ def args(*args, **kwargs):
 
 def param2id(object_id):
     """Helper function to convert various id types to internal id.
-    args: [object_id], e.g. 'vol-0000000a' or 'volume-0000000a' or '10'
+
+    :param object_id: e.g. 'vol-0000000a' or 'volume-0000000a' or '10'
     """
     if uuidutils.is_uuid_like(object_id):
         return object_id
@@ -180,9 +180,7 @@ class ShellCommands(object):
 
     @args('--path', required=True, help='Script path')
     def script(self, path):
-        """Runs the script from the specified path with flags set properly.
-        arguments: path
-        """
+        """Runs the script from the specified path with flags set properly."""
         exec(compile(open(path).read(), path, 'exec'), locals(), globals())
 
 
@@ -200,14 +198,16 @@ class HostCommands(object):
     @args('zone', nargs='?', default=None,
           help='Availability Zone (default: %(default)s)')
     def list(self, zone=None):
-        """Show a list of all physical hosts. Filter by zone.
+        """Show a list of all physical hosts.
+
+        Can be filtered by zone.
         args: [zone]
         """
         print(_("%(host)-25s\t%(zone)-15s") % {'host': 'host', 'zone': 'zone'})
         ctxt = context.get_admin_context()
-        services = db.service_get_all(ctxt)
+        services = objects.ServiceList.get_all(ctxt)
         if zone:
-            services = [s for s in services if s['availability_zone'] == zone]
+            services = [s for s in services if s.availability_zone == zone]
         hosts = []
         for srv in services:
             if not [h for h in hosts if h['host'] == srv['host']]:
@@ -281,9 +281,7 @@ class VolumeCommands(object):
     @args('volume_id',
           help='Volume ID to be deleted')
     def delete(self, volume_id):
-        """Delete a volume, bypassing the check that it
-        must be available.
-        """
+        """Delete a volume, bypassing the check that it must be available."""
         ctxt = context.get_admin_context()
         volume = db.volume_get(ctxt, param2id(volume_id))
         host = vutils.extract_host(volume['host']) if volume['host'] else None
@@ -399,7 +397,9 @@ class BackupCommands(object):
     """Methods for managing backups."""
 
     def list(self):
-        """List all backups (including ones in progress) and the host
+        """List all backups.
+
+        List all backups (including ones in progress) and the host
         on which the backup operation is running.
         """
         ctxt = context.get_admin_context()
@@ -437,7 +437,7 @@ class ServiceCommands(object):
     def list(self):
         """Show a list of all cinder services."""
         ctxt = context.get_admin_context()
-        services = db.service_get_all(ctxt)
+        services = objects.ServiceList.get_all(ctxt)
         print_format = "%-16s %-36s %-16s %-10s %-5s %-10s"
         print(print_format % (_('Binary'),
                               _('Host'),
@@ -449,12 +449,30 @@ class ServiceCommands(object):
             alive = utils.service_is_up(svc)
             art = ":-)" if alive else "XXX"
             status = 'enabled'
-            if svc['disabled']:
+            if svc.disabled:
                 status = 'disabled'
-            print(print_format % (svc['binary'], svc['host'].partition('.')[0],
-                                  svc['availability_zone'], status, art,
-                                  svc['updated_at']))
+            print(print_format % (svc.binary, svc.host.partition('.')[0],
+                                  svc.availability_zone, status, art,
+                                  timeutils.normalize_time(svc.updated_at)))
 
+    @args('binary', type=str,
+          help='Service to delete from the host.')
+    @args('host_name', type=str,
+          help='Host from which to remove the service.')
+    def remove(self, binary, host_name):
+        """Completely removes a service."""
+        ctxt = context.get_admin_context()
+        try:
+            svc = db.service_get_by_args(ctxt, host_name, binary)
+            db.service_destroy(ctxt, svc['id'])
+        except exception.HostBinaryNotFound as e:
+            print(_("Host not found. Failed to remove %(service)s"
+                    " on %(host)s.") %
+                  {'service': binary, 'host': host_name})
+            print (u"%s" % e.args)
+            return 2
+        print(_("Service %(service)s on host %(host)s removed.") %
+              {'service': binary, 'host': host_name})
 
 CATEGORIES = {
     'backup': BackupCommands,
@@ -470,8 +488,10 @@ CATEGORIES = {
 
 
 def methods_of(obj):
-    """Get all callable methods of an object that don't start with underscore
-    returns a list of tuples of the form (method_name, method)
+    """Return non-private methods from an object.
+
+    Get all callable methods of an object that don't start with underscore
+    :return: a list of tuples of the form (method_name, method)
     """
     result = []
     for i in dir(obj):

@@ -27,18 +27,19 @@ import six
 from cinder import exception
 from cinder.image import image_utils
 from cinder import test
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fake_api as netapp_api)
 from cinder import utils as cinder_utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp import common
-from cinder.volume.drivers.netapp.dataontap.client import api
+from cinder.volume.drivers.netapp.dataontap import (nfs_7mode
+                                                    as netapp_nfs_7mode)
+from cinder.volume.drivers.netapp.dataontap import (nfs_cmode
+                                                    as netapp_nfs_cmode)
 from cinder.volume.drivers.netapp.dataontap.client import client_7mode
 from cinder.volume.drivers.netapp.dataontap.client import client_base
 from cinder.volume.drivers.netapp.dataontap.client import client_cmode
-from cinder.volume.drivers.netapp.dataontap import nfs_7mode \
-    as netapp_nfs_7mode
 from cinder.volume.drivers.netapp.dataontap import nfs_base
-from cinder.volume.drivers.netapp.dataontap import nfs_cmode \
-    as netapp_nfs_cmode
 from cinder.volume.drivers.netapp.dataontap import ssc_cmode
 from cinder.volume.drivers.netapp import utils
 
@@ -47,23 +48,50 @@ from oslo_config import cfg
 CONF = cfg.CONF
 
 
-CONNECTION_INFO = {'hostname': 'fake_host',
-                   'transport_type': 'https',
-                   'port': 443,
-                   'username': 'admin',
-                   'password': 'passw0rd'}
+CONNECTION_INFO = {
+    'hostname': 'fake_host',
+    'transport_type': 'https',
+    'port': 443,
+    'username': 'admin',
+    'password': 'passw0rd',
+}
+
+FAKE_CONNECTION_INFO_HTTP = {
+    'hostname': '127.0.0.1',
+    'transport_type': 'http',
+    'port': None,
+    'username': 'admin',
+    'password': 'pass',
+    'vserver': 'openstack',
+}
+
+FAKE_CONNECTION_INFO_HTTPS = dict(FAKE_CONNECTION_INFO_HTTP,
+                                  transport_type='https')
+
+FAKE_7MODE_CONNECTION_INFO_HTTP = dict(FAKE_CONNECTION_INFO_HTTP)
+FAKE_7MODE_CONNECTION_INFO_HTTP.pop('vserver')
+FAKE_7MODE_CONNECTION_INFO_HTTP['vfiler'] = 'test_vfiler'
+
+FAKE_7MODE_CONNECTION_INFO_HTTPS = dict(FAKE_7MODE_CONNECTION_INFO_HTTP,
+                                        transport_type='https')
+
 SEVEN_MODE_CONNECTION_INFO = dict(
     itertools.chain(CONNECTION_INFO.items(),
                     {'vfiler': 'test_vfiler'}.items()))
+
 FAKE_VSERVER = 'fake_vserver'
 
 
 def create_configuration():
     configuration = mox_lib.MockObject(conf.Configuration)
     configuration.append_config_values(mox_lib.IgnoreArg())
+    configuration.max_over_subscription_ratio = 20.0
+    configuration.reserved_percentage = 0
     configuration.nfs_mount_point_base = '/mnt/test'
     configuration.nfs_mount_options = None
     configuration.nas_mount_options = None
+    configuration.nfs_used_ratio = .95
+    configuration.nfs_oversub_ratio = 1.0
     configuration.netapp_server_hostname = CONNECTION_INFO['hostname']
     configuration.netapp_transport_type = CONNECTION_INFO['transport_type']
     configuration.netapp_server_port = CONNECTION_INFO['port']
@@ -130,6 +158,12 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         kwargs = {}
         kwargs['netapp_mode'] = 'proxy'
         kwargs['configuration'] = create_configuration()
+
+        # Inject fake netapp_lib module classes.
+        netapp_api.mock_netapp_lib([client_cmode, client_base])
+        self.mock_object(common.na_utils, 'check_netapp_lib')
+
+        self.mock_object(nfs_base, 'LOG')
         self._driver = netapp_nfs_cmode.NetAppCmodeNfsDriver(**kwargs)
         self._driver.zapi_client = mock.Mock()
         config = self._driver.configuration
@@ -180,7 +214,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
         loc = drv.create_volume_from_snapshot(volume, snapshot)
 
-        self.assertEqual(loc, expected_result)
+        self.assertEqual(expected_result, loc)
 
         mox.VerifyAll()
 
@@ -296,7 +330,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         <vserver>openstack</vserver>
       </net-interface-info></attributes-list>"""
         response_el = etree.XML(res)
-        return api.NaElement(response_el).get_children()
+        return netapp_api.NaElement(response_el).get_children()
 
     def test_clone_backing_file_for_volume(self):
         drv = self._driver
@@ -861,7 +895,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
     def test_get_pool(self):
         pool = self._driver.get_pool({'provider_location': 'fake-share'})
-        self.assertEqual(pool, 'fake-share')
+        self.assertEqual('fake-share', pool)
 
     def _set_config(self, configuration):
         configuration.netapp_storage_family = 'ontap_cluster'
@@ -894,10 +928,9 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
     def test_do_setup_all_default(self):
         configuration = self._set_config(create_configuration())
         driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_cmode, 'Client')
         driver.do_setup(context='')
-        na_server = driver.zapi_client.get_connection()
-        self.assertEqual('80', na_server.get_port())
-        self.assertEqual('http', na_server.get_transport_type())
+        mock_invoke.assert_called_with(**FAKE_CONNECTION_INFO_HTTP)
 
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.Mock(return_value=(1, 20)))
@@ -906,10 +939,9 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         configuration = self._set_config(create_configuration())
         configuration.netapp_transport_type = 'http'
         driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_cmode, 'Client')
         driver.do_setup(context='')
-        na_server = driver.zapi_client.get_connection()
-        self.assertEqual('80', na_server.get_port())
-        self.assertEqual('http', na_server.get_transport_type())
+        mock_invoke.assert_called_with(**FAKE_CONNECTION_INFO_HTTP)
 
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.Mock(return_value=(1, 20)))
@@ -918,10 +950,9 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         configuration = self._set_config(create_configuration())
         configuration.netapp_transport_type = 'https'
         driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_cmode, 'Client')
         driver.do_setup(context='')
-        na_server = driver.zapi_client.get_connection()
-        self.assertEqual('443', na_server.get_port())
-        self.assertEqual('https', na_server.get_transport_type())
+        mock_invoke.assert_called_with(**FAKE_CONNECTION_INFO_HTTPS)
 
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.Mock(return_value=(1, 20)))
@@ -930,10 +961,10 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         configuration = self._set_config(create_configuration())
         configuration.netapp_server_port = 81
         driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_cmode, 'Client')
         driver.do_setup(context='')
-        na_server = driver.zapi_client.get_connection()
-        self.assertEqual('81', na_server.get_port())
-        self.assertEqual('http', na_server.get_transport_type())
+        FAKE_CONN_INFO_PORT_HTTP = dict(FAKE_CONNECTION_INFO_HTTP, port=81)
+        mock_invoke.assert_called_with(**FAKE_CONN_INFO_PORT_HTTP)
 
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.Mock(return_value=(1, 20)))
@@ -943,10 +974,10 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         configuration.netapp_transport_type = 'https'
         configuration.netapp_server_port = 446
         driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_cmode, 'Client')
         driver.do_setup(context='')
-        na_server = driver.zapi_client.get_connection()
-        self.assertEqual('446', na_server.get_port())
-        self.assertEqual('https', na_server.get_transport_type())
+        FAKE_CONN_INFO_PORT_HTTPS = dict(FAKE_CONNECTION_INFO_HTTPS, port=446)
+        mock_invoke.assert_called_with(**FAKE_CONN_INFO_PORT_HTTPS)
 
     @mock.patch.object(utils, 'resolve_hostname', return_value='10.12.142.11')
     def test_convert_vol_ref_share_name_to_share_ip(self, mock_hostname):
@@ -1169,6 +1200,7 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
         self._driver.ssc_enabled = True
         self._driver.configuration.netapp_copyoffload_tool_path = 'cof_path'
         self._driver.zapi_client = mock.Mock()
+        self.mock_object(netapp_nfs_cmode, 'LOG')
         self._fake_empty_qos_policy_group_info = {
             'legacy': None,
             'spec': None,
@@ -1439,10 +1471,17 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
 
 
 class NetApp7modeNfsDriverTestCase(NetAppCmodeNfsDriverTestCase):
-    """Test direct NetApp C Mode driver."""
+    """Test direct NetApp 7 Mode driver."""
 
     def _custom_setup(self):
         self.mock_object(utils, 'OpenStackInfo')
+
+        # Inject fake netapp_lib module classes.
+        netapp_api.mock_netapp_lib([client_cmode, client_base])
+        self.mock_object(common.na_utils, 'check_netapp_lib')
+
+        self.mock_object(common.na_utils, 'LOG')
+        self.mock_object(nfs_base, 'LOG')
         self._driver = netapp_nfs_7mode.NetApp7modeNfsDriver(
             configuration=create_configuration())
         self._driver.zapi_client = mock.Mock()
@@ -1485,6 +1524,65 @@ class NetApp7modeNfsDriverTestCase(NetAppCmodeNfsDriverTestCase):
         self._driver.do_setup(context)
         mock_client_init.assert_called_once_with(**SEVEN_MODE_CONNECTION_INFO)
         mock_super_do_setup.assert_called_once_with(context)
+
+    @mock.patch.object(client_base.Client, 'get_ontapi_version',
+                       mock.Mock(return_value=(1, 20)))
+    @mock.patch.object(nfs_base.NetAppNfsDriver, 'do_setup', mock.Mock())
+    def test_do_setup_all_default(self):
+        configuration = self._set_config(create_configuration())
+        driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_7mode, 'Client')
+        driver.do_setup(context='')
+        mock_invoke.assert_called_with(**FAKE_7MODE_CONNECTION_INFO_HTTP)
+
+    @mock.patch.object(client_base.Client, 'get_ontapi_version',
+                       mock.Mock(return_value=(1, 20)))
+    @mock.patch.object(nfs_base.NetAppNfsDriver, 'do_setup', mock.Mock())
+    def test_do_setup_http_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'http'
+        driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_7mode, 'Client')
+        driver.do_setup(context='')
+        mock_invoke.assert_called_with(**FAKE_7MODE_CONNECTION_INFO_HTTP)
+
+    @mock.patch.object(client_base.Client, 'get_ontapi_version',
+                       mock.Mock(return_value=(1, 20)))
+    @mock.patch.object(nfs_base.NetAppNfsDriver, 'do_setup', mock.Mock())
+    def test_do_setup_https_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'https'
+        driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_7mode, 'Client')
+        driver.do_setup(context='')
+        mock_invoke.assert_called_with(**FAKE_7MODE_CONNECTION_INFO_HTTPS)
+
+    @mock.patch.object(client_base.Client, 'get_ontapi_version',
+                       mock.Mock(return_value=(1, 20)))
+    @mock.patch.object(nfs_base.NetAppNfsDriver, 'do_setup', mock.Mock())
+    def test_do_setup_http_non_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_server_port = 81
+        driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_7mode, 'Client')
+        driver.do_setup(context='')
+        FAKE_CONN_INFO_PORT_HTTP = dict(FAKE_7MODE_CONNECTION_INFO_HTTP,
+                                        port=81)
+        mock_invoke.assert_called_with(**FAKE_CONN_INFO_PORT_HTTP)
+
+    @mock.patch.object(client_base.Client, 'get_ontapi_version',
+                       mock.Mock(return_value=(1, 20)))
+    @mock.patch.object(nfs_base.NetAppNfsDriver, 'do_setup', mock.Mock())
+    def test_do_setup_https_non_default_port(self):
+        configuration = self._set_config(create_configuration())
+        configuration.netapp_transport_type = 'https'
+        configuration.netapp_server_port = 446
+        driver = common.NetAppDriver(configuration=configuration)
+        mock_invoke = self.mock_object(client_7mode, 'Client')
+        driver.do_setup(context='')
+        FAKE_CONN_INFO_PORT_HTTPS = dict(FAKE_7MODE_CONNECTION_INFO_HTTPS,
+                                         port=446)
+        mock_invoke.assert_called_with(**FAKE_CONN_INFO_PORT_HTTPS)
 
     @mock.patch.object(nfs_base.NetAppNfsDriver, 'check_for_setup_error')
     def test_check_for_setup_error(self, mock_super_check_for_setup_error):
@@ -1533,7 +1631,7 @@ class NetApp7modeNfsDriverTestCase(NetAppCmodeNfsDriverTestCase):
             drv._clone_backing_file_for_volume(volume_name, clone_name,
                                                volume_id)
         except Exception as e:
-            if isinstance(e, api.NaApiError):
+            if isinstance(e, netapp_api.NaApiError):
                 pass
             else:
                 raise
@@ -1542,7 +1640,7 @@ class NetApp7modeNfsDriverTestCase(NetAppCmodeNfsDriverTestCase):
 
     def test_get_pool(self):
         pool = self._driver.get_pool({'provider_location': 'fake-share'})
-        self.assertEqual(pool, 'fake-share')
+        self.assertEqual('fake-share', pool)
 
     def _set_config(self, configuration):
         super(NetApp7modeNfsDriverTestCase, self)._set_config(

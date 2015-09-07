@@ -66,12 +66,12 @@ class CgsnapshotsAPITestCase(test.TestCase):
                                  cgsnapshot_id)[attrib_name]
 
     def test_show_cgsnapshot(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(self.context,
                                         consistencygroup_id=
-                                        consistencygroup_id)['id']
+                                        consistencygroup.id)['id']
         cgsnapshot_id = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id)
+            consistencygroup_id=consistencygroup.id)
         req = webob.Request.blank('/v2/fake/cgsnapshots/%s' %
                                   cgsnapshot_id)
         req.method = 'GET'
@@ -79,44 +79,43 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res_dict['cgsnapshot']['description'],
-                         'this is a test cgsnapshot')
-        self.assertEqual(res_dict['cgsnapshot']['name'],
-                         'test_cgsnapshot')
-        self.assertEqual(res_dict['cgsnapshot']['status'], 'creating')
+        self.assertEqual(200, res.status_int)
+        self.assertEqual('this is a test cgsnapshot',
+                         res_dict['cgsnapshot']['description'])
+
+        self.assertEqual('test_cgsnapshot',
+                         res_dict['cgsnapshot']['name'])
+        self.assertEqual('creating', res_dict['cgsnapshot']['status'])
 
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
     def test_show_cgsnapshot_xml_content_type(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(self.context,
                                         consistencygroup_id=
-                                        consistencygroup_id)['id']
+                                        consistencygroup.id)['id']
         cgsnapshot_id = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id)
+            consistencygroup_id=consistencygroup.id)
         req = webob.Request.blank('/v2/fake/cgsnapshots/%s' %
                                   cgsnapshot_id)
         req.method = 'GET'
         req.headers['Content-Type'] = 'application/xml'
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         cgsnapshot = dom.getElementsByTagName('cgsnapshot')
         name = cgsnapshot.item(0).getAttribute('name')
-        self.assertEqual(name.strip(), "test_cgsnapshot")
+        self.assertEqual('test_cgsnapshot', name.strip())
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
     def test_show_cgsnapshot_with_cgsnapshot_NotFound(self):
         req = webob.Request.blank('/v2/fake/cgsnapshots/9999')
@@ -125,22 +124,22 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 404)
-        self.assertEqual(res_dict['itemNotFound']['code'], 404)
-        self.assertEqual(res_dict['itemNotFound']['message'],
-                         'CgSnapshot 9999 could not be found.')
+        self.assertEqual(404, res.status_int)
+        self.assertEqual(404, res_dict['itemNotFound']['code'])
+        self.assertEqual('CgSnapshot 9999 could not be found.',
+                         res_dict['itemNotFound']['message'])
 
     def test_list_cgsnapshots_json(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(self.context,
                                         consistencygroup_id=
-                                        consistencygroup_id)['id']
+                                        consistencygroup.id)['id']
         cgsnapshot_id1 = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id)
+            consistencygroup_id=consistencygroup.id)
         cgsnapshot_id2 = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id)
+            consistencygroup_id=consistencygroup.id)
         cgsnapshot_id3 = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id)
+            consistencygroup_id=consistencygroup.id)
 
         req = webob.Request.blank('/v2/fake/cgsnapshots')
         req.method = 'GET'
@@ -148,19 +147,19 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         self.assertEqual(res_dict['cgsnapshots'][0]['id'],
                          cgsnapshot_id1)
-        self.assertEqual(res_dict['cgsnapshots'][0]['name'],
-                         'test_cgsnapshot')
+        self.assertEqual('test_cgsnapshot',
+                         res_dict['cgsnapshots'][0]['name'])
         self.assertEqual(res_dict['cgsnapshots'][1]['id'],
                          cgsnapshot_id2)
-        self.assertEqual(res_dict['cgsnapshots'][1]['name'],
-                         'test_cgsnapshot')
+        self.assertEqual('test_cgsnapshot',
+                         res_dict['cgsnapshots'][1]['name'])
         self.assertEqual(res_dict['cgsnapshots'][2]['id'],
                          cgsnapshot_id3)
-        self.assertEqual(res_dict['cgsnapshots'][2]['name'],
-                         'test_cgsnapshot')
+        self.assertEqual('test_cgsnapshot',
+                         res_dict['cgsnapshots'][2]['name'])
 
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id3)
@@ -170,20 +169,19 @@ class CgsnapshotsAPITestCase(test.TestCase):
                               cgsnapshot_id1)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
     def test_list_cgsnapshots_xml(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(self.context,
                                         consistencygroup_id=
-                                        consistencygroup_id)['id']
+                                        consistencygroup.id)['id']
         cgsnapshot_id1 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
         cgsnapshot_id2 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
         cgsnapshot_id3 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
 
         req = webob.Request.blank('/v2/fake/cgsnapshots')
         req.method = 'GET'
@@ -191,7 +189,7 @@ class CgsnapshotsAPITestCase(test.TestCase):
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         cgsnapshot_list = dom.getElementsByTagName('cgsnapshot')
 
@@ -210,20 +208,19 @@ class CgsnapshotsAPITestCase(test.TestCase):
                               cgsnapshot_id1)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
     def test_list_cgsnapshots_detail_json(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(self.context,
                                         consistencygroup_id=
-                                        consistencygroup_id)['id']
+                                        consistencygroup.id)['id']
         cgsnapshot_id1 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
         cgsnapshot_id2 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
         cgsnapshot_id3 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
 
         req = webob.Request.blank('/v2/fake/cgsnapshots/detail')
         req.method = 'GET'
@@ -232,34 +229,33 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res_dict['cgsnapshots'][0]['description'],
-                         'this is a test cgsnapshot')
-        self.assertEqual(res_dict['cgsnapshots'][0]['name'],
-                         'test_cgsnapshot')
+        self.assertEqual(200, res.status_int)
+        self.assertEqual('this is a test cgsnapshot',
+                         res_dict['cgsnapshots'][0]['description'])
+        self.assertEqual('test_cgsnapshot',
+                         res_dict['cgsnapshots'][0]['name'])
         self.assertEqual(res_dict['cgsnapshots'][0]['id'],
                          cgsnapshot_id1)
-        self.assertEqual(res_dict['cgsnapshots'][0]['status'],
-                         'creating')
+        self.assertEqual('creating',
+                         res_dict['cgsnapshots'][0]['status'])
 
-        self.assertEqual(res_dict['cgsnapshots'][1]['description'],
-                         'this is a test cgsnapshot')
-        self.assertEqual(res_dict['cgsnapshots'][1]['name'],
-                         'test_cgsnapshot')
+        self.assertEqual('this is a test cgsnapshot',
+                         res_dict['cgsnapshots'][1]['description'])
+        self.assertEqual('test_cgsnapshot',
+                         res_dict['cgsnapshots'][1]['name'])
         self.assertEqual(res_dict['cgsnapshots'][1]['id'],
                          cgsnapshot_id2)
-        self.assertEqual(res_dict['cgsnapshots'][1]['status'],
-                         'creating')
+        self.assertEqual('creating',
+                         res_dict['cgsnapshots'][1]['status'])
 
-        self.assertEqual(res_dict['cgsnapshots'][2]['description'],
-                         'this is a test cgsnapshot')
+        self.assertEqual('this is a test cgsnapshot',
+                         res_dict['cgsnapshots'][2]['description'])
         self.assertEqual(res_dict['cgsnapshots'][2]['name'],
                          'test_cgsnapshot')
         self.assertEqual(res_dict['cgsnapshots'][2]['id'],
                          cgsnapshot_id3)
-        self.assertEqual(res_dict['cgsnapshots'][2]['status'],
-                         'creating')
-
+        self.assertEqual('creating',
+                         res_dict['cgsnapshots'][2]['status'])
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id3)
         db.cgsnapshot_destroy(context.get_admin_context(),
@@ -268,20 +264,19 @@ class CgsnapshotsAPITestCase(test.TestCase):
                               cgsnapshot_id1)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
     def test_list_cgsnapshots_detail_xml(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(self.context,
                                         consistencygroup_id=
-                                        consistencygroup_id)['id']
+                                        consistencygroup.id)['id']
         cgsnapshot_id1 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
         cgsnapshot_id2 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
         cgsnapshot_id3 = self._create_cgsnapshot(consistencygroup_id=
-                                                 consistencygroup_id)
+                                                 consistencygroup.id)
 
         req = webob.Request.blank('/v2/fake/cgsnapshots/detail')
         req.method = 'GET'
@@ -289,45 +284,36 @@ class CgsnapshotsAPITestCase(test.TestCase):
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         cgsnapshot_detail = dom.getElementsByTagName('cgsnapshot')
 
-        self.assertEqual(
-            cgsnapshot_detail.item(0).getAttribute('description'),
-            'this is a test cgsnapshot')
-        self.assertEqual(
-            cgsnapshot_detail.item(0).getAttribute('name'),
-            'test_cgsnapshot')
-        self.assertEqual(
-            cgsnapshot_detail.item(0).getAttribute('id'),
-            cgsnapshot_id1)
-        self.assertEqual(
-            cgsnapshot_detail.item(0).getAttribute('status'), 'creating')
+        self.assertEqual('this is a test cgsnapshot',
+                         cgsnapshot_detail.item(0).getAttribute('description'))
+        self.assertEqual('test_cgsnapshot',
+                         cgsnapshot_detail.item(0).getAttribute('name'))
+        self.assertEqual(cgsnapshot_detail.item(0).getAttribute('id'),
+                         cgsnapshot_id1)
+        self.assertEqual('creating',
+                         cgsnapshot_detail.item(0).getAttribute('status'))
 
-        self.assertEqual(
-            cgsnapshot_detail.item(1).getAttribute('description'),
-            'this is a test cgsnapshot')
-        self.assertEqual(
-            cgsnapshot_detail.item(1).getAttribute('name'),
-            'test_cgsnapshot')
-        self.assertEqual(
-            cgsnapshot_detail.item(1).getAttribute('id'),
-            cgsnapshot_id2)
-        self.assertEqual(
-            cgsnapshot_detail.item(1).getAttribute('status'), 'creating')
+        self.assertEqual(cgsnapshot_detail.item(1).getAttribute('description'),
+                         'this is a test cgsnapshot')
+        self.assertEqual('test_cgsnapshot',
+                         cgsnapshot_detail.item(1).getAttribute('name'))
+        self.assertEqual(cgsnapshot_detail.item(1).getAttribute('id'),
+                         cgsnapshot_id2)
+        self.assertEqual('creating',
+                         cgsnapshot_detail.item(1).getAttribute('status'))
 
-        self.assertEqual(
-            cgsnapshot_detail.item(2).getAttribute('description'),
-            'this is a test cgsnapshot')
-        self.assertEqual(
-            cgsnapshot_detail.item(2).getAttribute('name'),
-            'test_cgsnapshot')
-        self.assertEqual(
-            cgsnapshot_detail.item(2).getAttribute('id'),
-            cgsnapshot_id3)
-        self.assertEqual(
-            cgsnapshot_detail.item(2).getAttribute('status'), 'creating')
+        self.assertEqual(cgsnapshot_detail.item(2).getAttribute('description'),
+                         'this is a test cgsnapshot')
+        self.assertEqual('test_cgsnapshot',
+                         cgsnapshot_detail.item(2).getAttribute('name'))
+        self.assertEqual(cgsnapshot_detail.item(2).getAttribute('id'),
+                         cgsnapshot_id3)
+        self.assertEqual('creating',
+                         cgsnapshot_detail.item(2).getAttribute('status'))
 
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id3)
@@ -337,21 +323,21 @@ class CgsnapshotsAPITestCase(test.TestCase):
                               cgsnapshot_id1)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
-    def test_create_cgsnapshot_json(self):
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_create_cgsnapshot_json(self, mock_validate):
         cgsnapshot_id = "1"
 
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         utils.create_volume(
-            self.context,
-            consistencygroup_id=consistencygroup_id)
+            self.context, consistencygroup_id=consistencygroup.id)
 
         body = {"cgsnapshot": {"name": "cg1",
                                "description":
                                "CG Snapshot 1",
-                               "consistencygroup_id": consistencygroup_id}}
+                               "consistencygroup_id": consistencygroup.id}}
         req = webob.Request.blank('/v2/fake/cgsnapshots')
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
@@ -360,10 +346,12 @@ class CgsnapshotsAPITestCase(test.TestCase):
 
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 202)
+        self.assertEqual(202, res.status_int)
         self.assertIn('id', res_dict['cgsnapshot'])
+        self.assertTrue(mock_validate.called)
 
         db.cgsnapshot_destroy(context.get_admin_context(), cgsnapshot_id)
+        consistencygroup.destroy()
 
     def test_create_cgsnapshot_with_no_body(self):
         # omit body from the request
@@ -375,8 +363,8 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 400)
-        self.assertEqual(res_dict['badRequest']['code'], 400)
+        self.assertEqual(400, res.status_int)
+        self.assertEqual(400, res_dict['badRequest']['code'])
         self.assertEqual("Missing required element 'cgsnapshot' in "
                          "request body.",
                          res_dict['badRequest']['message'])
@@ -385,15 +373,14 @@ class CgsnapshotsAPITestCase(test.TestCase):
                        side_effect=exception.InvalidCgSnapshot(
                            reason='invalid cgsnapshot'))
     def test_create_with_invalid_cgsnapshot(self, mock_create_cgsnapshot):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         utils.create_volume(
-            self.context,
-            consistencygroup_id=consistencygroup_id)
+            self.context, consistencygroup_id=consistencygroup.id)
 
         body = {"cgsnapshot": {"name": "cg1",
                                "description":
                                "CG Snapshot 1",
-                               "consistencygroup_id": consistencygroup_id}}
+                               "consistencygroup_id": consistencygroup.id}}
         req = webob.Request.blank('/v2/fake/cgsnapshots')
         req.body = json.dumps(body)
         req.method = 'POST'
@@ -405,20 +392,20 @@ class CgsnapshotsAPITestCase(test.TestCase):
         self.assertEqual(400, res_dict['badRequest']['code'])
         self.assertEqual('Invalid CgSnapshot: invalid cgsnapshot',
                          res_dict['badRequest']['message'])
+        consistencygroup.destroy()
 
     @mock.patch.object(consistencygroupAPI.API, 'create_cgsnapshot',
                        side_effect=exception.CgSnapshotNotFound(
                            cgsnapshot_id='invalid_id'))
     def test_create_with_cgsnapshot_not_found(self, mock_create_cgsnapshot):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         utils.create_volume(
-            self.context,
-            consistencygroup_id=consistencygroup_id)
+            self.context, consistencygroup_id=consistencygroup.id)
 
         body = {"cgsnapshot": {"name": "cg1",
                                "description":
                                "CG Snapshot 1",
-                               "consistencygroup_id": consistencygroup_id}}
+                               "consistencygroup_id": consistencygroup.id}}
 
         req = webob.Request.blank('/v2/fake/cgsnapshots')
         req.method = 'POST'
@@ -431,14 +418,15 @@ class CgsnapshotsAPITestCase(test.TestCase):
         self.assertEqual(404, res_dict['itemNotFound']['code'])
         self.assertEqual('CgSnapshot invalid_id could not be found.',
                          res_dict['itemNotFound']['message'])
+        consistencygroup.destroy()
 
     def test_delete_cgsnapshot_available(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(
             self.context,
-            consistencygroup_id=consistencygroup_id)['id']
+            consistencygroup_id=consistencygroup.id)['id']
         cgsnapshot_id = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id,
+            consistencygroup_id=consistencygroup.id,
             status='available')
         req = webob.Request.blank('/v2/fake/cgsnapshots/%s' %
                                   cgsnapshot_id)
@@ -446,17 +434,15 @@ class CgsnapshotsAPITestCase(test.TestCase):
         req.headers['Content-Type'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 202)
-        self.assertEqual(self._get_cgsnapshot_attrib(cgsnapshot_id,
-                         'status'),
-                         'deleting')
+        self.assertEqual(202, res.status_int)
+        self.assertEqual('deleting', self._get_cgsnapshot_attrib(cgsnapshot_id,
+                         'status'))
 
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()
 
     def test_delete_cgsnapshot_with_cgsnapshot_NotFound(self):
         req = webob.Request.blank('/v2/fake/cgsnapshots/9999')
@@ -465,19 +451,17 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 404)
-        self.assertEqual(res_dict['itemNotFound']['code'], 404)
-        self.assertEqual(res_dict['itemNotFound']['message'],
-                         'CgSnapshot 9999 could not be found.')
+        self.assertEqual(404, res.status_int)
+        self.assertEqual(404, res_dict['itemNotFound']['code'])
+        self.assertEqual('CgSnapshot 9999 could not be found.',
+                         res_dict['itemNotFound']['message'])
 
     def test_delete_cgsnapshot_with_Invalidcgsnapshot(self):
-        consistencygroup_id = utils.create_consistencygroup(self.context)['id']
+        consistencygroup = utils.create_consistencygroup(self.context)
         volume_id = utils.create_volume(
-            self.context,
-            consistencygroup_id=consistencygroup_id)['id']
+            self.context, consistencygroup_id=consistencygroup.id)['id']
         cgsnapshot_id = self._create_cgsnapshot(
-            consistencygroup_id=consistencygroup_id,
-            status='invalid')
+            consistencygroup_id=consistencygroup.id, status='invalid')
         req = webob.Request.blank('/v2/fake/cgsnapshots/%s' %
                                   cgsnapshot_id)
         req.method = 'DELETE'
@@ -485,14 +469,13 @@ class CgsnapshotsAPITestCase(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         res_dict = json.loads(res.body)
 
-        self.assertEqual(res.status_int, 400)
-        self.assertEqual(res_dict['badRequest']['code'], 400)
-        self.assertEqual(res_dict['badRequest']['message'],
-                         'Invalid cgsnapshot')
+        self.assertEqual(400, res.status_int)
+        self.assertEqual(400, res_dict['badRequest']['code'])
+        self.assertEqual('Invalid cgsnapshot',
+                         res_dict['badRequest']['message'])
 
         db.cgsnapshot_destroy(context.get_admin_context(),
                               cgsnapshot_id)
         db.volume_destroy(context.get_admin_context(),
                           volume_id)
-        db.consistencygroup_destroy(context.get_admin_context(),
-                                    consistencygroup_id)
+        consistencygroup.destroy()

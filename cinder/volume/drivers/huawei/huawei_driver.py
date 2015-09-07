@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import six
 import uuid
 
 from oslo_config import cfg
@@ -21,13 +22,16 @@ from oslo_utils import excutils
 from oslo_utils import units
 
 from cinder import exception
-from cinder.i18n import _, _LI, _LW
+from cinder.i18n import _, _LE, _LI, _LW
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers.huawei import constants
+from cinder.volume.drivers.huawei import fc_zone_helper
 from cinder.volume.drivers.huawei import huawei_utils
 from cinder.volume.drivers.huawei import rest_client
+from cinder.volume.drivers.huawei import smartx
 from cinder.volume import utils as volume_utils
+from cinder.volume import volume_types
 from cinder.zonemanager import utils as fczm_utils
 
 LOG = logging.getLogger(__name__)
@@ -70,6 +74,10 @@ class HuaweiBaseDriver(driver.VolumeDriver):
     @utils.synchronized('huawei', external=True)
     def create_volume(self, volume):
         """Create a volume."""
+        opts = huawei_utils.get_volume_params(volume)
+        smartx_opts = smartx.SmartX().get_smartx_specs_opts(opts)
+        params = huawei_utils.get_lun_params(self.xml_file_path,
+                                             smartx_opts)
         pool_name = volume_utils.extract_host(volume['host'],
                                               level='pool')
         pools = self.restclient.find_all_pools()
@@ -88,7 +96,6 @@ class HuaweiBaseDriver(driver.VolumeDriver):
             {'volume': volume_name,
              'size': volume_size})
 
-        params = huawei_utils.get_lun_conf_params(self.xml_file_path)
         params['pool_id'] = pool_info['ID']
         params['volume_size'] = volume_size
         params['volume_description'] = volume_description
@@ -99,6 +106,21 @@ class HuaweiBaseDriver(driver.VolumeDriver):
         # Create LUN on the array.
         lun_info = self.restclient.create_volume(lun_param)
         lun_id = lun_info['ID']
+
+        try:
+            qos = huawei_utils.get_volume_qos(volume)
+            if qos:
+                smart_qos = smartx.SmartQos(self.restclient)
+                smart_qos.create_qos(qos, lun_id)
+            smartpartition = smartx.SmartPartition(self.restclient)
+            smartpartition.add(opts, lun_id)
+
+            smartcache = smartx.SmartCache(self.restclient)
+            smartcache.add(opts, lun_id)
+        except Exception as err:
+            self._delete_lun_with_check(lun_id)
+            raise exception.InvalidInput(
+                reason=_('Create volume error. Because %s.') % err)
 
         return {'provider_location': lun_info['ID'],
                 'ID': lun_id,
@@ -119,12 +141,252 @@ class HuaweiBaseDriver(driver.VolumeDriver):
                  {'name': name, 'lun_id': lun_id},)
         if lun_id:
             if self.restclient.check_lun_exist(lun_id):
+                qos_id = self.restclient.get_qosid_by_lunid(lun_id)
+                if qos_id:
+                    self.remove_qos_lun(lun_id, qos_id)
+
                 self.restclient.delete_lun(lun_id)
         else:
-            LOG.warning(_LW("Can't find %s on the array."), lun_id)
+            LOG.warning(_LW("Can't find lun %s on the array."), lun_id)
             return False
 
         return True
+
+    def remove_qos_lun(self, lun_id, qos_id):
+        lun_list = self.restclient.get_lun_list_in_qos(qos_id)
+        lun_count = len(lun_list)
+        if lun_count <= 1:
+            qos = smartx.SmartQos(self.restclient)
+            qos.delete_qos(qos_id)
+        else:
+            self.restclient.remove_lun_from_qos(lun_id,
+                                                lun_list,
+                                                qos_id)
+
+    def _delete_lun_with_check(self, lun_id):
+        if lun_id:
+            if self.restclient.check_lun_exist(lun_id):
+                qos_id = self.restclient.get_qosid_by_lunid(lun_id)
+                if qos_id:
+                    self.remove_qos_lun(lun_id, qos_id)
+
+                self.restclient.delete_lun(lun_id)
+
+    def _is_lun_migration_complete(self, src_id, dst_id):
+        result = self.restclient.get_lun_migration_task()
+        found_migration_task = False
+        if 'data' in result:
+            for item in result['data']:
+                if (src_id == item['PARENTID']
+                        and dst_id == item['TARGETLUNID']):
+                    found_migration_task = True
+                    if constants.MIGRATION_COMPLETE == item['RUNNINGSTATUS']:
+                        return True
+                    if constants.MIGRATION_FAULT == item['RUNNINGSTATUS']:
+                        err_msg = (_('Lun migration error.'))
+                        LOG.error(err_msg)
+                        raise exception.VolumeBackendAPIException(data=err_msg)
+        if not found_migration_task:
+            err_msg = (_("Cannot find migration task."))
+            LOG.error(err_msg)
+            raise exception.VolumeBackendAPIException(data=err_msg)
+
+        return False
+
+    def _is_lun_migration_exist(self, src_id, dst_id):
+        try:
+            result = self.restclient.get_lun_migration_task()
+        except Exception:
+            LOG.error(_LE("Get LUN migration error."))
+            return False
+        if 'data' in result:
+            for item in result['data']:
+                if (src_id == item['PARENTID']
+                        and dst_id == item['TARGETLUNID']):
+                    return True
+        return False
+
+    def _migrate_lun(self, src_id, dst_id):
+        try:
+            self.restclient.create_lun_migration(src_id, dst_id)
+
+            def _is_lun_migration_complete():
+                return self._is_lun_migration_complete(src_id, dst_id)
+
+            wait_interval = constants.MIGRATION_WAIT_INTERVAL
+            huawei_utils.wait_for_condition(self.xml_file_path,
+                                            _is_lun_migration_complete,
+                                            wait_interval)
+        # Clean up if migration failed.
+        except Exception as ex:
+            raise exception.VolumeBackendAPIException(data=ex)
+        finally:
+            if self._is_lun_migration_exist(src_id, dst_id):
+                self.restclient.delete_lun_migration(src_id, dst_id)
+            self._delete_lun_with_check(dst_id)
+
+        LOG.debug("Migrate lun %s successfully.", src_id)
+        return True
+
+    def _wait_volume_ready(self, lun_id):
+        event_type = 'LUNReadyWaitInterval'
+        wait_interval = huawei_utils.get_wait_interval(self.xml_file_path,
+                                                       event_type)
+
+        def _volume_ready():
+            result = self.restclient.get_lun_info(lun_id)
+            if (result['HEALTHSTATUS'] == constants.STATUS_HEALTH
+               and result['RUNNINGSTATUS'] == constants.STATUS_VOLUME_READY):
+                return True
+            return False
+
+        huawei_utils.wait_for_condition(self.xml_file_path,
+                                        _volume_ready,
+                                        wait_interval,
+                                        wait_interval * 10)
+
+    def _get_original_status(self, volume):
+        if not volume['volume_attachment']:
+            return 'available'
+        else:
+            return 'in-use'
+
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status=None):
+        original_name = huawei_utils.encode_name(volume['id'])
+        current_name = huawei_utils.encode_name(new_volume['id'])
+
+        lun_id = self.restclient.get_volume_by_name(current_name)
+        try:
+            self.restclient.rename_lun(lun_id, original_name)
+        except exception.VolumeBackendAPIException:
+            LOG.error(_LE('Unable to rename lun %s on array.'), current_name)
+            return {'_name_id': new_volume['_name_id'] or new_volume['id']}
+
+        LOG.debug("Rename lun from %(current_name)s to %(original_name)s "
+                  "successfully.",
+                  {'current_name': current_name,
+                   'original_name': original_name})
+
+        model_update = {'_name_id': None}
+
+        return model_update
+
+    def migrate_volume(self, ctxt, volume, host, new_type=None):
+        """Migrate a volume within the same array."""
+        return self._migrate_volume(volume, host, new_type)
+
+    def _check_migration_valid(self, host, volume):
+        if 'pool_name' not in host['capabilities']:
+            return False
+
+        target_device = host['capabilities']['location_info']
+
+        # Source and destination should be on same array.
+        if target_device != self.restclient.device_id:
+            return False
+
+        # Same protocol should be used if volume is in-use.
+        protocol = huawei_utils.get_protocol(self.xml_file_path)
+        if (host['capabilities']['storage_protocol'] != protocol
+                and self._get_original_status(volume) == 'in-use'):
+            return False
+
+        pool_name = host['capabilities']['pool_name']
+        if len(pool_name) == 0:
+            return False
+
+        return True
+
+    def _migrate_volume(self, volume, host, new_type=None):
+        if not self._check_migration_valid(host, volume):
+            return (False, None)
+
+        type_id = volume['volume_type_id']
+
+        volume_type = None
+        if type_id:
+            volume_type = volume_types.get_volume_type(None, type_id)
+
+        pool_name = host['capabilities']['pool_name']
+        pools = self.restclient.find_all_pools()
+        pool_info = self.restclient.find_pool_info(pool_name, pools)
+        src_volume_name = huawei_utils.encode_name(volume['id'])
+        dst_volume_name = six.text_type(hash(src_volume_name))
+        src_id = volume.get('provider_location', None)
+
+        src_lun_params = self.restclient.get_lun_info(src_id)
+
+        opts = None
+        qos = None
+        if new_type:
+            # If new type exists, use new type.
+            opts = huawei_utils._get_extra_spec_value(
+                new_type['extra_specs'])
+            opts = smartx.SmartX().get_smartx_specs_opts(opts)
+            if 'LUNType' not in opts:
+                opts['LUNType'] = huawei_utils.find_luntype_in_xml(
+                    self.xml_file_path)
+
+            qos = huawei_utils.get_qos_by_volume_type(new_type)
+        elif volume_type:
+            qos = huawei_utils.get_qos_by_volume_type(volume_type)
+
+        if not opts:
+            opts = huawei_utils.get_volume_params(volume)
+            opts = smartx.SmartX().get_smartx_specs_opts(opts)
+
+        lun_info = self._create_lun_with_extra_feature(pool_info,
+                                                       dst_volume_name,
+                                                       src_lun_params,
+                                                       opts)
+        lun_id = lun_info['ID']
+
+        if qos:
+            LOG.info(_LI('QoS: %s.'), qos)
+            SmartQos = smartx.SmartQos(self.restclient)
+            SmartQos.create_qos(qos, lun_id)
+        if opts:
+            smartpartition = smartx.SmartPartition(self.restclient)
+            smartpartition.add(opts, lun_id)
+            smartcache = smartx.SmartCache(self.restclient)
+            smartcache.add(opts, lun_id)
+
+        dst_id = lun_info['ID']
+        self._wait_volume_ready(dst_id)
+        moved = self._migrate_lun(src_id, dst_id)
+
+        return moved, {}
+
+    def _create_lun_with_extra_feature(self, pool_info,
+                                       lun_name,
+                                       lun_params,
+                                       spec_opts):
+        LOG.info(_LI('Create a new lun %s for migration.'), lun_name)
+
+        # Prepare lun parameters.
+        lunparam = {"TYPE": '11',
+                    "NAME": lun_name,
+                    "PARENTTYPE": '216',
+                    "PARENTID": pool_info['ID'],
+                    "ALLOCTYPE": lun_params['ALLOCTYPE'],
+                    "CAPACITY": lun_params['CAPACITY'],
+                    "WRITEPOLICY": lun_params['WRITEPOLICY'],
+                    "MIRRORPOLICY": lun_params['MIRRORPOLICY'],
+                    "PREFETCHPOLICY": lun_params['PREFETCHPOLICY'],
+                    "PREFETCHVALUE": lun_params['PREFETCHVALUE'],
+                    "DATATRANSFERPOLICY": '0',
+                    "READCACHEPOLICY": lun_params['READCACHEPOLICY'],
+                    "WRITECACHEPOLICY": lun_params['WRITECACHEPOLICY'],
+                    "OWNINGCONTROLLER": lun_params['OWNINGCONTROLLER'],
+                    }
+        if 'LUNType' in spec_opts:
+            lunparam['ALLOCTYPE'] = spec_opts['LUNType']
+        if spec_opts['policy']:
+            lunparam['DATATRANSFERPOLICY'] = spec_opts['policy']
+
+        lun_info = self.restclient.create_volume(lunparam)
+        return lun_info
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Create a volume from a snapshot.
@@ -165,9 +427,9 @@ class HuaweiBaseDriver(driver.VolumeDriver):
         def _volume_ready():
             result = self.restclient.get_lun_info(tgt_lun_id)
 
-            if result['HEALTHSTATUS'] == constants.STATUS_HEALTH:
-                if result['RUNNINGSTATUS'] == constants.STATUS_VOLUME_READY:
-                    return True
+            if (result['HEALTHSTATUS'] == constants.STATUS_HEALTH
+               and result['RUNNINGSTATUS'] == constants.STATUS_VOLUME_READY):
+                return True
             return False
 
         huawei_utils.wait_for_condition(self.xml_file_path,
@@ -178,13 +440,15 @@ class HuaweiBaseDriver(driver.VolumeDriver):
         self._copy_volume(volume, luncopy_name,
                           snapshot_id, tgt_lun_id)
 
-        return {'provider_location': lun_info['ID'],
+        return {'ID': lun_info['ID'],
                 'lun_info': lun_info}
 
     def create_cloned_volume(self, volume, src_vref):
         """Clone a new volume from an existing volume."""
         # Form the snapshot structure.
-        snapshot = {'id': uuid.uuid4().__str__(), 'volume_id': src_vref['id']}
+        snapshot = {'id': uuid.uuid4().__str__(),
+                    'volume_id': src_vref['id'],
+                    'volume': src_vref}
 
         # Create snapshot.
         self.create_snapshot(snapshot)
@@ -238,7 +502,7 @@ class HuaweiBaseDriver(driver.VolumeDriver):
     def create_snapshot(self, snapshot):
         snapshot_info = self.restclient.create_snapshot(snapshot)
         snapshot_id = snapshot_info['ID']
-        self.restclient.active_snapshot(snapshot_id)
+        self.restclient.activate_snapshot(snapshot_id)
 
         return {'provider_location': snapshot_info['ID'],
                 'lun_info': snapshot_info}
@@ -270,267 +534,221 @@ class HuaweiBaseDriver(driver.VolumeDriver):
 
         return True
 
-    @utils.synchronized('huawei', external=True)
-    def initialize_connection_fc(self, volume, connector):
-        wwns = connector['wwpns']
-        volume_name = huawei_utils.encode_name(volume['id'])
+    def retype(self, ctxt, volume, new_type, diff, host):
+        """Convert the volume to be of the new type."""
+        LOG.debug("Enter retype: id=%(id)s, new_type=%(new_type)s, "
+                  "diff=%(diff)s, host=%(host)s.", {'id': volume['id'],
+                                                    'new_type': new_type,
+                                                    'diff': diff,
+                                                    'host': host})
 
-        LOG.info(_LI(
-            'initialize_connection_fc, initiator: %(wwpns)s,'
-            ' volume name: %(volume)s.'),
-            {'wwpns': wwns,
-             'volume': volume_name},)
+        # Check what changes are needed
+        migration, change_opts, lun_id = self.determine_changes_when_retype(
+            volume, new_type, host)
 
-        host_name_before_hash = None
-        host_name = connector['host']
-        if host_name and (len(host_name) > constants.MAX_HOSTNAME_LENTH):
-            host_name_before_hash = host_name
-            host_name = str(hash(host_name))
-
-        # Create hostgroup if not exist.
-        host_id = self.restclient.add_host_with_check(host_name,
-                                                      host_name_before_hash)
-
-        # Add host into hostgroup.
-        hostgroup_id = self.restclient.add_host_into_hostgroup(host_id)
-
-        free_wwns = self.restclient.get_connected_free_wwns()
-        LOG.info(_LI("initialize_connection_fc, the array has free wwns: %s."),
-                 free_wwns)
-        for wwn in wwns:
-            if wwn in free_wwns:
-                self.restclient.add_fc_port_to_host(host_id, wwn)
-
-        lun_id = self.restclient.mapping_hostgroup_and_lungroup(volume_name,
-                                                                hostgroup_id,
-                                                                host_id)
-        host_lun_id = self.restclient.find_host_lun_id(host_id, lun_id)
-
-        tgt_port_wwns = []
-        for wwn in wwns:
-            tgtwwpns = self.restclient.get_fc_target_wwpns(wwn)
-            if tgtwwpns:
-                tgt_port_wwns.append(tgtwwpns)
-
-        init_targ_map = {}
-        for initiator in wwns:
-            init_targ_map[initiator] = tgt_port_wwns
-
-        # Return FC properties.
-        info = {'driver_volume_type': 'fibre_channel',
-                'data': {'target_lun': int(host_lun_id),
-                         'target_discovered': True,
-                         'target_wwn': tgt_port_wwns,
-                         'volume_id': volume['id'],
-                         'initiator_target_map': init_targ_map}, }
-
-        LOG.info(_LI("initialize_connection_fc, return data is: %s."),
-                 info)
-
-        return info
-
-    @utils.synchronized('huawei', external=True)
-    def initialize_connection_iscsi(self, volume, connector):
-        """Map a volume to a host and return target iSCSI information."""
-        LOG.info(_LI('Enter initialize_connection_iscsi.'))
-        initiator_name = connector['initiator']
-        volume_name = huawei_utils.encode_name(volume['id'])
-
-        LOG.info(_LI(
-            'initiator name: %(initiator_name)s, '
-            'volume name: %(volume)s.'),
-            {'initiator_name': initiator_name,
-             'volume': volume_name})
-
-        (iscsi_iqn,
-         target_ip,
-         portgroup_id) = self.restclient.get_iscsi_params(self.xml_file_path,
-                                                          connector)
-        LOG.info(_LI('initialize_connection_iscsi, iscsi_iqn: %(iscsi_iqn)s, '
-                     'target_ip: %(target_ip)s, '
-                     'TargetPortGroup: %(portgroup_id)s.'),
-                 {'iscsi_iqn': iscsi_iqn,
-                  'target_ip': target_ip,
-                  'portgroup_id': portgroup_id},)
-
-        # Create hostgroup if not exist.
-        host_name = connector['host']
-        host_name_before_hash = None
-        if host_name and (len(host_name) > constants.MAX_HOSTNAME_LENTH):
-            host_name_before_hash = host_name
-            host_name = str(hash(host_name))
-        host_id = self.restclient.add_host_with_check(host_name,
-                                                      host_name_before_hash)
-
-        # Add initiator to the host.
-        self.restclient.ensure_initiator_added(self.xml_file_path,
-                                               initiator_name,
-                                               host_id)
-        hostgroup_id = self.restclient.add_host_into_hostgroup(host_id)
-
-        # Mapping lungroup and hostgroup to view.
-        lun_id = self.restclient.mapping_hostgroup_and_lungroup(volume_name,
-                                                                hostgroup_id,
-                                                                host_id,
-                                                                portgroup_id)
-
-        hostlun_id = self.restclient.find_host_lun_id(host_id, lun_id)
-
-        LOG.info(_LI("initialize_connection_iscsi, host lun id is: %s."),
-                 hostlun_id)
-
-        iscsi_conf = huawei_utils.get_iscsi_conf(self.xml_file_path)
-        chapinfo = self.restclient.find_chap_info(iscsi_conf,
-                                                  initiator_name)
-        # Return iSCSI properties.
-        properties = {}
-        properties['target_discovered'] = False
-        properties['target_portal'] = ('%s:%s' % (target_ip, '3260'))
-        properties['target_iqn'] = iscsi_iqn
-        properties['target_lun'] = int(hostlun_id)
-        properties['volume_id'] = volume['id']
-
-        # If use CHAP, return CHAP info.
-        if chapinfo:
-            chap_username, chap_password = chapinfo.split(';')
-            properties['auth_method'] = 'CHAP'
-            properties['auth_username'] = chap_username
-            properties['auth_password'] = chap_password
-
-        LOG.info(_LI("initialize_connection_iscsi success. Return data: %s."),
-                 properties)
-        return {'driver_volume_type': 'iscsi', 'data': properties}
-
-    @utils.synchronized('huawei', external=True)
-    def terminate_connection_iscsi(self, volume, connector):
-        """Delete map between a volume and a host."""
-        initiator_name = connector['initiator']
-        volume_name = huawei_utils.encode_name(volume['id'])
-        lun_id = volume.get('provider_location', None)
-        host_name = connector['host']
-
-        LOG.info(_LI(
-            'terminate_connection_iscsi: volume name: %(volume)s, '
-            'initiator name: %(ini)s, '
-            'lun_id: %(lunid)s.'),
-            {'volume': volume_name,
-             'ini': initiator_name,
-             'lunid': lun_id},)
-
-        iscsi_conf = huawei_utils.get_iscsi_conf(self.xml_file_path)
-        portgroup = None
-        portgroup_id = None
-        left_lunnum = -1
-        for ini in iscsi_conf['Initiator']:
-            if ini['Name'] == initiator_name:
-                for key in ini:
-                    if key == 'TargetPortGroup':
-                        portgroup = ini['TargetPortGroup']
-                        break
-        # Remove lun from lungroup.
-        if lun_id:
-            if self.restclient.check_lun_exist(lun_id):
-                # Get lungroup id by lun id.
-                lungroup_id = self.restclient.get_lungroupid_by_lunid(lun_id)
-                if lungroup_id:
-                    self.restclient.remove_lun_from_lungroup(lungroup_id,
-                                                             lun_id)
-            else:
-                LOG.warning(_LW("Can't find lun on the array."))
-        # Remove portgroup from mapping view if no lun left in lungroup.
-        if portgroup:
-            portgroup_id = self.restclient.find_tgt_port_group(portgroup)
-        host_id = self.restclient.find_host(host_name)
-        if host_id:
-            mapping_view_name = constants.MAPPING_VIEW_PREFIX + host_id
-            view_id = self.restclient.find_mapping_view(mapping_view_name)
-            if view_id:
-                lungroup_id = self.restclient.find_lungroup_from_map(view_id)
-        if lungroup_id:
-            left_lunnum = self.restclient.get_lunnum_from_lungroup(lungroup_id)
-
-        if portgroup_id and view_id and (int(left_lunnum) <= 0):
-            if self.restclient.is_portgroup_associated_to_view(view_id,
-                                                               portgroup_id):
-                self.restclient.delete_portgroup_mapping_view(view_id,
-                                                              portgroup_id)
-        if view_id and (int(left_lunnum) <= 0):
-            self.restclient.remove_chap(initiator_name)
-
-            if self.restclient.lungroup_associated(view_id, lungroup_id):
-                self.restclient.delete_lungroup_mapping_view(view_id,
-                                                             lungroup_id)
-            self.restclient.delete_lungroup(lungroup_id)
-            if self.restclient.is_initiator_associated_to_host(initiator_name):
-                self.restclient.remove_iscsi_from_host(initiator_name)
-            hostgroup_name = constants.HOSTGROUP_PREFIX + host_id
-            hostgroup_id = self.restclient.find_hostgroup(hostgroup_name)
-            if hostgroup_id:
-                if self.restclient.hostgroup_associated(view_id, hostgroup_id):
-                    self.restclient.delete_hostgoup_mapping_view(view_id,
-                                                                 hostgroup_id)
-                self.restclient.remove_host_from_hostgroup(hostgroup_id,
-                                                           host_id)
-                self.restclient.delete_hostgroup(hostgroup_id)
-            self.restclient.remove_host(host_id)
-            self.restclient.delete_mapping_view(view_id)
-
-    def terminate_connection_fc(self, volume, connector):
-        """Delete map between a volume and a host."""
-        wwns = connector['wwpns']
-        volume_name = huawei_utils.encode_name(volume['id'])
-        lun_id = volume.get('provider_location', None)
-        host_name = connector['host']
-        left_lunnum = -1
-
-        LOG.info(_LI('terminate_connection_fc: volume name: %(volume)s, '
-                     'wwpns: %(wwns)s, '
-                     'lun_id: %(lunid)s.'),
-                 {'volume': volume_name,
-                  'wwns': wwns,
-                  'lunid': lun_id},)
-        if lun_id:
-            if self.restclient.check_lun_exist(lun_id):
-                # Get lungroup id by lun id.
-                lungroup_id = self.restclient.get_lungroupid_by_lunid(lun_id)
-                if not lungroup_id:
-                    LOG.info(_LI("Can't find lun in lungroup."))
+        try:
+            if migration:
+                LOG.debug("Begin to migrate LUN(id: %(lun_id)s) with "
+                          "change %(change_opts)s.",
+                          {"lun_id": lun_id, "change_opts": change_opts})
+                if self._migrate_volume(volume, host, new_type):
+                    return True
                 else:
-                    self.restclient.remove_lun_from_lungroup(lungroup_id,
-                                                             lun_id)
+                    LOG.warning(_LW("Storage-assisted migration failed during "
+                                    "retype."))
+                    return False
             else:
-                LOG.warning(_LW("Can't find lun on the array."))
-        tgt_port_wwns = []
-        for wwn in wwns:
-            tgtwwpns = self.restclient.get_fc_target_wwpns(wwn)
-            if tgtwwpns:
-                tgt_port_wwns.append(tgtwwpns)
+                # Modify lun to change policy
+                self.modify_lun(lun_id, change_opts)
+                return True
+        except exception.VolumeBackendAPIException:
+            LOG.exception(_LE('Retype volume error.'))
+            return False
 
-        init_targ_map = {}
-        for initiator in wwns:
-            init_targ_map[initiator] = tgt_port_wwns
-        host_id = self.restclient.find_host(host_name)
-        if host_id:
-            mapping_view_name = constants.MAPPING_VIEW_PREFIX + host_id
-            view_id = self.restclient.find_mapping_view(mapping_view_name)
-            if view_id:
-                lungroup_id = self.restclient.find_lungroup_from_map(view_id)
-        if lungroup_id:
-            left_lunnum = self.restclient.get_lunnum_from_lungroup(lungroup_id)
-        if int(left_lunnum) > 0:
-            info = {'driver_volume_type': 'fibre_channel',
-                    'data': {}}
-        else:
-            info = {'driver_volume_type': 'fibre_channel',
-                    'data': {'target_wwn': tgt_port_wwns,
-                             'initiator_target_map': init_targ_map}, }
+    def modify_lun(self, lun_id, change_opts):
+        if change_opts.get('partitionid', None):
+            old, new = change_opts['partitionid']
+            old_id = old[0]
+            old_name = old[1]
+            new_id = new[0]
+            new_name = new[1]
+            if old_id:
+                self.restclient.remove_lun_from_partition(lun_id, old_id)
+            if new_id:
+                self.restclient.add_lun_to_partition(lun_id, new_id)
+            LOG.info(_LI("Retype LUN(id: %(lun_id)s) smartpartition from "
+                         "(name: %(old_name)s, id: %(old_id)s) to "
+                         "(name: %(new_name)s, id: %(new_id)s) success."),
+                     {"lun_id": lun_id,
+                      "old_id": old_id, "old_name": old_name,
+                      "new_id": new_id, "new_name": new_name})
 
-        return info
+        if change_opts.get('cacheid', None):
+            old, new = change_opts['cacheid']
+            old_id = old[0]
+            old_name = old[1]
+            new_id = new[0]
+            new_name = new[1]
+            if old_id:
+                self.restclient.remove_lun_from_cache(lun_id, old_id)
+            if new_id:
+                self.restclient.add_lun_to_cache(lun_id, new_id)
+            LOG.info(_LI("Retype LUN(id: %(lun_id)s) smartcache from "
+                         "(name: %(old_name)s, id: %(old_id)s) to "
+                         "(name: %(new_name)s, id: %(new_id)s) successfully."),
+                     {'lun_id': lun_id,
+                      'old_id': old_id, "old_name": old_name,
+                      'new_id': new_id, "new_name": new_name})
 
-    def migrate_volume(self, context, volume, host):
-        return (False, None)
+        if change_opts.get('policy', None):
+            old_policy, new_policy = change_opts['policy']
+            self.restclient.change_lun_smarttier(lun_id, new_policy)
+            LOG.info(_LI("Retype LUN(id: %(lun_id)s) smarttier policy from "
+                         "%(old_policy)s to %(new_policy)s success."),
+                     {'lun_id': lun_id,
+                      'old_policy': old_policy,
+                      'new_policy': new_policy})
 
-    def create_export(self, context, volume):
+        if change_opts.get('qos', None):
+            old_qos, new_qos = change_opts['qos']
+            old_qos_id = old_qos[0]
+            old_qos_value = old_qos[1]
+            if old_qos_id:
+                self.remove_qos_lun(lun_id, old_qos_id)
+            if new_qos:
+                smart_qos = smartx.SmartQos(self.restclient)
+                smart_qos.create_qos(new_qos, lun_id)
+            LOG.info(_LI("Retype LUN(id: %(lun_id)s) smartqos from "
+                         "%(old_qos_value)s to %(new_qos)s success."),
+                     {'lun_id': lun_id,
+                      'old_qos_value': old_qos_value,
+                      'new_qos': new_qos})
+
+    def get_lun_specs(self, lun_id):
+        lun_opts = {
+            'policy': None,
+            'partitionid': None,
+            'cacheid': None,
+            'LUNType': None,
+        }
+
+        lun_info = self.restclient.get_lun_info(lun_id)
+        lun_opts['LUNType'] = int(lun_info['ALLOCTYPE'])
+        if lun_info['DATATRANSFERPOLICY']:
+            lun_opts['policy'] = lun_info['DATATRANSFERPOLICY']
+        if lun_info['SMARTCACHEPARTITIONID']:
+            lun_opts['cacheid'] = lun_info['SMARTCACHEPARTITIONID']
+        if lun_info['CACHEPARTITIONID']:
+            lun_opts['partitionid'] = lun_info['CACHEPARTITIONID']
+
+        return lun_opts
+
+    def determine_changes_when_retype(self, volume, new_type, host):
+        migration = False
+        change_opts = {
+            'policy': None,
+            'partitionid': None,
+            'cacheid': None,
+            'qos': None,
+            'host': None,
+            'LUNType': None,
+        }
+
+        lun_id = volume.get('provider_location', None)
+        old_opts = self.get_lun_specs(lun_id)
+
+        new_specs = new_type['extra_specs']
+        new_opts = huawei_utils._get_extra_spec_value(new_specs)
+        new_opts = smartx.SmartX().get_smartx_specs_opts(new_opts)
+
+        if 'LUNType' not in new_opts:
+            new_opts['LUNType'] = huawei_utils.find_luntype_in_xml(
+                self.xml_file_path)
+
+        if volume['host'] != host['host']:
+            migration = True
+            change_opts['host'] = (volume['host'], host['host'])
+        if old_opts['LUNType'] != new_opts['LUNType']:
+            migration = True
+            change_opts['LUNType'] = (old_opts['LUNType'], new_opts['LUNType'])
+
+        new_cache_id = None
+        new_cache_name = new_opts['cachename']
+        if new_cache_name:
+            new_cache_id = self.restclient.get_cache_id_by_name(new_cache_name)
+            if new_cache_id is None:
+                msg = (_(
+                    "Can't find cache name on the array, cache name is: "
+                    "%(name)s.") % {'name': new_cache_name})
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
+
+        new_partition_id = None
+        new_partition_name = new_opts['partitionname']
+        if new_partition_name:
+            new_partition_id = self.restclient.get_partition_id_by_name(
+                new_partition_name)
+            if new_partition_id is None:
+                msg = (_(
+                    "Can't find partition name on the array, partition name "
+                    "is: %(name)s.") % {'name': new_partition_name})
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
+
+        # smarttier
+        if old_opts['policy'] != new_opts['policy']:
+            change_opts['policy'] = (old_opts['policy'], new_opts['policy'])
+
+        # smartcache
+        old_cache_id = old_opts['cacheid']
+        if old_cache_id != new_cache_id:
+            old_cache_name = None
+            if old_cache_id:
+                cache_info = self.restclient.get_cache_info_by_id(old_cache_id)
+                old_cache_name = cache_info['NAME']
+            change_opts['cacheid'] = ([old_cache_id, old_cache_name],
+                                      [new_cache_id, new_cache_name])
+
+        # smartpartition
+        old_partition_id = old_opts['partitionid']
+        if old_partition_id != new_partition_id:
+            old_partition_name = None
+            if old_partition_id:
+                partition_info = self.restclient.get_partition_info_by_id(
+                    old_partition_id)
+                old_partition_name = partition_info['NAME']
+            change_opts['partitionid'] = ([old_partition_id,
+                                           old_partition_name],
+                                          [new_partition_id,
+                                           new_partition_name])
+
+        # smartqos
+        new_qos = huawei_utils.get_qos_by_volume_type(new_type)
+        old_qos_id = self.restclient.get_qosid_by_lunid(lun_id)
+        old_qos = self._get_qos_specs_from_array(old_qos_id)
+        if old_qos != new_qos:
+            change_opts['qos'] = ([old_qos_id, old_qos], new_qos)
+
+        LOG.debug("Determine changes when retype. Migration: "
+                  "%(migration)s, change_opts: %(change_opts)s.",
+                  {'migration': migration, 'change_opts': change_opts})
+        return migration, change_opts, lun_id
+
+    def _get_qos_specs_from_array(self, qos_id):
+        qos = {}
+        qos_info = {}
+        if qos_id:
+            qos_info = self.restclient.get_qos_info(qos_id)
+
+        for key, value in qos_info.items():
+            if key.upper() in constants.QOS_KEYS:
+                if key.upper() == 'LATENCY' and value == '0':
+                    continue
+                else:
+                    qos[key.upper()] = value
+        return qos
+
+    def create_export(self, context, volume, connector):
         """Export a volume."""
         pass
 
@@ -591,7 +809,14 @@ class Huawei18000ISCSIDriver(HuaweiBaseDriver, driver.ISCSIDriver):
 
     Version history:
         1.0.0 - Initial driver
-        1.1.0 - Provide Huawei OceanStor 18000 storage volume driver.
+        1.1.0 - Provide Huawei OceanStor 18000 storage volume driver
+        1.1.1 - Code refactor
+                CHAP support
+                Multiple pools support
+                ISCSI multipath support
+                SmartX support
+                Volume migration support
+                Volume retype support
     """
 
     VERSION = "1.1.1"
@@ -609,15 +834,171 @@ class Huawei18000ISCSIDriver(HuaweiBaseDriver, driver.ISCSIDriver):
         data['vendor_name'] = 'Huawei'
         return data
 
+    @utils.synchronized('huawei', external=True)
     def initialize_connection(self, volume, connector):
-        return HuaweiBaseDriver.initialize_connection_iscsi(self,
-                                                            volume,
-                                                            connector)
+        """Map a volume to a host and return target iSCSI information."""
+        LOG.info(_LI('Enter initialize_connection.'))
+        initiator_name = connector['initiator']
+        volume_name = huawei_utils.encode_name(volume['id'])
 
+        LOG.info(_LI(
+            'initiator name: %(initiator_name)s, '
+            'volume name: %(volume)s.'),
+            {'initiator_name': initiator_name,
+             'volume': volume_name})
+
+        (iscsi_iqns,
+         target_ips,
+         portgroup_id) = self.restclient.get_iscsi_params(self.xml_file_path,
+                                                          connector)
+        LOG.info(_LI('initialize_connection, iscsi_iqn: %(iscsi_iqn)s, '
+                     'target_ip: %(target_ip)s, '
+                     'portgroup_id: %(portgroup_id)s.'),
+                 {'iscsi_iqn': iscsi_iqns,
+                  'target_ip': target_ips,
+                  'portgroup_id': portgroup_id},)
+
+        # Create hostgroup if not exist.
+        host_name = connector['host']
+        host_name_before_hash = None
+        if host_name and (len(host_name) > constants.MAX_HOSTNAME_LENGTH):
+            host_name_before_hash = host_name
+            host_name = six.text_type(hash(host_name))
+        host_id = self.restclient.add_host_with_check(host_name,
+                                                      host_name_before_hash)
+
+        # Add initiator to the host.
+        self.restclient.ensure_initiator_added(self.xml_file_path,
+                                               initiator_name,
+                                               host_id)
+        hostgroup_id = self.restclient.add_host_into_hostgroup(host_id)
+
+        # Mapping lungroup and hostgroup to view.
+        lun_id = self.restclient.mapping_hostgroup_and_lungroup(volume_name,
+                                                                hostgroup_id,
+                                                                host_id,
+                                                                portgroup_id)
+
+        hostlun_id = self.restclient.find_host_lun_id(host_id, lun_id)
+
+        LOG.info(_LI("initialize_connection, host lun id is: %s."),
+                 hostlun_id)
+
+        iscsi_conf = huawei_utils.get_iscsi_conf(self.xml_file_path)
+        chapinfo = self.restclient.find_chap_info(iscsi_conf,
+                                                  initiator_name)
+        # Return iSCSI properties.
+        properties = {}
+        properties['target_discovered'] = False
+        properties['volume_id'] = volume['id']
+        multipath = connector.get('multipath', False)
+        hostlun_id = int(hostlun_id)
+        if not multipath:
+            properties['target_portal'] = ('%s:3260' % target_ips[0])
+            properties['target_iqn'] = iscsi_iqns[0]
+            properties['target_lun'] = hostlun_id
+        else:
+            properties['target_iqns'] = [iqn for iqn in iscsi_iqns]
+            properties['target_portals'] = [
+                '%s:3260' % ip for ip in target_ips]
+            properties['target_luns'] = [hostlun_id] * len(target_ips)
+
+        # If use CHAP, return CHAP info.
+        if chapinfo:
+            chap_username, chap_password = chapinfo.split(';')
+            properties['auth_method'] = 'CHAP'
+            properties['auth_username'] = chap_username
+            properties['auth_password'] = chap_password
+
+        LOG.info(_LI("initialize_connection success. Return data: %s."),
+                 properties)
+        return {'driver_volume_type': 'iscsi', 'data': properties}
+
+    @utils.synchronized('huawei', external=True)
     def terminate_connection(self, volume, connector, **kwargs):
-        return HuaweiBaseDriver.terminate_connection_iscsi(self,
-                                                           volume,
-                                                           connector)
+        """Delete map between a volume and a host."""
+        initiator_name = connector['initiator']
+        volume_name = huawei_utils.encode_name(volume['id'])
+        lun_id = volume.get('provider_location', None)
+        host_name = connector['host']
+        lungroup_id = None
+
+        LOG.info(_LI(
+            'terminate_connection: volume name: %(volume)s, '
+            'initiator name: %(ini)s, '
+            'lun_id: %(lunid)s.'),
+            {'volume': volume_name,
+             'ini': initiator_name,
+             'lunid': lun_id},)
+
+        iscsi_conf = huawei_utils.get_iscsi_conf(self.xml_file_path)
+        portgroup = None
+        portgroup_id = None
+        view_id = None
+        left_lunnum = -1
+        for ini in iscsi_conf['Initiator']:
+            if ini['Name'] == initiator_name:
+                for key in ini:
+                    if key == 'TargetPortGroup':
+                        portgroup = ini['TargetPortGroup']
+                        break
+
+        if portgroup:
+            portgroup_id = self.restclient.find_tgt_port_group(portgroup)
+        if host_name and (len(host_name) > constants.MAX_HOSTNAME_LENGTH):
+            host_name = six.text_type(hash(host_name))
+        host_id = self.restclient.find_host(host_name)
+        if host_id:
+            mapping_view_name = constants.MAPPING_VIEW_PREFIX + host_id
+            view_id = self.restclient.find_mapping_view(mapping_view_name)
+            if view_id:
+                lungroup_id = self.restclient.find_lungroup_from_map(view_id)
+
+        # Remove lun from lungroup.
+        if lun_id and self.restclient.check_lun_exist(lun_id):
+            if lungroup_id:
+                lungroup_ids = self.restclient.get_lungroupids_by_lunid(lun_id)
+                if lungroup_id in lungroup_ids:
+                    self.restclient.remove_lun_from_lungroup(lungroup_id,
+                                                             lun_id)
+                else:
+                    LOG.warning(_LW("Lun is not in lungroup. "
+                                    "Lun id: %(lun_id)s. "
+                                    "lungroup id: %(lungroup_id)s."),
+                                {"lun_id": lun_id,
+                                 "lungroup_id": lungroup_id})
+        else:
+            LOG.warning(_LW("Can't find lun on the array."))
+
+        # Remove portgroup from mapping view if no lun left in lungroup.
+        if lungroup_id:
+            left_lunnum = self.restclient.get_lunnum_from_lungroup(lungroup_id)
+
+        if portgroup_id and view_id and (int(left_lunnum) <= 0):
+            if self.restclient.is_portgroup_associated_to_view(view_id,
+                                                               portgroup_id):
+                self.restclient.delete_portgroup_mapping_view(view_id,
+                                                              portgroup_id)
+        if view_id and (int(left_lunnum) <= 0):
+            self.restclient.remove_chap(initiator_name)
+
+            if self.restclient.lungroup_associated(view_id, lungroup_id):
+                self.restclient.delete_lungroup_mapping_view(view_id,
+                                                             lungroup_id)
+            self.restclient.delete_lungroup(lungroup_id)
+            if self.restclient.is_initiator_associated_to_host(initiator_name):
+                self.restclient.remove_iscsi_from_host(initiator_name)
+            hostgroup_name = constants.HOSTGROUP_PREFIX + host_id
+            hostgroup_id = self.restclient.find_hostgroup(hostgroup_name)
+            if hostgroup_id:
+                if self.restclient.hostgroup_associated(view_id, hostgroup_id):
+                    self.restclient.delete_hostgoup_mapping_view(view_id,
+                                                                 hostgroup_id)
+                self.restclient.remove_host_from_hostgroup(hostgroup_id,
+                                                           host_id)
+                self.restclient.delete_hostgroup(hostgroup_id)
+            self.restclient.remove_host(host_id)
+            self.restclient.delete_mapping_view(view_id)
 
 
 class Huawei18000FCDriver(HuaweiBaseDriver, driver.FibreChannelDriver):
@@ -625,13 +1006,20 @@ class Huawei18000FCDriver(HuaweiBaseDriver, driver.FibreChannelDriver):
 
     Version history:
         1.0.0 - Initial driver
-        1.1.0 - Provide Huawei OceanStor 18000 storage volume driver.
+        1.1.0 - Provide Huawei OceanStor 18000 storage volume driver
+        1.1.1 - Code refactor
+                Multiple pools support
+                SmartX support
+                Volume migration support
+                Volume retype support
+                FC zone enhancement
     """
 
     VERSION = "1.1.1"
 
     def __init__(self, *args, **kwargs):
         super(Huawei18000FCDriver, self).__init__(*args, **kwargs)
+        self.fcsan_lookup_service = None
 
     def get_volume_stats(self, refresh=False):
         """Get volume status."""
@@ -640,17 +1028,180 @@ class Huawei18000FCDriver(HuaweiBaseDriver, driver.FibreChannelDriver):
         data['volume_backend_name'] = backend_name or self.__class__.__name__
         data['storage_protocol'] = 'FC'
         data['driver_version'] = self.VERSION
-        data['verdor_name'] = 'Huawei'
+        data['vendor_name'] = 'Huawei'
         return data
 
+    @utils.synchronized('huawei', external=True)
     @fczm_utils.AddFCZone
     def initialize_connection(self, volume, connector):
-        return HuaweiBaseDriver.initialize_connection_fc(self,
-                                                         volume,
-                                                         connector)
+        wwns = connector['wwpns']
+        volume_name = huawei_utils.encode_name(volume['id'])
+        LOG.info(_LI(
+            'initialize_connection, initiator: %(wwpns)s,'
+            ' volume name: %(volume)s.'),
+            {'wwpns': wwns,
+             'volume': volume_name},)
 
+        host_name_before_hash = None
+        host_name = connector['host']
+        if host_name and (len(host_name) > constants.MAX_HOSTNAME_LENGTH):
+            host_name_before_hash = host_name
+            host_name = six.text_type(hash(host_name))
+
+        if not self.fcsan_lookup_service:
+            self.fcsan_lookup_service = fczm_utils.create_lookup_service()
+
+        if self.fcsan_lookup_service:
+            # Use FC switch.
+            host_id = self.restclient.add_host_with_check(
+                host_name, host_name_before_hash)
+            zone_helper = fc_zone_helper.FCZoneHelper(
+                self.fcsan_lookup_service, self.restclient)
+            (tgt_port_wwns, init_targ_map) = (
+                zone_helper.build_ini_targ_map(wwns))
+            for ini in init_targ_map:
+                self.restclient.ensure_fc_initiator_added(ini, host_id)
+        else:
+            # Not use FC switch.
+            host_id = self.restclient.add_host_with_check(
+                host_name, host_name_before_hash)
+            online_wwns_in_host = (
+                self.restclient.get_host_online_fc_initiators(host_id))
+            online_free_wwns = self.restclient.get_online_free_wwns()
+            for wwn in wwns:
+                if (wwn not in online_wwns_in_host
+                        and wwn not in online_free_wwns):
+                    wwns_in_host = (
+                        self.restclient.get_host_fc_initiators(host_id))
+                    iqns_in_host = (
+                        self.restclient.get_host_iscsi_initiators(host_id))
+                    if not wwns_in_host and not iqns_in_host:
+                        self.restclient.remove_host(host_id)
+
+                    msg = (_('Can not add FC initiator to host.'))
+                    LOG.error(msg)
+                    raise exception.VolumeBackendAPIException(data=msg)
+
+            for wwn in wwns:
+                if wwn in online_free_wwns:
+                    self.restclient.add_fc_port_to_host(host_id, wwn)
+
+            (tgt_port_wwns, init_targ_map) = (
+                self.restclient.get_init_targ_map(wwns))
+
+        # Add host into hostgroup.
+        hostgroup_id = self.restclient.add_host_into_hostgroup(host_id)
+        lun_id = self.restclient.mapping_hostgroup_and_lungroup(volume_name,
+                                                                hostgroup_id,
+                                                                host_id)
+        host_lun_id = self.restclient.find_host_lun_id(host_id, lun_id)
+
+        # Return FC properties.
+        info = {'driver_volume_type': 'fibre_channel',
+                'data': {'target_lun': int(host_lun_id),
+                         'target_discovered': True,
+                         'target_wwn': tgt_port_wwns,
+                         'volume_id': volume['id'],
+                         'initiator_target_map': init_targ_map}, }
+
+        LOG.info(_LI("initialize_connection, return data is: %s."),
+                 info)
+
+        return info
+
+    @utils.synchronized('huawei', external=True)
     @fczm_utils.RemoveFCZone
     def terminate_connection(self, volume, connector, **kwargs):
-        return HuaweiBaseDriver.terminate_connection_fc(self,
-                                                        volume,
-                                                        connector)
+        """Delete map between a volume and a host."""
+        wwns = connector['wwpns']
+        volume_name = huawei_utils.encode_name(volume['id'])
+        lun_id = volume.get('provider_location', None)
+        host_name = connector['host']
+        left_lunnum = -1
+        lungroup_id = None
+        view_id = None
+        LOG.info(_LI('terminate_connection: volume name: %(volume)s, '
+                     'wwpns: %(wwns)s, '
+                     'lun_id: %(lunid)s.'),
+                 {'volume': volume_name,
+                  'wwns': wwns,
+                  'lunid': lun_id},)
+
+        if host_name and len(host_name) > constants.MAX_HOSTNAME_LENGTH:
+            host_name = six.text_type(hash(host_name))
+        host_id = self.restclient.find_host(host_name)
+        if host_id:
+            mapping_view_name = constants.MAPPING_VIEW_PREFIX + host_id
+            view_id = self.restclient.find_mapping_view(mapping_view_name)
+            if view_id:
+                lungroup_id = self.restclient.find_lungroup_from_map(view_id)
+
+        if lun_id and self.restclient.check_lun_exist(lun_id):
+            if lungroup_id:
+                lungroup_ids = self.restclient.get_lungroupids_by_lunid(lun_id)
+                if lungroup_id in lungroup_ids:
+                    self.restclient.remove_lun_from_lungroup(lungroup_id,
+                                                             lun_id)
+                else:
+                    LOG.warning(_LW("Lun is not in lungroup. "
+                                    "Lun id: %(lun_id)s. "
+                                    "Lungroup id: %(lungroup_id)s."),
+                                {"lun_id": lun_id,
+                                 "lungroup_id": lungroup_id})
+        else:
+            LOG.warning(_LW("Can't find lun on the array."))
+        if lungroup_id:
+            left_lunnum = self.restclient.get_lunnum_from_lungroup(lungroup_id)
+        if int(left_lunnum) > 0:
+            info = {'driver_volume_type': 'fibre_channel',
+                    'data': {}}
+        else:
+            if not self.fcsan_lookup_service:
+                self.fcsan_lookup_service = fczm_utils.create_lookup_service()
+
+            if self.fcsan_lookup_service:
+                zone_helper = fc_zone_helper.FCZoneHelper(
+                    self.fcsan_lookup_service, self.restclient)
+
+                (tgt_port_wwns, init_targ_map) = (
+                    zone_helper.build_ini_targ_map(wwns))
+            else:
+                (tgt_port_wwns, init_targ_map) = (
+                    self.restclient.get_init_targ_map(wwns))
+
+            for wwn in wwns:
+                if self.restclient.is_fc_initiator_associated_to_host(wwn):
+                    self.restclient.remove_fc_from_host(wwn)
+            if lungroup_id:
+                if view_id and self.restclient.lungroup_associated(
+                        view_id, lungroup_id):
+                    self.restclient.delete_lungroup_mapping_view(view_id,
+                                                                 lungroup_id)
+                self.restclient.delete_lungroup(lungroup_id)
+
+            if host_id:
+                hostgroup_name = constants.HOSTGROUP_PREFIX + host_id
+                hostgroup_id = self.restclient.find_hostgroup(hostgroup_name)
+                if hostgroup_id:
+                    if view_id and self.restclient.hostgroup_associated(
+                            view_id, hostgroup_id):
+                        self.restclient.delete_hostgoup_mapping_view(
+                            view_id, hostgroup_id)
+                    self.restclient.remove_host_from_hostgroup(
+                        hostgroup_id, host_id)
+                    self.restclient.delete_hostgroup(hostgroup_id)
+
+                if not self.restclient.check_fc_initiators_exist_in_host(
+                        host_id):
+                    self.restclient.remove_host(host_id)
+
+            if view_id:
+                self.restclient.delete_mapping_view(view_id)
+
+            info = {'driver_volume_type': 'fibre_channel',
+                    'data': {'target_wwn': tgt_port_wwns,
+                             'initiator_target_map': init_targ_map}}
+        LOG.info(_LI("terminate_connection, return data is: %s."),
+                 info)
+
+        return info

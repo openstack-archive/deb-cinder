@@ -1,5 +1,6 @@
 # Copyright (c) - 2015, Alex Meade
 # Copyright (c) - 2015, Yogesh Kshirsagar
+# Copyright (c) - 2015, Michael Price
 #  All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,6 +17,7 @@
 
 
 import copy
+import json
 
 import mock
 
@@ -23,6 +25,13 @@ from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp.eseries import utils
 import cinder.volume.drivers.netapp.options as na_opts
 
+
+def mock_netapp_lib(modules):
+    """Inject fake netapp_lib module classes."""
+    netapp_lib = mock.Mock()
+    netapp_lib.api.rest.rest.WebserviceClient = mock.Mock()
+    for module in modules:
+        setattr(module, 'netapp_restclient', netapp_lib.api.rest.rest)
 
 MULTIATTACH_HOST_GROUP = {
     'clusterRef': '8500000060080E500023C7340036035F515B78FC',
@@ -34,50 +43,438 @@ FOREIGN_HOST_GROUP = {
     'label': 'FOREIGN HOST GROUP',
 }
 
-STORAGE_POOL = {
-    'label': 'DDP',
-    'volumeGroupRef': 'fakevolgroupref',
-    'raidLevel': 'raidDiskPool',
-}
+SSC_POOLS = [
+    {
+        "poolId": "0400000060080E5000290D8000009C9955828DD2",
+        "name": "DDP",
+        "pool": {
+            "sequenceNum": 2,
+            "offline": False,
+            "raidLevel": "raidDiskPool",
+            "worldWideName": "60080E5000290D8000009C9955828DD2",
+            "volumeGroupRef": "0400000060080E5000290D8000009C9955828DD2",
+            "reserved1": "000000000000000000000000",
+            "reserved2": "",
+            "trayLossProtection": False,
+            "label": "DDP",
+            "state": "complete",
+            "spindleSpeedMatch": True,
+            "spindleSpeed": 7200,
+            "isInaccessible": False,
+            "securityType": "none",
+            "drawerLossProtection": True,
+            "protectionInformationCapable": False,
+            "protectionInformationCapabilities": {
+                "protectionInformationCapable": True,
+                "protectionType": "type2Protection"
+            },
+            "volumeGroupData": {
+                "type": "diskPool",
+                "diskPoolData": {
+                    "reconstructionReservedDriveCount": 1,
+                    "reconstructionReservedAmt": "2992518463488",
+                    "reconstructionReservedDriveCountCurrent": 1,
+                    "poolUtilizationWarningThreshold": 100,
+                    "poolUtilizationCriticalThreshold": 100,
+                    "poolUtilizationState": "utilizationOptimal",
+                    "unusableCapacity": "0",
+                    "degradedReconstructPriority": "high",
+                    "criticalReconstructPriority": "highest",
+                    "backgroundOperationPriority": "low",
+                    "allocGranularity": "4294967296"
+                }
+            },
+            "usage": "standard",
+            "driveBlockFormat": "allNative",
+            "reservedSpaceAllocated": True,
+            "usedSpace": "13653701033984",
+            "totalRaidedSpace": "23459111370752",
+            "extents": [
+                {
+                    "sectorOffset": "0",
+                    "rawCapacity": "9805410336768",
+                    "raidLevel": "raidDiskPool",
+                    "volumeGroupRef":
+                        "0400000060080E5000290D8000009C9955828DD2",
+                    "freeExtentRef":
+                        "0301000060080E5000290D8000009C9955828DD2",
+                    "reserved1": "000000000000000000000000",
+                    "reserved2": ""
+                }
+            ],
+            "largestFreeExtentSize": "9805410336768",
+            "raidStatus": "optimal",
+            "freeSpace": "9805410336768",
+            "drivePhysicalType": "sas",
+            "driveMediaType": "hdd",
+            "normalizedSpindleSpeed": "spindleSpeed7200",
+            "id": "0400000060080E5000290D8000009C9955828DD2",
+            "diskPool": True,
+            "name": "DDP"
+        },
+        "flashCacheCapable": True,
+        "dataAssuranceCapable": True,
+        "encrypted": False,
+        "thinProvisioningCapable": True,
+        "spindleSpeed": "spindleSpeed7200",
+        "raidLevel": "raidDiskPool",
+        "availableFreeExtentCapacities": [
+            "9805410336768"
+        ]
+    },
+    {
+        "poolId": "0400000060080E5000290D8000009CBA55828E96",
+        "name": "pool_raid1",
+        "pool": {
+            "sequenceNum": 6,
+            "offline": False,
+            "raidLevel": "raid1",
+            "worldWideName": "60080E5000290D8000009CBA55828E96",
+            "volumeGroupRef": "0400000060080E5000290D8000009CBA55828E96",
+            "reserved1": "000000000000000000000000",
+            "reserved2": "",
+            "trayLossProtection": False,
+            "label": "pool_raid1",
+            "state": "complete",
+            "spindleSpeedMatch": True,
+            "spindleSpeed": 10000,
+            "isInaccessible": False,
+            "securityType": "none",
+            "drawerLossProtection": True,
+            "protectionInformationCapable": False,
+            "protectionInformationCapabilities": {
+                "protectionInformationCapable": True,
+                "protectionType": "type2Protection"
+            },
+            "volumeGroupData": {
+                "type": "unknown",
+                "diskPoolData": None
+            },
+            "usage": "standard",
+            "driveBlockFormat": "allNative",
+            "reservedSpaceAllocated": True,
+            "usedSpace": "2978559819776",
+            "totalRaidedSpace": "6662444097536",
+            "extents": [
+                {
+                    "sectorOffset": "387891200",
+                    "rawCapacity": "3683884277760",
+                    "raidLevel": "raid1",
+                    "volumeGroupRef":
+                        "0400000060080E5000290D8000009CBA55828E96",
+                    "freeExtentRef":
+                        "030000B360080E5000290D8000009CBA55828E96",
+                    "reserved1": "000000000000000000000000",
+                    "reserved2": ""
+                }
+            ],
+            "largestFreeExtentSize": "3683884277760",
+            "raidStatus": "optimal",
+            "freeSpace": "3683884277760",
+            "drivePhysicalType": "sas",
+            "driveMediaType": "hdd",
+            "normalizedSpindleSpeed": "spindleSpeed10k",
+            "id": "0400000060080E5000290D8000009CBA55828E96",
+            "diskPool": False,
+            "name": "pool_raid1"
+        },
+        "flashCacheCapable": False,
+        "dataAssuranceCapable": True,
+        "encrypted": False,
+        "thinProvisioningCapable": False,
+        "spindleSpeed": "spindleSpeed10k",
+        "raidLevel": "raid1",
+        "availableFreeExtentCapacities": [
+            "3683884277760"
+        ]
+    },
+    {
+        "poolId": "0400000060080E5000290D8000009CAB55828E51",
+        "name": "pool_raid6",
+        "pool": {
+            "sequenceNum": 3,
+            "offline": False,
+            "raidLevel": "raid6",
+            "worldWideName": "60080E5000290D8000009CAB55828E51",
+            "volumeGroupRef": "0400000060080E5000290D8000009CAB55828E51",
+            "reserved1": "000000000000000000000000",
+            "reserved2": "",
+            "trayLossProtection": False,
+            "label": "pool_raid6",
+            "state": "complete",
+            "spindleSpeedMatch": True,
+            "spindleSpeed": 15000,
+            "isInaccessible": False,
+            "securityType": "enabled",
+            "drawerLossProtection": False,
+            "protectionInformationCapable": False,
+            "protectionInformationCapabilities": {
+                "protectionInformationCapable": True,
+                "protectionType": "type2Protection"
+            },
+            "volumeGroupData": {
+                "type": "unknown",
+                "diskPoolData": None
+            },
+            "usage": "standard",
+            "driveBlockFormat": "allNative",
+            "reservedSpaceAllocated": True,
+            "usedSpace": "16413217521664",
+            "totalRaidedSpace": "16637410312192",
+            "extents": [
+                {
+                    "sectorOffset": "1144950784",
+                    "rawCapacity": "224192790528",
+                    "raidLevel": "raid6",
+                    "volumeGroupRef":
+                        "0400000060080E5000290D8000009CAB55828E51",
+                    "freeExtentRef":
+                        "0300005960080E5000290D8000009CAB55828E51",
+                    "reserved1": "000000000000000000000000",
+                    "reserved2": ""
+                }
+            ],
+            "largestFreeExtentSize": "224192790528",
+            "raidStatus": "optimal",
+            "freeSpace": "224192790528",
+            "drivePhysicalType": "sas",
+            "driveMediaType": "hdd",
+            "normalizedSpindleSpeed": "spindleSpeed15k",
+            "id": "0400000060080E5000290D8000009CAB55828E51",
+            "diskPool": False,
+            "name": "pool_raid6"
+        },
+        "flashCacheCapable": False,
+        "dataAssuranceCapable": True,
+        "encrypted": True,
+        "thinProvisioningCapable": False,
+        "spindleSpeed": "spindleSpeed15k",
+        "raidLevel": "raid6",
+        "availableFreeExtentCapacities": [
+            "224192790528"
+        ]
+    }
+]
 
-VOLUME = {
-    'extremeProtection': False,
-    'pitBaseVolume': True,
-    'dssMaxSegmentSize': 131072,
-    'totalSizeInBytes': '1073741824',
-    'raidLevel': 'raid6',
-    'volumeRef': '0200000060080E500023BB34000003FB515C2293',
-    'listOfMappings': [],
-    'sectorOffset': '15',
-    'id': '0200000060080E500023BB34000003FB515C2293',
-    'wwn': '60080E500023BB3400001FC352D14CB2',
-    'capacity': '2147483648',
-    'mgmtClientAttribute': 0,
-    'label': 'CFDXJ67BLJH25DXCZFZD4NSF54',
-    'volumeFull': False,
-    'blkSize': 512,
-    'volumeCopyTarget': False,
-    'volumeGroupRef': '0400000060080E500023BB3400001F9F52CECC3F',
-    'preferredControllerId': '070000000000000000000001',
-    'currentManager': '070000000000000000000001',
-    'applicationTagOwned': False,
-    'status': 'optimal',
-    'segmentSize': 131072,
-    'volumeUse': 'standardVolume',
-    'action': 'none',
-    'preferredManager': '070000000000000000000001',
-    'volumeHandle': 15,
-    'offline': False,
-    'preReadRedundancyCheckEnabled': False,
-    'dssPreallocEnabled': False,
-    'name': 'bdm-vc-test-1',
-    'worldWideName': '60080E500023BB3400001FC352D14CB2',
-    'currentControllerId': '070000000000000000000001',
-    'protectionInformationCapable': False,
-    'mapped': False,
-    'reconPriority': 1,
-    'protectionType': 'type1Protection'
-}
+STORAGE_POOLS = [ssc_pool['pool'] for ssc_pool in SSC_POOLS]
+
+VOLUMES = [
+    {
+        "offline": False,
+        "extremeProtection": False,
+        "volumeHandle": 2,
+        "raidLevel": "raid0",
+        "sectorOffset": "0",
+        "worldWideName": "60080E50002998A00000945355C37C19",
+        "label": "1",
+        "blkSize": 512,
+        "capacity": "10737418240",
+        "reconPriority": 1,
+        "segmentSize": 131072,
+        "action": "initializing",
+        "cache": {
+            "cwob": False,
+            "enterpriseCacheDump": False,
+            "mirrorActive": True,
+            "mirrorEnable": True,
+            "readCacheActive": True,
+            "readCacheEnable": True,
+            "writeCacheActive": True,
+            "writeCacheEnable": True,
+            "cacheFlushModifier": "flush10Sec",
+            "readAheadMultiplier": 1
+        },
+        "mediaScan": {
+            "enable": False,
+            "parityValidationEnable": False
+        },
+        "volumeRef": "0200000060080E50002998A00000945355C37C19",
+        "status": "optimal",
+        "volumeGroupRef": "0400000060080E50002998A00000945255C37C14",
+        "currentManager": "070000000000000000000001",
+        "preferredManager": "070000000000000000000001",
+        "perms": {
+            "mapToLUN": True,
+            "snapShot": True,
+            "format": True,
+            "reconfigure": True,
+            "mirrorPrimary": True,
+            "mirrorSecondary": True,
+            "copySource": True,
+            "copyTarget": True,
+            "readable": True,
+            "writable": True,
+            "rollback": True,
+            "mirrorSync": True,
+            "newImage": True,
+            "allowDVE": True,
+            "allowDSS": True,
+            "concatVolumeMember": True,
+            "flashReadCache": True,
+            "asyncMirrorPrimary": True,
+            "asyncMirrorSecondary": True,
+            "pitGroup": True,
+            "cacheParametersChangeable": True,
+            "allowThinManualExpansion": False,
+            "allowThinGrowthParametersChange": False,
+            "allowVaulting": False,
+            "allowRestore": False
+        },
+        "mgmtClientAttribute": 0,
+        "dssPreallocEnabled": True,
+        "dssMaxSegmentSize": 2097152,
+        "preReadRedundancyCheckEnabled": False,
+        "protectionInformationCapable": False,
+        "protectionType": "type1Protection",
+        "applicationTagOwned": False,
+        "untrustworthy": 0,
+        "volumeUse": "standardVolume",
+        "volumeFull": False,
+        "volumeCopyTarget": False,
+        "volumeCopySource": False,
+        "pitBaseVolume": False,
+        "asyncMirrorTarget": False,
+        "asyncMirrorSource": False,
+        "remoteMirrorSource": False,
+        "remoteMirrorTarget": False,
+        "diskPool": False,
+        "flashCached": False,
+        "increasingBy": "0",
+        "metadata": [],
+        "dataAssurance": True,
+        "name": "1",
+        "id": "0200000060080E50002998A00000945355C37C19",
+        "wwn": "60080E50002998A00000945355C37C19",
+        "objectType": "volume",
+        "mapped": False,
+        "preferredControllerId": "070000000000000000000001",
+        "totalSizeInBytes": "10737418240",
+        "onlineVolumeCopy": False,
+        "listOfMappings": [],
+        "currentControllerId": "070000000000000000000001",
+        "cacheSettings": {
+            "cwob": False,
+            "enterpriseCacheDump": False,
+            "mirrorActive": True,
+            "mirrorEnable": True,
+            "readCacheActive": True,
+            "readCacheEnable": True,
+            "writeCacheActive": True,
+            "writeCacheEnable": True,
+            "cacheFlushModifier": "flush10Sec",
+            "readAheadMultiplier": 1
+        },
+        "thinProvisioned": False
+    },
+    {
+        "volumeHandle": 16385,
+        "worldWideName": "60080E500029347000001D7B55C3791E",
+        "label": "2",
+        "allocationGranularity": 128,
+        "capacity": "53687091200",
+        "reconPriority": 1,
+        "volumeRef": "3A00000060080E500029347000001D7B55C3791E",
+        "status": "optimal",
+        "repositoryRef": "3600000060080E500029347000001D7955C3791D",
+        "currentManager": "070000000000000000000002",
+        "preferredManager": "070000000000000000000002",
+        "perms": {
+            "mapToLUN": True,
+            "snapShot": False,
+            "format": True,
+            "reconfigure": False,
+            "mirrorPrimary": False,
+            "mirrorSecondary": False,
+            "copySource": True,
+            "copyTarget": False,
+            "readable": True,
+            "writable": True,
+            "rollback": True,
+            "mirrorSync": True,
+            "newImage": True,
+            "allowDVE": True,
+            "allowDSS": True,
+            "concatVolumeMember": False,
+            "flashReadCache": True,
+            "asyncMirrorPrimary": True,
+            "asyncMirrorSecondary": True,
+            "pitGroup": True,
+            "cacheParametersChangeable": True,
+            "allowThinManualExpansion": False,
+            "allowThinGrowthParametersChange": False,
+            "allowVaulting": False,
+            "allowRestore": False
+        },
+        "mgmtClientAttribute": 0,
+        "preReadRedundancyCheckEnabled": False,
+        "protectionType": "type0Protection",
+        "applicationTagOwned": True,
+        "maxVirtualCapacity": "69269232549888",
+        "initialProvisionedCapacity": "4294967296",
+        "currentProvisionedCapacity": "4294967296",
+        "provisionedCapacityQuota": "55834574848",
+        "growthAlertThreshold": 85,
+        "expansionPolicy": "automatic",
+        "volumeCache": {
+            "cwob": False,
+            "enterpriseCacheDump": False,
+            "mirrorActive": True,
+            "mirrorEnable": True,
+            "readCacheActive": True,
+            "readCacheEnable": True,
+            "writeCacheActive": True,
+            "writeCacheEnable": True,
+            "cacheFlushModifier": "flush10Sec",
+            "readAheadMultiplier": 0
+        },
+        "offline": False,
+        "volumeFull": False,
+        "volumeGroupRef": "0400000060080E50002998A00000945155C37C08",
+        "blkSize": 512,
+        "storageVolumeRef": "0200000060080E500029347000001D7855C3791D",
+        "volumeCopyTarget": False,
+        "volumeCopySource": False,
+        "pitBaseVolume": False,
+        "asyncMirrorTarget": False,
+        "asyncMirrorSource": False,
+        "remoteMirrorSource": False,
+        "remoteMirrorTarget": False,
+        "flashCached": False,
+        "mediaScan": {
+            "enable": False,
+            "parityValidationEnable": False
+        },
+        "metadata": [],
+        "dataAssurance": False,
+        "name": "2",
+        "id": "3A00000060080E500029347000001D7B55C3791E",
+        "wwn": "60080E500029347000001D7B55C3791E",
+        "objectType": "thinVolume",
+        "mapped": False,
+        "diskPool": True,
+        "preferredControllerId": "070000000000000000000002",
+        "totalSizeInBytes": "53687091200",
+        "onlineVolumeCopy": False,
+        "listOfMappings": [],
+        "currentControllerId": "070000000000000000000002",
+        "segmentSize": 131072,
+        "cacheSettings": {
+            "cwob": False,
+            "enterpriseCacheDump": False,
+            "mirrorActive": True,
+            "mirrorEnable": True,
+            "readCacheActive": True,
+            "readCacheEnable": True,
+            "writeCacheActive": True,
+            "writeCacheEnable": True,
+            "cacheFlushModifier": "flush10Sec",
+            "readAheadMultiplier": 0
+        },
+        "thinProvisioned": True
+    }
+]
+
+VOLUME = VOLUMES[0]
 
 INITIATOR_NAME = 'iqn.1998-01.com.vmware:localhost-28a58148'
 INITIATOR_NAME_2 = 'iqn.1998-01.com.vmware:localhost-28a58149'
@@ -391,6 +788,43 @@ HARDWARE_INVENTORY = {
     ]
 }
 
+FAKE_RESOURCE_URL = '/devmgr/v2/devmgr/utils/about'
+FAKE_APP_VERSION = '2015.2|2015.2.dev59|vendor|Linux-3.13.0-24-generic'
+FAKE_BACKEND = 'eseriesiSCSI'
+FAKE_CINDER_HOST = 'ubuntu-1404'
+FAKE_SERIAL_NUMBERS = ['021436000943', '021436001321']
+FAKE_SERIAL_NUMBER = ['021436001321']
+FAKE_DEFAULT_SERIAL_NUMBER = ['unknown', 'unknown']
+FAKE_DEFAULT_MODEL = 'unknown'
+FAKE_ABOUT_RESPONSE = {
+    'runningAsProxy': True,
+    'version': '01.53.9010.0005',
+    'systemId': 'a89355ab-692c-4d4a-9383-e249095c3c0',
+}
+
+FAKE_CONTROLLERS = [
+    {'serialNumber': FAKE_SERIAL_NUMBERS[0], 'modelName': '2752'},
+    {'serialNumber': FAKE_SERIAL_NUMBERS[1], 'modelName': '2752'}]
+
+FAKE_SINGLE_CONTROLLER = [{'serialNumber': FAKE_SERIAL_NUMBERS[1]}]
+
+FAKE_KEY = ('openstack-%s-%s-%s' % (FAKE_CINDER_HOST, FAKE_SERIAL_NUMBERS[0],
+                                    FAKE_SERIAL_NUMBERS[1]))
+
+FAKE_ASUP_DATA = {
+    'category': 'provisioning',
+    'app-version': FAKE_APP_VERSION,
+    'event-source': 'Cinder driver NetApp_iSCSI_ESeries',
+    'event-description': 'OpenStack Cinder connected to E-Series proxy',
+    'system-version': '08.10.15.00',
+    'computer-name': FAKE_CINDER_HOST,
+    'model': FAKE_CONTROLLERS[0]['modelName'],
+    'controller2-serial': FAKE_CONTROLLERS[1]['serialNumber'],
+    'controller1-serial': FAKE_CONTROLLERS[0]['serialNumber'],
+    'operating-mode': 'proxy',
+}
+FAKE_POST_INVOKE_DATA = ('POST', '/key-values/%s' % FAKE_KEY,
+                         json.dumps(FAKE_ASUP_DATA))
 
 VOLUME_COPY_JOB = {
     "status": "complete",
@@ -407,6 +841,19 @@ VOLUME_COPY_JOB = {
     "copyStartTime": "1389551671",
     "reserved1": "00000000",
     "targetVolume": "0200000060080E500023C73400000A8C52D10675",
+}
+
+FAKE_ENDPOINT_HTTP = 'http://host:80/endpoint'
+
+FAKE_ENDPOINT_HTTPS = 'https://host:8443/endpoint'
+
+FAKE_CLIENT_PARAMS = {
+    'scheme': 'http',
+    'host': '127.0.0.1',
+    'port': 8080,
+    'service_path': '/devmgr/vn',
+    'username': 'rw',
+    'password': 'rw',
 }
 
 
@@ -441,7 +888,9 @@ def deepcopy_return_value_method_decorator(fn):
 
 
 def deepcopy_return_value_class_decorator(cls):
-    """Wraps all 'non-protected' methods of a class with the
+    """Wraps 'non-protected' methods of a class with decorator.
+
+    Wraps all 'non-protected' methods of a class with the
     deepcopy_return_value_method_decorator decorator.
     """
     class NewClass(cls):
@@ -462,7 +911,7 @@ class FakeEseriesClient(object):
         pass
 
     def list_storage_pools(self):
-        return [STORAGE_POOL]
+        return STORAGE_POOLS
 
     def register_storage_system(self, *args, **kwargs):
         return {
@@ -490,6 +939,9 @@ class FakeEseriesClient(object):
             'model': '2650',
             'unconfiguredSpace': '0'
         }
+
+    def list_volume(self, volume_id):
+        return VOLUME
 
     def list_volumes(self):
         return [VOLUME]
@@ -580,6 +1032,27 @@ class FakeEseriesClient(object):
 
     def list_hardware_inventory(self):
         return HARDWARE_INVENTORY
+
+    def get_eseries_api_info(self, verify=False):
+        return 'Proxy', '1.53.9010.0005'
+
+    def set_counter(self, key):
+        pass
+
+    def add_autosupport_data(self, *args):
+        pass
+
+    def get_serial_numbers(self):
+        pass
+
+    def get_model_name(self):
+        pass
+
+    def api_operating_mode(self):
+        pass
+
+    def get_firmware_version(self):
+        return FAKE_POST_INVOKE_DATA["system-version"]
 
     def create_volume_copy_job(self, *args, **kwargs):
         return VOLUME_COPY_JOB

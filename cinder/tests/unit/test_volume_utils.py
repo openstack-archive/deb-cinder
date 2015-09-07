@@ -17,17 +17,21 @@
 
 
 import datetime
+import io
 import mock
+import six
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
 
+from cinder import context
 from cinder import exception
 from cinder import test
+from cinder.tests.unit import fake_snapshot
+from cinder.tests.unit import fake_volume
 from cinder import utils
 from cinder.volume import throttling
 from cinder.volume import utils as volume_utils
-
 
 CONF = cfg.CONF
 
@@ -192,11 +196,19 @@ class NotifyUsageTestCase(test.TestCase):
             'snapshot.test_suffix',
             mock_usage.return_value)
 
-    def test_usage_from_snapshot(self):
+    @mock.patch('cinder.objects.Volume.get_by_id')
+    def test_usage_from_snapshot(self, volume_get_by_id):
+        raw_volume = {
+            'id': '55614621',
+            'availability_zone': 'nova'
+        }
+        ctxt = context.get_admin_context()
+        volume_obj = fake_volume.fake_volume_obj(ctxt, **raw_volume)
+        volume_get_by_id.return_value = volume_obj
         raw_snapshot = {
             'project_id': '12b0330ec2584a',
             'user_id': '158cba1b8c2bb6008e',
-            'volume': {'availability_zone': 'nova'},
+            'volume': volume_obj,
             'volume_id': '55614621',
             'volume_size': 1,
             'id': '343434a2',
@@ -204,9 +216,13 @@ class NotifyUsageTestCase(test.TestCase):
             'created_at': '2014-12-11T10:10:00',
             'status': 'pause',
             'deleted': '',
-            'metadata': {'fake_snap_meta_key': 'fake_snap_meta_value'},
+            'snapshot_metadata': [{'key': 'fake_snap_meta_key',
+                                   'value': 'fake_snap_meta_value'}],
+            'expected_attrs': ['metadata'],
         }
-        usage_info = volume_utils._usage_from_snapshot(raw_snapshot)
+
+        snapshot_obj = fake_snapshot.fake_snapshot_obj(ctxt, **raw_snapshot)
+        usage_info = volume_utils._usage_from_snapshot(snapshot_obj)
         expected_snapshot = {
             'tenant_id': '12b0330ec2584a',
             'user_id': '158cba1b8c2bb6008e',
@@ -215,12 +231,13 @@ class NotifyUsageTestCase(test.TestCase):
             'volume_size': 1,
             'snapshot_id': '343434a2',
             'display_name': '11',
-            'created_at': '2014-12-11T10:10:00',
+            'created_at': 'DONTCARE',
             'status': 'pause',
             'deleted': '',
-            'metadata': "{'fake_snap_meta_key': 'fake_snap_meta_value'}",
+            'metadata': six.text_type({'fake_snap_meta_key':
+                                      u'fake_snap_meta_value'}),
         }
-        self.assertEqual(expected_snapshot, usage_info)
+        self.assertDictMatch(expected_snapshot, usage_info)
 
     @mock.patch('cinder.db.volume_glance_metadata_get')
     @mock.patch('cinder.db.volume_attachment_get_used_by_volume_id')
@@ -351,37 +368,64 @@ class NotifyUsageTestCase(test.TestCase):
             'cgsnapshot.test_suffix',
             mock_usage.return_value)
 
+    def test_usage_from_backup(self):
+        raw_backup = {
+            'project_id': '12b0330ec2584a',
+            'user_id': '158cba1b8c2bb6008e',
+            'availability_zone': 'nova',
+            'id': 'fake_id',
+            'host': 'fake_host',
+            'display_name': 'test_backup',
+            'created_at': '2014-12-11T10:10:00',
+            'status': 'available',
+            'volume_id': 'fake_volume_id',
+            'size': 1,
+            'service_metadata': None,
+            'service': 'cinder.backup.drivers.swift',
+            'fail_reason': None,
+            'parent_id': 'fake_parent_id',
+            'num_dependent_backups': 0,
+        }
+
+        # Make it easier to find out differences between raw and expected.
+        expected_backup = raw_backup.copy()
+        expected_backup['tenant_id'] = expected_backup.pop('project_id')
+        expected_backup['backup_id'] = expected_backup.pop('id')
+
+        usage_info = volume_utils._usage_from_backup(raw_backup)
+        self.assertEqual(expected_backup, usage_info)
+
 
 class LVMVolumeDriverTestCase(test.TestCase):
     def test_convert_blocksize_option(self):
         # Test valid volume_dd_blocksize
         bs, count = volume_utils._calculate_count(1024, '10M')
-        self.assertEqual(bs, '10M')
-        self.assertEqual(count, 103)
+        self.assertEqual('10M', bs)
+        self.assertEqual(103, count)
 
         bs, count = volume_utils._calculate_count(1024, '1xBBB')
-        self.assertEqual(bs, '1M')
-        self.assertEqual(count, 1024)
+        self.assertEqual('1M', bs)
+        self.assertEqual(1024, count)
 
         # Test 'volume_dd_blocksize' with fraction
         bs, count = volume_utils._calculate_count(1024, '1.3M')
-        self.assertEqual(bs, '1M')
-        self.assertEqual(count, 1024)
+        self.assertEqual('1M', bs)
+        self.assertEqual(1024, count)
 
         # Test zero-size 'volume_dd_blocksize'
         bs, count = volume_utils._calculate_count(1024, '0M')
-        self.assertEqual(bs, '1M')
-        self.assertEqual(count, 1024)
+        self.assertEqual('1M', bs)
+        self.assertEqual(1024, count)
 
         # Test negative 'volume_dd_blocksize'
         bs, count = volume_utils._calculate_count(1024, '-1M')
-        self.assertEqual(bs, '1M')
-        self.assertEqual(count, 1024)
+        self.assertEqual('1M', bs)
+        self.assertEqual(1024, count)
 
         # Test non-digital 'volume_dd_blocksize'
         bs, count = volume_utils._calculate_count(1024, 'ABM')
-        self.assertEqual(bs, '1M')
-        self.assertEqual(count, 1024)
+        self.assertEqual('1M', bs)
+        self.assertEqual(1024, count)
 
 
 class OdirectSupportTestCase(test.TestCase):
@@ -598,6 +642,23 @@ class CopyVolumeTestCase(test.TestCase):
                                           'iflag=direct', 'oflag=direct',
                                           'conv=sparse', run_as_root=True)
 
+    @mock.patch('cinder.volume.utils._copy_volume_with_file')
+    def test_copy_volume_handles(self, mock_copy):
+        handle1 = io.RawIOBase()
+        handle2 = io.RawIOBase()
+        output = volume_utils.copy_volume(handle1, handle2, 1024, 1)
+        self.assertIsNone(output)
+        mock_copy.assert_called_once_with(handle1, handle2, 1024)
+
+    @mock.patch('cinder.volume.utils._transfer_data')
+    @mock.patch('cinder.volume.utils._open_volume_with_path')
+    def test_copy_volume_handle_transfer(self, mock_open, mock_transfer):
+        handle = io.RawIOBase()
+        output = volume_utils.copy_volume('/foo/bar', handle, 1024, 1)
+        self.assertIsNone(output)
+        mock_transfer.assert_called_once_with(mock.ANY, mock.ANY,
+                                              1073741824, mock.ANY)
+
 
 class VolumeUtilsTestCase(test.TestCase):
     def test_null_safe_str(self):
@@ -651,61 +712,62 @@ class VolumeUtilsTestCase(test.TestCase):
     def test_extract_host(self):
         host = 'Host'
         # default level is 'backend'
-        self.assertEqual(
-            volume_utils.extract_host(host), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'host'), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'backend'), 'Host')
+        self.assertEqual(host,
+                         volume_utils.extract_host(host))
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'host'))
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'backend'))
         # default_pool_name doesn't work for level other than 'pool'
-        self.assertEqual(
-            volume_utils.extract_host(host, 'host', True), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'host', False), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'backend', True), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'backend', False), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool'), None)
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool', True), '_pool0')
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'host', True))
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'host', False))
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'backend', True))
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'backend', False))
+        self.assertEqual(None,
+                         volume_utils.extract_host(host, 'pool'))
+        self.assertEqual('_pool0',
+                         volume_utils.extract_host(host, 'pool', True))
 
         host = 'Host@Backend'
-        self.assertEqual(
-            volume_utils.extract_host(host), 'Host@Backend')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'host'), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'backend'), 'Host@Backend')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool'), None)
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool', True), '_pool0')
+        self.assertEqual('Host@Backend',
+                         volume_utils.extract_host(host))
+        self.assertEqual('Host',
+                         volume_utils.extract_host(host, 'host'))
+        self.assertEqual(host,
+                         volume_utils.extract_host(host, 'backend'))
+        self.assertEqual(None,
+                         volume_utils.extract_host(host, 'pool'))
+        self.assertEqual('_pool0',
+                         volume_utils.extract_host(host, 'pool', True))
 
         host = 'Host@Backend#Pool'
-        self.assertEqual(
-            volume_utils.extract_host(host), 'Host@Backend')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'host'), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'backend'), 'Host@Backend')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool'), 'Pool')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool', True), 'Pool')
+        pool = 'Pool'
+        self.assertEqual('Host@Backend',
+                         volume_utils.extract_host(host))
+        self.assertEqual('Host',
+                         volume_utils.extract_host(host, 'host'))
+        self.assertEqual('Host@Backend',
+                         volume_utils.extract_host(host, 'backend'))
+        self.assertEqual(pool,
+                         volume_utils.extract_host(host, 'pool'))
+        self.assertEqual(pool,
+                         volume_utils.extract_host(host, 'pool', True))
 
         host = 'Host#Pool'
-        self.assertEqual(
-            volume_utils.extract_host(host), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'host'), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'backend'), 'Host')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool'), 'Pool')
-        self.assertEqual(
-            volume_utils.extract_host(host, 'pool', True), 'Pool')
+        self.assertEqual('Host',
+                         volume_utils.extract_host(host))
+        self.assertEqual('Host',
+                         volume_utils.extract_host(host, 'host'))
+        self.assertEqual('Host',
+                         volume_utils.extract_host(host, 'backend'))
+        self.assertEqual(pool,
+                         volume_utils.extract_host(host, 'pool'))
+        self.assertEqual(pool,
+                         volume_utils.extract_host(host, 'pool', True))
 
     def test_append_host(self):
         host = 'Host'
@@ -741,3 +803,80 @@ class VolumeUtilsTestCase(test.TestCase):
 
         host_2 = 'fake_host2@backend1'
         self.assertFalse(volume_utils.hosts_are_equivalent(host_1, host_2))
+
+    def test_check_managed_volume_already_managed(self):
+        mock_db = mock.Mock()
+
+        result = volume_utils.check_already_managed_volume(
+            mock_db, 'volume-d8cd1feb-2dcc-404d-9b15-b86fe3bec0a1')
+        self.assertTrue(result)
+
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_check_already_managed_with_vol_id_vol_pattern(self, conf_mock):
+        mock_db = mock.Mock()
+        conf_mock.volume_name_template = 'volume-%s-volume'
+
+        result = volume_utils.check_already_managed_volume(
+            mock_db, 'volume-d8cd1feb-2dcc-404d-9b15-b86fe3bec0a1-volume')
+        self.assertTrue(result)
+
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_check_already_managed_with_id_vol_pattern(self, conf_mock):
+        mock_db = mock.Mock()
+        conf_mock.volume_name_template = '%s-volume'
+
+        result = volume_utils.check_already_managed_volume(
+            mock_db, 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1-volume')
+        self.assertTrue(result)
+
+    def test_check_managed_volume_not_managed_cinder_like_name(self):
+        mock_db = mock.Mock()
+        mock_db.volume_get = mock.Mock(
+            side_effect=exception.VolumeNotFound(
+                'volume-d8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'))
+
+        result = volume_utils.check_already_managed_volume(
+            mock_db, 'volume-d8cd1feb-2dcc-404d-9b15-b86fe3bec0a1')
+
+        self.assertFalse(result)
+
+    def test_check_managed_volume_not_managed(self):
+        mock_db = mock.Mock()
+
+        result = volume_utils.check_already_managed_volume(
+            mock_db, 'test-volume')
+
+        self.assertFalse(result)
+
+    def test_check_managed_volume_not_managed_id_like_uuid(self):
+        mock_db = mock.Mock()
+
+        result = volume_utils.check_already_managed_volume(
+            mock_db, 'volume-d8cd1fe')
+
+        self.assertFalse(result)
+
+    def test_convert_config_string_to_dict(self):
+        test_string = "{'key-1'='val-1' 'key-2'='val-2' 'key-3'='val-3'}"
+        expected_dict = {'key-1': 'val-1', 'key-2': 'val-2', 'key-3': 'val-3'}
+
+        self.assertEqual(
+            expected_dict,
+            volume_utils.convert_config_string_to_dict(test_string))
+
+    def test_process_reserve_over_quota(self):
+        ctxt = context.get_admin_context()
+        ctxt.project_id = 'fake'
+        overs_one = ['gigabytes']
+        over_two = ['snapshots']
+        usages = {'gigabytes': {'reserved': 1, 'in_use': 9},
+                  'snapshots': {'reserved': 1, 'in_use': 9}}
+        quotas = {'gigabytes': 10, 'snapshots': 10}
+        size = 1
+
+        self.assertRaises(exception.VolumeSizeExceedsAvailableQuota,
+                          volume_utils.process_reserve_over_quota,
+                          ctxt, overs_one, usages, quotas, size)
+        self.assertRaises(exception.SnapshotLimitExceeded,
+                          volume_utils.process_reserve_over_quota,
+                          ctxt, over_two, usages, quotas, size)

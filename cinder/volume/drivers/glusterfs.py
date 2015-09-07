@@ -16,35 +16,29 @@
 import errno
 import os
 import stat
+import warnings
 
 from os_brick.remotefs import remotefs as remotefs_brick
 from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import fileutils
 from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
-from cinder.openstack.common import fileutils
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers import remotefs as remotefs_drv
 
 LOG = logging.getLogger(__name__)
 
+
 volume_opts = [
     cfg.StrOpt('glusterfs_shares_config',
                default='/etc/cinder/glusterfs_shares',
                help='File with the list of available gluster shares'),
-    cfg.BoolOpt('glusterfs_sparsed_volumes',
-                default=True,
-                help=('Create volumes as sparsed files which take no space.'
-                      'If set to False volume is created as regular file.'
-                      'In such case volume creation takes a lot of time.')),
-    cfg.BoolOpt('glusterfs_qcow2_volumes',
-                default=False,
-                help=('Create volumes as QCOW2 files rather than raw files.')),
     cfg.StrOpt('glusterfs_mount_point_base',
                default='$state_path/mnt',
                help='Base dir containing mount points for gluster shares.'),
@@ -56,8 +50,9 @@ CONF.register_opts(volume_opts)
 
 class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
                       driver.ExtendVD):
-    """Gluster based cinder driver. Creates file on Gluster share for using it
-    as block device on hypervisor.
+    """Gluster based cinder driver.
+
+    Creates file on Gluster share for using it as block device on hypervisor.
 
     Operations such as create/delete/extend volume/snapshot use locking on a
     per-process basis to prevent multiple threads from modifying qcow2 chains
@@ -170,8 +165,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
         global_capacity = data['total_capacity_gb']
         global_free = data['free_capacity_gb']
 
-        thin_enabled = (self.configuration.glusterfs_sparsed_volumes or
-                        self.configuration.glusterfs_qcow2_volumes)
+        thin_enabled = self.configuration.nas_volume_prov_type == 'thin'
         if thin_enabled:
             provisioned_capacity = self._get_provisioned_capacity()
         else:
@@ -228,7 +222,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
 
         LOG.debug("will copy from snapshot at %s", path_to_snap_img)
 
-        if self.configuration.glusterfs_qcow2_volumes:
+        if self.configuration.nas_volume_prov_type == 'thin':
             out_format = 'qcow2'
         else:
             out_format = 'raw'
@@ -274,7 +268,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
 
         self._ensure_share_mounted(volume['provider_location'])
 
-    def create_export(self, ctx, volume):
+    def create_export(self, ctx, volume, connector):
         """Exports the volume."""
         pass
 
@@ -348,13 +342,19 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
-        if self.configuration.glusterfs_qcow2_volumes:
+        if self.configuration.nas_volume_prov_type == 'thin':
             self._create_qcow2_file(volume_path, volume_size)
         else:
-            if self.configuration.glusterfs_sparsed_volumes:
-                self._create_sparsed_file(volume_path, volume_size)
-            else:
-                self._create_regular_file(volume_path, volume_size)
+            try:
+                self._fallocate(volume_path, volume_size)
+            except processutils.ProcessExecutionError as exc:
+                if 'Operation not supported' in exc.stderr:
+                    warnings.warn('Fallocate not supported by current version '
+                                  'of glusterfs. So falling back to dd.')
+                    self._create_regular_file(volume_path, volume_size)
+                else:
+                    fileutils.delete_if_exists(volume_path)
+                    raise
 
         self._set_rw_permissions_for_all(volume_path)
 
@@ -376,6 +376,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
 
     def _ensure_share_mounted(self, glusterfs_share):
         """Mount GlusterFS share.
+
         :param glusterfs_share: string
         """
         mount_path = self._get_mount_point_for_share(glusterfs_share)
@@ -398,6 +399,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver, driver.CloneableVD,
 
     def _find_share(self, volume_size_for):
         """Choose GlusterFS share among available ones for given volume size.
+
         Current implementation looks for greatest capacity.
         :param volume_size_for: int size in GB
         """

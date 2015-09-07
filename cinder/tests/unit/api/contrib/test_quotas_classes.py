@@ -17,6 +17,9 @@
 Tests for cinder.api.contrib.quota_classes.py
 """
 
+
+import mock
+
 from lxml import etree
 import webob.exc
 
@@ -106,6 +109,17 @@ class QuotaClassSetsControllerTest(test.TestCase):
         result = self.controller.update(self.req, 'foo', body)
         self.assertDictMatch(result, body)
 
+    @mock.patch('cinder.api.openstack.wsgi.Controller.validate_string_length')
+    @mock.patch('cinder.api.openstack.wsgi.Controller.validate_integer')
+    def test_update_limit(self, mock_validate_integer, mock_validate):
+        mock_validate_integer.return_value = 5
+        volume_types.create(self.ctxt, 'fake_type')
+        body = make_body(volumes=5)
+        result = self.controller.update(self.req, 'foo', body)
+        self.assertEqual(5, result['quota_class_set']['volumes'])
+        self.assertTrue(mock_validate.called)
+        self.assertTrue(mock_validate_integer.called)
+
     def test_update_wrong_key(self):
         volume_types.create(self.ctxt, 'fake_type')
         body = {'quota_class_set': {'bad': 'bad'}}
@@ -151,7 +165,7 @@ class QuotaClassesSerializerTest(test.TestCase):
         quota_class_set = make_body(root=False)
         text = serializer.serialize({'quota_class_set': quota_class_set})
         tree = etree.fromstring(text)
-        self.assertEqual(tree.tag, 'quota_class_set')
+        self.assertEqual('quota_class_set', tree.tag)
         self.assertEqual(tree.get('id'), quota_class_set['id'])
         body = make_body(root=False, tenant_id=None)
         for node in tree:

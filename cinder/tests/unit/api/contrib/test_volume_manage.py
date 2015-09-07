@@ -135,7 +135,9 @@ class VolumeManageTest(test.TestCase):
         return res
 
     @mock.patch('cinder.volume.api.API.manage_existing', wraps=api_manage)
-    def test_manage_volume_ok(self, mock_api_manage):
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_manage_volume_ok(self, mock_validate, mock_api_manage):
         """Test successful manage volume execution.
 
         Tests for correct operation when valid arguments are passed in the
@@ -146,29 +148,32 @@ class VolumeManageTest(test.TestCase):
         body = {'volume': {'host': 'host_ok',
                            'ref': 'fake_ref'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 202, res)
+        self.assertEqual(202, res.status_int, res)
 
         # Check that the manage API was called with the correct arguments.
-        self.assertEqual(mock_api_manage.call_count, 1)
+        self.assertEqual(1, mock_api_manage.call_count)
         args = mock_api_manage.call_args[0]
         self.assertEqual(args[1], body['volume']['host'])
         self.assertEqual(args[2], body['volume']['ref'])
+        self.assertTrue(mock_validate.called)
 
     def test_manage_volume_missing_host(self):
         """Test correct failure when host is not specified."""
         body = {'volume': {'ref': 'fake_ref'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 400)
+        self.assertEqual(400, res.status_int)
 
     def test_manage_volume_missing_ref(self):
         """Test correct failure when the ref is not specified."""
         body = {'volume': {'host': 'host_ok'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 400)
+        self.assertEqual(400, res.status_int)
         pass
 
     @mock.patch('cinder.volume.api.API.manage_existing', api_manage)
-    def test_manage_volume_volume_type_by_uuid(self):
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_manage_volume_volume_type_by_uuid(self, mock_validate):
         """Tests for correct operation when a volume type is specified by ID.
 
         We wrap cinder.volume.api.API.manage_existing so that managing is not
@@ -179,11 +184,14 @@ class VolumeManageTest(test.TestCase):
                            'volume_type':
                            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 202, res)
+        self.assertEqual(202, res.status_int, res)
+        self.assertTrue(mock_validate.called)
         pass
 
     @mock.patch('cinder.volume.api.API.manage_existing', api_manage)
-    def test_manage_volume_volume_type_by_name(self):
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_manage_volume_volume_type_by_name(self, mock_validate):
         """Tests for correct operation when a volume type is specified by name.
 
         We wrap cinder.volume.api.API.manage_existing so that managing is not
@@ -193,7 +201,8 @@ class VolumeManageTest(test.TestCase):
                            'ref': 'fake_ref',
                            'volume_type': 'good_fakevt'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 202, res)
+        self.assertEqual(202, res.status_int, res)
+        self.assertTrue(mock_validate.called)
         pass
 
     def test_manage_volume_bad_volume_type_by_uuid(self):
@@ -203,7 +212,7 @@ class VolumeManageTest(test.TestCase):
                            'volume_type':
                            'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 404, res)
+        self.assertEqual(404, res.status_int, res)
         pass
 
     def test_manage_volume_bad_volume_type_by_name(self):
@@ -212,5 +221,5 @@ class VolumeManageTest(test.TestCase):
                            'ref': 'fake_ref',
                            'volume_type': 'bad_fakevt'}}
         res = self._get_resp(body)
-        self.assertEqual(res.status_int, 404, res)
+        self.assertEqual(404, res.status_int, res)
         pass

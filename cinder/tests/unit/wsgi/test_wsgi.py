@@ -27,7 +27,7 @@ from cinder import test
 import routes
 import webob
 
-from cinder import wsgi
+from cinder.wsgi import common as wsgi
 
 
 class Test(test.TestCase):
@@ -44,7 +44,7 @@ class Test(test.TestCase):
         with mock.patch('sys.stdout', new=six.StringIO()):
             application = wsgi.Debug(Application())
             result = webob.Request.blank('/').get_response(application)
-            self.assertEqual(result.body, "Test result")
+            self.assertEqual("Test result", result.body)
 
     def test_router(self):
 
@@ -64,6 +64,6 @@ class Test(test.TestCase):
                 super(Router, self).__init__(mapper)
 
         result = webob.Request.blank('/test').get_response(Router())
-        self.assertEqual(result.body, "Router result")
+        self.assertEqual("Router result", result.body)
         result = webob.Request.blank('/bad').get_response(Router())
-        self.assertNotEqual(result.body, "Router result")
+        self.assertNotEqual("Router result", result.body)

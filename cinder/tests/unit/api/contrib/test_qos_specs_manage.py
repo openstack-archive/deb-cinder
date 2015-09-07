@@ -290,7 +290,9 @@ class QoSSpecManageApiTest(test.TestCase):
                 side_effect=return_qos_specs_create)
     @mock.patch('cinder.volume.qos_specs.get_qos_specs_by_name',
                 side_effect=return_qos_specs_get_by_name)
-    def test_create(self, mock_qos_get_specs, mock_qos_spec_create):
+    @mock.patch('cinder.api.openstack.wsgi.Controller.validate_string_length')
+    def test_create(self, mock_validate, mock_qos_get_specs,
+                    mock_qos_spec_create):
 
         body = {"qos_specs": {"name": "qos_specs_1",
                               "key1": "value1"}}
@@ -302,6 +304,7 @@ class QoSSpecManageApiTest(test.TestCase):
 
             self.assertEqual(1, notifier.get_notification_count())
             self.assertEqual('qos_specs_1', res_dict['qos_specs']['name'])
+            self.assertTrue(mock_validate.called)
 
     @mock.patch('cinder.volume.qos_specs.create',
                 side_effect=return_qos_specs_create)
@@ -471,7 +474,7 @@ class QoSSpecManageApiTest(test.TestCase):
         req.headers['Accept'] = 'application/xml'
         res = req.get_response(fakes.wsgi_app())
 
-        self.assertEqual(res.status_int, 200)
+        self.assertEqual(200, res.status_int)
         dom = minidom.parseString(res.body)
         associations_response = dom.getElementsByTagName('associations')
         association = associations_response.item(0)
@@ -657,13 +660,13 @@ class TestQoSSpecsTemplate(test.TestCase):
         root = etree.XML(output)
         xmlutil.validate_schema(root, 'qos_specs')
         qos_elems = root.findall("qos_spec")
-        self.assertEqual(len(qos_elems), 2)
+        self.assertEqual(2, len(qos_elems))
         for i, qos_elem in enumerate(qos_elems):
             qos_dict = fixture['qos_specs'][i]
 
             # check qos_spec attributes
             for key in ['name', 'id', 'consumer']:
-                self.assertEqual(qos_elem.get(key), str(qos_dict[key]))
+                self.assertEqual(str(qos_dict[key]), qos_elem.get(key))
 
             # check specs
             specs = qos_elem.find("specs")
@@ -701,14 +704,14 @@ class TestAssociationsTemplate(test.TestCase):
         root = etree.XML(output)
         xmlutil.validate_schema(root, 'qos_associations')
         association_elems = root.findall("associations")
-        self.assertEqual(len(association_elems), 2)
+        self.assertEqual(2, len(association_elems))
         for i, association_elem in enumerate(association_elems):
             association_dict = fixture['qos_associations'][i]
 
             # check qos_spec attributes
             for key in ['name', 'id', 'association_type']:
-                self.assertEqual(association_elem.get(key),
-                                 str(association_dict[key]))
+                self.assertEqual(str(association_dict[key]),
+                                 association_elem.get(key))
 
 
 class TestQoSSpecsKeyDeserializer(test.TestCase):
@@ -723,7 +726,7 @@ class TestQoSSpecsKeyDeserializer(test.TestCase):
         expected = {
             "keys": ["xyz", "abc"]
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_bad_format(self):
         self_request = """

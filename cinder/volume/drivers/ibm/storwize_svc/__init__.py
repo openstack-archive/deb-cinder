@@ -63,10 +63,12 @@ storwize_svc_opts = [
                help='Storage system storage pool for volumes'),
     cfg.IntOpt('storwize_svc_vol_rsize',
                default=2,
+               min=-1, max=100,
                help='Storage system space-efficiency parameter for volumes '
                     '(percentage)'),
     cfg.IntOpt('storwize_svc_vol_warning',
                default=0,
+               min=-1, max=100,
                help='Storage system threshold for volume capacity warnings '
                     '(percentage)'),
     cfg.BoolOpt('storwize_svc_vol_autoexpand',
@@ -88,8 +90,9 @@ storwize_svc_opts = [
                help='The I/O group in which to allocate volumes'),
     cfg.IntOpt('storwize_svc_flashcopy_timeout',
                default=120,
+               min=1, max=600,
                help='Maximum number of seconds to wait for FlashCopy to be '
-                    'prepared. Maximum value is 600 seconds (10 minutes)'),
+                    'prepared.'),
     cfg.StrOpt('storwize_svc_connection_protocol',
                default='iSCSI',
                help='Connection protocol (iSCSI/FC)'),
@@ -133,7 +136,6 @@ class StorwizeSVCDriver(san.SanDriver,
                         driver.MigrateVD, driver.ReplicaVD,
                         driver.ConsistencyGroupVD,
                         driver.CloneableVD, driver.CloneableImageVD,
-                        driver.RetypeVD,
                         driver.TransferVD):
     """IBM Storwize V7000 and SVC iSCSI/FC volume driver.
 
@@ -205,12 +207,12 @@ class StorwizeSVCDriver(san.SanDriver,
             raise exception.InvalidInput(reason=msg)
 
         # Check if compression is supported
-        self._state['compression_enabled'] = \
-            self._helpers.compression_enabled()
+        self._state['compression_enabled'] = (self._helpers.
+                                              compression_enabled())
 
         # Get the available I/O groups
-        self._state['available_iogrps'] = \
-            self._helpers.get_available_io_groups()
+        self._state['available_iogrps'] = (self._helpers.
+                                           get_available_io_groups())
 
         # Get the iSCSI and FC names of the Storwize/SVC nodes
         self._state['storage_nodes'] = self._helpers.get_node_info()
@@ -290,15 +292,6 @@ class StorwizeSVCDriver(san.SanDriver,
                          'authentication: set either san_password or '
                          'san_private_key option.'))
 
-        # Check that flashcopy_timeout is not more than 10 minutes
-        flashcopy_timeout = self.configuration.storwize_svc_flashcopy_timeout
-        if not (flashcopy_timeout > 0 and flashcopy_timeout <= 600):
-            raise exception.InvalidInput(
-                reason=_('Illegal value %d specified for '
-                         'storwize_svc_flashcopy_timeout: '
-                         'valid values are between 0 and 600.')
-                % flashcopy_timeout)
-
         opts = self._helpers.build_default_opts(self.configuration)
         self._helpers.check_vdisk_opts(self._state, opts)
 
@@ -315,7 +308,7 @@ class StorwizeSVCDriver(san.SanDriver,
             LOG.error(_LE('ensure_export: Volume %s not found on storage.'),
                       volume['name'])
 
-    def create_export(self, ctxt, volume):
+    def create_export(self, ctxt, volume, connector):
         model_update = None
         return model_update
 
@@ -345,8 +338,7 @@ class StorwizeSVCDriver(san.SanDriver,
     @fczm_utils.AddFCZone
     @utils.synchronized('storwize-host', external=True)
     def initialize_connection(self, volume, connector):
-        """Perform the necessary work so that an iSCSI/FC connection can
-        be made.
+        """Perform necessary work to make an iSCSI/FC connection.
 
         To be able to create an iSCSI/FC connection from a given host to a
         volume, we must:
@@ -469,8 +461,8 @@ class StorwizeSVCDriver(san.SanDriver,
                 if len(conn_wwpns) == 0:
                     # TODO(xqli): Remove storwize_svc_npiv_compatibility_mode
                     # in M release.
-                    npiv_compat = self.configuration.\
-                        storwize_svc_npiv_compatibility_mode
+                    npiv_compat = (self.configuration.
+                                   storwize_svc_npiv_compatibility_mode)
                     if not npiv_compat:
                         msg = (_('Could not get FC connection information for '
                                  'the host-volume connection. Is the host '

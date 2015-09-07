@@ -200,6 +200,7 @@ class GlanceImageService(object):
     def __init__(self, client=None):
         self._client = client or GlanceClientWrapper()
         self._image_schema = None
+        self.temp_images = None
 
     def detail(self, context, **kwargs):
         """Calls out to Glance for a list of detailed image information."""
@@ -245,9 +246,11 @@ class GlanceImageService(object):
         return base_image_meta
 
     def get_location(self, context, image_id):
-        """Returns a tuple of the direct url and locations representing the
-        backend storage location, or (None, None) if these attributes are not
-        shown by Glance.
+        """Get backend storage location url.
+
+        Returns a tuple containing the direct url and locations representing
+        the backend storage location, or (None, None) if these attributes are
+        not shown by Glance.
         """
         if CONF.glance_api_version == 1:
             # image location not available in v1
@@ -267,6 +270,30 @@ class GlanceImageService(object):
         # so composite of two needs to be returned.
         return (getattr(image_meta, 'direct_url', None),
                 getattr(image_meta, 'locations', None))
+
+    def add_location(self, context, image_id, url, metadata):
+        """Add a backend location url to an image.
+
+        Returns a dict containing image metadata on success.
+        """
+        if CONF.glance_api_version != 2:
+            raise exception.Invalid("Image API version 2 is disabled.")
+        client = GlanceClientWrapper(version=2)
+        try:
+            return client.call(context, 'add_location',
+                               image_id, url, metadata)
+        except Exception:
+            _reraise_translated_image_exception(image_id)
+
+    def delete_locations(self, context, image_id, url_set):
+        """Delete backend location urls from an image."""
+        if CONF.glance_api_version != 2:
+            raise exception.Invalid("Image API version 2 is disabled.")
+        client = GlanceClientWrapper(version=2)
+        try:
+            return client.call(context, 'delete_locations', image_id, url_set)
+        except Exception:
+            _reraise_translated_image_exception(image_id)
 
     def download(self, context, image_id, data=None):
         """Calls out to Glance for data and writes data."""
@@ -323,8 +350,8 @@ class GlanceImageService(object):
         try:
             # NOTE(dosaboy): the v2 api separates update from upload
             if data and CONF.glance_api_version > 1:
-                image_meta = self._client.call(context, 'upload', image_id,
-                                               image_meta['data'])
+                self._client.call(context, 'upload', image_id, data)
+                image_meta = self._client.call(context, 'get', image_id)
             else:
                 image_meta = self._client.call(context, 'update', image_id,
                                                **image_meta)

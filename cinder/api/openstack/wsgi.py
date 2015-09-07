@@ -31,7 +31,7 @@ from cinder import exception
 from cinder import i18n
 from cinder.i18n import _, _LE, _LI
 from cinder import utils
-from cinder import wsgi
+from cinder.wsgi import common as wsgi
 
 
 XML_NS_V1 = 'http://docs.openstack.org/api/openstack-block-storage/1.0/content'
@@ -134,7 +134,9 @@ class Request(webob.Request):
         return resources.get(resource_id)
 
     def cache_db_items(self, key, items, item_key='id'):
-        """Allow API methods to store objects from a DB query to be
+        """Get cached database items.
+
+        Allow API methods to store objects from a DB query to be
         used by API extensions within the same API request.
 
         An instance of this class only lives for the lifetime of a
@@ -144,7 +146,9 @@ class Request(webob.Request):
         self.cache_resource(items, item_key, key)
 
     def get_db_items(self, key):
-        """Allow an API extension to get previously stored objects within
+        """Get database items.
+
+        Allow an API extension to get previously stored objects within
         the same API request.
 
         Note that the object data will be slightly stale.
@@ -152,7 +156,9 @@ class Request(webob.Request):
         return self.cached_resource(key)
 
     def get_db_item(self, key, item_key):
-        """Allow an API extension to get a previously stored object
+        """Get database item.
+
+        Allow an API extension to get a previously stored object
         within the same API request.
 
         Note that the object data will be slightly stale.
@@ -238,7 +244,6 @@ class Request(webob.Request):
         """Determine content type of the request body.
 
         Does not do any body introspection, only checks header
-
         """
         if "Content-Type" not in self.headers:
             return None
@@ -325,7 +330,6 @@ class XMLDeserializer(TextDeserializer):
 
         :param listnames: list of XML node names whose subnodes should
                           be considered list items.
-
         """
         if len(node.childNodes) == 1 and node.childNodes[0].nodeType == 3:
             return node.childNodes[0].nodeValue
@@ -768,7 +772,6 @@ class Resource(wsgi.Application):
 
     Exceptions derived from webob.exc.HTTPException will be automatically
     wrapped in Fault() to provide API friendly error responses.
-
     """
 
     def __init__(self, controller, action_peek=None, **deserializers):
@@ -1216,6 +1219,74 @@ class Controller(object):
             raise webob.exc.HTTPBadRequest(
                 explanation=_("Missing required element '%s' in "
                               "request body.") % entity_name)
+
+    @staticmethod
+    def validate_name_and_description(body):
+        name = body.get('name')
+        if name is not None:
+            if isinstance(name, six.string_types):
+                body['name'] = name.strip()
+            try:
+                utils.check_string_length(body['name'], 'Name',
+                                          min_length=0, max_length=255)
+            except exception.InvalidInput as error:
+                raise webob.exc.HTTPBadRequest(explanation=error.msg)
+
+        description = body.get('description')
+        if description is not None:
+            try:
+                utils.check_string_length(description, 'Description',
+                                          min_length=0, max_length=255)
+            except exception.InvalidInput as error:
+                raise webob.exc.HTTPBadRequest(explanation=error.msg)
+
+    @staticmethod
+    def validate_string_length(value, entity_name, min_length=0,
+                               max_length=None, remove_whitespaces=False):
+        """Check the length of specified string.
+
+        :param value: the value of the string
+        :param entity_name: the name of the string
+        :param min_length: the min_length of the string
+        :param max_length: the max_length of the string
+        :param remove_whitespaces: True if trimming whitespaces is needed
+                                   else False
+        """
+        if isinstance(value, six.string_types) and remove_whitespaces:
+            value = value.strip()
+        try:
+            utils.check_string_length(value, entity_name,
+                                      min_length=min_length,
+                                      max_length=max_length)
+        except exception.InvalidInput as error:
+            raise webob.exc.HTTPBadRequest(explanation=error.msg)
+
+    @staticmethod
+    def validate_integer(value, name, min_value=None, max_value=None):
+        """Make sure that value is a valid integer, potentially within range.
+
+        :param value: the value of the integer
+        :param name: the name of the integer
+        :param min_length: the min_length of the integer
+        :param max_length: the max_length of the integer
+        :returns: integer
+        """
+        try:
+            value = int(value)
+        except (TypeError, ValueError, UnicodeEncodeError):
+            raise webob.exc.HTTPBadRequest(explanation=(
+                _('%s must be an integer.') % name))
+
+        if min_value is not None and value < min_value:
+            raise webob.exc.HTTPBadRequest(
+                explanation=(_('%(value_name)s must be >= %(min_value)d') %
+                             {'value_name': name, 'min_value': min_value}))
+        if max_value is not None and value > max_value:
+            raise webob.exc.HTTPBadRequest(
+                explanation=(_('%(value_name)s must be <= %(max_value)d') %
+                             {'value_name': name, 'max_value': max_value}))
+
+        return value
 
 
 class Fault(webob.exc.HTTPException):

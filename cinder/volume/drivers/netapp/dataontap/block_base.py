@@ -27,18 +27,23 @@ import sys
 import uuid
 
 from oslo_log import log as logging
+from oslo_log import versionutils
 from oslo_utils import excutils
+from oslo_utils import importutils
 from oslo_utils import units
 import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import utils
-from cinder.volume.drivers.netapp.dataontap.client import api as na_api
 from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume import utils as volume_utils
 from cinder.zonemanager import utils as fczm_utils
+
+netapp_lib = importutils.try_import('netapp_lib')
+if netapp_lib:
+    from netapp_lib.api.zapi import zapi as netapp_api
 
 
 LOG = logging.getLogger(__name__)
@@ -94,6 +99,7 @@ class NetAppBlockStorageLibrary(object):
         self.lun_table = {}
         self.lun_ostype = None
         self.host_type = None
+        self.lun_space_reservation = 'true'
         self.lookup_service = fczm_utils.create_lookup_service()
         self.app_version = kwargs.get("app_version", "unknown")
 
@@ -104,6 +110,31 @@ class NetAppBlockStorageLibrary(object):
         self.configuration.append_config_values(
             na_opts.netapp_provisioning_opts)
         self.configuration.append_config_values(na_opts.netapp_san_opts)
+        self.max_over_subscription_ratio = (
+            self.configuration.max_over_subscription_ratio)
+        self.reserved_percentage = self._get_reserved_percentage()
+
+    def _get_reserved_percentage(self):
+        # If the legacy config option if it is set to the default
+        # value, use the more general configuration option.
+        if self.configuration.netapp_size_multiplier == (
+                na_opts.NETAPP_SIZE_MULTIPLIER_DEFAULT):
+            return self.configuration.reserved_percentage
+
+        # If the legacy config option has a non-default value,
+        # honor it for one release.  Note that the "size multiplier"
+        # actually acted as a divisor in the code and didn't apply
+        # to the file size (as the help message for this option suggest),
+        # but rather to total and free size for the pool.
+        divisor = self.configuration.netapp_size_multiplier
+        reserved_ratio = round(1 - (1 / divisor), 2)
+        reserved_percentage = 100 * int(reserved_ratio)
+        msg = _LW('The "netapp_size_multiplier" configuration option is '
+                  'deprecated and will be removed in the Mitaka release. '
+                  'Please set "reserved_percentage = %d" instead.') % (
+                      reserved_percentage)
+        versionutils.report_deprecated_feature(LOG, msg)
+        return reserved_percentage
 
     def do_setup(self, context):
         na_utils.check_flags(self.REQUIRED_FLAGS, self.configuration)
@@ -111,6 +142,10 @@ class NetAppBlockStorageLibrary(object):
                            or self.DEFAULT_LUN_OS)
         self.host_type = (self.configuration.netapp_host_type
                           or self.DEFAULT_HOST_TYPE)
+        if self.configuration.netapp_lun_space_reservation == 'enabled':
+            self.lun_space_reservation = 'true'
+        else:
+            self.lun_space_reservation = 'false'
 
     def check_for_setup_error(self):
         """Check that the driver is working and can communicate.
@@ -160,7 +195,7 @@ class NetAppBlockStorageLibrary(object):
         size = int(volume['size']) * units.Gi
 
         metadata = {'OsType': self.lun_ostype,
-                    'SpaceReserved': 'true',
+                    'SpaceReserved': self.lun_space_reservation,
                     'Path': '/vol/%s/%s' % (pool_name, lun_name)}
 
         qos_policy_group_info = self._setup_qos_for_volume(volume, extra_specs)
@@ -268,7 +303,7 @@ class NetAppBlockStorageLibrary(object):
 
         try:
             self._clone_lun(source_name, destination_name,
-                            space_reserved='true',
+                            space_reserved=self.lun_space_reservation,
                             qos_policy_group_name=qos_policy_group_name)
 
             if destination_size != source_size:
@@ -336,7 +371,7 @@ class NetAppBlockStorageLibrary(object):
                         {'ig_nm': igroup_name, 'ig_os': ig_host_os})
         try:
             return self.zapi_client.map_lun(path, igroup_name, lun_id=lun_id)
-        except na_api.NaApiError:
+        except netapp_api.NaApiError:
             exc_info = sys.exc_info()
             (_igroup, lun_id) = self._find_mapped_lun_igroup(path,
                                                              initiator_list)

@@ -227,10 +227,8 @@ class VolumeController(wsgi.Controller):
         context = req.environ['cinder.context']
 
         params = req.params.copy()
-        marker = params.pop('marker', None)
-        limit = params.pop('limit', None)
+        marker, limit, offset = common.get_pagination_params(params)
         sort_keys, sort_dirs = common.get_sort_params(params)
-        params.pop('offset', None)
         filters = params
 
         utils.remove_invalid_filter_options(context,
@@ -255,23 +253,20 @@ class VolumeController(wsgi.Controller):
                                           sort_keys=sort_keys,
                                           sort_dirs=sort_dirs,
                                           filters=filters,
-                                          viewable_admin_meta=True)
+                                          viewable_admin_meta=True,
+                                          offset=offset)
 
         volumes = [dict(vol) for vol in volumes]
 
         for volume in volumes:
             utils.add_visible_admin_metadata(volume)
 
-        limited_list = common.limited(volumes, req)
-        volume_count = len(volumes)
-        req.cache_db_volumes(limited_list)
+        req.cache_db_volumes(volumes)
 
         if is_detail:
-            volumes = self._view_builder.detail_list(req, limited_list,
-                                                     volume_count)
+            volumes = self._view_builder.detail_list(req, volumes)
         else:
-            volumes = self._view_builder.summary_list(req, limited_list,
-                                                      volume_count)
+            volumes = self._view_builder.summary_list(req, volumes)
         return volumes
 
     def _image_uuid_from_ref(self, image_ref, context):
@@ -326,17 +321,16 @@ class VolumeController(wsgi.Controller):
         volume = body['volume']
 
         kwargs = {}
+        self.validate_name_and_description(volume)
 
         # NOTE(thingee): v2 API allows name instead of display_name
-        if volume.get('name'):
-            volume['display_name'] = volume.get('name')
-            del volume['name']
+        if 'name' in volume:
+            volume['display_name'] = volume.pop('name')
 
         # NOTE(thingee): v2 API allows description instead of
         #                display_description
-        if volume.get('description'):
-            volume['display_description'] = volume.get('description')
-            del volume['description']
+        if 'description' in volume:
+            volume['display_description'] = volume.pop('description')
 
         if 'image_id' in volume:
             volume['imageRef'] = volume.get('image_id')
@@ -385,7 +379,7 @@ class VolumeController(wsgi.Controller):
                                                      source_replica)
                 if src_vol['replication_status'] == 'disabled':
                     explanation = _('source volume id:%s is not'
-                                    ' replicated') % source_volid
+                                    ' replicated') % source_replica
                     raise exc.HTTPBadRequest(explanation=explanation)
                 kwargs['source_replica'] = src_vol
             except exception.VolumeNotFound as error:
@@ -471,15 +465,16 @@ class VolumeController(wsgi.Controller):
             if key in volume:
                 update_dict[key] = volume[key]
 
-        # NOTE(thingee): v2 API allows name instead of display_name
-        if 'name' in update_dict:
-            update_dict['display_name'] = update_dict['name']
-            del update_dict['name']
+        self.validate_name_and_description(update_dict)
 
         # NOTE(thingee): v2 API allows name instead of display_name
+        if 'name' in update_dict:
+            update_dict['display_name'] = update_dict.pop('name')
+
+        # NOTE(thingee): v2 API allows description instead of
+        #                display_description
         if 'description' in update_dict:
-            update_dict['display_description'] = update_dict['description']
-            del update_dict['description']
+            update_dict['display_description'] = update_dict.pop('description')
 
         try:
             volume = self.volume_api.get(context, id, viewable_admin_meta=True)

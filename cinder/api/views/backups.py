@@ -30,15 +30,13 @@ class ViewBuilder(common.ViewBuilder):
         """Initialize view builder."""
         super(ViewBuilder, self).__init__()
 
-    def summary_list(self, request, backups, origin_backup_count):
+    def summary_list(self, request, backups, backup_count=None):
         """Show a list of backups without many details."""
-        return self._list_view(self.summary, request, backups,
-                               origin_backup_count)
+        return self._list_view(self.summary, request, backups, backup_count)
 
-    def detail_list(self, request, backups, origin_backup_count):
+    def detail_list(self, request, backups, backup_count=None):
         """Detailed view of a list of backups ."""
-        return self._list_view(self.detail, request, backups,
-                               origin_backup_count)
+        return self._list_view(self.detail, request, backups, backup_count)
 
     def summary(self, request, backup):
         """Generic, non-detailed view of a backup."""
@@ -57,6 +55,7 @@ class ViewBuilder(common.ViewBuilder):
             'restore': {
                 'backup_id': restore['backup_id'],
                 'volume_id': restore['volume_id'],
+                'volume_name': restore['volume_name'],
             },
         }
 
@@ -75,17 +74,19 @@ class ViewBuilder(common.ViewBuilder):
                 'description': backup.get('display_description'),
                 'fail_reason': backup.get('fail_reason'),
                 'volume_id': backup.get('volume_id'),
-                'links': self._get_links(request, backup['id'])
+                'links': self._get_links(request, backup['id']),
+                'is_incremental': backup.is_incremental,
+                'has_dependent_backups': backup.has_dependent_backups,
             }
         }
 
-    def _list_view(self, func, request, backups, origin_backup_count):
+    def _list_view(self, func, request, backups, backup_count):
         """Provide a view for a list of backups."""
         backups_list = [func(request, backup)['backup'] for backup in backups]
         backups_links = self._get_collection_links(request,
                                                    backups,
                                                    self._collection_name,
-                                                   origin_backup_count)
+                                                   backup_count)
         backups_dict = dict(backups=backups_list)
 
         if backups_links:

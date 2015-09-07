@@ -32,20 +32,28 @@ LOG = logging.getLogger(__name__)
 
 common_opt = [
     cfg.StrOpt('dothill_backend_name',
-               default='OpenStack',
-               help="VDisk or Pool name to use for volume creation."),
+               default='A',
+               help="Pool or Vdisk name to use for volume creation."),
     cfg.StrOpt('dothill_backend_type',
-               choices=['linear', 'realstor'],
-               help="linear (for VDisk) or realstor (for Pool)."),
-    cfg.StrOpt('dothill_wbi_protocol',
+               choices=['linear', 'virtual'],
+               default='virtual',
+               help="linear (for Vdisk) or virtual (for Pool)."),
+    cfg.StrOpt('dothill_api_protocol',
                choices=['http', 'https'],
-               help="DotHill web interface protocol."),
+               default='https',
+               help="DotHill API interface protocol."),
+    cfg.BoolOpt('dothill_verify_certificate',
+                default=False,
+                help="Whether to verify DotHill array SSL certificate."),
+    cfg.StrOpt('dothill_verify_certificate_path',
+               default=None,
+               help="DotHill array SSL certificate path."),
 ]
 
 iscsi_opt = [
     cfg.ListOpt('dothill_iscsi_ips',
                 default=[],
-                help="List of comma separated target iSCSI IP addresses."),
+                help="List of comma-separated target iSCSI IP addresses."),
 ]
 
 CONF = cfg.CONF
@@ -63,10 +71,16 @@ class DotHillCommon(object):
         self.vendor_name = "DotHill"
         self.backend_name = self.config.dothill_backend_name
         self.backend_type = self.config.dothill_backend_type
+        self.api_protocol = self.config.dothill_api_protocol
+        ssl_verify = False
+        if (self.api_protocol == 'https' and
+           self.config.dothill_verify_certificate):
+            ssl_verify = self.config.dothill_verify_certificate_path or True
         self.client = dothill.DotHillClient(self.config.san_ip,
                                             self.config.san_login,
                                             self.config.san_password,
-                                            self.config.dothill_wbi_protocol)
+                                            self.api_protocol,
+                                            ssl_verify)
 
     def get_version(self):
         return self.VERSION
@@ -74,11 +88,8 @@ class DotHillCommon(object):
     def do_setup(self, context):
         self.client_login()
         self._validate_backend()
-        if (self.backend_type == "linear" or
-            (self.backend_type == "realstor" and
-             self.backend_name not in ['A', 'B'])):
-                self._get_owner_info(self.backend_name)
-                self._get_serial_number()
+        self._get_owner_info()
+        self._get_serial_number()
         self.client_logout()
 
     def client_login(self):
@@ -101,8 +112,9 @@ class DotHillCommon(object):
     def _get_serial_number(self):
         self.serialNumber = self.client.get_serial_number()
 
-    def _get_owner_info(self, backend_name):
-        self.owner = self.client.get_owner_info(backend_name)
+    def _get_owner_info(self):
+        self.owner = self.client.get_owner_info(self.backend_name,
+                                                self.backend_type)
 
     def _validate_backend(self):
         if not self.client.backend_exists(self.backend_name,
@@ -129,29 +141,16 @@ class DotHillCommon(object):
         fceec30e-98bc-4ce5-85ff-d7309cc17cc2
         to
         v_O7DDpi8TOWF_9cwnMF
-
-        We convert the 128(32*4) bits of the uuid into a 24character long
+        We convert the 128(32*4) bits of the uuid into a 24 characters long
         base64 encoded string. This still exceeds the limit of 20 characters
-        so we truncate the name later.
+        in some models so we return 19 characters because the
+        _get_{vol,snap}_name functions prepend a character.
         """
         uuid_str = name.replace("-", "")
         vol_uuid = uuid.UUID('urn:uuid:%s' % uuid_str)
-        vol_encoded = base64.b64encode(vol_uuid.bytes)
+        vol_encoded = base64.urlsafe_b64encode(vol_uuid.bytes)
         if six.PY3:
             vol_encoded = vol_encoded.decode('ascii')
-        vol_encoded = vol_encoded.replace('=', '')
-
-        # + is not a valid character for DotHill
-        vol_encoded = vol_encoded.replace('+', '.')
-        # since we use http URLs to send paramters, '/' is not an acceptable
-        # parameter
-        vol_encoded = vol_encoded.replace('/', '_')
-
-        # NOTE:we limit the size to 20 characters since the array
-        # doesn't support more than that for now. Duplicates should happen very
-        # rarely.
-        # We return 19 chars here because the _get_{vol,snap}_name functions
-        # prepend a character
         return vol_encoded[:19]
 
     def check_flags(self, options, required_flags):
@@ -173,11 +172,10 @@ class DotHillCommon(object):
                    'id': volume_name,
                    'size': volume_size, })
         try:
-            metadata = self.client.create_volume(volume_name,
-                                                 volume_size,
-                                                 self.backend_name,
-                                                 self.backend_type)
-            return metadata
+            self.client.create_volume(volume_name,
+                                      volume_size,
+                                      self.backend_name,
+                                      self.backend_type)
         except exception.DotHillRequestError as ex:
             LOG.exception(_LE("Creation of volume %s failed."), volume['id'])
             raise exception.Invalid(ex)
@@ -187,8 +185,8 @@ class DotHillCommon(object):
 
     def _assert_enough_space_for_copy(self, volume_size):
         """The DotHill creates a snap pool before trying to copy the volume.
-        The pool is 5.27GB or 20% of the volume size, whichever is larger.
 
+        The pool is 5.27GB or 20% of the volume size, whichever is larger.
         Verify that we have enough space for the pool and then copy
         """
         pool_size = max(volume_size * 0.2, 5.27)
@@ -208,11 +206,6 @@ class DotHillCommon(object):
             raise exception.VolumeAttached(volume_id=volume['id'])
 
     def create_cloned_volume(self, volume, src_vref):
-        if self.backend_type == "realstor" and self.backend_name in ["A", "B"]:
-            msg = _("Create volume from volume(clone) does not have support "
-                    "for virtual pool A and B.")
-            LOG.error(msg)
-            raise exception.InvalidInput(reason=msg)
         self.get_volume_stats(True)
         self._assert_enough_space_for_copy(volume['size'])
         self._assert_source_detached(src_vref)
@@ -228,8 +221,8 @@ class DotHillCommon(object):
 
         self.client_login()
         try:
-            self.client.copy_volume(orig_name, dest_name, 0, self.backend_name)
-            return None
+            self.client.copy_volume(orig_name, dest_name,
+                                    self.backend_name, self.backend_type)
         except exception.DotHillRequestError as ex:
             LOG.exception(_LE("Cloning of volume %s failed."),
                           volume['source_volid'])
@@ -238,11 +231,6 @@ class DotHillCommon(object):
             self.client_logout()
 
     def create_volume_from_snapshot(self, volume, snapshot):
-        if self.backend_type == "realstor" and self.backend_name in ["A", "B"]:
-            msg = _('Create volume from snapshot does not have support '
-                    'for virtual pool A and B.')
-            LOG.error(msg)
-            raise exception.InvalidInput(reason=msg)
         self.get_volume_stats(True)
         self._assert_enough_space_for_copy(volume['size'])
         LOG.debug("Creating Volume from snapshot %(source_id)s to "
@@ -253,8 +241,8 @@ class DotHillCommon(object):
         dest_name = self._get_vol_name(volume['id'])
         self.client_login()
         try:
-            self.client.copy_volume(orig_name, dest_name, 0, self.backend_name)
-            return None
+            self.client.copy_volume(orig_name, dest_name,
+                                    self.backend_name, self.backend_type)
         except exception.DotHillRequestError as ex:
             LOG.exception(_LE("Create volume failed from snapshot: %s"),
                           snapshot['id'])
@@ -305,14 +293,11 @@ class DotHillCommon(object):
             backend_stats = self.client.backend_stats(self.backend_name,
                                                       self.backend_type)
             pool.update(backend_stats)
-            if (self.backend_type == "linear" or
-                (self.backend_type == "realstor" and
-                 self.backend_name not in ['A', 'B'])):
-                pool['location_info'] = ('%s:%s:%s:%s' %
-                                         (src_type,
-                                          self.serialNumber,
-                                          self.backend_name,
-                                          self.owner))
+            pool['location_info'] = ('%s:%s:%s:%s' %
+                                     (src_type,
+                                      self.serialNumber,
+                                      self.backend_name,
+                                      self.owner))
             pool['pool_name'] = self.backend_name
         except exception.DotHillRequestError:
             err = (_("Unable to get stats for backend_name: %s") %
@@ -378,8 +363,7 @@ class DotHillCommon(object):
 
     def get_active_iscsi_target_portals(self):
         try:
-            return self.client.get_active_iscsi_target_portals(
-                self.backend_type)
+            return self.client.get_active_iscsi_target_portals()
         except exception.DotHillRequestError as ex:
             LOG.exception(_LE("Error getting active ISCSI target portals."))
             raise exception.Invalid(ex)
@@ -492,7 +476,8 @@ class DotHillCommon(object):
 
         self.client_login()
         try:
-            self.client.copy_volume(source_name, dest_name, 1, dest_back_name)
+            self.client.copy_volume(source_name, dest_name,
+                                    dest_back_name, self.backend_type)
             self.client.delete_volume(source_name)
             self.client.modify_volume_name(dest_name, source_name)
             return (True, None)

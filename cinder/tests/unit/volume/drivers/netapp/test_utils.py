@@ -18,10 +18,12 @@ Mock unit tests for the NetApp driver utility module
 """
 
 import copy
+import ddt
 import platform
 
 import mock
 from oslo_concurrency import processutils as putils
+from oslo_utils import importutils
 
 from cinder import context
 from cinder import exception
@@ -39,13 +41,13 @@ class NetAppDriverUtilsTestCase(test.TestCase):
     def test_validate_instantiation_proxy(self):
         kwargs = {'netapp_mode': 'proxy'}
         na_utils.validate_instantiation(**kwargs)
-        self.assertEqual(na_utils.LOG.warning.call_count, 0)
+        self.assertEqual(0, na_utils.LOG.warning.call_count)
 
     @mock.patch.object(na_utils, 'LOG', mock.Mock())
     def test_validate_instantiation_no_proxy(self):
         kwargs = {'netapp_mode': 'asdf'}
         na_utils.validate_instantiation(**kwargs)
-        self.assertEqual(na_utils.LOG.warning.call_count, 1)
+        self.assertEqual(1, na_utils.LOG.warning.call_count)
 
     def test_check_flags(self):
 
@@ -61,6 +63,21 @@ class NetAppDriverUtilsTestCase(test.TestCase):
 
         setattr(configuration, 'flag2', 'value2')
         self.assertIsNone(na_utils.check_flags(required_flags, configuration))
+
+    def test_check_netapp_lib(self):
+        mock_try_import = self.mock_object(importutils, 'try_import')
+
+        na_utils.check_netapp_lib()
+
+        mock_try_import.assert_called_once_with('netapp_lib')
+
+    def test_check_netapp_lib_not_found(self):
+        self.mock_object(importutils,
+                         'try_import',
+                         mock.Mock(return_value=None))
+
+        self.assertRaises(exception.NetAppDriverException,
+                          na_utils.check_netapp_lib)
 
     def test_to_bool(self):
         self.assertTrue(na_utils.to_bool(True))
@@ -94,12 +111,12 @@ class NetAppDriverUtilsTestCase(test.TestCase):
         fake_object.fake_attr = 'fake_value'
         self.assertFalse(na_utils.set_safe_attr(fake_object, 'fake_attr',
                                                 'fake_value'))
-        self.assertEqual(fake_object.fake_attr, 'fake_value')
+        self.assertEqual('fake_value', fake_object.fake_attr)
 
         # test value is changed if it should be and retval is True
         self.assertTrue(na_utils.set_safe_attr(fake_object, 'fake_attr',
                                                'new_fake_value'))
-        self.assertEqual(fake_object.fake_attr, 'new_fake_value')
+        self.assertEqual('new_fake_value', fake_object.fake_attr)
 
     def test_round_down(self):
         self.assertAlmostEqual(na_utils.round_down(5.567, '0.00'), 5.56)
@@ -735,3 +752,51 @@ class OpenStackInfoTestCase(test.TestCase):
         info._update_openstack_info()
 
         self.assertTrue(mock_updt_from_dpkg.called)
+
+
+@ddt.ddt
+class FeaturesTestCase(test.TestCase):
+
+    def setUp(self):
+        super(FeaturesTestCase, self).setUp()
+        self.features = na_utils.Features()
+
+    def test_init(self):
+        self.assertSetEqual(set(), self.features.defined_features)
+
+    def test_add_feature_default(self):
+        self.features.add_feature('FEATURE_1')
+
+        self.assertTrue(self.features.FEATURE_1.supported)
+        self.assertIn('FEATURE_1', self.features.defined_features)
+
+    @ddt.data(True, False)
+    def test_add_feature(self, value):
+        self.features.add_feature('FEATURE_2', value)
+
+        self.assertEqual(value, bool(self.features.FEATURE_2))
+        self.assertEqual(value, self.features.FEATURE_2.supported)
+        self.assertEqual(None, self.features.FEATURE_2.minimum_version)
+        self.assertIn('FEATURE_2', self.features.defined_features)
+
+    @ddt.data((True, '1'), (False, 2), (False, None), (True, None))
+    @ddt.unpack
+    def test_add_feature_min_version(self, enabled, min_version):
+        self.features.add_feature('FEATURE_2', enabled,
+                                  min_version=min_version)
+
+        self.assertEqual(enabled, bool(self.features.FEATURE_2))
+        self.assertEqual(enabled, self.features.FEATURE_2.supported)
+        self.assertEqual(min_version, self.features.FEATURE_2.minimum_version)
+        self.assertIn('FEATURE_2', self.features.defined_features)
+
+    @ddt.data('True', 'False', 0, 1, 1.0, None, [], {}, (True,))
+    def test_add_feature_type_error(self, value):
+        self.assertRaises(TypeError,
+                          self.features.add_feature,
+                          'FEATURE_3',
+                          value)
+        self.assertNotIn('FEATURE_3', self.features.defined_features)
+
+    def test_get_attr_missing(self):
+        self.assertRaises(AttributeError, getattr, self.features, 'FEATURE_4')

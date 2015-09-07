@@ -23,13 +23,13 @@ import tempfile
 from eventlet import tpool
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import fileutils
 from oslo_utils import units
 from six.moves import urllib
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
-from cinder.openstack.common import fileutils
 from cinder import utils
 from cinder.volume import driver
 
@@ -264,9 +264,9 @@ class RADOSClient(object):
         return int(features)
 
 
-class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
+class RBDDriver(driver.TransferVD, driver.ExtendVD,
                 driver.CloneableVD, driver.CloneableImageVD, driver.SnapshotVD,
-                driver.BaseVD):
+                driver.MigrateVD, driver.BaseVD):
     """Implements RADOS block device (RBD) volume commands."""
 
     VERSION = '1.2.0'
@@ -421,8 +421,7 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
         return self._stats
 
     def _get_clone_depth(self, client, volume_name, depth=0):
-        """Returns the number of ancestral clones (if any) of the given volume.
-        """
+        """Returns the number of ancestral clones of the given volume."""
         parent_volume = self.rbd.Image(client.ioctx, volume_name)
         try:
             _pool, parent, _snap = self._get_clone_info(parent_volume,
@@ -435,9 +434,9 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
 
         # If clone depth was reached, flatten should have occurred so if it has
         # been exceeded then something has gone wrong.
-        if depth > CONF.rbd_max_clone_depth:
+        if depth > self.configuration.rbd_max_clone_depth:
             raise Exception(_("clone depth exceeds limit of %s") %
-                            (CONF.rbd_max_clone_depth))
+                            (self.configuration.rbd_max_clone_depth))
 
         return self._get_clone_depth(client, parent, depth + 1)
 
@@ -457,7 +456,7 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
         flatten_parent = False
 
         # Do full copy if requested
-        if CONF.rbd_max_clone_depth <= 0:
+        if self.configuration.rbd_max_clone_depth <= 0:
             with RBDVolumeProxy(self, src_name, read_only=True) as vol:
                 vol.copy(vol.ioctx, dest_name)
 
@@ -469,10 +468,10 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
             # If source volume is a clone and rbd_max_clone_depth reached,
             # flatten the source before cloning. Zero rbd_max_clone_depth means
             # infinite is allowed.
-            if depth == CONF.rbd_max_clone_depth:
+            if depth == self.configuration.rbd_max_clone_depth:
                 LOG.debug("maximum clone depth (%d) has been reached - "
                           "flattening source volume",
-                          CONF.rbd_max_clone_depth)
+                          self.configuration.rbd_max_clone_depth)
                 flatten_parent = True
 
             src_volume = self.rbd.Image(client.ioctx, src_name)
@@ -533,7 +532,7 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
 
         LOG.debug("creating volume '%s'", volume['name'])
 
-        chunk_size = CONF.rbd_store_chunk_size * units.Mi
+        chunk_size = self.configuration.rbd_store_chunk_size * units.Mi
         order = int(math.log(chunk_size, 2))
 
         with RADOSClient(self) as client:
@@ -700,10 +699,14 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
             finally:
                 rbd_image.close()
 
+            @utils.retry(self.rbd.ImageBusy, retries=3)
+            def _try_remove_volume(client, volume_name):
+                self.RBDProxy().remove(client.ioctx, volume_name)
+
             if clone_snap is None:
                 LOG.debug("deleting rbd volume %s", volume_name)
                 try:
-                    self.RBDProxy().remove(client.ioctx, volume_name)
+                    _try_remove_volume(client, volume_name)
                 except self.rbd.ImageBusy:
                     msg = (_("ImageBusy error raised while deleting rbd "
                              "volume. This may have been caused by a "
@@ -791,7 +794,7 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
         """Synchronously recreates an export for a logical volume."""
         pass
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         """Exports the volume."""
         pass
 
@@ -922,7 +925,7 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
 
             self.delete_volume(volume)
 
-            chunk_size = CONF.rbd_store_chunk_size * units.Mi
+            chunk_size = self.configuration.rbd_store_chunk_size * units.Mi
             order = int(math.log(chunk_size, 2))
             # keep using the command line import instead of librbd since it
             # detects zeroes to preserve sparseness in the image
@@ -1054,3 +1057,40 @@ class RBDDriver(driver.RetypeVD, driver.TransferVD, driver.ExtendVD,
                                         'size': image_size})
                 raise exception.VolumeBackendAPIException(
                     data=exception_message)
+
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status):
+        """Return model update from RBD for migrated volume.
+
+        This method should rename the back-end volume name(id) on the
+        destination host back to its original name(id) on the source host.
+
+        :param ctxt: The context used to run the method update_migrated_volume
+        :param volume: The original volume that was migrated to this backend
+        :param new_volume: The migration volume object that was created on
+                           this backend as part of the migration process
+        :param original_volume_status: The status of the original volume
+        :return model_update to update DB with any needed changes
+        """
+        name_id = None
+        provider_location = None
+
+        existing_name = CONF.volume_name_template % new_volume['id']
+        wanted_name = CONF.volume_name_template % volume['id']
+        with RADOSClient(self) as client:
+            try:
+                self.RBDProxy().rename(client.ioctx,
+                                       utils.convert_str(existing_name),
+                                       utils.convert_str(wanted_name))
+            except self.rbd.ImageNotFound:
+                LOG.error(_LE('Unable to rename the logical volume '
+                              'for volume %s.'), volume['id'])
+                # If the rename fails, _name_id should be set to the new
+                # volume id and provider_location should be set to the
+                # one from the new volume as well.
+                name_id = new_volume['_name_id'] or new_volume['id']
+                provider_location = new_volume['provider_location']
+        return {'_name_id': name_id, 'provider_location': provider_location}
+
+    def migrate_volume(self, context, volume, host):
+        return (False, None)

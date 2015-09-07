@@ -109,9 +109,9 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="181" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
-            self.assertEqual(cliq_args['thinProvision'], '1')
-            self.assertEqual(cliq_args['size'], '1GB')
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
+            self.assertEqual('1', cliq_args['thinProvision'])
+            self.assertEqual('1GB', cliq_args['size'])
             return output, None
 
         def delete_volume(cliq_args):
@@ -124,8 +124,8 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="164" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
-            self.assertEqual(cliq_args['prompt'], 'false')
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
+            self.assertEqual('false', cliq_args['prompt'])
             return output, None
 
         def extend_volume(cliq_args):
@@ -139,8 +139,8 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="181" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
-            self.assertEqual(cliq_args['size'], '2GB')
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
+            self.assertEqual('2GB', cliq_args['size'])
             return output, None
 
         def assign_volume(cliq_args):
@@ -154,9 +154,9 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="174" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
-            self.assertEqual(cliq_args['serverName'],
-                             self.connector['host'])
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
+            self.assertEqual(self.connector['host'],
+                             cliq_args['serverName'])
             return output, None
 
         def unassign_volume(cliq_args):
@@ -169,9 +169,9 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="205" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
-            self.assertEqual(cliq_args['serverName'],
-                             self.connector['host'])
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
+            self.assertEqual(self.connector['host'],
+                             cliq_args['serverName'])
             return output, None
 
         def create_snapshot(cliq_args):
@@ -186,8 +186,8 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="181" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['snapshotName'], self.snapshot_name)
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
+            self.assertEqual(self.snapshot_name, cliq_args['snapshotName'])
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
             return output, None
 
         def delete_snapshot(cliq_args):
@@ -200,8 +200,8 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="164" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['snapshotName'], self.snapshot_name)
-            self.assertEqual(cliq_args['prompt'], 'false')
+            self.assertEqual(self.snapshot_name, cliq_args['snapshotName'])
+            self.assertEqual('false', cliq_args['prompt'])
             return output, None
 
         def create_volume_from_snapshot(cliq_args):
@@ -216,8 +216,8 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 <response description="Operation succeeded."
                           name="CliqSuccess" processingTime="181" result="0"/>
                 </gauche>"""
-            self.assertEqual(cliq_args['snapshotName'], self.snapshot_name)
-            self.assertEqual(cliq_args['volumeName'], self.volume_name)
+            self.assertEqual(self.snapshot_name, cliq_args['snapshotName'])
+            self.assertEqual(self.volume_name, cliq_args['volumeName'])
             return output, None
 
         def get_cluster_info(cliq_args):
@@ -362,7 +362,7 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 '</gauche>\n    ')
             return output, None
 
-        self.assertEqual(cliq_args['output'], 'XML')
+        self.assertEqual('XML', cliq_args['output'])
         try:
             verbs = {'createVolume': create_volume,
                      'deleteVolume': delete_volume,
@@ -428,7 +428,7 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         model_update = self.driver.create_volume(volume)
         expected_iqn = "iqn.2003-10.com.lefthandnetworks:group01:25366:fakev 0"
         expected_location = "10.0.1.6:3260,1 %s" % expected_iqn
-        self.assertEqual(model_update['provider_location'], expected_location)
+        self.assertEqual(expected_location, model_update['provider_location'])
 
         expected = [
             mock.call(
@@ -508,7 +508,7 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         volume = {'name': self.volume_name}
         result = self.driver.initialize_connection(volume,
                                                    self.connector)
-        self.assertEqual(result['driver_volume_type'], 'iscsi')
+        self.assertEqual('iscsi', result['driver_volume_type'])
         self.assertDictMatch(result['data'], self.properties)
 
         expected = [
@@ -602,7 +602,7 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                                                                snapshot)
         expected_iqn = "iqn.2003-10.com.lefthandnetworks:group01:25366:fakev 0"
         expected_location = "10.0.1.6:3260,1 %s" % expected_iqn
-        self.assertEqual(model_update['provider_location'], expected_location)
+        self.assertEqual(expected_location, model_update['provider_location'])
 
         expected = [
             mock.call(
@@ -633,8 +633,8 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         mock_cliq_run = self.setup_driver()
         volume_stats = self.driver.get_volume_stats(True)
 
-        self.assertEqual(volume_stats['vendor_name'], 'Hewlett-Packard')
-        self.assertEqual(volume_stats['storage_protocol'], 'iSCSI')
+        self.assertEqual('Hewlett-Packard', volume_stats['vendor_name'])
+        self.assertEqual('iSCSI', volume_stats['storage_protocol'])
 
         expected = [
             mock.call('getClusterInfo', {
@@ -662,13 +662,21 @@ class TestHPLeftHandCLIQISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
 
 class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
 
+    CONSIS_GROUP_ID = '3470cc4c-63b3-4c7a-8120-8a0693b45838'
+    CGSNAPSHOT_ID = '5351d914-6c90-43e7-9a8e-7e84610927da'
+
+    cgsnapshot = {'consistencygroup_id': CONSIS_GROUP_ID,
+                  'description': 'cgsnapshot',
+                  'id': CGSNAPSHOT_ID,
+                  'readOnly': False}
+
     driver_startup_call_stack = [
         mock.call.login('foo1', 'bar2'),
         mock.call.getClusterByName('CloudCluster1'),
         mock.call.getCluster(1),
         mock.call.getVolumes(
             cluster='CloudCluster1',
-            fields=['members[id]', 'members[clusterName]']),
+            fields=['members[id]', 'members[clusterName]', 'members[size]']),
     ]
 
     def default_mock_conf(self):
@@ -682,6 +690,15 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         mock_conf.hplefthand_clustername = "CloudCluster1"
         mock_conf.goodness_function = GOODNESS_FUNCTION
         mock_conf.filter_function = FILTER_FUNCTION
+        mock_conf.reserved_percentage = 25
+
+        def safe_get(attr):
+            try:
+                return mock_conf.__getattribute__(attr)
+            except AttributeError:
+                return None
+        mock_conf.safe_get = safe_get
+
         return mock_conf
 
     @mock.patch('hplefthandclient.client.HPLeftHandClient', spec=True)
@@ -695,8 +712,9 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         _mock_client.return_value.getCluster.return_value = {
             'spaceTotal': units.Gi * 500,
             'spaceAvailable': units.Gi * 250}
+        db = mock.Mock()
         self.driver = hp_lefthand_iscsi.HPLeftHandISCSIDriver(
-            configuration=config)
+            configuration=config, db=db)
         self.driver.do_setup(None)
         self.cluster_name = config.hplefthand_clustername
         return _mock_client.return_value
@@ -1719,10 +1737,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             mock_client.getVolumes.return_value = {
                 "type": "volume",
                 "total": 1,
-                "members": {
+                "members": [{
                     "id": self.volume_id,
-                    "clusterName": self.cluster_name
-                }
+                    "clusterName": self.cluster_name,
+                    "size": 1
+                }]
             }
 
             existing_ref = {'source-name': self.volume_name}
@@ -1769,10 +1788,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             mock_client.getVolumes.return_value = {
                 "type": "volume",
                 "total": 1,
-                "members": {
+                "members": [{
                     "id": self.volume_id,
-                    "clusterName": self.cluster_name
-                }
+                    "clusterName": self.cluster_name,
+                    "size": 1
+                }]
             }
 
             existing_ref = {'source-name': self.volume_name}
@@ -1822,10 +1842,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             mock_client.getVolumes.return_value = {
                 "type": "volume",
                 "total": 1,
-                "members": {
+                "members": [{
                     "id": self.volume_id,
-                    "clusterName": self.cluster_name
-                }
+                    "clusterName": self.cluster_name,
+                    "size": 1
+                }]
             }
 
             existing_ref = {'source-name': self.volume_name}
@@ -1865,10 +1886,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             mock_client.getVolumes.return_value = {
                 "type": "volume",
                 "total": 1,
-                "members": {
+                "members": [{
                     "id": self.volume_id,
-                    "clusterName": self.cluster_name
-                }
+                    "clusterName": self.cluster_name,
+                    "size": 1
+                }]
             }
 
             existing_ref = {'source-name': self.volume_name}
@@ -1895,10 +1917,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             mock_client.getVolumes.return_value = {
                 "type": "volume",
                 "total": 1,
-                "members": {
+                "members": [{
                     "id": self.volume_id,
-                    "clusterName": self.cluster_name
-                }
+                    "clusterName": self.cluster_name,
+                    "size": 1
+                }]
             }
 
             volume = {}
@@ -1957,10 +1980,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             mock_client.getVolumes.return_value = {
                 "type": "volume",
                 "total": 1,
-                "members": {
+                "members": [{
                     "id": self.volume_id,
-                    "clusterName": self.cluster_name
-                }
+                    "clusterName": self.cluster_name,
+                    "size": 1
+                }]
             }
 
             volume = {}
@@ -1985,10 +2009,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         mock_client.getVolumes.return_value = {
             "type": "volume",
             "total": 1,
-            "members": {
+            "members": [{
                 "id": self.volume_id,
-                "clusterName": self.cluster_name
-            }
+                "clusterName": self.cluster_name,
+                "size": 1
+            }]
         }
 
         self.driver.proxy.api_version = "1.1"
@@ -2028,10 +2053,11 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
         mock_client.getVolumes.return_value = {
             "type": "volume",
             "total": 1,
-            "members": {
+            "members": [{
                 "id": 12345,
-                "clusterName": self.cluster_name
-            }
+                "clusterName": self.cluster_name,
+                "size": 1 * units.Gi
+            }]
         }
 
         with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
@@ -2045,6 +2071,10 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             self.assertEqual(GOODNESS_FUNCTION, stats['goodness_function'])
             self.assertEqual(FILTER_FUNCTION, stats['filter_function'])
             self.assertEqual(1, int(stats['total_volumes']))
+            self.assertEqual(True, stats['thin_provisioning_support'])
+            self.assertEqual(True, stats['thick_provisioning_support'])
+            self.assertEqual(1, int(stats['provisioned_capacity_gb']))
+            self.assertEqual(25, int(stats['reserved_percentage']))
 
             cap_util = (
                 float(units.Gi * 500 - units.Gi * 250) / float(units.Gi * 500)
@@ -2055,8 +2085,234 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             expected = self.driver_startup_call_stack + [
                 mock.call.getCluster(1),
                 mock.call.getVolumes(fields=['members[id]',
-                                             'members[clusterName]'],
+                                             'members[clusterName]',
+                                             'members[size]'],
                                      cluster=self.cluster_name),
                 mock.call.logout()]
 
             mock_client.assert_has_calls(expected)
+
+    @mock.patch('hplefthandclient.version', "1.0.6")
+    def test_create_consistencygroup(self):
+        class fake_consitencygroup_object(object):
+            volume_type_id = '371c64d5-b92a-488c-bc14-1e63cef40e08'
+            name = 'cg_name'
+            cgsnapshot_id = None
+            id = self.CONSIS_GROUP_ID
+            description = 'consistency group'
+
+        ctxt = context.get_admin_context()
+        # set up driver with default config
+        mock_client = self.setup_driver()
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            # create a consistency group
+            group = fake_consitencygroup_object()
+            cg = self.driver.create_consistencygroup(ctxt, group)
+
+            self.assertEqual('available', cg['status'])
+
+    @mock.patch('hplefthandclient.version', "1.0.6")
+    def test_delete_consistencygroup(self):
+        class fake_consitencygroup_object(object):
+            volume_type_id = '371c64d5-b92a-488c-bc14-1e63cef40e08'
+            name = 'cg_name'
+            cgsnapshot_id = None
+            id = self.CONSIS_GROUP_ID
+            description = 'consistency group'
+
+        ctxt = context.get_admin_context()
+        # set up driver with default config
+        mock_client = self.setup_driver()
+
+        mock_volume = mock.MagicMock()
+        expected_volumes = [mock_volume]
+        self.driver.db.volume_get_all_by_group.return_value = expected_volumes
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            # create a consistency group
+            group = fake_consitencygroup_object()
+            cg = self.driver.create_consistencygroup(ctxt, group)
+            self.assertEqual('available', cg['status'])
+
+            # delete the consistency group
+            group.status = 'deleting'
+            cg, vols = self.driver.delete_consistencygroup(ctxt, group)
+            self.assertEqual('deleting', cg['status'])
+
+    @mock.patch('hplefthandclient.version', "1.0.6")
+    def test_update_consistencygroup_add_vol_delete_cg(self):
+        class fake_consitencygroup_object(object):
+            volume_type_id = '371c64d5-b92a-488c-bc14-1e63cef40e08'
+            name = 'cg_name'
+            cgsnapshot_id = None
+            id = self.CONSIS_GROUP_ID
+            description = 'consistency group'
+
+        ctxt = context.get_admin_context()
+
+        # set up driver with default config
+        mock_client = self.setup_driver()
+
+        mock_volume = mock.MagicMock()
+        expected_volumes = [mock_volume]
+        self.driver.db.volume_get_all_by_group.return_value = expected_volumes
+
+        mock_client.getVolumes.return_value = {'total': 1, 'members': []}
+
+        # mock return value of createVolume
+        mock_client.createVolume.return_value = {
+            'iscsiIqn': self.connector['initiator']}
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            # create a consistency group
+            group = fake_consitencygroup_object()
+            cg = self.driver.create_consistencygroup(ctxt, group)
+            self.assertEqual('available', cg['status'])
+
+            # add volume to consistency group
+            cg = self.driver.update_consistencygroup(
+                ctxt, group, add_volumes=[self.volume], remove_volumes=None)
+
+            # delete the consistency group
+            group.status = 'deleting'
+            cg, vols = self.driver.delete_consistencygroup(ctxt, group)
+            self.assertEqual('deleting', cg['status'])
+
+    @mock.patch('hplefthandclient.version', "1.0.6")
+    def test_update_consistencygroup_remove_vol_delete_cg(self):
+        class fake_consitencygroup_object(object):
+            volume_type_id = '371c64d5-b92a-488c-bc14-1e63cef40e08'
+            name = 'cg_name'
+            cgsnapshot_id = None
+            id = self.CONSIS_GROUP_ID
+            description = 'consistency group'
+
+        ctxt = context.get_admin_context()
+
+        # set up driver with default config
+        mock_client = self.setup_driver()
+
+        mock_volume = mock.MagicMock()
+        expected_volumes = [mock_volume]
+        self.driver.db.volume_get_all_by_group.return_value = expected_volumes
+
+        mock_client.getVolumes.return_value = {'total': 1, 'members': []}
+
+        # mock return value of createVolume
+        mock_client.createVolume.return_value = {
+            'iscsiIqn': self.connector['initiator']}
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            # create a consistency group
+            group = fake_consitencygroup_object()
+            cg = self.driver.create_consistencygroup(ctxt, group)
+            self.assertEqual('available', cg['status'])
+
+            # add volume to consistency group
+            cg = self.driver.update_consistencygroup(
+                ctxt, group, add_volumes=[self.volume], remove_volumes=None)
+
+            # remove volume from consistency group
+            cg = self.driver.update_consistencygroup(
+                ctxt, group, add_volumes=None, remove_volumes=[self.volume])
+
+            # delete the consistency group
+            group.status = 'deleting'
+            cg, vols = self.driver.delete_consistencygroup(ctxt, group)
+            self.assertEqual('deleting', cg['status'])
+
+    @mock.patch('cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
+    @mock.patch('hplefthandclient.version', "1.0.6")
+    def test_create_cgsnapshot(self, mock_snap_list):
+        class fake_consitencygroup_object(object):
+            volume_type_id = '371c64d5-b92a-488c-bc14-1e63cef40e08'
+            name = 'cg_name'
+            cgsnapshot_id = None
+            id = self.CONSIS_GROUP_ID
+            description = 'consistency group'
+
+        ctxt = context.get_admin_context()
+
+        # set up driver with default config
+        mock_client = self.setup_driver()
+
+        mock_client.getVolumes.return_value = {'total': 1, 'members': []}
+        mock_client.getVolumeByName.return_value = {'id': self.volume_id}
+
+        mock_snap = mock.MagicMock()
+        mock_snap.volumeName = self.volume_name
+        expected_snaps = [mock_snap]
+        mock_snap_list.return_value = expected_snaps
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            # create a consistency group
+            group = fake_consitencygroup_object()
+            cg = self.driver.create_consistencygroup(ctxt, group)
+            self.assertEqual('available', cg['status'])
+
+            # create volume and add it to the consistency group
+            self.driver.update_consistencygroup(
+                ctxt, group, add_volumes=[self.volume], remove_volumes=None)
+
+            # create the conistency group snapshot
+            cgsnap, snaps = self.driver.create_cgsnapshot(
+                ctxt, self.cgsnapshot)
+            self.assertEqual('available', cgsnap['status'])
+
+    @mock.patch('cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
+    @mock.patch('hplefthandclient.version', "1.0.6")
+    def test_delete_cgsnapshot(self, mock_snap_list):
+        class fake_consitencygroup_object(object):
+            volume_type_id = '371c64d5-b92a-488c-bc14-1e63cef40e08'
+            name = 'cg_name'
+            cgsnapshot_id = None
+            id = self.CONSIS_GROUP_ID
+            description = 'consistency group'
+
+        ctxt = context.get_admin_context()
+
+        # set up driver with default config
+        mock_client = self.setup_driver()
+
+        mock_client.getVolumes.return_value = {'total': 1, 'members': []}
+        mock_client.getVolumeByName.return_value = {'id': self.volume_id}
+
+        mock_snap = mock.MagicMock()
+        mock_snap.volumeName = self.volume_name
+        expected_snaps = [mock_snap]
+        mock_snap_list.return_value = expected_snaps
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            # create a consistency group
+            group = fake_consitencygroup_object()
+            cg = self.driver.create_consistencygroup(ctxt, group)
+            self.assertEqual('available', cg['status'])
+
+            # create volume and add it to the consistency group
+            self.driver.update_consistencygroup(
+                ctxt, group, add_volumes=[self.volume], remove_volumes=None)
+
+            # delete the consistency group snapshot
+            self.cgsnapshot['status'] = 'deleting'
+            cgsnap, snaps = self.driver.delete_cgsnapshot(
+                ctxt, self.cgsnapshot)
+            self.assertEqual('deleting', cgsnap['status'])

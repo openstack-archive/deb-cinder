@@ -2,6 +2,7 @@
 # Copyright (c) 2015 Rushil Chugh
 # Copyright (c) 2015 Navneet Singh
 # Copyright (c) 2015 Yogesh Kshirsagar
+# Copyright (c) 2015 Michael Price
 #  All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -56,6 +57,8 @@ CONF.register_opts(na_opts.netapp_san_opts)
 class NetAppESeriesLibrary(object):
     """Executes commands relating to Volumes."""
 
+    DRIVER_NAME = 'NetApp_iSCSI_ESeries'
+    AUTOSUPPORT_INTERVAL_SECONDS = 3600  # hourly
     VERSION = "1.0.0"
     REQUIRED_FLAGS = ['netapp_server_hostname', 'netapp_controller_ips',
                       'netapp_login', 'netapp_password',
@@ -89,7 +92,26 @@ class NetAppESeriesLibrary(object):
         'fibre': 'FCAL',
         'sas': 'SAS',
         'sata': 'SATA',
+        'ssd': 'SSD',
     }
+    SSC_RAID_TYPE_MAPPING = {
+        'raidDiskPool': 'DDP',
+        'raid0': 'raid0',
+        'raid1': 'raid1',
+        # RAID3 is being deprecated and is actually implemented as RAID5
+        'raid3': 'raid5',
+        'raid5': 'raid5',
+        'raid6': 'raid6',
+    }
+    READ_CACHE_Q_SPEC = 'netapp:read_cache'
+    WRITE_CACHE_Q_SPEC = 'netapp:write_cache'
+    DA_UQ_SPEC = 'netapp_eseries_data_assurance'
+    FLASH_CACHE_UQ_SPEC = 'netapp_eseries_flash_read_cache'
+    DISK_TYPE_UQ_SPEC = 'netapp_disk_type'
+    ENCRYPTION_UQ_SPEC = 'netapp_disk_encryption'
+    SPINDLE_SPD_UQ_SPEC = 'netapp_eseries_disk_spindle_speed'
+    RAID_UQ_SPEC = 'netapp_raid_type'
+    THIN_UQ_SPEC = 'netapp_thin_provisioned'
     SSC_UPDATE_INTERVAL = 60  # seconds
     WORLDWIDENAME = 'worldWideName'
 
@@ -98,6 +120,7 @@ class NetAppESeriesLibrary(object):
     def __init__(self, driver_name, driver_protocol="iSCSI",
                  configuration=None, **kwargs):
         self.configuration = configuration
+        self._app_version = kwargs.pop("app_version", "unknown")
         self.configuration.append_config_values(na_opts.netapp_basicauth_opts)
         self.configuration.append_config_values(
             na_opts.netapp_connection_opts)
@@ -143,6 +166,12 @@ class NetAppESeriesLibrary(object):
         ssc_periodic_task = loopingcall.FixedIntervalLoopingCall(
             self._update_ssc_info)
         ssc_periodic_task.start(interval=self.SSC_UPDATE_INTERVAL)
+
+        # Start the task that logs autosupport (ASUP) data to the controller
+        asup_periodic_task = loopingcall.FixedIntervalLoopingCall(
+            self._create_asup, CONF.host)
+        asup_periodic_task.start(interval=self.AUTOSUPPORT_INTERVAL_SECONDS,
+                                 initial_delay=0)
 
     def check_for_setup_error(self):
         self._check_host_type()
@@ -206,6 +235,7 @@ class NetAppESeriesLibrary(object):
             system = self._client.register_storage_system(
                 ips, password=self.configuration.netapp_sa_password)
         self._client.set_system_id(system.get('id'))
+        self._client._init_features()
 
     def _check_storage_system(self):
         """Checks whether system is registered and has good status."""
@@ -252,27 +282,14 @@ class NetAppESeriesLibrary(object):
         return True
 
     def _get_volume(self, uid):
-        label = utils.convert_uuid_to_es_fmt(uid)
-        return self._get_volume_with_label_wwn(label)
+        """Retrieve a volume by its label"""
+        if uid is None:
+            raise exception.InvalidInput(_('The volume label is required'
+                                           ' as input.'))
 
-    def _get_volume_with_label_wwn(self, label=None, wwn=None):
-        """Searches volume with label or wwn or both."""
-        if not (label or wwn):
-            raise exception.InvalidInput(_('Either volume label or wwn'
-                                           ' is required as input.'))
-        wwn = wwn.replace(':', '').upper() if wwn else None
-        eseries_volume = None
-        for vol in self._client.list_volumes():
-            if label and vol.get('label') != label:
-                continue
-            if wwn and vol.get(self.WORLDWIDENAME).upper() != wwn:
-                continue
-            eseries_volume = vol
-            break
+        uid = utils.convert_uuid_to_es_fmt(uid)
 
-        if not eseries_volume:
-            raise KeyError()
-        return eseries_volume
+        return self._client.list_volume(uid)
 
     def _get_snapshot_group_for_snapshot(self, snapshot_id):
         label = utils.convert_uuid_to_es_fmt(snapshot_id)
@@ -331,15 +348,18 @@ class NetAppESeriesLibrary(object):
 
         eseries_volume_label = utils.convert_uuid_to_es_fmt(volume['name_id'])
 
+        extra_specs = na_utils.get_volume_extra_specs(volume)
+
         # get size of the requested volume creation
         size_gb = int(volume['size'])
-        self._create_volume(eseries_pool_label,
-                            eseries_volume_label,
-                            size_gb)
+        self._create_volume(eseries_pool_label, eseries_volume_label, size_gb,
+                            extra_specs)
 
     def _create_volume(self, eseries_pool_label, eseries_volume_label,
-                       size_gb):
+                       size_gb, extra_specs=None):
         """Creates volume with given label and size."""
+        if extra_specs is None:
+            extra_specs = {}
 
         if self.configuration.netapp_enable_multiattach:
             volumes = self._client.list_volumes()
@@ -351,6 +371,27 @@ class NetAppESeriesLibrary(object):
                          "set to true.") %
                        {'req': utils.MAX_LUNS_PER_HOST_GROUP})
                 raise exception.NetAppDriverException(msg)
+
+        # These must be either boolean values, or None
+        read_cache = extra_specs.get(self.READ_CACHE_Q_SPEC)
+        if read_cache is not None:
+            read_cache = na_utils.to_bool(read_cache)
+
+        write_cache = extra_specs.get(self.WRITE_CACHE_Q_SPEC)
+        if write_cache is not None:
+            write_cache = na_utils.to_bool(write_cache)
+
+        flash_cache = extra_specs.get(self.FLASH_CACHE_UQ_SPEC)
+        if flash_cache is not None:
+            flash_cache = na_utils.to_bool(flash_cache)
+
+        data_assurance = extra_specs.get(self.DA_UQ_SPEC)
+        if data_assurance is not None:
+            data_assurance = na_utils.to_bool(data_assurance)
+
+        thin_provision = extra_specs.get(self.THIN_UQ_SPEC)
+        if(thin_provision is not None):
+            thin_provision = na_utils.to_bool(thin_provision)
 
         target_pool = None
 
@@ -366,7 +407,12 @@ class NetAppESeriesLibrary(object):
 
         try:
             vol = self._client.create_volume(target_pool['volumeGroupRef'],
-                                             eseries_volume_label, size_gb)
+                                             eseries_volume_label, size_gb,
+                                             read_cache=read_cache,
+                                             write_cache=write_cache,
+                                             flash_cache=flash_cache,
+                                             data_assurance=data_assurance,
+                                             thin_provision=thin_provision)
             LOG.info(_LI("Created volume with "
                          "label %s."), eseries_volume_label)
         except exception.NetAppDriverException as e:
@@ -374,6 +420,10 @@ class NetAppESeriesLibrary(object):
                 LOG.error(_LE("Error creating volume. Msg - %s."), e)
 
         return vol
+
+    def _is_data_assurance_supported(self):
+        """Determine if the storage backend is PI (DataAssurance) compatible"""
+        return self.driver_protocol != "iSCSI"
 
     def _schedule_and_create_volume(self, label, size_gb):
         """Creates volume with given label and size."""
@@ -476,8 +526,8 @@ class NetAppESeriesLibrary(object):
         try:
             vol = self._get_volume(volume['name_id'])
             self._client.delete_volume(vol['volumeRef'])
-        except exception.NetAppDriverException:
-            LOG.warning(_LI("Volume %s already deleted."), volume['id'])
+        except (exception.NetAppDriverException, KeyError):
+            LOG.warning(_LW("Volume %s already deleted."), volume['id'])
             return
 
     def create_snapshot(self, snapshot):
@@ -870,6 +920,42 @@ class NetAppESeriesLibrary(object):
         self._stats = data
         self._garbage_collect_tmp_vols()
 
+    def _create_asup(self, cinder_host):
+        if not self._client.features.AUTOSUPPORT:
+            msg = _LI("E-series proxy API version %s does not support "
+                      "autosupport logging.")
+            LOG.info(msg % self._client.api_version)
+            return
+
+        firmware_version = self._client.get_firmware_version()
+        event_source = ("Cinder driver %s" % self.DRIVER_NAME)
+        category = "provisioning"
+        event_description = "OpenStack Cinder connected to E-Series proxy"
+        model = self._client.get_model_name()
+        serial_numbers = self._client.get_serial_numbers()
+
+        key = ("openstack-%s-%s-%s"
+               % (cinder_host, serial_numbers[0], serial_numbers[1]))
+
+        # The counter is being set here to a key-value combination
+        # comprised of serial numbers and cinder host with a default
+        # heartbeat of 1. The counter is set to inform the user that the
+        # key does not have a stale value.
+        self._client.set_counter("%s-heartbeat" % key, value=1)
+        data = {
+            'computer-name': cinder_host,
+            'event-source': event_source,
+            'app-version': self._app_version,
+            'category': category,
+            'event-description': event_description,
+            'controller1-serial': serial_numbers[0],
+            'controller2-serial': serial_numbers[1],
+            'model': model,
+            'system-version': firmware_version,
+            'operating-mode': self._client.api_operating_mode
+        }
+        self._client.add_autosupport_data(key, data)
+
     @cinder_utils.synchronized("netapp_update_ssc_info", external=False)
     def _update_ssc_info(self):
         """Periodically runs to update ssc information from the backend.
@@ -879,50 +965,140 @@ class NetAppESeriesLibrary(object):
         """
         LOG.info(_LI("Updating storage service catalog information for "
                      "backend '%s'"), self._backend_name)
-        self._ssc_stats = \
-            self._update_ssc_disk_encryption(self._get_storage_pools())
-        self._ssc_stats = \
-            self._update_ssc_disk_types(self._get_storage_pools())
 
-    def _update_ssc_disk_types(self, volume_groups):
+        relevant_pools = self._get_storage_pools()
+
+        if self._client.features.SSC_API_V2:
+            self._update_ssc_info_v2(relevant_pools)
+        else:
+            self._update_ssc_info_v1(relevant_pools)
+
+    def _update_ssc_info_v1(self, relevant_pools):
+        """Update ssc data using the legacy API
+
+        :param relevant_pools: The pools that this driver cares about
+        """
+        msg = _LI("E-series proxy API version %(version)s does not "
+                  "support full set of SSC extra specs. The proxy version"
+                  " must be at at least %(min_version)s.")
+        LOG.info(msg, {'version': self._client.api_version,
+                       'min_version':
+                       self._client.features.SSC_API_V2.minimum_version})
+
+        self._ssc_stats = (
+            self._update_ssc_disk_encryption(relevant_pools))
+        self._ssc_stats = (
+            self._update_ssc_disk_types(relevant_pools))
+        self._ssc_stats = (
+            self._update_ssc_raid_type(relevant_pools))
+
+    def _update_ssc_info_v2(self, relevant_pools):
+        """Update the ssc dictionary with ssc info for relevant pools
+
+        :param relevant_pools: The pools that this driver cares about
+        """
+        ssc_stats = copy.deepcopy(self._ssc_stats)
+
+        storage_pool_labels = [pool['label'] for pool in relevant_pools]
+
+        ssc_data = self._client.list_ssc_storage_pools()
+        ssc_data = [pool for pool in ssc_data
+                    if pool['name'] in storage_pool_labels]
+
+        for pool in ssc_data:
+            poolId = pool['poolId']
+            if poolId not in ssc_stats:
+                ssc_stats[poolId] = {}
+
+            pool_ssc_info = ssc_stats[poolId]
+
+            pool_ssc_info[self.ENCRYPTION_UQ_SPEC] = (
+                six.text_type(pool['encrypted']).lower())
+
+            pool_ssc_info[self.SPINDLE_SPD_UQ_SPEC] = (pool['spindleSpeed'])
+
+            flash_cache_capable = pool['flashCacheCapable']
+            pool_ssc_info[self.FLASH_CACHE_UQ_SPEC] = (
+                six.text_type(flash_cache_capable).lower())
+
+            # Data Assurance is not compatible with some backend types
+            da_capable = pool['dataAssuranceCapable'] and (
+                self._is_data_assurance_supported())
+            pool_ssc_info[self.DA_UQ_SPEC] = (
+                six.text_type(da_capable).lower())
+
+            pool_ssc_info[self.RAID_UQ_SPEC] = (
+                self.SSC_RAID_TYPE_MAPPING.get(pool['raidLevel'], 'unknown'))
+
+            pool_ssc_info[self.THIN_UQ_SPEC] = (
+                six.text_type(pool['thinProvisioningCapable']).lower())
+
+            if pool['pool'].get("driveMediaType") == 'ssd':
+                pool_ssc_info[self.DISK_TYPE_UQ_SPEC] = 'SSD'
+            else:
+                pool_ssc_info[self.DISK_TYPE_UQ_SPEC] = (
+                    self.SSC_DISK_TYPE_MAPPING.get(
+                        pool['pool'].get('drivePhysicalType'), 'unknown'))
+
+        self._ssc_stats = ssc_stats
+
+    def _update_ssc_disk_types(self, storage_pools):
         """Updates the given ssc dictionary with new disk type information.
 
-        :param volume_groups: The volume groups this driver cares about
+        :param storage_pools: The storage pools this driver cares about
         """
         ssc_stats = copy.deepcopy(self._ssc_stats)
         all_disks = self._client.list_drives()
+
+        pool_ids = set(pool.get("volumeGroupRef") for pool in storage_pools)
+
         relevant_disks = filter(lambda x: x.get('currentVolumeGroupRef') in
-                                volume_groups, all_disks)
+                                pool_ids, all_disks)
         for drive in relevant_disks:
             current_vol_group = drive.get('currentVolumeGroupRef')
             if current_vol_group not in ssc_stats:
                 ssc_stats[current_vol_group] = {}
 
             if drive.get("driveMediaType") == 'ssd':
-                ssc_stats[current_vol_group]['netapp_disk_type'] = 'SSD'
+                ssc_stats[current_vol_group][self.DISK_TYPE_UQ_SPEC] = 'SSD'
             else:
                 disk_type = drive.get('interfaceType').get('driveType')
-                ssc_stats[current_vol_group]['netapp_disk_type'] = \
-                    self.SSC_DISK_TYPE_MAPPING.get(disk_type, 'unknown')
+                ssc_stats[current_vol_group][self.DISK_TYPE_UQ_SPEC] = (
+                    self.SSC_DISK_TYPE_MAPPING.get(disk_type, 'unknown'))
 
         return ssc_stats
 
-    def _update_ssc_disk_encryption(self, volume_groups):
+    def _update_ssc_disk_encryption(self, storage_pools):
         """Updates the given ssc dictionary with new disk encryption information.
 
-        :param volume_groups: The volume groups this driver cares about
+        :param storage_pools: The storage pools this driver cares about
         """
         ssc_stats = copy.deepcopy(self._ssc_stats)
-        all_pools = self._client.list_storage_pools()
-        relevant_pools = filter(lambda x: x.get('volumeGroupRef') in
-                                volume_groups, all_pools)
-        for pool in relevant_pools:
+        for pool in storage_pools:
             current_vol_group = pool.get('volumeGroupRef')
             if current_vol_group not in ssc_stats:
                 ssc_stats[current_vol_group] = {}
 
-            ssc_stats[current_vol_group]['netapp_disk_encryption'] = 'true' \
-                if pool['securityType'] == 'enabled' else 'false'
+            ssc_stats[current_vol_group][self.ENCRYPTION_UQ_SPEC] = (
+                six.text_type(pool['securityType'] == 'enabled').lower()
+            )
+
+        return ssc_stats
+
+    def _update_ssc_raid_type(self, storage_pools):
+        """Updates the given ssc dictionary with new RAID type information.
+
+        :param storage_pools: The storage pools this driver cares about
+        """
+        ssc_stats = copy.deepcopy(self._ssc_stats)
+        for pool in storage_pools:
+            current_vol_group = pool.get('volumeGroupRef')
+            if current_vol_group not in ssc_stats:
+                ssc_stats[current_vol_group] = {}
+
+            raid_type = pool.get('raidLevel')
+            ssc_stats[current_vol_group]['netapp_raid_type'] = (
+                self.SSC_RAID_TYPE_MAPPING.get(raid_type, 'unknown'))
 
         return ssc_stats
 
@@ -936,8 +1112,7 @@ class NetAppESeriesLibrary(object):
         storage_pools = self._client.list_storage_pools()
         for storage_pool in storage_pools:
             # Check if pool can be used
-            if (storage_pool.get('raidLevel') == 'raidDiskPool'
-                    and storage_pool['label'].lower() in conf_enabled_pools):
+            if (storage_pool['label'].lower() in conf_enabled_pools):
                 filtered_pools.append(storage_pool)
 
         return filtered_pools
@@ -1003,7 +1178,7 @@ class NetAppESeriesLibrary(object):
     @cinder_utils.synchronized('manage_existing')
     def manage_existing(self, volume, existing_ref):
         """Brings an existing storage object under Cinder management."""
-        vol = self._get_existing_vol_with_manage_ref(volume, existing_ref)
+        vol = self._get_existing_vol_with_manage_ref(existing_ref)
         label = utils.convert_uuid_to_es_fmt(volume['id'])
         if label == vol['label']:
             LOG.info(_LI("Volume with given ref %s need not be renamed during"
@@ -1020,13 +1195,14 @@ class NetAppESeriesLibrary(object):
 
         When calculating the size, round up to the next GB.
         """
-        vol = self._get_existing_vol_with_manage_ref(volume, existing_ref)
+        vol = self._get_existing_vol_with_manage_ref(existing_ref)
         return int(math.ceil(float(vol['capacity']) / units.Gi))
 
-    def _get_existing_vol_with_manage_ref(self, volume, existing_ref):
+    def _get_existing_vol_with_manage_ref(self, existing_ref):
         try:
-            return self._get_volume_with_label_wwn(
-                existing_ref.get('source-name'), existing_ref.get('source-id'))
+            vol_id = existing_ref.get('source-name') or existing_ref.get(
+                'source-id')
+            return self._client.list_volume(vol_id)
         except exception.InvalidInput:
             reason = _('Reference must contain either source-name'
                        ' or source-id element.')

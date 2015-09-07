@@ -27,8 +27,10 @@ import inspect
 import logging as py_logging
 import os
 import pyclbr
+import random
 import re
 import shutil
+import socket
 import stat
 import sys
 import tempfile
@@ -47,6 +49,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import encodeutils
 from oslo_utils import importutils
+from oslo_utils import strutils
 from oslo_utils import timeutils
 import retrying
 import six
@@ -286,6 +289,24 @@ def last_completed_audit_period(unit=None):
     return (begin, end)
 
 
+def list_of_dicts_to_dict(seq, key):
+    """Convert list of dicts to a indexted dict.
+
+    Takes a list of dicts, and converts it a nested dict
+    indexed by <key>
+
+    :param seq: list of dicts
+    :parm key: key in dicts to index by
+
+    example:
+      lst = [{'id': 1, ...}, {'id': 2, ...}...]
+      key = 'id'
+      returns {1:{'id': 1, ...}, 2:{'id':2, ...}
+
+    """
+    return {d[key]: dict(d, index=d[key]) for (i, d) in enumerate(seq)}
+
+
 class ProtectedExpatParser(expatreader.ExpatParser):
     """An expat parser which disables DTD's and entities by default."""
 
@@ -327,9 +348,7 @@ def safe_minidom_parse_string(xml_string):
 
 
 def xhtml_escape(value):
-    """Escapes a string so it is valid within XML or XHTML.
-
-    """
+    """Escapes a string so it is valid within XML or XHTML."""
     return saxutils.escape(value, {'"': '&quot;', "'": '&apos;'})
 
 
@@ -402,7 +421,9 @@ def is_none_string(val):
 
 
 def monkey_patch():
-    """If the CONF.monkey_patch set as True,
+    """Patches decorators for all functions in a specified module.
+
+    If the CONF.monkey_patch set as True,
     this function patches a decorator
     for all functions in specified modules.
 
@@ -415,8 +436,8 @@ def monkey_patch():
     Parameters of the decorator is as follows.
     (See cinder.openstack.common.notifier.api.notify_decorator)
 
-    name - name of the function
-    function - object of the function
+    :param name: name of the function
+    :param function: object of the function
     """
     # If CONF.monkey_patch is not True, this function do nothing.
     if not CONF.monkey_patch:
@@ -487,7 +508,8 @@ def service_is_up(service):
     """Check whether a service is up based on last heartbeat."""
     last_heartbeat = service['updated_at'] or service['created_at']
     # Timestamps in DB are UTC.
-    elapsed = (timeutils.utcnow() - last_heartbeat).total_seconds()
+    elapsed = (timeutils.utcnow(with_timezone=True) -
+               last_heartbeat).total_seconds()
     return abs(elapsed) <= CONF.service_down_time
 
 
@@ -551,11 +573,10 @@ def get_root_helper():
 
 
 def brick_get_connector_properties(multipath=False, enforce_multipath=False):
-    """wrapper for the brick calls to automatically set
-    the root_helper needed for cinder.
+    """Wrapper to automatically set root_helper in brick calls.
 
-    :param multipath:         A boolean indicating whether the connector can
-                              support multipath.
+    :param multipath: A boolean indicating whether the connector can
+                      support multipath.
     :param enforce_multipath: If True, it raises exception when multipath=True
                               is specified but multipathd is not running.
                               If False, it falls back to multipath=False
@@ -575,6 +596,7 @@ def brick_get_connector(protocol, driver=None,
                         device_scan_attempts=3,
                         *args, **kwargs):
     """Wrapper to get a brick connector object.
+
     This automatically populates the required protocol as well
     as the root_helper needed to execute commands.
     """
@@ -620,7 +642,9 @@ def get_file_size(path):
 
 
 def _get_disk_of_partition(devpath, st=None):
-    """Returns a disk device path from a partition device path, and stat for
+    """Gets a disk device path and status from partition path.
+
+    Returns a disk device path from a partition device path, and stat for
     the device. If devpath is not a partition, devpath is returned as it is.
     For example, '/dev/sda' is returned for '/dev/sda1', and '/dev/disk1' is
     for '/dev/disk1p1' ('p' is prepended to the partition number if the disk
@@ -640,8 +664,20 @@ def _get_disk_of_partition(devpath, st=None):
     return (devpath, st)
 
 
+def get_bool_param(param_string, params):
+    param = params.get(param_string, False)
+    if not is_valid_boolstr(param):
+        msg = _('Value %(param)s for %(param_string)s is not a '
+                'boolean.') % {'param': param, 'param_string': param_string}
+        raise exception.InvalidParameterValue(err=msg)
+
+    return strutils.bool_from_string(param, strict=True)
+
+
 def get_blkdev_major_minor(path, lookup_for_file=True):
-    """Get the device's "major:minor" number of a block device to control
+    """Get 'major:minor' number of block device.
+
+    Get the device's 'major:minor' number of a block device to control
     I/O ratelimit of the specified path.
     If lookup_for_file is True and the path is a regular file, lookup a disk
     device which the file lies on and returns the result for the device.
@@ -667,7 +703,8 @@ def get_blkdev_major_minor(path, lookup_for_file=True):
 
 
 def check_string_length(value, name, min_length=0, max_length=None):
-    """Check the length of specified string
+    """Check the length of specified string.
+
     :param value: the value of the string
     :param name: the name of the string
     :param min_length: the min_length of the string
@@ -700,9 +737,15 @@ def add_visible_admin_metadata(volume):
     visible_admin_meta = {}
 
     if volume.get('volume_admin_metadata'):
-        for item in volume['volume_admin_metadata']:
-            if item['key'] in _visible_admin_metadata_keys:
-                visible_admin_meta[item['key']] = item['value']
+        if isinstance(volume['volume_admin_metadata'], dict):
+            volume_admin_metadata = volume['volume_admin_metadata']
+            for key in volume_admin_metadata:
+                if key in _visible_admin_metadata_keys:
+                    visible_admin_meta[key] = volume_admin_metadata[key]
+        else:
+            for item in volume['volume_admin_metadata']:
+                if item['key'] in _visible_admin_metadata_keys:
+                    visible_admin_meta[item['key']] = item['value']
     # avoid circular ref when volume is a Volume instance
     elif (volume.get('admin_metadata') and
             isinstance(volume.get('admin_metadata'), dict)):
@@ -733,9 +776,8 @@ def add_visible_admin_metadata(volume):
 
 def remove_invalid_filter_options(context, filters,
                                   allowed_search_options):
-    """Remove search options that are not valid
-    for non-admin API/context.
-    """
+    """Remove search options that are not valid for non-admin API/context."""
+
     if context.is_admin:
         # Allow all options
         return
@@ -758,16 +800,25 @@ def is_blk_device(dev):
         return False
 
 
-def retry(exceptions, interval=1, retries=3, backoff_rate=2):
+def retry(exceptions, interval=1, retries=3, backoff_rate=2,
+          wait_random=False):
 
     def _retry_on_exception(e):
         return isinstance(e, exceptions)
 
     def _backoff_sleep(previous_attempt_number, delay_since_first_attempt_ms):
         exp = backoff_rate ** previous_attempt_number
-        wait_for = max(0, interval * exp)
-        LOG.debug("Sleeping for %s seconds", wait_for)
-        return wait_for * 1000.0
+        wait_for = interval * exp
+
+        if wait_random:
+            random.seed()
+            wait_val = random.randrange(interval * 1000.0, wait_for * 1000.0)
+        else:
+            wait_val = wait_for * 1000.0
+
+        LOG.debug("Sleeping for %s seconds", (wait_val / 1000.0))
+
+        return wait_val
 
     def _print_stop(previous_attempt_number, delay_since_first_attempt_ms):
         delay_since_first_attempt = delay_since_first_attempt_ms / 1000.0
@@ -959,3 +1010,20 @@ def setup_tracing(trace_flags):
         LOG.warning(_LW('Invalid trace flag: %s'), invalid_flag)
     TRACE_METHOD = 'method' in trace_flags
     TRACE_API = 'api' in trace_flags
+
+
+def resolve_hostname(hostname):
+    """Resolves host name to IP address.
+
+    Resolves a host name (my.data.point.com) to an IP address (10.12.143.11).
+    This routine also works if the data passed in hostname is already an IP.
+    In this case, the same IP address will be returned.
+
+    :param hostname:  Host name to resolve.
+    :return:          IP Address for Host name.
+    """
+    result = socket.getaddrinfo(hostname, None)[0]
+    (family, socktype, proto, canonname, sockaddr) = result
+    LOG.debug('Asked to resolve hostname %(host)s and got IP %(ip)s.',
+              {'host': hostname, 'ip': sockaddr[0]})
+    return sockaddr[0]

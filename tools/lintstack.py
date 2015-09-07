@@ -37,11 +37,14 @@ ignore_codes = ["E1103"]
 # Note(xyang): the fourth and fifth error messages are for the code [E1101].
 # They should be ignored because 'sha256' and 'sha224' are functions in
 # 'hashlib'.
+# Note(aarefiev): the sixth error message is for SQLAlchemy rename calls in
+# DB migration(033_add_encryption_unique_key).
 ignore_messages = ["An attribute affected in cinder.tests",
                    "No name 'urllib' in module '_MovedItems'",
                    "No value passed for parameter 'dml'",
                    "Module 'hashlib' has no 'sha256' member",
-                   "Module 'hashlib' has no 'sha224' member"]
+                   "Module 'hashlib' has no 'sha224' member",
+                   "Instance of 'Table' has no 'rename' member"]
 # Note(maoy): we ignore all errors in openstack.common because it should be
 # checked elsewhere. We also ignore cinder.tests for now due to high false
 # positive rate.
@@ -66,6 +69,9 @@ objects_ignore_messages = [
     "Module 'cinder.objects' has no 'SnapshotList' member",
     "Module 'cinder.objects' has no 'Backup' member",
     "Module 'cinder.objects' has no 'BackupList' member",
+    "Module 'cinder.objects' has no 'Service' member",
+    "Module 'cinder.objects' has no 'ServiceList' member",
+    "Module 'cinder.objects' has no 'BackupImport' member",
 ]
 objects_ignore_modules = ["cinder/objects/"]
 

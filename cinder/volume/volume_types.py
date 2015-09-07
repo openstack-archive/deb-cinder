@@ -23,7 +23,6 @@
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
-import six
 
 from cinder import context
 from cinder import db
@@ -51,14 +50,14 @@ def create(context,
                                               is_public=is_public,
                                               description=description),
                                          projects=projects)
-    except db_exc.DBError as e:
-        LOG.exception(_LE('DB error: %s') % six.text_type(e))
+    except db_exc.DBError:
+        LOG.exception(_LE('DB error:'))
         raise exception.VolumeTypeCreateFailed(name=name,
                                                extra_specs=extra_specs)
     return type_ref
 
 
-def update(context, id, name, description):
+def update(context, id, name, description, is_public=None):
     """Update volume type by id."""
     if id is None:
         msg = _("id cannot be None")
@@ -67,9 +66,10 @@ def update(context, id, name, description):
         type_updated = db.volume_type_update(context,
                                              id,
                                              dict(name=name,
-                                                  description=description))
-    except db_exc.DBError as e:
-        LOG.exception(_LE('DB error: %s') % six.text_type(e))
+                                                  description=description,
+                                                  is_public=is_public))
+    except db_exc.DBError:
+        LOG.exception(_LE('DB error:'))
         raise exception.VolumeTypeUpdateFailed(id=id)
     return type_updated
 
@@ -99,7 +99,7 @@ def get_all_types(context, inactive=0, search_opts=None):
     vol_types = db.volume_type_get_all(context, inactive, filters=filters)
 
     if search_opts:
-        LOG.debug("Searching by: %s" % search_opts)
+        LOG.debug("Searching by: %s", search_opts)
 
         def _check_extra_specs_match(vol_type, searchdict):
             for k, v in searchdict.items():
@@ -158,13 +158,12 @@ def get_default_volume_type():
         ctxt = context.get_admin_context()
         try:
             vol_type = get_volume_type_by_name(ctxt, name)
-        except exception.VolumeTypeNotFoundByName as e:
+        except exception.VolumeTypeNotFoundByName:
             # Couldn't find volume type with the name in default_volume_type
             # flag, record this issue and move on
             # TODO(zhiteng) consider add notification to warn admin
-            LOG.exception(_LE('Default volume type is not found,'
-                          'please check default_volume_type config: %s') %
-                          six.text_type(e))
+            LOG.exception(_LE('Default volume type is not found. '
+                          'Please check default_volume_type config:'))
 
     return vol_type
 
@@ -213,11 +212,7 @@ def remove_volume_type_access(context, volume_type_id, project_id):
 
 
 def is_encrypted(context, volume_type_id):
-    if volume_type_id is None:
-        return False
-
-    encryption = db.volume_type_encryption_get(context, volume_type_id)
-    return encryption is not None
+    return get_volume_type_encryption(context, volume_type_id) is not None
 
 
 def get_volume_type_encryption(context, volume_type_id):

@@ -19,14 +19,19 @@ import mock
 from oslo_concurrency import processutils
 import six
 
+from cinder import context
 from cinder import exception
 from cinder import test
+from cinder.tests.unit import fake_snapshot
+from cinder.tests.unit import fake_volume
 from cinder.tests.unit import utils
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.emc import emc_cli_fc
 from cinder.volume.drivers.emc import emc_cli_iscsi
 from cinder.volume.drivers.emc import emc_vnx_cli
 from cinder.zonemanager import fc_san_lookup_service as fc_service
+
+from mock import patch
 
 
 SUCCEED = ("", 0)
@@ -37,6 +42,7 @@ VERSION = emc_vnx_cli.EMCVnxCliBase.VERSION
 class EMCVNXCLIDriverTestData(object):
 
     test_volume = {
+        'status': 'creating',
         'name': 'vol1',
         'size': 1,
         'volume_name': 'vol1',
@@ -77,7 +83,8 @@ class EMCVNXCLIDriverTestData(object):
         'display_name': 'vol1',
         'display_description': 'test volume',
         'volume_type_id': None,
-        'consistencygroup_id': None
+        'consistencygroup_id': None,
+        'provider_location': 'system^FNM11111|type^lun|id^1',
     }
 
     test_volume_cg = {
@@ -160,7 +167,8 @@ class EMCVNXCLIDriverTestData(object):
         'display_name': 'thin_vol',
         'consistencygroup_id': None,
         'display_description': 'vol with type',
-        'volume_type_id': 'abc1-2320-9013-8813-8941-1374-8112-1231'}
+        'volume_type_id': 'abc1-2320-9013-8813-8941-1374-8112-1231',
+        'provider_location': 'system^FNM11111|type^lun|id^1'}
 
     test_failed_volume = {
         'name': 'failed_vol1',
@@ -230,7 +238,8 @@ class EMCVNXCLIDriverTestData(object):
         'display_name': 'clone1',
         'consistencygroup_id': None,
         'display_description': 'volume created from snapshot',
-        'volume_type_id': None}
+        'volume_type_id': '19fdd0dd-03b3-4d7c-b541-f4df46f308c8',
+        'provider_location': 'system^fakesn|type^lun|id^2|version^05.03.00'}
     test_clone_cg = {
         'name': 'clone1',
         'size': 1,
@@ -242,7 +251,8 @@ class EMCVNXCLIDriverTestData(object):
         'display_name': 'clone1',
         'consistencygroup_id': 'consistencygroup_id',
         'display_description': 'volume created from snapshot',
-        'volume_type_id': None}
+        'volume_type_id': None,
+        'provider_location': 'system^fakesn|type^lun|id^2|version^05.03.00'}
     connector = {
         'ip': '10.0.0.2',
         'initiator': 'iqn.1993-08.org.debian:01:222',
@@ -511,6 +521,10 @@ class EMCVNXCLIDriverTestData(object):
         return ('snap', '-create', '-res', 1, '-name', name,
                 '-allowReadWrite', 'yes',
                 '-allowAutoDelete', 'no')
+
+    def SNAP_MODIFY_CMD(self, name, rw):
+        return ('snap', '-modify', '-id', name, '-allowReadWrite', rw,
+                '-allowAutoDelete', 'yes')
 
     def SNAP_LIST_CMD(self, res_id=1):
         cmd = ('snap', '-list', '-res', res_id)
@@ -783,26 +797,32 @@ VLAN ID:  Disabled
 IP Address:  192.168.4.53
 """, 0)
 
-    iscsi_connection_info = \
-        {'data': {'target_discovered': True,
-                  'target_iqn':
-                  'iqn.1992-04.com.emc:cx.fnm00124000215.a4',
-                  'target_lun': 2,
-                  'target_portal': '10.244.214.118:3260',
-                  'volume_id': '1'},
-         'driver_volume_type': 'iscsi'}
+    iscsi_connection_info = {
+        'data': {'target_discovered': True,
+                 'target_iqn':
+                 'iqn.1992-04.com.emc:cx.fnm00124000215.a4',
+                 'target_lun': 2,
+                 'target_portal': '10.244.214.118:3260',
+                 'target_iqns': ['iqn.1992-04.com.emc:cx.fnm00124000215.a4'],
+                 'target_luns': [2],
+                 'target_portals': ['10.244.214.118:3260'],
+                 'volume_id': '1'},
+        'driver_volume_type': 'iscsi'}
 
-    iscsi_connection_info_mp = \
-        {'data': {'target_discovered': True,
-                  'target_iqns': [
-                      'iqn.1992-04.com.emc:cx.fnm00124000215.a4',
-                      'iqn.1992-04.com.emc:cx.fnm00124000215.a5'],
-                  'target_luns': [2, 2],
-                  'target_portals': [
-                      '10.244.214.118:3260',
-                      '10.244.214.119:3260'],
-                  'volume_id': '1'},
-         'driver_volume_type': 'iscsi'}
+    iscsi_connection_info_mp = {
+        'data': {'target_discovered': True,
+                 'target_iqns': [
+                     'iqn.1992-04.com.emc:cx.fnm00124000215.a4',
+                     'iqn.1992-04.com.emc:cx.fnm00124000215.a5'],
+                 'target_iqn': 'iqn.1992-04.com.emc:cx.fnm00124000215.a4',
+                 'target_luns': [2, 2],
+                 'target_lun': 2,
+                 'target_portals': [
+                     '10.244.214.118:3260',
+                     '10.244.214.119:3260'],
+                 'target_portal': '10.244.214.118:3260',
+                 'volume_id': '1'},
+        'driver_volume_type': 'iscsi'}
 
     PING_OK = ("Reply from 10.0.0.2:  bytes=32 time=1ms TTL=30\n" +
                "Reply from 10.0.0.2:  bytes=32 time=1ms TTL=30\n" +
@@ -1499,6 +1519,19 @@ class EMCVNXCLIDriverISCSITestCase(DriverTestCaseBase):
             re.match(r".*Compression Enabler is not installed",
                      ex.msg))
 
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'copytype:snap': 'true'}))
+    def test_create_volume_snapcopy_in_cg(self):
+        self.driverSetup()
+        vol = self.testData.test_volume_with_type.copy()
+        vol['consistencygroup_id'] = '7450764f-9d24-4c70-ad46-7cd90acd4292'
+        self.assertRaises(
+            exception.VolumeBackendAPIException,
+            self.driver.create_volume,
+            vol)
+
     def test_get_volume_stats(self):
         commands = [self.testData.NDU_LIST_CMD,
                     self.testData.POOL_GET_ALL_CMD(True)]
@@ -1795,6 +1828,63 @@ Time Remaining:  0 second(s)
                                 poll=False)]
         fake_cli.assert_has_calls(expect_cmd)
 
+    @mock.patch("cinder.volume.drivers.emc.emc_vnx_cli."
+                "CommandLineHelper.create_lun_by_cmd",
+                mock.Mock(
+                    return_value={'lun_id': 1}))
+    @mock.patch(
+        "cinder.volume.drivers.emc.emc_vnx_cli.EMCVnxCliBase.get_lun_id",
+        mock.Mock(
+            side_effect=[1, 1]))
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'storagetype:tiering': 'Auto',
+                                'copytype:snap': 'true'}))
+    def test_volume_migration_smp(self):
+
+        commands = [self.testData.MIGRATION_CMD(),
+                    self.testData.MIGRATION_VERIFY_CMD(1)]
+        FAKE_MIGRATE_PROPERTY = """\
+Source LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d
+Source LU ID:  63950
+Dest LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d_dest
+Dest LU ID:  136
+Migration Rate:  high
+Current State:  MIGRATED
+Percent Complete:  100
+Time Remaining:  0 second(s)
+"""
+        results = [SUCCEED,
+                   [(FAKE_MIGRATE_PROPERTY, 0),
+                    ('The specified source LUN is not '
+                     'currently migrating', 23)]]
+        fake_cli = self.driverSetup(commands, results)
+        fake_host = {'capabilities': {'location_info':
+                                      "unit_test_pool2|fakeSerial",
+                                      'storage_protocol': 'iSCSI'}}
+
+        vol = self.testData.test_volume.copy()
+        vol['provider_location'] = 'system^FNM11111|type^smp|id^1'
+        tmp_snap = "snap-as-vol-%s" % vol['id']
+        ret = self.driver.migrate_volume(None,
+                                         vol,
+                                         fake_host)
+        self.assertTrue(ret[0])
+        self.assertTrue(
+            ret[1]['provider_location'].find('type^lun') > 0)
+        # verification
+        expect_cmd = [mock.call(*self.testData.MIGRATION_CMD(),
+                                retry_disable=True,
+                                poll=True),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=True),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=False),
+                      mock.call(*self.testData.SNAP_DELETE_CMD(tmp_snap),
+                                poll=True)]
+        fake_cli.assert_has_calls(expect_cmd)
+
     def test_create_destroy_volume_snapshot(self):
         fake_cli = self.driverSetup()
 
@@ -1959,6 +2049,10 @@ Time Remaining:  0 second(s)
 
     @mock.patch('random.randint',
                 mock.Mock(return_value=0))
+    @mock.patch('cinder.volume.drivers.emc.emc_vnx_cli.'
+                'CommandLineHelper.ping_node',
+                mock.Mock(return_value=True))
+    @mock.patch('random.shuffle', mock.Mock(return_value=0))
     def test_initialize_connection_multipath(self):
         self.configuration.initiator_auto_registration = False
 
@@ -2009,7 +2103,9 @@ Time Remaining:  0 second(s)
     @mock.patch('random.randint',
                 mock.Mock(return_value=0))
     def test_initialize_connection_exist(self):
-        """A LUN is added to the SG right before the attach,
+        """Test if initialize connection exists.
+
+        A LUN is added to the SG right before the attach,
         it may not exists in the first SG query
         """
         # Test for auto registration
@@ -2125,7 +2221,9 @@ Time Remaining:  0 second(s)
     @mock.patch('random.randint',
                 mock.Mock(return_value=0))
     def test_initialize_connection_no_hlu_left_1(self):
-        """There is no hlu per the first SG query
+        """Test initialize connection with no hlu per first SG query.
+
+        There is no hlu per the first SG query
         But there are hlu left after the full poll
         """
         # Test for auto registration
@@ -2172,8 +2270,7 @@ Time Remaining:  0 second(s)
     @mock.patch('random.randint',
                 mock.Mock(return_value=0))
     def test_initialize_connection_no_hlu_left_2(self):
-        """There is no usable hlu for the SG
-        """
+        """Test initialize connection with no hlu left."""
         # Test for auto registration
         self.configuration.initiator_auto_registration = True
         self.configuration.max_luns_per_storage_group = 2
@@ -2197,9 +2294,9 @@ Time Remaining:  0 second(s)
         ]
         fake_cli.assert_has_calls(expected)
 
-    def test_terminate_connection(self):
+    @mock.patch('os.path.exists', return_value=True)
+    def test_terminate_connection(self, _mock_exists):
 
-        os.path.exists = mock.Mock(return_value=1)
         self.driver = emc_cli_iscsi.EMCCLIISCSIDriver(
             configuration=self.configuration)
         cli_helper = self.driver.cli._client
@@ -2331,6 +2428,8 @@ Time Remaining:  0 second(s)
                 *self.testData.SNAP_MP_CREATE_CMD(
                     name='vol2', source='vol1'),
                 poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'),
+                      poll=True),
             mock.call(
                 *self.testData.SNAP_ATTACH_CMD(
                     name='vol2', snapName='snapshot1')),
@@ -2340,8 +2439,6 @@ Time Remaining:  0 second(s)
                       poll=False),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'),
-                      poll=True),
             mock.call(*self.testData.MIGRATION_CMD(1, 1),
                       retry_disable=True,
                       poll=True),
@@ -2358,6 +2455,37 @@ Time Remaining:  0 second(s)
                 'vol2_dest', 1, 'unit_test_pool', None, None,
                 ignore_thresholds=True))]
         fake_cli2.assert_has_calls(expect_cmd2)
+
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'copytype:snap': 'true'}))
+    def test_create_volume_from_snapshot_smp(self):
+        fake_cli = self.driverSetup()
+        vol = self.driver.create_volume_from_snapshot(
+            self.testData.test_volume_with_type,
+            self.testData.test_snapshot)
+        self.assertTrue(
+            vol['provider_location'].find('type^smp') > 0)
+        expect_cmd = [
+            mock.call(
+                *self.testData.SNAP_COPY_CMD(
+                    src_snap='snapshot1',
+                    snap_name='snap-as-vol-%s' % '1')),
+            mock.call(
+                *self.testData.SNAP_MODIFY_CMD(
+                    name='snap-as-vol-%s' % '1',
+                    rw='yes')),
+            mock.call(
+                *self.testData.SNAP_MP_CREATE_CMD(
+                    name='vol_with_type', source='vol1'),
+                poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol_with_type'),
+                      poll=True),
+            mock.call(
+                *self.testData.SNAP_ATTACH_CMD(
+                    name='vol_with_type', snapName='snap-as-vol-%s' % '1'))]
+        fake_cli.assert_has_calls(expect_cmd)
 
     @mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall',
                 new=utils.ZeroIntervalLoopingCall)
@@ -2392,6 +2520,8 @@ Time Remaining:  0 second(s)
                 *self.testData.SNAP_MP_CREATE_CMD(
                     name='vol2', source='vol1'),
                 poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'),
+                      poll=True),
             mock.call(
                 *self.testData.SNAP_ATTACH_CMD(
                     name='vol2', snapName='snapshot1')),
@@ -2401,8 +2531,6 @@ Time Remaining:  0 second(s)
                       poll=False),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'),
-                      poll=True),
             mock.call(*self.testData.MIGRATION_CMD(1, 1),
                       retry_disable=True,
                       poll=True),
@@ -2433,6 +2561,7 @@ Time Remaining:  0 second(s)
             mock.call(
                 *self.testData.SNAP_MP_CREATE_CMD(
                     name='vol2', source='vol1'), poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'), poll=True),
             mock.call(
                 *self.testData.SNAP_ATTACH_CMD(
                     name='vol2', snapName='snapshot1')),
@@ -2442,7 +2571,6 @@ Time Remaining:  0 second(s)
                       poll=False),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'), poll=True),
             mock.call(*self.testData.MIGRATION_CMD(1, 1),
                       poll=True,
                       retry_disable=True),
@@ -2452,42 +2580,44 @@ Time Remaining:  0 second(s)
         fake_cli.assert_has_calls(expect_cmd)
 
     def test_create_cloned_volume(self):
-        cmd_dest = self.testData.LUN_PROPERTY_ALL_CMD("vol1_dest")
-        cmd_dest_p = self.testData.LUN_PROPERTY_ALL_CMD("vol1_dest")
-        output_dest = self.testData.LUN_PROPERTY("vol1_dest")
+        cmd_dest = self.testData.LUN_PROPERTY_ALL_CMD("clone1_dest")
+        cmd_dest_p = self.testData.LUN_PROPERTY_ALL_CMD("clone1_dest")
+        output_dest = self.testData.LUN_PROPERTY("clone1_dest")
+        cmd_clone = self.testData.LUN_PROPERTY_ALL_CMD("clone1")
+        output_clone = self.testData.LUN_PROPERTY("clone1")
         cmd_migrate = self.testData.MIGRATION_CMD(1, 1)
         output_migrate = ("", 0)
         cmd_migrate_verify = self.testData.MIGRATION_VERIFY_CMD(1)
         output_migrate_verify = (r'The specified source LUN '
                                  'is not currently migrating', 23)
-        commands = [cmd_dest, cmd_dest_p, cmd_migrate,
+        commands = [cmd_dest, cmd_dest_p, cmd_clone, cmd_migrate,
                     cmd_migrate_verify]
-        results = [output_dest, output_dest, output_migrate,
+        results = [output_dest, output_dest, output_clone, output_migrate,
                    output_migrate_verify]
         fake_cli = self.driverSetup(commands, results)
 
-        self.driver.create_cloned_volume(self.testData.test_volume,
-                                         self.testData.test_snapshot)
+        volume = self.testData.test_volume.copy()
+        volume['name'] = 'clone1'
+
+        self.driver.create_cloned_volume(volume, self.testData.test_volume)
         tmp_snap = 'tmp-snap-' + self.testData.test_volume['id']
         expect_cmd = [
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('snapshot1'),
-                      poll=True),
             mock.call(
                 *self.testData.SNAP_CREATE_CMD(tmp_snap), poll=False),
             mock.call(*self.testData.SNAP_MP_CREATE_CMD(
-                name='vol1',
-                source='snapshot1'), poll=False),
+                name='clone1',
+                source='vol1'), poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('clone1'),
+                      poll=True),
             mock.call(
                 *self.testData.SNAP_ATTACH_CMD(
-                    name='vol1', snapName=tmp_snap)),
+                    name='clone1', snapName=tmp_snap)),
             mock.call(*self.testData.LUN_CREATION_CMD(
-                'vol1_dest', 1, 'unit_test_pool', None, None)),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol1_dest'),
+                'clone1_dest', 1, 'unit_test_pool', None, None)),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('clone1_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol1_dest'),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('clone1_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol1'),
-                      poll=True),
             mock.call(*self.testData.MIGRATION_CMD(1, 1),
                       poll=True,
                       retry_disable=True),
@@ -2495,6 +2625,33 @@ Time Remaining:  0 second(s)
                       poll=True),
             mock.call(*self.testData.SNAP_DELETE_CMD(tmp_snap),
                       poll=True)]
+        fake_cli.assert_has_calls(expect_cmd)
+
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'copytype:snap': 'true'}))
+    def test_create_cloned_volume_smp(self):
+        fake_cli = self.driverSetup()
+        vol = self.driver.create_cloned_volume(
+            self.testData.test_clone,
+            self.testData.test_volume_with_type)
+        self.assertTrue(
+            vol['provider_location'].find('type^smp') > 0)
+        expect_cmd = [
+            mock.call(
+                *self.testData.SNAP_CREATE_CMD(
+                    name='snap-as-vol-%s' % '2'),
+                poll=False),
+            mock.call(
+                *self.testData.SNAP_MP_CREATE_CMD(
+                    name='clone1', source='vol_with_type'),
+                poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('clone1'),
+                      poll=True),
+            mock.call(
+                *self.testData.SNAP_ATTACH_CMD(
+                    name='clone1', snapName='snap-as-vol-%s' % '2'))]
         fake_cli.assert_has_calls(expect_cmd)
 
     def test_delete_volume_failed(self):
@@ -2563,6 +2720,17 @@ Time Remaining:  0 second(s)
                     mock.call(*self.testData.STORAGEGROUP_REMOVEHLU_CMD(
                         'fakehost2', '32'), poll=False),
                     mock.call(*self.testData.LUN_DELETE_CMD('vol2_in_sg'))]
+        fake_cli.assert_has_calls(expected)
+
+    def test_delete_volume_smp(self):
+        fake_cli = self.driverSetup()
+        vol = self.testData.test_volume_with_type.copy()
+        vol['provider_location'] = 'system^FNM11111|type^smp|id^1'
+        tmp_snap = 'snap-as-vol-%s' % vol['id']
+        self.driver.delete_volume(vol)
+        expected = [mock.call(*self.testData.LUN_DELETE_CMD(vol['name'])),
+                    mock.call(*self.testData.SNAP_DELETE_CMD(tmp_snap),
+                              poll=True)]
         fake_cli.assert_has_calls(expected)
 
     def test_extend_volume(self):
@@ -2887,7 +3055,9 @@ Time Remaining:  0 second(s)
         mock.Mock(return_value={'storagetype:provisioning': 'deduplicated',
                                 'storagetype:pool': 'unit_test_pool'}))
     def test_retype_pool_changed_dedup_to_compressed_auto(self):
-        """Unit test for retype dedup to compressed and auto tiering
+        """Test retype from dedup to compressed and auto tiering.
+
+        Unit test for retype dedup to compressed and auto tiering
         and pool changed
         """
         diff_data = {'encryption': {}, 'qos_specs': {},
@@ -3225,11 +3395,76 @@ Time Remaining:  0 second(s)
                            host_test_data)
 
     @mock.patch(
+        "cinder.volume.drivers.emc.emc_vnx_cli.CommandLineHelper."
+        "migrate_lun_with_verification",
+        mock.Mock(return_value=True))
+    @mock.patch(
+        "cinder.volume.drivers.emc.emc_vnx_cli.CommandLineHelper."
+        "create_lun_with_advance_feature",
+        mock.Mock(return_value={'lun_id': '1'}))
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'storagetype:provisioning': 'thin',
+                                'copytype:snap': 'true'}))
+    def test_retype_copytype_snap_true_to_false(self):
+        diff_data = {'encryption': {}, 'qos_specs': {},
+                     'extra_specs':
+                     {'copytype:snap': ('true',
+                                        'false')}}
+
+        new_type_data = {'name': 'voltype0', 'qos_specs_id': None,
+                         'deleted': False,
+                         'extra_specs': {'storagetype:provisioning': 'thin',
+                                         'copytype:snap': 'false'},
+                         'id': 'f82f28c8-148b-416e-b1ae-32d3c02556c0'}
+
+        host_test_data = {'host': 'ubuntu-server12@pool_backend_1',
+                          'capabilities':
+                          {'location_info': 'unit_test_pool|FNM00124500890',
+                           'volume_backend_name': 'pool_backend_1',
+                           'storage_protocol': 'iSCSI'}}
+
+        cmd_migrate_verify = self.testData.MIGRATION_VERIFY_CMD(1)
+        output_migrate_verify = (r'The specified source LUN '
+                                 'is not currently migrating', 23)
+        commands = [self.testData.NDU_LIST_CMD,
+                    self.testData.SNAP_LIST_CMD(),
+                    cmd_migrate_verify]
+        results = [self.testData.NDU_LIST_RESULT,
+                   ('No snap', 1023),
+                   output_migrate_verify]
+        fake_cli = self.driverSetup(commands, results)
+        self.driver.cli.enablers = ['-Compression',
+                                    '-Deduplication',
+                                    '-ThinProvisioning',
+                                    '-FAST']
+        emc_vnx_cli.CommandLineHelper.get_array_serial = mock.Mock(
+            return_value={'array_serial': "FNM00124500890"})
+
+        vol = self.testData.test_volume3.copy()
+        vol['provider_location'] = 'system^FNM11111|type^smp|id^1'
+        tmp_snap = 'snap-as-vol-%s' % vol['id']
+        ret = self.driver.retype(None, vol,
+                                 new_type_data,
+                                 diff_data,
+                                 host_test_data)
+        self.assertTrue(type(ret) == tuple)
+        self.assertTrue(ret[0])
+        self.assertTrue(
+            ret[1]['provider_location'].find('type^lun') > 0)
+        expect_cmd = [
+            mock.call(*self.testData.SNAP_LIST_CMD(), poll=False),
+            mock.call(*self.testData.SNAP_DELETE_CMD(tmp_snap),
+                      poll=True)]
+        fake_cli.assert_has_calls(expect_cmd)
+
+    @mock.patch(
         "cinder.volume.volume_types."
         "get_volume_type_extra_specs",
         mock.Mock(return_value={'fast_cache_enabled': 'True'}))
     def test_create_volume_with_fastcache(self):
-        """Enable fastcache when creating volume."""
+        """Test creating volume with fastcache enabled."""
         commands = [self.testData.NDU_LIST_CMD,
                     self.testData.POOL_PROPERTY_W_FASTCACHE_CMD,
                     self.testData.LUN_PROPERTY_ALL_CMD('vol_with_type'),
@@ -3364,15 +3599,18 @@ Time Remaining:  0 second(s)
             mock.call(*self.testData.LUN_DELETE_CMD('vol1'))]
         fake_cli.assert_has_calls(expect_cmd)
 
-    def test_create_cgsnapshot(self):
+    @mock.patch(
+        'cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
+    def test_create_cgsnapshot(self, get_all_for_cgsnapshot):
         cgsnapshot = self.testData.test_cgsnapshot['id']
         cg_name = self.testData.test_cgsnapshot['consistencygroup_id']
         commands = [self.testData.CREATE_CG_SNAPSHOT(cg_name, cgsnapshot)]
         results = [SUCCEED]
         fake_cli = self.driverSetup(commands, results)
-        self.driver.db = mock.MagicMock()
-        self.driver.db.volume_get_all_by_group.return_value =\
-            self.testData.SNAPS_IN_SNAP_GROUP()
+        snapshot_obj = fake_snapshot.fake_snapshot_obj(
+            self.testData.SNAPS_IN_SNAP_GROUP())
+        snapshot_obj.consistencygroup_id = cg_name
+        get_all_for_cgsnapshot.return_value = [snapshot_obj]
         self.driver.create_cgsnapshot(None, self.testData.test_cgsnapshot)
         expect_cmd = [
             mock.call(
@@ -3380,14 +3618,18 @@ Time Remaining:  0 second(s)
                     cg_name, cgsnapshot))]
         fake_cli.assert_has_calls(expect_cmd)
 
-    def test_delete_cgsnapshot(self):
+    @mock.patch(
+        'cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
+    def test_delete_cgsnapshot(self, get_all_for_cgsnapshot):
         snap_name = self.testData.test_cgsnapshot['id']
         commands = [self.testData.DELETE_CG_SNAPSHOT(snap_name)]
         results = [SUCCEED]
         fake_cli = self.driverSetup(commands, results)
-        self.driver.db = mock.MagicMock()
-        self.driver.db.snapshot_get_all_for_cgsnapshot.return_value =\
-            self.testData.SNAPS_IN_SNAP_GROUP()
+        snapshot_obj = fake_snapshot.fake_snapshot_obj(
+            self.testData.SNAPS_IN_SNAP_GROUP())
+        cg_name = self.testData.test_cgsnapshot['consistencygroup_id']
+        snapshot_obj.consistencygroup_id = cg_name
+        get_all_for_cgsnapshot.return_value = [snapshot_obj]
         self.driver.delete_cgsnapshot(None,
                                       self.testData.test_cgsnapshot)
         expect_cmd = [
@@ -3448,6 +3690,7 @@ Time Remaining:  0 second(s)
             mock.call(*self.testData.SNAP_MP_CREATE_CMD(name='vol1',
                                                         source='clone1'),
                       poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol1'), poll=True),
             mock.call(
                 *self.testData.SNAP_ATTACH_CMD(
                     name='vol1', snapName=tmp_cgsnapshot)),
@@ -3457,7 +3700,6 @@ Time Remaining:  0 second(s)
                       poll=False),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol1_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol1'), poll=True),
             mock.call(*self.testData.MIGRATION_CMD(1, 1),
                       retry_disable=True,
                       poll=True),
@@ -3488,6 +3730,8 @@ Time Remaining:  0 second(s)
                 *self.testData.SNAP_MP_CREATE_CMD(
                     name='vol2', source='vol1'),
                 poll=False),
+            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'),
+                      poll=True),
             mock.call(
                 *self.testData.SNAP_ATTACH_CMD(
                     name='vol2', snapName='cgsnapshot_id')),
@@ -3497,8 +3741,6 @@ Time Remaining:  0 second(s)
                       poll=False),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2_dest'),
                       poll=False),
-            mock.call(*self.testData.LUN_PROPERTY_ALL_CMD('vol2'),
-                      poll=True),
             mock.call(*self.testData.MIGRATION_CMD(1, 1),
                       retry_disable=True,
                       poll=True),
@@ -3577,7 +3819,7 @@ Time Remaining:  0 second(s)
 
     def test_create_consistencygroup_from_cgsnapshot(self):
         output_migrate_verify = ('The specified source LUN '
-                                 'is not currently migrating', 23)
+                                 'is not currently migrating.', 23)
         new_cg = self.testData.test_cg.copy()
         new_cg.update(
             {'id': 'new_cg_id'})
@@ -3650,7 +3892,8 @@ Time Remaining:  0 second(s)
             self.driver.create_consistencygroup_from_src(
                 None, new_cg, [vol1_in_new_cg, vol2_in_new_cg],
                 cgsnapshot=src_cgsnap, snapshots=[snap1_in_src_cgsnap,
-                                                  snap2_in_src_cgsnap]))
+                                                  snap2_in_src_cgsnap],
+                source_cg=None, source_vols=None))
         self.assertEqual(2, len(volumes_model_update))
         self.assertTrue('id^%s' % 6231 in
                         volumes_model_update[0]['provider_location'])
@@ -3663,6 +3906,8 @@ Time Remaining:  0 second(s)
             mock.call(*td.SNAP_MP_CREATE_CMD(vol1_in_new_cg['name'],
                       snap1_in_src_cgsnap['volume_name']),
                       poll=False),
+            mock.call(*td.LUN_PROPERTY_ALL_CMD(vol1_in_new_cg['name']),
+                      poll=True),
             mock.call(*td.SNAP_ATTACH_CMD(vol1_in_new_cg['name'],
                       copied_snap_name)),
             mock.call(*td.LUN_CREATION_CMD(vol1_in_new_cg['name'] + '_dest',
@@ -3672,13 +3917,13 @@ Time Remaining:  0 second(s)
                       vol1_in_new_cg['name'] + '_dest'), poll=False),
             mock.call(*td.LUN_PROPERTY_ALL_CMD(
                       vol1_in_new_cg['name'] + '_dest'), poll=False),
-            mock.call(*td.LUN_PROPERTY_ALL_CMD(vol1_in_new_cg['name']),
-                      poll=True),
             mock.call(*td.MIGRATION_CMD(6231, 1),
                       poll=True, retry_disable=True),
             mock.call(*td.SNAP_MP_CREATE_CMD(vol2_in_new_cg['name'],
                       snap2_in_src_cgsnap['volume_name']),
                       poll=False),
+            mock.call(*td.LUN_PROPERTY_ALL_CMD(vol2_in_new_cg['name']),
+                      poll=True),
             mock.call(*td.SNAP_ATTACH_CMD(vol2_in_new_cg['name'],
                       copied_snap_name)),
             mock.call(*td.LUN_CREATION_CMD(vol2_in_new_cg['name'] + '_dest',
@@ -3688,8 +3933,6 @@ Time Remaining:  0 second(s)
                       vol2_in_new_cg['name'] + '_dest'), poll=False),
             mock.call(*td.LUN_PROPERTY_ALL_CMD(
                       vol2_in_new_cg['name'] + '_dest'), poll=False),
-            mock.call(*td.LUN_PROPERTY_ALL_CMD(vol2_in_new_cg['name']),
-                      poll=True),
             mock.call(*td.MIGRATION_CMD(6232, 2),
                       poll=True, retry_disable=True),
             mock.call(*td.MIGRATION_VERIFY_CMD(6232), poll=True),
@@ -3720,7 +3963,7 @@ Time Remaining:  0 second(s)
             exception.InvalidInput,
             self.driver.create_consistencygroup_from_src,
             new_cg, [vol1_in_new_cg, vol2_in_new_cg],
-            None, None)
+            None, None, None, None)
 
     def test_create_cg_from_cgsnapshot_migrate_failed(self):
         new_cg = self.testData.test_cg.copy()
@@ -3769,7 +4012,8 @@ Time Remaining:  0 second(s)
                                None, new_cg, [vol1_in_new_cg, vol2_in_new_cg],
                                cgsnapshot=src_cgsnap,
                                snapshots=[snap1_in_src_cgsnap,
-                                          snap2_in_src_cgsnap])
+                                          snap2_in_src_cgsnap],
+                               source_cg=None, source_vols=None)
 
         expect_cmd = [
             mock.call(*self.testData.LUN_DELETE_CMD(
@@ -3780,7 +4024,7 @@ Time Remaining:  0 second(s)
                       vol1_in_new_cg['name'] + '_dest')),
             mock.call('lun', '-detach', '-name', vol1_in_new_cg['name'], '-o'),
             mock.call(*self.testData.LUN_DELETE_CMD(vol1_in_new_cg['name'])),
-            mock.call(*td.DELETE_CG_SNAPSHOT(copied_snap_name))]
+            mock.call(*td.SNAP_DELETE_CMD(copied_snap_name), poll=True)]
         fake_cli.assert_has_calls(expect_cmd)
 
     def test_deregister_initiator(self):
@@ -3819,6 +4063,111 @@ Time Remaining:  0 second(s)
             self.driver.unmanage(self.testData.test_volume)
         except NotImplementedError:
             self.fail('Interface unmanage need to be implemented')
+
+    @mock.patch("random.shuffle", mock.Mock())
+    def test_find_available_iscsi_targets_without_pingnode(self):
+        self.configuration.iscsi_initiators = None
+        self.driverSetup()
+        port_a1 = {'Port WWN': 'fake_iqn_a1',
+                   'SP': 'A',
+                   'Port ID': 1,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_a1'}
+        port_a2 = {'Port WWN': 'fake_iqn_a2',
+                   'SP': 'A',
+                   'Port ID': 2,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_a2'}
+        port_b1 = {'Port WWN': 'fake_iqn_b1',
+                   'SP': 'B',
+                   'Port ID': 1,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_b1'}
+        all_targets = {'A': [port_a1, port_a2],
+                       'B': [port_b1]}
+        targets = self.driver.cli._client.find_available_iscsi_targets(
+            'fakehost',
+            'B',
+            {('A', 2), ('B', 1)},
+            all_targets)
+        self.assertEqual([port_b1, port_a2], targets)
+
+    @mock.patch("random.shuffle", mock.Mock())
+    @mock.patch.object(emc_vnx_cli.CommandLineHelper,
+                       'ping_node')
+    def test_find_available_iscsi_targets_with_pingnode(self, ping_node):
+        self.configuration.iscsi_initiators = (
+            '{"fakehost": ["10.0.0.2"]}')
+        self.driverSetup()
+        port_a1 = {'Port WWN': 'fake_iqn_a1',
+                   'SP': 'A',
+                   'Port ID': 1,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_a1'}
+        port_a2 = {'Port WWN': 'fake_iqn_a2',
+                   'SP': 'A',
+                   'Port ID': 2,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_a2'}
+        port_b1 = {'Port WWN': 'fake_iqn_b1',
+                   'SP': 'B',
+                   'Port ID': 1,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_b1'}
+        all_targets = {'A': [port_a1, port_a2],
+                       'B': [port_b1]}
+        ping_node.side_effect = [False, True]
+        targets = self.driver.cli._client.find_available_iscsi_targets(
+            'fakehost',
+            'B',
+            {('A', 2), ('A', 1), ('B', 1)},
+            all_targets)
+        self.assertEqual([port_a1, port_b1, port_a2], targets)
+        ping_node.side_effect = [False, False, True]
+        targets = self.driver.cli._client.find_available_iscsi_targets(
+            'fakehost',
+            'B',
+            {('A', 2), ('A', 1), ('B', 1)},
+            all_targets)
+        self.assertEqual([port_a2, port_b1, port_a1], targets)
+
+    @mock.patch('cinder.volume.drivers.emc.emc_vnx_cli.'
+                'EMCVnxCliBase.get_lun_owner',
+                mock.Mock(return_value='A'))
+    @mock.patch('cinder.volume.drivers.emc.emc_vnx_cli.'
+                'CommandLineHelper.get_registered_spport_set',
+                mock.Mock())
+    @mock.patch.object(emc_vnx_cli.CommandLineHelper,
+                       'find_available_iscsi_targets')
+    def test_vnx_get_iscsi_properties(self, find_available_iscsi_targets):
+        self.driverSetup()
+        port_a1 = {'Port WWN': 'fake_iqn_a1',
+                   'SP': 'A',
+                   'Port ID': 1,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_a1'}
+        port_b1 = {'Port WWN': 'fake_iqn_b1',
+                   'SP': 'B',
+                   'Port ID': 1,
+                   'Virtual Port ID': 0,
+                   'IP Address': 'fake_ip_b1'}
+        find_available_iscsi_targets.return_value = [port_a1, port_b1]
+        connect_info = self.driver.cli.vnx_get_iscsi_properties(
+            self.testData.test_volume, self.testData.connector, 1, '')
+        expected_info = {
+            'target_discovered': True,
+            'target_iqns': [
+                'fake_iqn_a1',
+                'fake_iqn_b1'],
+            'target_iqn': 'fake_iqn_a1',
+            'target_luns': [1, 1],
+            'target_lun': 1,
+            'target_portals': [
+                'fake_ip_a1:3260',
+                'fake_ip_b1:3260'],
+            'target_portal': 'fake_ip_a1:3260',
+            'volume_id': '1'}
+        self.assertEqual(expected_info, connect_info)
 
 
 class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
@@ -4655,7 +5004,68 @@ Message : Error occurred because of time out"""
             mock_utils.assert_has_calls(expected)
 
 
-class EMCVNXCLIDMultiPoolsTestCase(DriverTestCaseBase):
+class EMCVNXCLIBackupTestCase(DriverTestCaseBase):
+    """Provides cli-level and client-level mock test."""
+
+    def driverSetup(self):
+        self.context = context.get_admin_context()
+        self.driver = self.generate_driver(self.configuration)
+        self.driver.cli._client = mock.Mock()
+        self.snapshot = fake_snapshot.fake_snapshot_obj(
+            self.context, **self.testData.test_snapshot)
+        volume = fake_volume.fake_volume_obj(self.context)
+        self.snapshot.volume = volume
+        return self.driver.cli._client
+
+    def generate_driver(self, conf):
+        driver = emc_cli_iscsi.EMCCLIISCSIDriver(configuration=conf)
+        return driver
+
+    @patch.object(emc_vnx_cli.EMCVnxCliBase, 'terminate_connection')
+    def test_terminate_connection_snapshot(self, terminate_connection):
+        fake_client = self.driverSetup()
+        connector = self.testData.connector
+        smp_name = 'tmp-smp-' + self.snapshot['id']
+        volume = {'name': smp_name}
+        self.driver.terminate_connection_snapshot(
+            self.snapshot, connector)
+        terminate_connection.assert_called_once_with(
+            volume, connector)
+        fake_client.detach_mount_point.assert_called_once_with(
+            smp_name)
+
+    @patch.object(emc_vnx_cli.EMCVnxCliBase, 'initialize_connection')
+    def test_initialize_connection_snapshot(self, initialize_connection):
+        fake_client = self.driverSetup()
+        connector = self.testData.connector
+        smp_name = 'tmp-smp-' + self.snapshot['id']
+        self.driver.initialize_connection_snapshot(
+            self.snapshot, connector)
+        fake_client.attach_mount_point.assert_called_once_with(
+            smp_name, self.snapshot['name'])
+        volume = {'name': smp_name, 'id': self.snapshot['id']}
+        initialize_connection.assert_called_once_with(
+            volume, connector)
+
+    def test_create_export_snapshot(self):
+        fake_client = self.driverSetup()
+        connector = self.testData.connector
+        smp_name = 'tmp-smp-' + self.snapshot['id']
+        self.driver.create_export_snapshot(
+            None, self.snapshot, connector)
+        fake_client.create_mount_point.assert_called_once_with(
+            self.snapshot['volume_name'], smp_name)
+
+    @patch.object(emc_vnx_cli.EMCVnxCliBase, 'delete_volume')
+    def test_remove_export_snapshot(self, delete_volume):
+        self.driverSetup()
+        smp_name = 'tmp-smp-' + self.snapshot['id']
+        self.driver.remove_export_snapshot(None, self.snapshot)
+        volume = {'name': smp_name, 'provider_location': None}
+        delete_volume.assert_called_once_with(volume, True)
+
+
+class EMCVNXCLIMultiPoolsTestCase(DriverTestCaseBase):
 
     def generate_driver(self, conf):
         driver = emc_cli_iscsi.EMCCLIISCSIDriver(configuration=conf)
@@ -4746,33 +5156,33 @@ class VNXErrorTest(test.TestCase):
         self.assertTrue(has_error)
 
     def test_has_error_not_exist(self):
-        output = "The specified snapshot does not exist"
+        output = "The specified snapshot does not exist."
         has_error = VNXError.has_error(output, VNXError.GENERAL_NOT_FOUND)
         self.assertTrue(has_error)
 
-        output = "The (pool lun) may not exist"
+        output = "The (pool lun) may not exist."
         has_error = VNXError.has_error(output, VNXError.GENERAL_NOT_FOUND)
         self.assertTrue(has_error)
 
     def test_has_error_multi_line(self):
         output = """Could not retrieve the specified (pool lun).
-                    The (pool lun) may not exist"""
+                    The (pool lun) may not exist."""
         has_error = VNXError.has_error(output, VNXError.GENERAL_NOT_FOUND)
         self.assertTrue(has_error)
 
     def test_has_error_regular_string_false(self):
-        output = "Cannot unbind LUN because it's contained in a Storage Group"
+        output = "Cannot unbind LUN because it's contained in a Storage Group."
         has_error = VNXError.has_error(output, VNXError.GENERAL_NOT_FOUND)
         self.assertFalse(has_error)
 
     def test_has_error_multi_errors(self):
-        output = "Cannot unbind LUN because it's contained in a Storage Group"
+        output = "Cannot unbind LUN because it's contained in a Storage Group."
         has_error = VNXError.has_error(output,
                                        VNXError.LUN_IN_SG,
                                        VNXError.GENERAL_NOT_FOUND)
         self.assertTrue(has_error)
 
-        output = "Cannot unbind LUN because it's contained in a Storage Group"
+        output = "Cannot unbind LUN because it's contained in a Storage Group."
         has_error = VNXError.has_error(output,
                                        VNXError.LUN_ALREADY_EXPANDED,
                                        VNXError.LUN_NOT_MIGRATING)

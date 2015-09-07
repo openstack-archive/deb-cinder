@@ -28,10 +28,11 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import manager
+from cinder import objects
 from cinder import rpc
 from cinder import service
 from cinder import test
-from cinder import wsgi
+from cinder.wsgi import common as wsgi
 
 
 test_service_opts = [
@@ -134,7 +135,7 @@ class ServiceTestCase(test.TestCase):
                        'report_count': 0,
                        'availability_zone': 'nova',
                        'id': 1}
-        with mock.patch.object(service, 'db') as mock_db:
+        with mock.patch.object(objects.service, 'db') as mock_db:
             mock_db.service_get_by_args.side_effect = exception.NotFound()
             mock_db.service_create.return_value = service_ref
             mock_db.service_get.side_effect = db_exc.DBConnectionError()
@@ -157,7 +158,7 @@ class ServiceTestCase(test.TestCase):
                        'report_count': 0,
                        'availability_zone': 'nova',
                        'id': 1}
-        with mock.patch.object(service, 'db') as mock_db:
+        with mock.patch.object(objects.service, 'db') as mock_db:
             mock_db.service_get_by_args.side_effect = exception.NotFound()
             mock_db.service_create.return_value = service_ref
             mock_db.service_get.side_effect = db_exc.DBError()
@@ -180,7 +181,7 @@ class ServiceTestCase(test.TestCase):
                        'report_count': 0,
                        'availability_zone': 'nova',
                        'id': 1}
-        with mock.patch.object(service, 'db') as mock_db:
+        with mock.patch.object(objects.service, 'db') as mock_db:
             mock_db.service_get_by_args.side_effect = exception.NotFound()
             mock_db.service_create.return_value = service_ref
             mock_db.service_get.return_value = service_ref
@@ -205,7 +206,7 @@ class ServiceTestCase(test.TestCase):
                        'report_count': 0,
                        'availability_zone': 'nova',
                        'id': 1}
-        with mock.patch.object(service, 'db') as mock_db:
+        with mock.patch('cinder.db') as mock_db:
             mock_db.service_get.return_value = service_ref
 
             serv = service.Service(
@@ -230,7 +231,7 @@ class ServiceTestCase(test.TestCase):
         self.assertEqual(25, CONF.service_down_time)
 
     @mock.patch.object(rpc, 'get_server')
-    @mock.patch.object(service, 'db')
+    @mock.patch('cinder.db')
     def test_service_stop_waits_for_rpcserver(self, mock_db, mock_rpc):
         serv = service.Service(
             self.host,
@@ -267,34 +268,33 @@ class TestWSGIService(test.TestCase):
 
             # Stopping the service, which in turn sets pool size to 0
             test_service.stop()
-            self.assertEqual(test_service.server._pool.size, 0)
+            self.assertEqual(0, test_service.server._pool.size)
 
             # Resetting pool size to default
             test_service.reset()
             test_service.start()
-            self.assertEqual(test_service.server._pool.size,
-                             1000)
+            self.assertEqual(1000, test_service.server._pool.size)
             self.assertTrue(mock_load_app.called)
 
-    @mock.patch('cinder.wsgi.Server')
+    @mock.patch('cinder.wsgi.eventlet_server.Server')
     def test_workers_set_default(self, wsgi_server):
         test_service = service.WSGIService("osapi_volume")
         self.assertEqual(processutils.get_worker_count(), test_service.workers)
 
-    @mock.patch('cinder.wsgi.Server')
+    @mock.patch('cinder.wsgi.eventlet_server.Server')
     def test_workers_set_good_user_setting(self, wsgi_server):
         self.override_config('osapi_volume_workers', 8)
         test_service = service.WSGIService("osapi_volume")
         self.assertEqual(8, test_service.workers)
 
-    @mock.patch('cinder.wsgi.Server')
+    @mock.patch('cinder.wsgi.eventlet_server.Server')
     def test_workers_set_zero_user_setting(self, wsgi_server):
         self.override_config('osapi_volume_workers', 0)
         test_service = service.WSGIService("osapi_volume")
         # If a value less than 1 is used, defaults to number of procs available
         self.assertEqual(processutils.get_worker_count(), test_service.workers)
 
-    @mock.patch('cinder.wsgi.Server')
+    @mock.patch('cinder.wsgi.eventlet_server.Server')
     def test_workers_set_negative_user_setting(self, wsgi_server):
         self.override_config('osapi_volume_workers', -1)
         self.assertRaises(exception.InvalidInput,

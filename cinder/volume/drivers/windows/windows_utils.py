@@ -49,6 +49,7 @@ class WindowsUtils(object):
 
     def check_for_setup_error(self):
         """Check that the driver is working and can communicate.
+
         Invokes the portal and checks that is listening ISCSI traffic.
         """
         try:
@@ -315,6 +316,28 @@ class WindowsUtils(object):
                                   'wmi_exc': six.text_type(exc)})
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(data=err_msg)
+
+    def set_chap_credentials(self, target_name, chap_username, chap_password):
+        try:
+            wt_host = self._conn_wmi.WT_Host(HostName=target_name)[0]
+            self._wmi_obj_set_attr(wt_host, 'EnableCHAP', True)
+            self._wmi_obj_set_attr(wt_host, 'CHAPUserName', chap_username)
+            self._wmi_obj_set_attr(wt_host, 'CHAPSecret', chap_password)
+            wt_host.put()
+        except wmi.x_wmi as exc:
+            err_msg = (_('Failed to set CHAP credentials on '
+                         'target %(target_name)s. WMI exception: %(wmi_exc)s')
+                       % {'target_name': target_name,
+                          'wmi_exc': exc})
+            LOG.error(err_msg)
+            raise exception.VolumeBackendAPIException(data=err_msg)
+
+    @staticmethod
+    def _wmi_obj_set_attr(wmi_obj, key, value):
+        # Due to a bug in the python WMI module, some wmi object attributes
+        # cannot be modified. This method is used as a workaround.
+        wmi_property = getattr(wmi_obj, 'wmi_property')
+        wmi_property(key).set(value)
 
     def add_disk_to_target(self, vol_name, target_name):
         """Adds the disk to the target."""

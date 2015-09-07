@@ -234,7 +234,7 @@ class DBAPIVolumeTestCase(BaseTest):
     def test_volume_create(self):
         volume = db.volume_create(self.ctxt, {'host': 'host1'})
         self.assertTrue(uuidutils.is_uuid_like(volume['id']))
-        self.assertEqual(volume.host, 'host1')
+        self.assertEqual('host1', volume.host)
 
     def test_volume_attached_invalid_uuid(self):
         self.assertRaises(exception.InvalidUUID, db.volume_attached, self.ctxt,
@@ -486,16 +486,16 @@ class DBAPIVolumeTestCase(BaseTest):
         # no name filter
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'])
-        self.assertEqual(len(volumes), 3)
+        self.assertEqual(3, len(volumes))
         # filter on name
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'], {'display_name': 'vol2'})
-        self.assertEqual(len(volumes), 1)
-        self.assertEqual(volumes[0]['display_name'], 'vol2')
+        self.assertEqual(1, len(volumes))
+        self.assertEqual('vol2', volumes[0]['display_name'])
         # filter no match
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'], {'display_name': 'vol4'})
-        self.assertEqual(len(volumes), 0)
+        self.assertEqual(0, len(volumes))
 
     def test_volume_list_by_status(self):
         db.volume_create(self.ctxt, {'display_name': 'vol1',
@@ -508,30 +508,30 @@ class DBAPIVolumeTestCase(BaseTest):
         # no status filter
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'])
-        self.assertEqual(len(volumes), 3)
+        self.assertEqual(3, len(volumes))
         # single match
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'], {'status': 'in-use'})
-        self.assertEqual(len(volumes), 1)
-        self.assertEqual(volumes[0]['status'], 'in-use')
+        self.assertEqual(1, len(volumes))
+        self.assertEqual('in-use', volumes[0]['status'])
         # multiple match
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'], {'status': 'available'})
-        self.assertEqual(len(volumes), 2)
+        self.assertEqual(2, len(volumes))
         for volume in volumes:
-            self.assertEqual(volume['status'], 'available')
+            self.assertEqual('available', volume['status'])
         # multiple filters
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'], {'status': 'available',
                                               'display_name': 'vol1'})
-        self.assertEqual(len(volumes), 1)
-        self.assertEqual(volumes[0]['display_name'], 'vol1')
-        self.assertEqual(volumes[0]['status'], 'available')
+        self.assertEqual(1, len(volumes))
+        self.assertEqual('vol1', volumes[0]['display_name'])
+        self.assertEqual('available', volumes[0]['status'])
         # no match
         volumes = db.volume_get_all(self.ctxt, None, None, ['created_at'],
                                     ['asc'], {'status': 'in-use',
                                               'display_name': 'vol1'})
-        self.assertEqual(len(volumes), 0)
+        self.assertEqual(0, len(volumes))
 
     def _assertEqualsVolumeOrderResult(self, correct_order, limit=None,
                                        sort_keys=None, sort_dirs=None,
@@ -1038,7 +1038,7 @@ class DBAPISnapshotTestCase(BaseTest):
 
     def test_snapshot_data_get_for_project(self):
         actual = db.snapshot_data_get_for_project(self.ctxt, 'project1')
-        self.assertEqual(actual, (0, 0))
+        self.assertEqual((0, 0), actual)
         db.volume_create(self.ctxt, {'id': 1,
                                      'project_id': 'project1',
                                      'size': 42})
@@ -1046,7 +1046,7 @@ class DBAPISnapshotTestCase(BaseTest):
                                        'project_id': 'project1',
                                        'volume_size': 42})
         actual = db.snapshot_data_get_for_project(self.ctxt, 'project1')
-        self.assertEqual(actual, (1, 42))
+        self.assertEqual((1, 42), actual)
 
     def test_snapshot_get_all_by_filter(self):
         db.volume_create(self.ctxt, {'id': 1})
@@ -1143,6 +1143,49 @@ class DBAPISnapshotTestCase(BaseTest):
                                             self.ctxt,
                                             'host2', {'status': 'error'}),
                                         ignored_keys='volume')
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host2', {'fake_key': 'fake'}),
+                                        ignored_keys='volume')
+
+    def test_snapshot_get_all_by_project(self):
+        db.volume_create(self.ctxt, {'id': 1})
+        db.volume_create(self.ctxt, {'id': 2})
+        snapshot1 = db.snapshot_create(self.ctxt, {'id': 1, 'volume_id': 1,
+                                                   'project_id': 'project1'})
+        snapshot2 = db.snapshot_create(self.ctxt, {'id': 2, 'volume_id': 2,
+                                                   'status': 'error',
+                                                   'project_id': 'project2'})
+
+        self._assertEqualListsOfObjects([snapshot1],
+                                        db.snapshot_get_all_by_project(
+                                            self.ctxt,
+                                            'project1'),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([snapshot2],
+                                        db.snapshot_get_all_by_project(
+                                            self.ctxt,
+                                            'project2'),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_all_by_project(
+                                            self.ctxt,
+                                            'project2',
+                                            {'status': 'available'}),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([snapshot2],
+                                        db.snapshot_get_all_by_project(
+                                            self.ctxt,
+                                            'project2',
+                                            {'status': 'error'}),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_all_by_project(
+                                            self.ctxt,
+                                            'project2',
+                                            {'fake_key': 'fake'}),
+                                        ignored_keys='volume')
 
     def test_snapshot_metadata_get(self):
         metadata = {'a': 'b', 'c': 'd'}
@@ -1214,6 +1257,32 @@ class DBAPICgsnapshotTestCase(BaseTest):
                                             db.cgsnapshot_get_all(
                                                 self.ctxt,
                                                 filters))
+
+    def test_cgsnapshot_get_all_by_group(self):
+        cgsnapshot1 = db.cgsnapshot_create(self.ctxt, {'id': 1,
+                                           'consistencygroup_id': 'g1'})
+        cgsnapshot2 = db.cgsnapshot_create(self.ctxt, {'id': 2,
+                                           'consistencygroup_id': 'g1'})
+        db.cgsnapshot_create(self.ctxt, {'id': 3,
+                             'consistencygroup_id': 'g2'})
+        tests = [
+            ({'consistencygroup_id': 'g1'}, [cgsnapshot1, cgsnapshot2]),
+            ({'id': 3}, []),
+            ({'fake_key': 'fake'}, []),
+            ({'consistencygroup_id': 'g2'}, []),
+            (None, [cgsnapshot1, cgsnapshot2]),
+        ]
+
+        for filters, expected in tests:
+            self._assertEqualListsOfObjects(expected,
+                                            db.cgsnapshot_get_all_by_group(
+                                                self.ctxt,
+                                                'g1',
+                                                filters))
+
+        db.cgsnapshot_destroy(self.ctxt, '1')
+        db.cgsnapshot_destroy(self.ctxt, '2')
+        db.cgsnapshot_destroy(self.ctxt, '3')
 
     def test_cgsnapshot_get_all_by_project(self):
         cgsnapshot1 = db.cgsnapshot_create(self.ctxt,
@@ -1530,9 +1599,9 @@ class DBAPIQuotaTestCase(BaseTest):
 
     def test_quota_create(self):
         quota = db.quota_create(self.ctxt, 'project1', 'resource', 99)
-        self.assertEqual(quota.resource, 'resource')
-        self.assertEqual(quota.hard_limit, 99)
-        self.assertEqual(quota.project_id, 'project1')
+        self.assertEqual('resource', quota.resource)
+        self.assertEqual(99, quota.hard_limit)
+        self.assertEqual('project1', quota.project_id)
 
     def test_quota_get(self):
         quota = db.quota_create(self.ctxt, 'project1', 'resource', 99)
@@ -1545,18 +1614,18 @@ class DBAPIQuotaTestCase(BaseTest):
                 db.quota_create(self.ctxt, 'proj%d' % i, 'res%d' % j, j)
         for i in range(3):
             quotas_db = db.quota_get_all_by_project(self.ctxt, 'proj%d' % i)
-            self.assertEqual(quotas_db, {'project_id': 'proj%d' % i,
-                                         'res0': 0,
-                                         'res1': 1,
-                                         'res2': 2})
+            self.assertEqual({'project_id': 'proj%d' % i,
+                              'res0': 0,
+                              'res1': 1,
+                              'res2': 2}, quotas_db)
 
     def test_quota_update(self):
         db.quota_create(self.ctxt, 'project1', 'resource1', 41)
         db.quota_update(self.ctxt, 'project1', 'resource1', 42)
         quota = db.quota_get(self.ctxt, 'project1', 'resource1')
-        self.assertEqual(quota.hard_limit, 42)
-        self.assertEqual(quota.resource, 'resource1')
-        self.assertEqual(quota.project_id, 'project1')
+        self.assertEqual(42, quota.hard_limit)
+        self.assertEqual('resource1', quota.resource)
+        self.assertEqual('project1', quota.project_id)
 
     def test_quota_update_nonexistent(self):
         self.assertRaises(exception.ProjectQuotaNotFound,
@@ -1575,7 +1644,7 @@ class DBAPIQuotaTestCase(BaseTest):
 
     def test_quota_reserve(self):
         reservations = _quota_reserve(self.ctxt, 'project1')
-        self.assertEqual(len(reservations), 2)
+        self.assertEqual(2, len(reservations))
         quota_usage = db.quota_usage_get_all_by_project(self.ctxt, 'project1')
         self.assertEqual({'project_id': 'project1',
                           'gigabytes': {'reserved': 2, 'in_use': 0},
@@ -1676,16 +1745,16 @@ class DBAPIIscsiTargetTestCase(BaseTest):
         target = db.iscsi_target_create_safe(self.ctxt,
                                              self._get_base_values())
         self.assertTrue(target['id'])
-        self.assertEqual(target['host'], 'fake_host')
-        self.assertEqual(target['target_num'], 10)
+        self.assertEqual('fake_host', target['host'])
+        self.assertEqual(10, target['target_num'])
 
     def test_iscsi_target_count_by_host(self):
         for i in range(3):
             values = self._get_base_values()
             values['target_num'] += i
             db.iscsi_target_create_safe(self.ctxt, values)
-        self.assertEqual(db.iscsi_target_count_by_host(self.ctxt, 'fake_host'),
-                         3)
+        self.assertEqual(3,
+                         db.iscsi_target_count_by_host(self.ctxt, 'fake_host'))
 
     def test_integrity_error(self):
         values = self._get_base_values()
@@ -1723,7 +1792,8 @@ class DBAPIBackupTestCase(BaseTest):
             'size': 1000,
             'object_count': 100,
             'temp_volume_id': 'temp_volume_id',
-            'temp_snapshot_id': 'temp_snapshot_id', }
+            'temp_snapshot_id': 'temp_snapshot_id',
+            'num_dependent_backups': 0, }
         if one:
             return base_values
 
@@ -1765,6 +1835,10 @@ class DBAPIBackupTestCase(BaseTest):
         filtered_backups = db.backup_get_all(self.ctxt, filters=filters)
         self._assertEqualListsOfObjects([self.created[1]], filtered_backups)
 
+        filters = {'fake_key': 'fake'}
+        filtered_backups = db.backup_get_all(self.ctxt, filters=filters)
+        self._assertEqualListsOfObjects([], filtered_backups)
+
     def test_backup_get_all_by_host(self):
         byhost = db.backup_get_all_by_host(self.ctxt,
                                            self.created[1]['host'])
@@ -1774,6 +1848,21 @@ class DBAPIBackupTestCase(BaseTest):
         byproj = db.backup_get_all_by_project(self.ctxt,
                                               self.created[1]['project_id'])
         self._assertEqualObjects(self.created[1], byproj[0])
+
+        byproj = db.backup_get_all_by_project(self.ctxt,
+                                              self.created[1]['project_id'],
+                                              {'fake_key': 'fake'})
+        self._assertEqualListsOfObjects([], byproj)
+
+    def test_backup_get_all_by_volume(self):
+        byvol = db.backup_get_all_by_volume(self.ctxt,
+                                            self.created[1]['volume_id'])
+        self._assertEqualObjects(self.created[1], byvol[0])
+
+        byvol = db.backup_get_all_by_volume(self.ctxt,
+                                            self.created[1]['volume_id'],
+                                            {'fake_key': 'fake'})
+        self._assertEqualListsOfObjects([], byvol)
 
     def test_backup_update_nonexistent(self):
         self.assertRaises(exception.BackupNotFound,
@@ -1978,3 +2067,140 @@ class DBAPIDriverInitiatorDataTestCase(BaseTest):
         update = {'remove_values': ['key_that_doesnt_exist']}
         db.driver_initiator_data_update(self.ctxt, self.initiator,
                                         self.namespace, update)
+
+
+class DBAPIImageVolumeCacheEntryTestCase(BaseTest):
+
+    def _validate_entry(self, entry, host, image_id, image_updated_at,
+                        volume_id, size):
+        self.assertIsNotNone(entry)
+        self.assertIsNotNone(entry['id'])
+        self.assertEqual(host, entry['host'])
+        self.assertEqual(image_id, entry['image_id'])
+        self.assertEqual(image_updated_at, entry['image_updated_at'])
+        self.assertEqual(volume_id, entry['volume_id'])
+        self.assertEqual(size, entry['size'])
+        self.assertIsNotNone(entry['last_used'])
+
+    def test_create_delete_query_cache_entry(self):
+        host = 'abc@123#poolz'
+        image_id = 'c06764d7-54b0-4471-acce-62e79452a38b'
+        image_updated_at = datetime.datetime.utcnow()
+        volume_id = 'e0e4f819-24bb-49e6-af1e-67fb77fc07d1'
+        size = 6
+
+        entry = db.image_volume_cache_create(self.ctxt, host, image_id,
+                                             image_updated_at, volume_id, size)
+        self._validate_entry(entry, host, image_id, image_updated_at,
+                             volume_id, size)
+
+        entry = db.image_volume_cache_get_and_update_last_used(self.ctxt,
+                                                               image_id,
+                                                               host)
+        self._validate_entry(entry, host, image_id, image_updated_at,
+                             volume_id, size)
+
+        entry = db.image_volume_cache_get_by_volume_id(self.ctxt, volume_id)
+        self._validate_entry(entry, host, image_id, image_updated_at,
+                             volume_id, size)
+
+        db.image_volume_cache_delete(self.ctxt, entry['volume_id'])
+
+        entry = db.image_volume_cache_get_and_update_last_used(self.ctxt,
+                                                               image_id,
+                                                               host)
+        self.assertIsNone(entry)
+
+    def test_cache_entry_get_multiple(self):
+        host = 'abc@123#poolz'
+        image_id = 'c06764d7-54b0-4471-acce-62e79452a38b'
+        image_updated_at = datetime.datetime.utcnow()
+        volume_id = 'e0e4f819-24bb-49e6-af1e-67fb77fc07d1'
+        size = 6
+
+        entries = []
+        for i in range(0, 3):
+            entries.append(db.image_volume_cache_create(self.ctxt,
+                                                        host,
+                                                        image_id,
+                                                        image_updated_at,
+                                                        volume_id,
+                                                        size))
+        # It is considered OK for the cache to have multiple of the same
+        # entries. Expect only a single one from the query.
+        entry = db.image_volume_cache_get_and_update_last_used(self.ctxt,
+                                                               image_id,
+                                                               host)
+        self._validate_entry(entry, host, image_id, image_updated_at,
+                             volume_id, size)
+
+        # We expect to get the same one on subsequent queries due to the
+        # last_used field being updated each time and ordering by it.
+        entry_id = entry['id']
+        entry = db.image_volume_cache_get_and_update_last_used(self.ctxt,
+                                                               image_id,
+                                                               host)
+        self._validate_entry(entry, host, image_id, image_updated_at,
+                             volume_id, size)
+        self.assertEqual(entry_id, entry['id'])
+
+        # Cleanup
+        for entry in entries:
+            db.image_volume_cache_delete(self.ctxt, entry['volume_id'])
+
+    def test_cache_entry_get_none(self):
+        host = 'abc@123#poolz'
+        image_id = 'c06764d7-54b0-4471-acce-62e79452a38b'
+        entry = db.image_volume_cache_get_and_update_last_used(self.ctxt,
+                                                               image_id,
+                                                               host)
+        self.assertIsNone(entry)
+
+    def test_cache_entry_get_by_volume_id_none(self):
+        volume_id = 'e0e4f819-24bb-49e6-af1e-67fb77fc07d1'
+        entry = db.image_volume_cache_get_by_volume_id(self.ctxt, volume_id)
+        self.assertIsNone(entry)
+
+    def test_cache_entry_get_all_for_host(self):
+        host = 'abc@123#poolz'
+        image_updated_at = datetime.datetime.utcnow()
+        size = 6
+
+        entries = []
+        for i in range(0, 3):
+            entries.append(db.image_volume_cache_create(self.ctxt,
+                                                        host,
+                                                        'image-' + str(i),
+                                                        image_updated_at,
+                                                        'vol-' + str(i),
+                                                        size))
+
+        other_entry = db.image_volume_cache_create(self.ctxt,
+                                                   'someOtherHost',
+                                                   'image-12345',
+                                                   image_updated_at,
+                                                   'vol-1234',
+                                                   size)
+
+        found_entries = db.image_volume_cache_get_all_for_host(self.ctxt, host)
+        self.assertIsNotNone(found_entries)
+        self.assertEqual(len(entries), len(found_entries))
+        for found_entry in found_entries:
+            for entry in entries:
+                if found_entry['id'] == entry['id']:
+                    self._validate_entry(found_entry,
+                                         entry['host'],
+                                         entry['image_id'],
+                                         entry['image_updated_at'],
+                                         entry['volume_id'],
+                                         entry['size'])
+
+        # Cleanup
+        db.image_volume_cache_delete(self.ctxt, other_entry['volume_id'])
+        for entry in entries:
+            db.image_volume_cache_delete(self.ctxt, entry['volume_id'])
+
+    def test_cache_entry_get_all_for_host_none(self):
+        host = 'abc@123#poolz'
+        entries = db.image_volume_cache_get_all_for_host(self.ctxt, host)
+        self.assertEqual([], entries)

@@ -68,6 +68,14 @@ class VolumeAPI(object):
                source_volid, source_replicaid, consistencygroup_id and
                cgsnapshot_id from create_volume. All off them are already
                passed either in request_spec or available in the DB.
+        1.25 - Add source_cg to create_consistencygroup_from_src.
+        1.26 - Adds support for sending objects over RPC in
+               create_consistencygroup(), create_consistencygroup_from_src(),
+               update_consistencygroup() and delete_consistencygroup().
+        1.27 - Adds support for replication V2
+        1.28 - Adds manage_existing_snapshot
+        1.29 - Adds get_capabilities.
+        1.30 - Adds remove_export
     """
 
     BASE_RPC_API_VERSION = '1.0'
@@ -77,43 +85,44 @@ class VolumeAPI(object):
         target = messaging.Target(topic=CONF.volume_topic,
                                   version=self.BASE_RPC_API_VERSION)
         serializer = objects_base.CinderObjectSerializer()
-        self.client = rpc.get_client(target, '1.24', serializer=serializer)
+        self.client = rpc.get_client(target, '1.30', serializer=serializer)
 
     def create_consistencygroup(self, ctxt, group, host):
         new_host = utils.extract_host(host)
-        cctxt = self.client.prepare(server=new_host, version='1.18')
+        cctxt = self.client.prepare(server=new_host, version='1.26')
         cctxt.cast(ctxt, 'create_consistencygroup',
-                   group_id=group['id'])
+                   group=group)
 
     def delete_consistencygroup(self, ctxt, group):
-        host = utils.extract_host(group['host'])
-        cctxt = self.client.prepare(server=host, version='1.18')
+        host = utils.extract_host(group.host)
+        cctxt = self.client.prepare(server=host, version='1.26')
         cctxt.cast(ctxt, 'delete_consistencygroup',
-                   group_id=group['id'])
+                   group=group)
 
     def update_consistencygroup(self, ctxt, group, add_volumes=None,
                                 remove_volumes=None):
-        host = utils.extract_host(group['host'])
-        cctxt = self.client.prepare(server=host, version='1.21')
+        host = utils.extract_host(group.host)
+        cctxt = self.client.prepare(server=host, version='1.26')
         cctxt.cast(ctxt, 'update_consistencygroup',
-                   group_id=group['id'],
+                   group=group,
                    add_volumes=add_volumes,
                    remove_volumes=remove_volumes)
 
-    def create_consistencygroup_from_src(self, ctxt, group, host,
-                                         cgsnapshot=None):
-        new_host = utils.extract_host(host)
-        cctxt = self.client.prepare(server=new_host, version='1.22')
+    def create_consistencygroup_from_src(self, ctxt, group, cgsnapshot=None,
+                                         source_cg=None):
+        new_host = utils.extract_host(group.host)
+        cctxt = self.client.prepare(server=new_host, version='1.26')
         cctxt.cast(ctxt, 'create_consistencygroup_from_src',
-                   group_id=group['id'],
-                   cgsnapshot_id=cgsnapshot['id'])
+                   group=group,
+                   cgsnapshot_id=cgsnapshot['id'] if cgsnapshot else None,
+                   source_cg=source_cg)
 
     def create_cgsnapshot(self, ctxt, group, cgsnapshot):
 
         host = utils.extract_host(group['host'])
-        cctxt = self.client.prepare(server=host, version='1.18')
+        cctxt = self.client.prepare(server=host, version='1.26')
         cctxt.cast(ctxt, 'create_cgsnapshot',
-                   group_id=group['id'],
+                   group=group,
                    cgsnapshot_id=cgsnapshot['id'])
 
     def delete_cgsnapshot(self, ctxt, cgsnapshot, host):
@@ -146,10 +155,11 @@ class VolumeAPI(object):
         cctxt.cast(ctxt, 'create_snapshot', volume_id=volume['id'],
                    snapshot=snapshot)
 
-    def delete_snapshot(self, ctxt, snapshot, host):
+    def delete_snapshot(self, ctxt, snapshot, host, unmanage_only=False):
         new_host = utils.extract_host(host)
         cctxt = self.client.prepare(server=new_host)
-        cctxt.cast(ctxt, 'delete_snapshot', snapshot=snapshot)
+        cctxt.cast(ctxt, 'delete_snapshot', snapshot=snapshot,
+                   unmanage_only=unmanage_only)
 
     def attach_volume(self, ctxt, volume, instance_uuid, host_name,
                       mountpoint, mode):
@@ -187,6 +197,11 @@ class VolumeAPI(object):
         cctxt = self.client.prepare(server=new_host)
         return cctxt.call(ctxt, 'terminate_connection', volume_id=volume['id'],
                           connector=connector, force=force)
+
+    def remove_export(self, ctxt, volume):
+        new_host = utils.extract_host(volume['host'])
+        cctxt = self.client.prepare(server=new_host, version='1.30')
+        cctxt.cast(ctxt, 'remove_export', volume_id=volume['id'])
 
     def publish_service_capabilities(self, ctxt):
         cctxt = self.client.prepare(fanout=True, version='1.2')
@@ -255,3 +270,40 @@ class VolumeAPI(object):
                    volume=volume,
                    new_volume=new_volume,
                    volume_status=original_volume_status)
+
+    def enable_replication(self, ctxt, volume):
+        new_host = utils.extract_host(volume['host'])
+        cctxt = self.client.prepare(server=new_host, version='1.27')
+        cctxt.cast(ctxt, 'enable_replication', volume=volume)
+
+    def disable_replication(self, ctxt, volume):
+        new_host = utils.extract_host(volume['host'])
+        cctxt = self.client.prepare(server=new_host, version='1.27')
+        cctxt.cast(ctxt, 'disable_replication',
+                   volume=volume)
+
+    def failover_replication(self,
+                             ctxt,
+                             volume,
+                             secondary=None):
+        new_host = utils.extract_host(volume['host'])
+        cctxt = self.client.prepare(server=new_host, version='1.27')
+        cctxt.cast(ctxt, 'failover_replication',
+                   volume=volume,
+                   secondary=secondary)
+
+    def list_replication_targets(self, ctxt, volume):
+        new_host = utils.extract_host(volume['host'])
+        cctxt = self.client.prepare(server=new_host, version='1.27')
+        return cctxt.call(ctxt, 'list_replication_targets', volume=volume)
+
+    def manage_existing_snapshot(self, ctxt, snapshot, ref, host):
+        cctxt = self.client.prepare(server=host, version='1.28')
+        cctxt.cast(ctxt, 'manage_existing_snapshot',
+                   snapshot=snapshot,
+                   ref=ref)
+
+    def get_capabilities(self, ctxt, host, discover):
+        new_host = utils.extract_host(host)
+        cctxt = self.client.prepare(server=new_host, version='1.29')
+        return cctxt.call(ctxt, 'get_capabilities', discover=discover)

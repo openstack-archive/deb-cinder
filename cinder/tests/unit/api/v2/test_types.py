@@ -92,7 +92,7 @@ class VolumeTypesApiTest(test.TestCase):
 
         expected_names = ['vol_type_1', 'vol_type_2', 'vol_type_3']
         actual_names = map(lambda e: e['name'], res_dict['volume_types'])
-        self.assertEqual(set(actual_names), set(expected_names))
+        self.assertEqual(set(expected_names), set(actual_names))
         for entry in res_dict['volume_types']:
             self.assertEqual('value1', entry['extra_specs']['key1'])
 
@@ -153,6 +153,7 @@ class VolumeTypesApiTest(test.TestCase):
         raw_volume_type = dict(
             name='new_type',
             description='new_type_desc',
+            is_public=True,
             deleted=False,
             created_at=now,
             updated_at=now,
@@ -168,6 +169,7 @@ class VolumeTypesApiTest(test.TestCase):
         expected_volume_type = dict(
             name='new_type',
             description='new_type_desc',
+            is_public=True,
             extra_specs={},
             id=42,
         )
@@ -183,6 +185,7 @@ class VolumeTypesApiTest(test.TestCase):
                 dict(
                     name='new_type',
                     description='new_type_desc',
+                    is_public=True,
                     deleted=False,
                     created_at=now,
                     updated_at=now,
@@ -200,6 +203,7 @@ class VolumeTypesApiTest(test.TestCase):
             expected_volume_type = dict(
                 name='new_type',
                 description='new_type_desc',
+                is_public=True,
                 extra_specs={},
                 id=42 + i
             )
@@ -221,7 +225,7 @@ class VolumeTypesSerializerTest(test.TestCase):
             self.assertIn(child.tag, seen)
             self.assertEqual(vtype['extra_specs'][child.tag], child.text)
             seen.remove(child.tag)
-        self.assertEqual(len(seen), 0)
+        self.assertEqual(0, len(seen))
 
     def test_index_serializer(self):
         serializer = types.VolumeTypesTemplate()

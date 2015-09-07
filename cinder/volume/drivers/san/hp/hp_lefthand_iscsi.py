@@ -50,9 +50,9 @@ class HPLeftHandISCSIDriver(driver.TransferVD,
                             driver.ExtendVD,
                             driver.CloneableVD,
                             driver.SnapshotVD,
-                            driver.RetypeVD,
                             driver.MigrateVD,
-                            driver.BaseVD):
+                            driver.BaseVD,
+                            driver.ConsistencyGroupVD):
     """Executes commands relating to HP/LeftHand SAN ISCSI volumes.
 
     Version history:
@@ -64,9 +64,10 @@ class HPLeftHandISCSIDriver(driver.TransferVD,
         1.0.5 - Adding support for manage/unmanage.
         1.0.6 - Updated minimum client version. bug #1432757
         1.0.7 - Update driver to use ABC metaclasses
+        1.0.8 - Adds consistency group support
     """
 
-    VERSION = "1.0.7"
+    VERSION = "1.0.8"
 
     def __init__(self, *args, **kwargs):
         super(HPLeftHandISCSIDriver, self).__init__(*args, **kwargs)
@@ -116,6 +117,36 @@ class HPLeftHandISCSIDriver(driver.TransferVD,
         """Extend the size of an existing volume."""
         self.proxy.extend_volume(volume, new_size)
 
+    def create_consistencygroup(self, context, group):
+        """Creates a consistency group."""
+        return self.proxy.create_consistencygroup(context, group)
+
+    def create_consistencygroup_from_src(self, context, group, volumes,
+                                         cgsnapshot=None, snapshots=None,
+                                         source_cg=None, source_vols=None):
+        """Creates a consistency group from a source"""
+        return self.proxy.create_consistencygroup_from_src(
+            context, group, volumes, cgsnapshot, snapshots, source_cg,
+            source_vols)
+
+    def delete_consistencygroup(self, context, group):
+        """Deletes a consistency group."""
+        return self.proxy.delete_consistencygroup(context, group)
+
+    def update_consistencygroup(self, context, group,
+                                add_volumes=None, remove_volumes=None):
+        """Updates a consistency group."""
+        return self.proxy.update_consistencygroup(context, group, add_volumes,
+                                                  remove_volumes)
+
+    def create_cgsnapshot(self, context, cgsnapshot):
+        """Creates a consistency group snapshot."""
+        return self.proxy.create_cgsnapshot(context, cgsnapshot)
+
+    def delete_cgsnapshot(self, context, cgsnapshot):
+        """Deletes a consistency group snapshot."""
+        return self.proxy.delete_cgsnapshot(context, cgsnapshot)
+
     def create_volume_from_snapshot(self, volume, snapshot):
         """Creates a volume from a snapshot."""
         return self.proxy.create_volume_from_snapshot(volume, snapshot)
@@ -148,8 +179,8 @@ class HPLeftHandISCSIDriver(driver.TransferVD,
     def create_cloned_volume(self, volume, src_vref):
         return self.proxy.create_cloned_volume(volume, src_vref)
 
-    def create_export(self, context, volume):
-        return self.proxy.create_export(context, volume)
+    def create_export(self, context, volume, connector):
+        return self.proxy.create_export(context, volume, connector)
 
     def ensure_export(self, context, volume):
         return self.proxy.ensure_export(context, volume)

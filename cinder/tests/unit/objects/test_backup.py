@@ -15,9 +15,11 @@
 import mock
 
 from cinder import context
+from cinder import exception
 from cinder import objects
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import objects as test_objects
+from cinder.tests.unit import utils
 
 
 fake_backup = {
@@ -84,6 +86,61 @@ class TestBackup(test_objects.BaseObjectsTestCase):
         self.assertEqual('2', backup.temp_volume_id)
         self.assertEqual('3', backup.temp_snapshot_id)
 
+    def test_import_record(self):
+        utils.replace_obj_loader(self, objects.Backup)
+        backup = objects.Backup(context=self.context, id=1, parent_id=None,
+                                num_dependent_backups=0)
+        export_string = backup.encode_record()
+        imported_backup = objects.Backup.decode_record(export_string)
+
+        # Make sure we don't lose data when converting from string
+        self.assertDictEqual(self._expected_backup(backup), imported_backup)
+
+    def test_import_record_additional_info(self):
+        utils.replace_obj_loader(self, objects.Backup)
+        backup = objects.Backup(context=self.context, id=1, parent_id=None,
+                                num_dependent_backups=0)
+        extra_info = {'driver': {'key1': 'value1', 'key2': 'value2'}}
+        extra_info_copy = extra_info.copy()
+        export_string = backup.encode_record(extra_info=extra_info)
+        imported_backup = objects.Backup.decode_record(export_string)
+
+        # Dictionary passed should not be modified
+        self.assertDictEqual(extra_info_copy, extra_info)
+
+        # Make sure we don't lose data when converting from string and that
+        # extra info is still there
+        expected = self._expected_backup(backup)
+        expected['extra_info'] = extra_info
+        self.assertDictEqual(expected, imported_backup)
+
+    def _expected_backup(self, backup):
+        record = {name: field.to_primitive(backup, name, getattr(backup, name))
+                  for name, field in backup.fields.items()}
+        return record
+
+    def test_import_record_additional_info_cant_overwrite(self):
+        utils.replace_obj_loader(self, objects.Backup)
+        backup = objects.Backup(context=self.context, id=1, parent_id=None,
+                                num_dependent_backups=0)
+        export_string = backup.encode_record(id='fake_id')
+        imported_backup = objects.Backup.decode_record(export_string)
+
+        # Make sure the extra_info can't overwrite basic data
+        self.assertDictEqual(self._expected_backup(backup), imported_backup)
+
+    def test_import_record_decoding_error(self):
+        export_string = '123456'
+        self.assertRaises(exception.InvalidInput,
+                          objects.Backup.decode_record,
+                          export_string)
+
+    def test_import_record_parsing_error(self):
+        export_string = ''
+        self.assertRaises(exception.InvalidInput,
+                          objects.Backup.decode_record,
+                          export_string)
+
 
 class TestBackupList(test_objects.BaseObjectsTestCase):
     @mock.patch('cinder.db.backup_get_all', return_value=[fake_backup])
@@ -107,5 +164,12 @@ class TestBackupList(test_objects.BaseObjectsTestCase):
 
         backups = objects.BackupList.get_all_by_host(self.context,
                                                      fake_volume_obj.id)
+        self.assertEqual(1, len(backups))
+        TestBackup._compare(self, fake_backup, backups[0])
+
+    @mock.patch('cinder.db.backup_get_all', return_value=[fake_backup])
+    def test_get_all_tenants(self, backup_get_all):
+        search_opts = {'all_tenants': 1}
+        backups = objects.BackupList.get_all(self.context, search_opts)
         self.assertEqual(1, len(backups))
         TestBackup._compare(self, fake_backup, backups[0])

@@ -468,7 +468,12 @@ class VolumeBackupSizeExceedsAvailableQuota(QuotaError):
 
 
 class VolumeLimitExceeded(QuotaError):
-    message = _("Maximum number of volumes allowed (%(allowed)d) exceeded")
+    message = _("Maximum number of volumes allowed (%(allowed)d) exceeded for "
+                "quota '%(name)s'.")
+
+    def __init__(self, message=None, **kwargs):
+        kwargs.setdefault('name', 'volumes')
+        super(VolumeLimitExceeded, self).__init__(message, **kwargs)
 
 
 class SnapshotLimitExceeded(QuotaError):
@@ -644,12 +649,17 @@ class QoSSpecsInUse(CinderException):
 
 
 class KeyManagerError(CinderException):
-    msg_fmt = _("key manager error: %(reason)s")
+    message = _("key manager error: %(reason)s")
 
 
 class ManageExistingInvalidReference(CinderException):
     message = _("Manage existing volume failed due to invalid backend "
                 "reference %(existing_ref)s: %(reason)s")
+
+
+class ManageExistingAlreadyManaged(CinderException):
+    message = _("Unable to manage existing volume. "
+                "Volume %(volume_ref)s already managed.")
 
 
 class ReplicationError(CinderException):
@@ -684,15 +694,15 @@ ObjectFieldInvalid = obj_exc.ObjectFieldInvalid
 
 
 class VolumeGroupNotFound(CinderException):
-    msg_fmt = _('Unable to find Volume Group: %(vg_name)s')
+    message = _('Unable to find Volume Group: %(vg_name)s')
 
 
 class VolumeGroupCreationFailed(CinderException):
-    msg_fmt = _('Failed to create Volume Group: %(vg_name)s')
+    message = _('Failed to create Volume Group: %(vg_name)s')
 
 
 class VolumeDeviceNotFound(CinderException):
-    msg_fmt = _('Volume device not found at %(device)s.')
+    message = _('Volume device not found at %(device)s.')
 
 
 # Driver specific exceptions
@@ -936,17 +946,6 @@ class XtremIOArrayBusy(CinderException):
     message = _("System is busy, retry operation.")
 
 
-# StorPool driver
-class StorPoolConfigurationMissing(CinderException):
-    message = _("Missing parameter %(param)s in the %(section)s section "
-                "of the /etc/storpool.conf file")
-
-
-class StorPoolConfigurationInvalid(CinderException):
-    message = _("Invalid parameter %(param)s in the %(section)s section "
-                "of the /etc/storpool.conf file: %(error)s")
-
-
 # Infortrend EonStor DS Driver
 class InfortrendCliException(CinderException):
     message = _("Infortrend CLI exception: %(err)s Param: %(param)s "
@@ -978,6 +977,18 @@ class DotHillNotTargetPortal(CinderException):
     message = _("No active iSCSI portals with supplied iSCSI IPs")
 
 
+# Sheepdog
+class SheepdogError(VolumeBackendAPIException):
+    message = _("An error has occured in SheepdogDriver. (Reason: %(reason)s)")
+
+
+class SheepdogCmdError(SheepdogError):
+    message = _("(Command: %(cmd)s) "
+                "(Return Code: %(exit_code)s) "
+                "(Stdout: %(stdout)s) "
+                "(Stderr: %(stderr)s)")
+
+
 class MetadataAbsent(CinderException):
     message = _("There is no metadata in DB object.")
 
@@ -985,3 +996,8 @@ class MetadataAbsent(CinderException):
 class NotSupportedOperation(Invalid):
     message = _("Operation not supported: %(operation)s.")
     code = 405
+
+
+# Hitachi HNAS drivers
+class HNASConnError(CinderException):
+    message = _("%(message)s")

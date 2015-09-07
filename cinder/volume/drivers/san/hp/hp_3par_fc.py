@@ -38,7 +38,7 @@ from oslo_log import log as logging
 
 from cinder import exception
 from cinder.i18n import _, _LI
-import cinder.volume.driver
+from cinder.volume import driver
 from cinder.volume.drivers.san.hp import hp_3par_common as hpcommon
 from cinder.volume.drivers.san import san
 from cinder.zonemanager import utils as fczm_utils
@@ -46,7 +46,14 @@ from cinder.zonemanager import utils as fczm_utils
 LOG = logging.getLogger(__name__)
 
 
-class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
+class HP3PARFCDriver(driver.TransferVD,
+                     driver.ManageableVD,
+                     driver.ExtendVD,
+                     driver.CloneableVD,
+                     driver.SnapshotVD,
+                     driver.MigrateVD,
+                     driver.ConsistencyGroupVD,
+                     driver.BaseVD):
     """OpenStack Fibre Channel driver to enable 3PAR storage array.
 
     Version history:
@@ -80,10 +87,12 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         2.0.16 - Added encrypted property to initialize_connection #1439917
         2.0.17 - Improved VLUN creation and deletion logic. #1469816
         2.0.18 - Changed initialize_connection to use getHostVLUNs. #1475064
+        2.0.19 - Adds consistency group support
+        2.0.20 - Update driver to use ABC metaclasses
 
     """
 
-    VERSION = "2.0.18"
+    VERSION = "2.0.20"
 
     def __init__(self, *args, **kwargs):
         super(HP3PARFCDriver, self).__init__(*args, **kwargs)
@@ -113,16 +122,16 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
     def get_volume_stats(self, refresh=False):
         common = self._login()
         try:
-            stats = common.get_volume_stats(
+            self._stats = common.get_volume_stats(
                 refresh,
                 self.get_filter_function(),
                 self.get_goodness_function())
-            stats['storage_protocol'] = 'FC'
-            stats['driver_version'] = self.VERSION
+            self._stats['storage_protocol'] = 'FC'
+            self._stats['driver_version'] = self.VERSION
             backend_name = self.configuration.safe_get('volume_backend_name')
-            stats['volume_backend_name'] = (backend_name or
-                                            self.__class__.__name__)
-            return stats
+            self._stats['volume_backend_name'] = (backend_name or
+                                                  self.__class__.__name__)
+            return self._stats
         finally:
             self._logout(common)
 
@@ -411,7 +420,7 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
             host = common._get_3par_host(host['name'])
         return host
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         pass
 
     def ensure_export(self, context, volume):
@@ -424,6 +433,54 @@ class HP3PARFCDriver(cinder.volume.driver.FibreChannelDriver):
         common = self._login()
         try:
             common.extend_volume(volume, new_size)
+        finally:
+            self._logout(common)
+
+    def create_consistencygroup(self, context, group):
+        common = self._login()
+        try:
+            return common.create_consistencygroup(context, group)
+        finally:
+            self._logout(common)
+
+    def create_consistencygroup_from_src(self, context, group, volumes,
+                                         cgsnapshot=None, snapshots=None,
+                                         source_cg=None, source_vols=None):
+        common = self._login()
+        try:
+            return common.create_consistencygroup_from_src(
+                context, group, volumes, cgsnapshot, snapshots, source_cg,
+                source_vols)
+        finally:
+            self._logout(common)
+
+    def delete_consistencygroup(self, context, group):
+        common = self._login()
+        try:
+            return common.delete_consistencygroup(context, group)
+        finally:
+            self._logout(common)
+
+    def update_consistencygroup(self, context, group,
+                                add_volumes=None, remove_volumes=None):
+        common = self._login()
+        try:
+            return common.update_consistencygroup(context, group, add_volumes,
+                                                  remove_volumes)
+        finally:
+            self._logout(common)
+
+    def create_cgsnapshot(self, context, cgsnapshot):
+        common = self._login()
+        try:
+            return common.create_cgsnapshot(context, cgsnapshot)
+        finally:
+            self._logout(common)
+
+    def delete_cgsnapshot(self, context, cgsnapshot):
+        common = self._login()
+        try:
+            return common.delete_cgsnapshot(context, cgsnapshot)
         finally:
             self._logout(common)
 

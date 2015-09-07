@@ -22,12 +22,11 @@ import six
 
 from cinder import exception
 from cinder import test
-
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fake_api as netapp_api)
 from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
     fakes as fake_client)
 from cinder.tests.unit.volume.drivers.netapp.dataontap import fakes as fake
-from cinder.volume.drivers.netapp.dataontap.client import (
-    api as netapp_api)
 from cinder.volume.drivers.netapp.dataontap.client import client_cmode
 from cinder.volume.drivers.netapp import utils as netapp_utils
 
@@ -44,6 +43,9 @@ class NetAppCmodeClientTestCase(test.TestCase):
 
     def setUp(self):
         super(NetAppCmodeClientTestCase, self).setUp()
+
+        # Inject fake netapp_lib module classes.
+        netapp_api.mock_netapp_lib([client_cmode])
 
         with mock.patch.object(client_cmode.Client,
                                'get_ontapi_version',
@@ -794,8 +796,9 @@ class NetAppCmodeClientTestCase(test.TestCase):
         self.assertEqual(expected_flex_vol, actual_flex_vol)
         self.assertEqual(expected_src_path, actual_src_path)
         self.assertEqual(expected_dest_path, actual_dest_path)
-        self.assertEqual(actual_request.get_child_by_name(
-            'destination-exists').get_content(), 'true')
+        self.assertEqual('true',
+                         actual_request.get_child_by_name(
+                             'destination-exists').get_content())
 
     def test_clone_file_when_destination_exists_and_version_less_than_1_20(
             self):
@@ -820,8 +823,9 @@ class NetAppCmodeClientTestCase(test.TestCase):
         self.assertEqual(expected_flex_vol, actual_flex_vol)
         self.assertEqual(expected_src_path, actual_src_path)
         self.assertEqual(expected_dest_path, actual_dest_path)
-        self.assertEqual(actual_request.get_child_by_name(
-            'destination-exists'), None)
+        self.assertEqual(None,
+                         actual_request.get_child_by_name(
+                             'destination-exists'))
 
     def test_get_file_usage(self):
         expected_bytes = "2048"

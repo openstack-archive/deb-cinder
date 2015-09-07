@@ -195,8 +195,9 @@ class StorageCenterApi(object):
         2.1.0 - Added support for ManageableVD.
         2.2.0 - Added API 2.2 support.
         2.3.0 - Added Legacy Port Mode Support
+        2.3.1 - Updated error handling.
     """
-    APIVERSION = '2.3.0'
+    APIVERSION = '2.3.1'
 
     def __init__(self, host, port, user, password, verify):
         """This creates a connection to Dell Enterprise Manager.
@@ -554,6 +555,8 @@ class StorageCenterApi(object):
                     # Map to actually create the volume
                     self.map_volume(scvolume,
                                     scserver)
+                    # We have changed the volume so grab a new copy of it.
+                    scvolume = self.find_volume(scvolume.get('name'))
                     self.unmap_volume(scvolume,
                                       scserver)
                     return
@@ -1031,6 +1034,7 @@ class StorageCenterApi(object):
                       {'code': r.status_code,
                        'reason': r.reason})
             LOG.error(_LE('Unable to find FC initiators'))
+        LOG.debug(initiators)
         return initiators
 
     def get_volume_count(self, scserver):
@@ -1067,6 +1071,7 @@ class StorageCenterApi(object):
                           scvolume.get('name'))
         else:
             LOG.error(_LE('_find_mappings: volume is not active'))
+        LOG.debug(mappings)
         return mappings
 
     def _find_mapping_profiles(self, scvolume):
@@ -1076,19 +1081,15 @@ class StorageCenterApi(object):
         :returns: A list of Dell mapping profile objects.
         """
         mapping_profiles = []
-        if scvolume.get('active', False):
-            r = self.client.get('StorageCenter/ScVolume/%s/MappingProfileList'
-                                % self._get_id(scvolume))
-            if r.status_code == 200:
-                mapping_profiles = self._get_json(r)
-            else:
-                LOG.debug('MappingProfileList error: %(code)d %(reason)s',
-                          {'code': r.status_code,
-                           'reason': r.reason})
-                LOG.error(_LE('Unable to find volume mapping profiles: %s'),
-                          scvolume.get('name'))
+        r = self.client.get('StorageCenter/ScVolume/%s/MappingProfileList'
+                            % self._get_id(scvolume))
+        if r.status_code == 200:
+            mapping_profiles = self._get_json(r)
         else:
-            LOG.error(_LE('_find_mappings: volume is not active'))
+            LOG.debug('MappingProfileList error: %(code)d %(reason)s',
+                      {'code': r.status_code,
+                       'reason': r.reason})
+        LOG.debug(mapping_profiles)
         return mapping_profiles
 
     def _find_controller_port(self, cportid):
@@ -1108,6 +1109,7 @@ class StorageCenterApi(object):
                        'reason': r.reason})
             LOG.error(_LE('Unable to find controller port: %s'),
                       cportid)
+        LOG.debug(controllerport)
         return controllerport
 
     def find_wwns(self, scvolume, scserver):
@@ -1139,24 +1141,32 @@ class StorageCenterApi(object):
                     # Look for both keys.
                     wwn = controllerport.get('wwn',
                                              controllerport.get('WWN'))
-                    if wwn is None:
-                        LOG.error(_LE('Find_wwns: Unable to find port wwn'))
-                    serverhba = mapping.get('serverHba')
-                    if wwn is not None and serverhba is not None:
-                        hbaname = serverhba.get('instanceName')
-                        if hbaname in initiators:
-                            if itmap.get(hbaname) is None:
-                                itmap[hbaname] = []
-                            itmap[hbaname].append(wwn)
-                            wwns.append(wwn)
+                    if wwn:
+                        serverhba = mapping.get('serverHba')
+                        if serverhba:
+                            hbaname = serverhba.get('instanceName')
+                            if hbaname in initiators:
+                                if itmap.get(hbaname) is None:
+                                    itmap[hbaname] = []
+                                itmap[hbaname].append(wwn)
+                                wwns.append(wwn)
 
-                            mappinglun = mapping.get('lun')
-                            if lun is None:
-                                lun = mappinglun
-                            elif lun != mappinglun:
-                                LOG.warning(_LW('Inconsistent Luns.'))
+                                mappinglun = mapping.get('lun')
+                                if lun is None:
+                                    lun = mappinglun
+                                elif lun != mappinglun:
+                                    LOG.warning(_LW('Inconsistent Luns.'))
+                            else:
+                                LOG.debug('%s not found in initiator list',
+                                          hbaname)
+                        else:
+                            LOG.debug('serverhba is None.')
+                    else:
+                        LOG.debug('Unable to find port wwn.')
+                else:
+                    LOG.debug('controllerport is None.')
         else:
-            LOG.error(_LE('Find_wwns: Volume appears unmapped'))
+            LOG.error(_LE('Volume appears unmapped'))
         LOG.debug(lun)
         LOG.debug(wwns)
         LOG.debug(itmap)
@@ -1951,7 +1961,7 @@ class StorageCenterApi(object):
             if (self._update_volume_profiles(self.find_volume(vol['id']),
                                              addid=None,
                                              removeid=profileid)):
-                LOG.info(_LI('Removed %s from cg.'), vol['id']),
+                LOG.info(_LI('Removed %s from cg.'), vol['id'])
             else:
                 LOG.error(_LE('Failed to remove %s from cg.'), vol['id'])
                 return False

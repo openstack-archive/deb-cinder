@@ -150,7 +150,7 @@ class V6000ISCSIDriver(driver.ISCSIDriver):
         """Synchronously checks and re-exports volumes at cinder start time."""
         pass
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         """Exports the volume."""
         pass
 
@@ -440,7 +440,9 @@ class V6000ISCSIDriver(driver.ISCSIDriver):
                 _('Failed to add igroup member: %(code)d, %(message)s') % resp)
 
     def _update_stats(self):
-        """Gathers array stats from the backend and converts them to GB values.
+        """Update array stats.
+
+        Gathers array stats from the backend and converts them to GB values.
         """
         data = {}
         total_gb = 0

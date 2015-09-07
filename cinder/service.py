@@ -35,14 +35,14 @@ from osprofiler import profiler
 import osprofiler.web
 
 from cinder import context
-from cinder import db
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import objects
 from cinder.objects import base as objects_base
 from cinder import rpc
 from cinder import version
-from cinder import wsgi
-
+from cinder.wsgi import common as wsgi_common
+from cinder.wsgi import eventlet_server as wsgi
 
 LOG = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ service_opts = [
                help='IP address on which OpenStack Volume API listens'),
     cfg.IntOpt('osapi_volume_listen_port',
                default=8776,
+               min=1, max=65535,
                help='Port on which OpenStack Volume API listens'),
     cfg.IntOpt('osapi_volume_workers',
                help='Number of workers for OpenStack Volume API service. '
@@ -145,10 +146,9 @@ class Service(service.Service):
         self.manager.init_host()
         ctxt = context.get_admin_context()
         try:
-            service_ref = db.service_get_by_args(ctxt,
-                                                 self.host,
-                                                 self.binary)
-            self.service_id = service_ref['id']
+            service_ref = objects.Service.get_by_args(
+                ctxt, self.host, self.binary)
+            self.service_id = service_ref.id
         except exception.NotFound:
             self._create_service_ref(ctxt)
 
@@ -201,13 +201,14 @@ class Service(service.Service):
 
     def _create_service_ref(self, context):
         zone = CONF.storage_availability_zone
-        service_ref = db.service_create(context,
-                                        {'host': self.host,
-                                         'binary': self.binary,
-                                         'topic': self.topic,
-                                         'report_count': 0,
-                                         'availability_zone': zone})
-        self.service_id = service_ref['id']
+        kwargs = {'host': self.host,
+                  'binary': self.binary,
+                  'topic': self.topic,
+                  'report_count': 0,
+                  'availability_zone': zone}
+        service_ref = objects.Service(context=context, **kwargs)
+        service_ref.create()
+        self.service_id = service_ref.id
 
     def __getattr__(self, key):
         manager = self.__dict__.get('manager', None)
@@ -255,7 +256,9 @@ class Service(service.Service):
         """Destroy the service object in the datastore."""
         self.stop()
         try:
-            db.service_destroy(context.get_admin_context(), self.service_id)
+            service_ref = objects.Service.get_by_id(
+                context.get_admin_context(), self.service_id)
+            service_ref.destroy()
         except exception.NotFound:
             LOG.warning(_LW('Service killed that has no database entry'))
 
@@ -302,22 +305,20 @@ class Service(service.Service):
 
         ctxt = context.get_admin_context()
         zone = CONF.storage_availability_zone
-        state_catalog = {}
         try:
             try:
-                service_ref = db.service_get(ctxt, self.service_id)
+                service_ref = objects.Service.get_by_id(ctxt, self.service_id)
             except exception.NotFound:
                 LOG.debug('The service database object disappeared, '
                           'recreating it.')
                 self._create_service_ref(ctxt)
-                service_ref = db.service_get(ctxt, self.service_id)
+                service_ref = objects.Service.get_by_id(ctxt, self.service_id)
 
-            state_catalog['report_count'] = service_ref['report_count'] + 1
-            if zone != service_ref['availability_zone']:
-                state_catalog['availability_zone'] = zone
+            service_ref.report_count += 1
+            if zone != service_ref.availability_zone:
+                service_ref.availability_zone = zone
 
-            db.service_update(ctxt,
-                              self.service_id, state_catalog)
+            service_ref.save()
 
             # TODO(termie): make this pattern be more elegant.
             if getattr(self, 'model_disconnected', False):
@@ -336,6 +337,11 @@ class Service(service.Service):
                 self.model_disconnected = True
                 LOG.exception(_LE('DBError encountered: '))
 
+        except Exception:
+            if not getattr(self, 'model_disconnected', False):
+                self.model_disconnected = True
+                LOG.exception(_LE('Exception encountered: '))
+
 
 class WSGIService(service.ServiceBase):
     """Provides ability to launch API from a 'paste' configuration."""
@@ -350,7 +356,7 @@ class WSGIService(service.ServiceBase):
         """
         self.name = name
         self.manager = self._get_manager()
-        self.loader = loader or wsgi.Loader()
+        self.loader = loader or wsgi_common.Loader()
         self.app = self.loader.load_app(name)
         self.host = getattr(CONF, '%s_listen' % name, "0.0.0.0")
         self.port = getattr(CONF, '%s_listen_port' % name, 0)

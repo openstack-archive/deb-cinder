@@ -36,9 +36,6 @@ from __future__ import print_function
 
 import datetime
 import sys
-import warnings
-
-warnings.simplefilter('once', DeprecationWarning)
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -76,6 +73,7 @@ CONF.register_cli_opts(script_opts)
 
 
 def main():
+    objects.register_all()
     admin_context = context.get_admin_context()
     CONF(sys.argv[1:], project='cinder',
          version=version.version_string())

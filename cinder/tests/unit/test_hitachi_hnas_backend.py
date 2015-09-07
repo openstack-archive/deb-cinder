@@ -13,11 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 #
+import time
 
 import mock
-from oslo_concurrency import processutils
+from oslo_concurrency import processutils as putils
 from oslo_config import cfg
 
+from cinder import exception
 from cinder import test
 from cinder import utils
 from cinder.volume.drivers.hitachi import hnas_backend
@@ -193,6 +195,52 @@ HNAS_RESULT20 = "Target does not exist."
 
 HNAS_RESULT21 = "Target created successfully."
 
+HNAS_RESULT22 = "Failed to establish SSC connection"
+
+HNAS_RESULT23 = "\n\
+Alias               : cinder-Gold\n\
+Globally unique name: iqn.2015-06.10.10.10.10:evstest1.cinder-gold\n\
+Comment             :\n\
+Secret              : None\n\
+Authentication      : Enabled\n\
+Logical units       : No logical units.\n\
+Access configuration :\n\
+\n\
+Alias               : cinder-GoldIsh\n\
+Globally unique name: iqn.2015-06.10.10.10.10:evstest1.cinder-goldish\n\
+Comment             :\n\
+Secret              : None\n\
+Authentication      : Enabled\n\
+Logical units       : No logical units.\n\
+Access configuration :\n\
+\n\
+Alias               : cinder-default\n\
+Globally unique name: iqn.2014-12.10.10.10.10:evstest1.cinder-default\n\
+Comment             :\n\
+Secret              : pxr6U37LZZJBoMc\n\
+Authentication      : Disabled\n\
+Logical units       : Logical units       :\n\
+\n\
+  LUN   Logical Unit\n\
+  ----  --------------------------------\n\
+  0     volume-8ddd1a54-9daf-4fa5-842...\n\
+  1     volume-99da7ae7-1e7f-4d57-8bf...\n\
+\n\
+Access configuration :\n\
+"
+HNAS_RESULT24 = "Logical unit modified successfully."
+
+HNAS_RESULT25 = "Current selected file system: HNAS-iSCSI-TEST, number(32)."
+
+HNAS_RESULT26 = "Name   : volume-test \n\
+Comment:                              \n\
+Path   : /.cinder/volume-test.iscsi   \n\
+Size   : 2 GB                         \n\
+File System : fs1                     \n\
+File System Mounted : YES             \n\
+Logical Unit Mounted: No"
+
+
 HNAS_CMDS = {
     ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'evsfs', 'list'):
         ["%s" % HNAS_RESULT1, ""],
@@ -253,7 +301,23 @@ HNAS_CMDS = {
      '/.cinder/test_clone.iscsi'):
         ["%s" % HNAS_RESULT16, ""],
     ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'evsipaddr', '-e', '1'):
-        ["%s" % HNAS_RESULT17, ""]
+        ["%s" % HNAS_RESULT17, ""],
+    ('ssh', '0.0.0.0', 'supervisor', 'supervisor',
+     'console-context', '--evs', '1', 'iscsi-target', 'list'):
+        ["%s" % HNAS_RESULT23, ""],
+    ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'console-context', '--evs',
+     '1', 'iscsi-target', 'addlu', 'cinder-default',
+     'volume-8ddd1a54-0000-0000-0000', '2'):
+        ["%s" % HNAS_RESULT13, ""],
+    ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'console-context', '--evs',
+     '1', 'selectfs', 'fs01-husvm'):
+        ["%s" % HNAS_RESULT25, ""],
+    ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'console-context', '--evs',
+     '1', 'iscsi-lu', 'list', 'test_lun'):
+        ["%s" % HNAS_RESULT26, ""],
+    ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'console-context', '--evs',
+     '1', 'iscsi-lu', 'mod', '-n', 'vol_test', 'new_vol_test'):
+        ["%s" % HNAS_RESULT24, ""]
 }
 
 DRV_CONF = {'ssh_enabled': 'True',
@@ -281,23 +345,45 @@ class HDSHNASBendTest(test.TestCase):
         super(HDSHNASBendTest, self).setUp()
         self.hnas_bend = hnas_backend.HnasBackend(DRV_CONF)
 
-    @mock.patch('__builtin__.open')
+    @mock.patch('six.moves.builtins.open')
     @mock.patch('os.path.isfile', return_value=True)
     @mock.patch('paramiko.RSAKey.from_private_key_file')
     @mock.patch('paramiko.SSHClient')
-    @mock.patch.object(processutils, 'ssh_execute',
+    @mock.patch.object(putils, 'ssh_execute',
                        return_value=(HNAS_RESULT5, ''))
-    def test_run_cmd(self, m_ssh_exec, m_ssh_cli, m_pvt_key, m_file, m_open):
+    @mock.patch.object(utils, 'execute')
+    @mock.patch.object(time, 'sleep')
+    def test_run_cmd(self, m_sleep, m_utl, m_ssh, m_ssh_cli,
+                     m_pvt_key, m_file, m_open):
         save_hkey_file = CONF.ssh_hosts_key_file
         save_spath = CONF.state_path
         CONF.ssh_hosts_key_file = '/var/lib/cinder/ssh_known_hosts'
         CONF.state_path = '/var/lib/cinder'
 
+        # Test main flow
         out, err = self.hnas_bend.run_cmd('ssh', '0.0.0.0',
                                           'supervisor', 'supervisor',
                                           'df', '-a')
         self.assertIn('fs01-husvm', out)
         self.assertIn('WFS-2,128 DSBs', out)
+
+        # Test exception throwing when not using SSH
+        m_utl.side_effect = putils.ProcessExecutionError(stdout='',
+                                                         stderr=HNAS_RESULT22,
+                                                         exit_code=255)
+        self.hnas_bend.drv_configs['ssh_enabled'] = 'False'
+        self.assertRaises(exception.HNASConnError, self.hnas_bend.run_cmd,
+                          'ssh', '0.0.0.0', 'supervisor', 'supervisor',
+                          'df', '-a')
+
+        # Test exception throwing when using SSH
+        m_ssh.side_effect = putils.ProcessExecutionError(stdout='',
+                                                         stderr=HNAS_RESULT22,
+                                                         exit_code=255)
+        self.hnas_bend.drv_configs['ssh_enabled'] = 'True'
+        self.assertRaises(exception.HNASConnError, self.hnas_bend.run_cmd,
+                          'ssh', '0.0.0.0', 'supervisor', 'supervisor',
+                          'df', '-a')
 
         CONF.state_path = save_spath
         CONF.ssh_hosts_key_file = save_hkey_file
@@ -320,7 +406,7 @@ class HDSHNASBendTest(test.TestCase):
         self.assertIn('172.24.44.20', out)
         self.assertIn('172.24.44.21', out)
         self.assertIn('10.0.0.20', out)
-        self.assertEqual(len(out.split('\n')), 4)
+        self.assertEqual(4, len(out.split('\n')))
 
     @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd')
     def test_get_hdp_info(self, m_run_cmd):
@@ -329,21 +415,21 @@ class HDSHNASBendTest(test.TestCase):
         out = self.hnas_bend.get_hdp_info("ssh", "0.0.0.0", "supervisor",
                                           "supervisor")
 
-        self.assertEqual(len(out.split('\n')), 10)
+        self.assertEqual(10, len(out.split('\n')))
         self.assertIn('gold', out)
         self.assertIn('silver', out)
         line1 = out.split('\n')[0]
-        self.assertEqual(len(line1.split()), 12)
+        self.assertEqual(12, len(line1.split()))
 
         # test when there is only one evs
         m_run_cmd.return_value = (HNAS_RESULT19, "")
         out = self.hnas_bend.get_hdp_info("ssh", "0.0.0.0", "supervisor",
                                           "supervisor")
-        self.assertEqual(len(out.split('\n')), 3)
+        self.assertEqual(3, len(out.split('\n')))
         self.assertIn('fs01-husvm', out)
         self.assertIn('manage_test02', out)
         line1 = out.split('\n')[0]
-        self.assertEqual(len(line1.split()), 12)
+        self.assertEqual(12, len(line1.split()))
 
     @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd',
                        side_effect=m_run_cmd)
@@ -351,7 +437,7 @@ class HDSHNASBendTest(test.TestCase):
         out = self.hnas_bend.get_nfs_info("ssh", "0.0.0.0", "supervisor",
                                           "supervisor")
 
-        self.assertEqual(len(out.split('\n')), 2)
+        self.assertEqual(2, len(out.split('\n')))
         self.assertIn('/export01-husvm', out)
         self.assertIn('172.24.44.20', out)
         self.assertIn('10.0.0.20', out)
@@ -405,9 +491,10 @@ class HDSHNASBendTest(test.TestCase):
                        side_effect=m_run_cmd)
     def test_add_iscsi_conn(self, m_cmd):
         out = self.hnas_bend.add_iscsi_conn("ssh", "0.0.0.0", "supervisor",
-                                            "supervisor", "test_lun",
+                                            "supervisor",
+                                            "volume-8ddd1a54-0000-0000-0000",
                                             "test_hdp", "test_port",
-                                            "test_iqn", "test_init")
+                                            "cinder-default", "test_init")
 
         self.assertIn('successfully paired', out)
 
@@ -419,7 +506,7 @@ class HDSHNASBendTest(test.TestCase):
 
         self.assertIn('already deleted', out)
 
-    @mock.patch.object(hnas_backend.HnasBackend, '_get_evs', return_value=0)
+    @mock.patch.object(hnas_backend.HnasBackend, 'get_evs', return_value=0)
     @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd')
     def test_get_targetiqn(self, m_cmd, m_get_evs):
 
@@ -467,3 +554,99 @@ class HDSHNASBendTest(test.TestCase):
                                               "supervisor", "test_iqn",
                                               "test_hdp")
         self.assertEqual('', out)
+
+    @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd')
+    def test_get_targets(self, m_run_cmd):
+        # Test normal behaviour
+        m_run_cmd.return_value = (HNAS_RESULT23, "")
+        tgt_list = self.hnas_bend._get_targets("ssh", "0.0.0.0", "supervisor",
+                                               "supervisor", 1)
+        self.assertEqual(3, len(tgt_list))
+        self.assertEqual(2, len(tgt_list[2]['luns']))
+
+        # Test calling with parameter
+        tgt_list = self.hnas_bend._get_targets("ssh", "0.0.0.0", "supervisor",
+                                               "supervisor", 1,
+                                               'cinder-default')
+        self.assertEqual(1, len(tgt_list))
+        self.assertEqual(2, len(tgt_list[0]['luns']))
+
+        # Test error in BE command
+        m_run_cmd.side_effect = putils.ProcessExecutionError
+        tgt_list = self.hnas_bend._get_targets("ssh", "0.0.0.0", "supervisor",
+                                               "supervisor", 1)
+        self.assertEqual(0, len(tgt_list))
+
+    @mock.patch.object(hnas_backend.HnasBackend,
+                       'run_cmd', side_effect=m_run_cmd)
+    def test_check_targets(self, m_run_cmd):
+        result, tgt = self.hnas_bend.check_target("ssh", "0.0.0.0",
+                                                  "supervisor",
+                                                  "supervisor", "test_hdp",
+                                                  "cinder-default")
+        self.assertTrue(result)
+        self.assertEqual('cinder-default', tgt['alias'])
+
+        result, tgt = self.hnas_bend.check_target("ssh", "0.0.0.0",
+                                                  "supervisor",
+                                                  "supervisor", "test_hdp",
+                                                  "cinder-no-target")
+        self.assertFalse(result)
+        self.assertIsNone(tgt)
+
+    @mock.patch.object(hnas_backend.HnasBackend,
+                       'run_cmd', side_effect=m_run_cmd)
+    def test_check_lu(self, m_run_cmd):
+        ret = self.hnas_bend.check_lu("ssh", "0.0.0.0", "supervisor",
+                                      "supervisor",
+                                      "volume-8ddd1a54-9daf-4fa5-842",
+                                      "test_hdp")
+        result, lunid, tgt = ret
+        self.assertTrue(result)
+        self.assertEqual('0', lunid)
+
+        ret = self.hnas_bend.check_lu("ssh", "0.0.0.0", "supervisor",
+                                      "supervisor",
+                                      "volume-8ddd1a54-0000-0000-000",
+                                      "test_hdp")
+        result, lunid, tgt = ret
+        self.assertFalse(result)
+
+    @mock.patch.object(hnas_backend.HnasBackend, 'get_evs', return_value=1)
+    @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd',
+                       return_value = (HNAS_RESULT26, ""))
+    def test_get_existing_lu_info(self, m_run_cmd, m_get_evs):
+
+        out = self.hnas_bend.get_existing_lu_info("ssh", "0.0.0.0",
+                                                  "supervisor",
+                                                  "supervisor", "fs01-husvm",
+                                                  "test_lun")
+
+        m_get_evs.assert_called_once_with('ssh', '0.0.0.0', 'supervisor',
+                                          'supervisor', 'fs01-husvm')
+        m_run_cmd.assert_called_once_with('ssh', '0.0.0.0', 'supervisor',
+                                          'supervisor', 'console-context',
+                                          '--evs', 1, 'iscsi-lu', 'list',
+                                          'test_lun')
+
+        self.assertEqual(HNAS_RESULT26, out)
+
+    @mock.patch.object(hnas_backend.HnasBackend, 'get_evs', return_value=1)
+    @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd',
+                       return_value=(HNAS_RESULT24, ""))
+    def test_rename_existing_lu(self, m_run_cmd, m_get_evs):
+
+        out = self.hnas_bend.rename_existing_lu("ssh", "0.0.0.0",
+                                                "supervisor",
+                                                "supervisor", "fs01-husvm",
+                                                "vol_test",
+                                                "new_vol_test")
+
+        m_get_evs.assert_called_once_with('ssh', '0.0.0.0', 'supervisor',
+                                          'supervisor', 'fs01-husvm')
+        m_run_cmd.assert_called_once_with('ssh', '0.0.0.0', 'supervisor',
+                                          'supervisor', 'console-context',
+                                          '--evs', 1, 'iscsi-lu', 'mod',
+                                          '-n', 'vol_test', 'new_vol_test')
+
+        self.assertEqual(HNAS_RESULT24, out)

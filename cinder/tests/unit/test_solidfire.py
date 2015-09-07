@@ -49,6 +49,8 @@ class SolidFireVolumeTestCase(test.TestCase):
         self.configuration.iscsi_helper = None
         self.configuration.sf_template_account_name = 'openstack-vtemplate'
         self.configuration.sf_allow_template_caching = False
+        self.configuration.sf_svip = None
+        self.configuration.sf_enable_volume_mapping = True
 
         super(SolidFireVolumeTestCase, self).setUp()
         self.stubs.Set(solidfire.SolidFireDriver,
@@ -340,8 +342,8 @@ class SolidFireVolumeTestCase(test.TestCase):
             self.configuration.sf_emulate_512 = False
             model_update = sfv.create_volume(testvol)
             self.configuration.sf_emulate_512 = True
-            self.assertEqual(model_update.get('provider_geometry', None),
-                             '4096 4096')
+            self.assertEqual('4096 4096',
+                             model_update.get('provider_geometry', None))
 
     def test_create_delete_snapshot(self):
         testsnap = {'project_id': 'testprjid',
@@ -609,7 +611,7 @@ class SolidFireVolumeTestCase(test.TestCase):
                                           qos_ref['id'],
                                           type_ref['id'])
         qos = sfv._set_qos_by_volume_type(self.ctxt, type_ref['id'])
-        self.assertEqual(qos, self.expected_qos_results)
+        self.assertEqual(self.expected_qos_results, qos)
 
     def test_set_by_qos_spec(self):
         sfv = solidfire.SolidFireDriver(configuration=self.configuration)
@@ -625,7 +627,7 @@ class SolidFireVolumeTestCase(test.TestCase):
                                           qos_ref['id'],
                                           type_ref['id'])
         qos = sfv._set_qos_by_volume_type(self.ctxt, type_ref['id'])
-        self.assertEqual(qos, self.expected_qos_results)
+        self.assertEqual(self.expected_qos_results, qos)
 
     def test_set_by_qos_by_type_only(self):
         sfv = solidfire.SolidFireDriver(configuration=self.configuration)
@@ -634,9 +636,9 @@ class SolidFireVolumeTestCase(test.TestCase):
                                                  "qos:burstIOPS": "300",
                                                  "qos:maxIOPS": "200"})
         qos = sfv._set_qos_by_volume_type(self.ctxt, type_ref['id'])
-        self.assertEqual(qos, {'minIOPS': 100,
-                               'maxIOPS': 200,
-                               'burstIOPS': 300})
+        self.assertEqual({'minIOPS': 100,
+                          'maxIOPS': 200,
+                          'burstIOPS': 300}, qos)
 
     def test_accept_transfer(self):
         sfv = solidfire.SolidFireDriver(configuration=self.configuration)
@@ -649,10 +651,10 @@ class SolidFireVolumeTestCase(test.TestCase):
                    'id': 'a720b3c0-d1f0-11e1-9b23-0800200c9a66',
                    'created_at': timeutils.utcnow()}
         expected = {'provider_auth': 'CHAP cinder-new_project 123456789012'}
-        self.assertEqual(sfv.accept_transfer(self.ctxt,
+        self.assertEqual(expected,
+                         sfv.accept_transfer(self.ctxt,
                                              testvol,
-                                             'new_user', 'new_project'),
-                         expected)
+                                             'new_user', 'new_project'))
 
     def test_accept_transfer_volume_not_found_raises(self):
         sfv = solidfire.SolidFireDriver(configuration=self.configuration)
@@ -748,8 +750,8 @@ class SolidFireVolumeTestCase(test.TestCase):
                        self.fake_issue_api_request)
         sfv = solidfire.SolidFireDriver(configuration=self.configuration)
         sfv._update_cluster_status()
-        self.assertEqual(sfv.cluster_stats['free_capacity_gb'], 99.0)
-        self.assertEqual(sfv.cluster_stats['total_capacity_gb'], 100.0)
+        self.assertEqual(99.0, sfv.cluster_stats['free_capacity_gb'])
+        self.assertEqual(100.0, sfv.cluster_stats['total_capacity_gb'])
 
     def test_manage_existing_volume(self):
         external_ref = {'name': 'existing volume', 'source-id': 5}
@@ -984,3 +986,63 @@ class SolidFireVolumeTestCase(test.TestCase):
                                side_effect=_fake_issue_api_req):
             self.assertEqual(1,
                              sfv._create_template_account('foo'))
+
+    def test_configured_svip(self):
+        sfv = solidfire.SolidFireDriver(configuration=self.configuration)
+
+        def _fake_get_volumes(account_id):
+            return [{'volumeID': 1,
+                     'iqn': ''}]
+
+        def _fake_get_cluster_info():
+            return {'clusterInfo': {'svip': 1}}
+
+        with mock.patch.object(sfv,
+                               '_get_volumes_by_sfaccount',
+                               side_effect=_fake_get_volumes),\
+                mock.patch.object(sfv,
+                                  '_issue_api_request',
+                                  side_effect=self.fake_issue_api_request):
+
+            sfaccount = {'targetSecret': 'yakitiyak',
+                         'accountID': 5,
+                         'username': 'bobthebuilder'}
+            v = sfv._get_model_info(sfaccount, 1)
+            self.assertEqual('1.1.1.1:3260  0', v['provider_location'])
+
+            configured_svip = '9.9.9.9:6500'
+            self.configuration.sf_svip = configured_svip
+            v = sfv._get_model_info(sfaccount, 1)
+            self.assertEqual('%s  0' % configured_svip, v['provider_location'])
+
+    def test_init_volume_mappings(self):
+        sfv = solidfire.SolidFireDriver(configuration=self.configuration)
+
+        vid_1 = 'c9125d6d-22ff-4cc3-974d-d4e350df9c91'
+        vid_2 = '79883868-6933-47a1-a362-edfbf8d55a18'
+        project_1 = 'e6fb073c-11f0-4f4c-897c-90e7c7c4bcf8'
+        project_2 = '4ff32607-305c-4a6b-a51a-0dd33124eecf'
+
+        vrefs = [{'id': vid_1,
+                  'project_id': project_1,
+                  'provider_id': None},
+                 {'id': vid_2,
+                  'project_id': project_2,
+                  'provider_id': 22}]
+
+        sf_vols = [{'volumeID': 99,
+                    'name': 'UUID-' + vid_1,
+                    'accountID': 100},
+                   {'volumeID': 22,
+                    'name': 'UUID-' + vid_2,
+                    'accountID': 200}]
+
+        def _fake_issue_api_req(method, params, version=0):
+            if 'ListActiveVolumes' in method:
+                return {'result': {'volumes': sf_vols}}
+
+        with mock.patch.object(
+                sfv, '_issue_api_request', side_effect=_fake_issue_api_req):
+            updates = sfv._init_volume_mappings(vrefs)
+            self.assertEqual(99, updates[0]['provider_id'])
+            self.assertEqual(1, len(updates))

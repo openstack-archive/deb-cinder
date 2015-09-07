@@ -28,6 +28,7 @@ import socket
 
 from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
+from oslo_utils import importutils
 import six
 
 from cinder import context
@@ -72,6 +73,14 @@ def check_flags(required_flags, configuration):
         if not getattr(configuration, flag, None):
             msg = _('Configuration value %s is not set.') % flag
             raise exception.InvalidInput(reason=msg)
+
+
+def check_netapp_lib():
+    if not importutils.try_import('netapp_lib'):
+        msg = ('You have not installed the NetApp API Library for OpenStack. '
+               'Please install it using "sudo pip install netapp-lib" and '
+               'restart this service!')
+        raise exception.NetAppDriverException(msg)
 
 
 def to_bool(val):
@@ -428,3 +437,39 @@ class OpenStackInfo(object):
         return '%(version)s|%(release)s|%(vendor)s|%(platform)s' % {
             'version': self._version, 'release': self._release,
             'vendor': self._vendor, 'platform': self._platform}
+
+
+class Features(object):
+
+    def __init__(self):
+        self.defined_features = set()
+
+    def add_feature(self, name, supported=True, min_version=None):
+        if not isinstance(supported, bool):
+            raise TypeError("Feature value must be a bool type.")
+        self.defined_features.add(name)
+        setattr(self, name, FeatureState(supported, min_version))
+
+    def __getattr__(self, name):
+        # NOTE(cknight): Needed to keep pylint happy.
+        raise AttributeError
+
+
+class FeatureState(object):
+
+    def __init__(self, supported=True, minimum_version=None):
+        """Represents the current state of enablement for a Feature
+
+        :param supported: True if supported, false otherwise
+        :param minimum_version: The minimum version that this feature is
+        suported at
+        """
+        self.supported = supported
+        self.minimum_version = minimum_version
+
+    def __nonzero__(self):
+        """Allow a FeatureState object to be tested for truth value
+
+        :return True if the feature is supported, otherwise False
+        """
+        return self.supported

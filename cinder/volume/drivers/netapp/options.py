@@ -26,6 +26,8 @@ place to ensure re usability and better management of configuration options.
 
 from oslo_config import cfg
 
+NETAPP_SIZE_MULTIPLIER_DEFAULT = 1.2
+
 netapp_proxy_opts = [
     cfg.StrOpt('netapp_storage_family',
                default='ontap_cluster',
@@ -71,11 +73,13 @@ netapp_basicauth_opts = [
 
 netapp_provisioning_opts = [
     cfg.FloatOpt('netapp_size_multiplier',
-                 default=1.2,
+                 default=NETAPP_SIZE_MULTIPLIER_DEFAULT,
                  help=('The quantity to be multiplied by the requested '
                        'volume size to ensure enough space is available on '
                        'the virtual storage server (Vserver) to fulfill '
-                       'the volume creation request.')),
+                       'the volume creation request.  Note: this option '
+                       'is deprecated and will be removed in favor of '
+                       '"reserved_percentage" in the Mitaka release.')),
     cfg.StrOpt('netapp_volume_list',
                default=None,
                help=('This option is only utilized when the storage protocol '
@@ -83,7 +87,14 @@ netapp_provisioning_opts = [
                      'to restrict provisioning to the specified controller '
                      'volumes. Specify the value of this option to be a '
                      'comma separated list of NetApp controller volume names '
-                     'to be used for provisioning.')), ]
+                     'to be used for provisioning.')),
+    cfg.StrOpt('netapp_lun_space_reservation',
+               default='enabled',
+               choices=['enabled', 'disabled'],
+               help=('This option determines if storage space is reserved '
+                     'for LUN allocation. If enabled, LUNs are thick '
+                     'provisioned. If space reservation is disabled, '
+                     'storage space is allocated on demand.')), ]
 
 netapp_cluster_opts = [
     cfg.StrOpt('netapp_vserver',

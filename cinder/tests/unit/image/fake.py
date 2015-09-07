@@ -18,6 +18,7 @@
 
 import copy
 import datetime
+import mock
 import uuid
 
 from cinder import exception
@@ -138,6 +139,7 @@ class _FakeImageService(object):
         self.create(None, image6)
         self.create(None, image7)
         self._imagedata = {}
+        self.temp_images = mock.MagicMock()
         super(_FakeImageService, self).__init__()
 
     # TODO(bcwaldon): implement optional kwargs such as limit, sort_dir
@@ -209,6 +211,12 @@ class _FakeImageService(object):
         if image_id in self.images:
             return 'fake_location'
         return None
+
+    def add_location(self, context, image_id, url, metadata):
+        self.update(context, image_id, {'locations': [{'url': url,
+                                                       'metadata': metadata}]})
+        return True
+
 
 _fakeImageService = _FakeImageService()
 

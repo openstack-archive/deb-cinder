@@ -18,25 +18,33 @@ Mock unit tests for the NetApp block storage 7-mode library
 """
 
 
+import ddt
 from lxml import etree
 import mock
 
 from cinder import exception
 from cinder import test
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fake_api as netapp_api)
+import cinder.tests.unit.volume.drivers.netapp.dataontap.client.fakes \
+    as client_fakes
 import cinder.tests.unit.volume.drivers.netapp.dataontap.fakes as fake
 import cinder.tests.unit.volume.drivers.netapp.fakes as na_fakes
 from cinder.volume.drivers.netapp.dataontap import block_7mode
 from cinder.volume.drivers.netapp.dataontap import block_base
-from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap.client import client_base
 from cinder.volume.drivers.netapp import utils as na_utils
 
 
+@ddt.ddt
 class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
     """Test case for NetApp's 7-Mode iSCSI library."""
 
     def setUp(self):
         super(NetAppBlockStorage7modeLibraryTestCase, self).setUp()
+
+        # Inject fake netapp_lib module classes.
+        netapp_api.mock_netapp_lib([block_7mode])
 
         kwargs = {'configuration': self.get_config_7mode()}
         self.library = block_7mode.NetAppBlockStorage7modeLibrary(
@@ -147,8 +155,8 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
         (igroup, lun_id) = self.library._find_mapped_lun_igroup('path',
                                                                 initiators)
 
-        self.assertEqual(igroup, fake.IGROUP1_NAME)
-        self.assertEqual(lun_id, '2')
+        self.assertEqual(fake.IGROUP1_NAME, igroup)
+        self.assertEqual('2', lun_id)
 
     def test_find_mapped_lun_igroup_initiator_mismatch(self):
         response = netapp_api.NaElement(etree.XML("""
@@ -269,42 +277,32 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
 
     def test_clone_lun_zero_block_count(self):
         """Test for when clone lun is not passed a block count."""
-
-        lun = netapp_api.NaElement.create_node_with_children(
-            'lun-info',
-            **{'alignment': 'indeterminate',
-               'block-size': '512',
-               'comment': '',
-               'creation-timestamp': '1354536362',
-               'is-space-alloc-enabled': 'false',
-               'is-space-reservation-enabled': 'true',
-               'mapped': 'false',
-               'multiprotocol-type': 'linux',
-               'online': 'true',
-               'path': '/vol/fakeLUN/fakeLUN',
-               'prefix-size': '0',
-               'qtree': '',
-               'read-only': 'false',
-               'serial-number': '2FfGI$APyN68',
-               'share-state': 'none',
-               'size': '20971520',
-               'size-used': '0',
-               'staging': 'false',
-               'suffix-size': '0',
-               'uuid': 'cec1f3d7-3d41-11e2-9cf4-123478563412',
-               'volume': 'fakeLUN',
-               'vserver': 'fake_vserver'})
         self.library._get_lun_attr = mock.Mock(return_value={
             'Volume': 'fakeLUN', 'Path': '/vol/fake/fakeLUN'})
         self.library.zapi_client = mock.Mock()
-        self.library.zapi_client.get_lun_by_args.return_value = [lun]
+        self.library.zapi_client.get_lun_by_args.return_value = [fake.FAKE_LUN]
+        self.library._add_lun_to_table = mock.Mock()
+
+        self.library._clone_lun('fakeLUN', 'newFakeLUN', 'false')
+
+        self.library.zapi_client.clone_lun.assert_called_once_with(
+            '/vol/fake/fakeLUN', '/vol/fake/newFakeLUN', 'fakeLUN',
+            'newFakeLUN', 'false', block_count=0, dest_block=0, src_block=0)
+
+    def test_clone_lun_no_space_reservation(self):
+        """Test for when space_reservation is not passed."""
+        self.library._get_lun_attr = mock.Mock(return_value={
+            'Volume': 'fakeLUN', 'Path': '/vol/fake/fakeLUN'})
+        self.library.lun_space_reservation = 'false'
+        self.library.zapi_client = mock.Mock()
+        self.library.zapi_client.get_lun_by_args.return_value = [fake.FAKE_LUN]
         self.library._add_lun_to_table = mock.Mock()
 
         self.library._clone_lun('fakeLUN', 'newFakeLUN')
 
         self.library.zapi_client.clone_lun.assert_called_once_with(
             '/vol/fake/fakeLUN', '/vol/fake/newFakeLUN', 'fakeLUN',
-            'newFakeLUN', 'true', block_count=0, dest_block=0, src_block=0)
+            'newFakeLUN', 'false', block_count=0, dest_block=0, src_block=0)
 
     def test_clone_lun_qos_supplied(self):
         """Test for qos supplied in clone lun invocation."""
@@ -351,7 +349,7 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
 
         self.library.get_volume_stats(refresh=True)
 
-        self.assertEqual(self.library.zapi_client.provide_ems.call_count, 1)
+        self.assertEqual(1, self.library.zapi_client.provide_ems.call_count)
 
     def test_create_lun(self):
         self.library.vol_refresh_voluntary = False
@@ -460,3 +458,44 @@ class NetAppBlockStorage7modeLibraryTestCase(test.TestCase):
         self.assertEqual(1, self.library._add_lun_to_table.call_count)
         self.zapi_client.move_lun.assert_called_once_with(
             '/vol/vol1/name', '/vol/vol1/volume')
+
+    def test_get_pool_stats_no_volumes(self):
+
+        self.library.vols = []
+
+        result = self.library._get_pool_stats()
+
+        self.assertListEqual([], result)
+
+    @ddt.data({'netapp_lun_space_reservation': 'enabled'},
+              {'netapp_lun_space_reservation': 'disabled'})
+    @ddt.unpack
+    def test_get_pool_stats(self, netapp_lun_space_reservation):
+
+        self.library.volume_list = ['vol0', 'vol1', 'vol2']
+        self.library.root_volume_name = 'vol0'
+        self.library.reserved_percentage = 5
+        self.library.max_over_subscription_ratio = 10.0
+        self.library.configuration.netapp_lun_space_reservation = (
+            netapp_lun_space_reservation)
+        self.library.vols = netapp_api.NaElement(
+            client_fakes.VOLUME_LIST_INFO_RESPONSE).get_child_by_name(
+            'volumes').get_children()
+
+        thick = netapp_lun_space_reservation == 'enabled'
+
+        result = self.library._get_pool_stats()
+
+        expected = [{
+            'pool_name': 'vol1',
+            'QoS_support': False,
+            'thin_provisioned_support': not thick,
+            'thick_provisioned_support': thick,
+            'provisioned_capacity_gb': 2.94,
+            'free_capacity_gb': 1339.27,
+            'total_capacity_gb': 1342.21,
+            'reserved_percentage': 5,
+            'max_over_subscription_ratio': 10.0
+        }]
+
+        self.assertEqual(expected, result)

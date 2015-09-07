@@ -16,14 +16,18 @@
 Tests For HostManager
 """
 
+from datetime import datetime
+
 import mock
 from oslo_config import cfg
 from oslo_utils import timeutils
 
 from cinder import exception
+from cinder import objects
 from cinder.openstack.common.scheduler import filters
 from cinder.scheduler import host_manager
 from cinder import test
+from cinder.tests.unit.objects import test_service
 
 
 CONF = cfg.CONF
@@ -62,8 +66,8 @@ class HostManagerTestCase(test.TestCase):
 
         # Test 'volume' returns 1 correct function
         filter_classes = self.host_manager._choose_host_filters(None)
-        self.assertEqual(len(filter_classes), 1)
-        self.assertEqual(filter_classes[0].__name__, 'FakeFilterClass2')
+        self.assertEqual(1, len(filter_classes))
+        self.assertEqual('FakeFilterClass2', filter_classes[0].__name__)
 
     @mock.patch('cinder.scheduler.host_manager.HostManager.'
                 '_choose_host_filters')
@@ -82,7 +86,7 @@ class HostManagerTestCase(test.TestCase):
         result = self.host_manager.get_filtered_hosts(self.fake_hosts,
                                                       fake_properties)
         self.assertEqual(expected, mock_func.call_args_list)
-        self.assertEqual(set(result), set(self.fake_hosts))
+        self.assertEqual(set(self.fake_hosts), set(result))
 
     @mock.patch('oslo_utils.timeutils.utcnow')
     def test_update_service_capabilities(self, _mock_utcnow):
@@ -103,9 +107,9 @@ class HostManagerTestCase(test.TestCase):
                                                       host3_volume_capabs)
 
         # Make sure dictionary isn't re-assigned
-        self.assertEqual(self.host_manager.service_states, service_states)
+        self.assertEqual(service_states, self.host_manager.service_states)
         # Make sure original dictionary wasn't copied
-        self.assertEqual(host1_volume_capabs['timestamp'], 1)
+        self.assertEqual(1, host1_volume_capabs['timestamp'])
 
         host1_volume_capabs['timestamp'] = 31337
         host2_volume_capabs['timestamp'] = 31338
@@ -114,7 +118,7 @@ class HostManagerTestCase(test.TestCase):
         expected = {'host1': host1_volume_capabs,
                     'host2': host2_volume_capabs,
                     'host3': host3_volume_capabs}
-        self.assertDictMatch(service_states, expected)
+        self.assertDictMatch(expected, service_states)
 
     @mock.patch('cinder.utils.service_is_up')
     @mock.patch('cinder.db.service_get_all_by_topic')
@@ -162,7 +166,9 @@ class HostManagerTestCase(test.TestCase):
         current date/time.
         """
         context = 'fake_context'
-        _mock_utcnow.side_effect = [400, 401, 402]
+        dates = [datetime.fromtimestamp(400), datetime.fromtimestamp(401),
+                 datetime.fromtimestamp(402)]
+        _mock_utcnow.side_effect = dates
 
         services = [
             # This is the first call to utcnow()
@@ -191,14 +197,14 @@ class HostManagerTestCase(test.TestCase):
                                                           host_volume_capabs)
             res = self.host_manager.get_pools(context)
             self.assertEqual(1, len(res))
-            self.assertEqual(401, res[0]['capabilities']['timestamp'])
+            self.assertEqual(dates[1], res[0]['capabilities']['timestamp'])
 
             self.host_manager.update_service_capabilities(service_name,
                                                           'host1',
                                                           host_volume_capabs)
             res = self.host_manager.get_pools(context)
             self.assertEqual(1, len(res))
-            self.assertEqual(402, res[0]['capabilities']['timestamp'])
+            self.assertEqual(dates[2], res[0]['capabilities']['timestamp'])
 
     @mock.patch('cinder.db.service_get_all_by_topic')
     @mock.patch('cinder.utils.service_is_up')
@@ -209,14 +215,29 @@ class HostManagerTestCase(test.TestCase):
 
         services = [
             dict(id=1, host='host1', topic='volume', disabled=False,
-                 availability_zone='zone1', updated_at=timeutils.utcnow()),
+                 availability_zone='zone1', updated_at=timeutils.utcnow(),
+                 binary=None, deleted=False, created_at=None, modified_at=None,
+                 report_count=0, deleted_at=None, disabled_reason=None),
             dict(id=2, host='host2', topic='volume', disabled=False,
-                 availability_zone='zone1', updated_at=timeutils.utcnow()),
+                 availability_zone='zone1', updated_at=timeutils.utcnow(),
+                 binary=None, deleted=False, created_at=None, modified_at=None,
+                 report_count=0, deleted_at=None, disabled_reason=None),
             dict(id=3, host='host3', topic='volume', disabled=False,
-                 availability_zone='zone2', updated_at=timeutils.utcnow()),
+                 availability_zone='zone2', updated_at=timeutils.utcnow(),
+                 binary=None, deleted=False, created_at=None, modified_at=None,
+                 report_count=0, deleted_at=None, disabled_reason=None),
             dict(id=4, host='host4', topic='volume', disabled=False,
-                 availability_zone='zone3', updated_at=timeutils.utcnow()),
+                 availability_zone='zone3', updated_at=timeutils.utcnow(),
+                 binary=None, deleted=False, created_at=None, modified_at=None,
+                 report_count=0, deleted_at=None, disabled_reason=None),
         ]
+
+        service_objs = []
+        for db_service in services:
+            service_obj = objects.Service()
+            service_objs.append(objects.Service._from_db_object(context,
+                                                                service_obj,
+                                                                db_service))
 
         service_states = {
             'host1': dict(volume_backend_name='AAA',
@@ -247,17 +268,18 @@ class HostManagerTestCase(test.TestCase):
                                                           topic,
                                                           disabled=False)
         expected = []
-        for service in services:
+        for service in service_objs:
             expected.append(mock.call(service))
         self.assertEqual(expected, _mock_service_is_up.call_args_list)
 
-        # Get host_state_map and make sure we have the first 4 hosts
+        # Get host_state_map and make sure we have the first 3 hosts
         host_state_map = self.host_manager.host_state_map
-        self.assertEqual(len(host_state_map), 3)
+        self.assertEqual(3, len(host_state_map))
         for i in range(3):
             volume_node = services[i]
             host = volume_node['host']
-            self.assertEqual(host_state_map[host].service, volume_node)
+            test_service.TestService._compare(self, volume_node,
+                                              host_state_map[host].service)
 
         # Second test: Now service_is_up returns False for host3
         _mock_service_is_up.reset_mock()
@@ -270,21 +292,19 @@ class HostManagerTestCase(test.TestCase):
         _mock_service_get_all_by_topic.assert_called_with(context,
                                                           topic,
                                                           disabled=False)
-        expected = []
-        for service in services:
-            expected.append(mock.call(service))
+
         self.assertEqual(expected, _mock_service_is_up.call_args_list)
         self.assertTrue(_mock_warning.call_count > 0)
 
         # Get host_state_map and make sure we have the first 2 hosts (host3 is
         # down, host4 is missing capabilities)
         host_state_map = self.host_manager.host_state_map
-        self.assertEqual(len(host_state_map), 2)
+        self.assertEqual(2, len(host_state_map))
         for i in range(2):
             volume_node = services[i]
             host = volume_node['host']
-            self.assertEqual(host_state_map[host].service,
-                             volume_node)
+            test_service.TestService._compare(self, volume_node,
+                                              host_state_map[host].service)
 
     @mock.patch('cinder.db.service_get_all_by_topic')
     @mock.patch('cinder.utils.service_is_up')
@@ -399,7 +419,7 @@ class HostStateTestCase(test.TestCase):
         # Test update for existing host state
         volume_capability.update(dict(total_capacity_gb=1000))
         fake_host.update_from_volume_capability(volume_capability)
-        self.assertEqual(fake_host.pools['_pool0'].total_capacity_gb, 1000)
+        self.assertEqual(1000, fake_host.pools['_pool0'].total_capacity_gb)
 
         # Test update for existing host state with different backend name
         volume_capability.update(dict(volume_backend_name='magic'))
@@ -441,7 +461,6 @@ class HostStateTestCase(test.TestCase):
                  'reserved_percentage': 0,
                  'dying_disks': 200,
                  'super_hero_1': 'superman',
-                 'super_hero_2': ' ',
                  'super_hero_2': 'Hulk',
                  }
             ],
@@ -450,16 +469,16 @@ class HostStateTestCase(test.TestCase):
 
         fake_host.update_from_volume_capability(capability)
 
-        self.assertEqual(fake_host.volume_backend_name, 'Local iSCSI')
-        self.assertEqual(fake_host.storage_protocol, 'iSCSI')
-        self.assertEqual(fake_host.vendor_name, 'OpenStack')
-        self.assertEqual(fake_host.driver_version, '1.0.1')
+        self.assertEqual('Local iSCSI', fake_host.volume_backend_name)
+        self.assertEqual('iSCSI', fake_host.storage_protocol)
+        self.assertEqual('OpenStack', fake_host.vendor_name)
+        self.assertEqual('1.0.1', fake_host.driver_version)
 
         # Backend level stats remain uninitialized
-        self.assertEqual(fake_host.total_capacity_gb, 0)
-        self.assertEqual(fake_host.free_capacity_gb, None)
+        self.assertEqual(0, fake_host.total_capacity_gb)
+        self.assertEqual(None, fake_host.free_capacity_gb)
         # Pool stats has been updated
-        self.assertEqual(len(fake_host.pools), 2)
+        self.assertEqual(2, len(fake_host.pools))
 
         self.assertEqual(500, fake_host.pools['1st pool'].total_capacity_gb)
         self.assertEqual(230, fake_host.pools['1st pool'].free_capacity_gb)
@@ -491,10 +510,10 @@ class HostStateTestCase(test.TestCase):
         # test update HostState Record
         fake_host.update_from_volume_capability(capability)
 
-        self.assertEqual(fake_host.driver_version, '1.0.2')
+        self.assertEqual('1.0.2', fake_host.driver_version)
 
         # Non-active pool stats has been removed
-        self.assertEqual(len(fake_host.pools), 1)
+        self.assertEqual(1, len(fake_host.pools))
 
         self.assertRaises(KeyError, lambda: fake_host.pools['1st pool'])
         self.assertRaises(KeyError, lambda: fake_host.pools['2nd pool'])
@@ -515,13 +534,15 @@ class HostStateTestCase(test.TestCase):
 
         fake_host.update_from_volume_capability(volume_capability)
         # Backend level stats remain uninitialized
-        self.assertEqual(fake_host.total_capacity_gb, 0)
-        self.assertEqual(fake_host.free_capacity_gb, None)
+        self.assertEqual(0, fake_host.total_capacity_gb)
+        self.assertEqual(None, fake_host.free_capacity_gb)
         # Pool stats has been updated
-        self.assertEqual(fake_host.pools['_pool0'].total_capacity_gb,
-                         'infinite')
-        self.assertEqual(fake_host.pools['_pool0'].free_capacity_gb,
-                         'infinite')
+        self.assertEqual(
+            'infinite',
+            fake_host.pools['_pool0'].total_capacity_gb)
+        self.assertEqual(
+            'infinite',
+            fake_host.pools['_pool0'].free_capacity_gb)
 
     def test_update_from_volume_unknown_capability(self):
         fake_host = host_manager.HostState('host1')
@@ -534,13 +555,15 @@ class HostStateTestCase(test.TestCase):
 
         fake_host.update_from_volume_capability(volume_capability)
         # Backend level stats remain uninitialized
-        self.assertEqual(fake_host.total_capacity_gb, 0)
-        self.assertEqual(fake_host.free_capacity_gb, None)
+        self.assertEqual(0, fake_host.total_capacity_gb)
+        self.assertEqual(None, fake_host.free_capacity_gb)
         # Pool stats has been updated
-        self.assertEqual(fake_host.pools['_pool0'].total_capacity_gb,
-                         'infinite')
-        self.assertEqual(fake_host.pools['_pool0'].free_capacity_gb,
-                         'unknown')
+        self.assertEqual(
+            'infinite',
+            fake_host.pools['_pool0'].total_capacity_gb)
+        self.assertEqual(
+            'unknown',
+            fake_host.pools['_pool0'].free_capacity_gb)
 
     def test_update_from_empty_volume_capability(self):
         fake_host = host_manager.HostState('host1')
@@ -548,8 +571,8 @@ class HostStateTestCase(test.TestCase):
         vol_cap = {'timestamp': None}
 
         fake_host.update_from_volume_capability(vol_cap)
-        self.assertEqual(fake_host.total_capacity_gb, 0)
-        self.assertEqual(fake_host.free_capacity_gb, None)
+        self.assertEqual(0, fake_host.total_capacity_gb)
+        self.assertEqual(None, fake_host.free_capacity_gb)
         # Pool stats has been updated
         self.assertEqual(0,
                          fake_host.pools['_pool0'].total_capacity_gb)

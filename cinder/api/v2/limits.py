@@ -34,7 +34,7 @@ from cinder.api.views import limits as limits_views
 from cinder.api import xmlutil
 from cinder.i18n import _
 from cinder import quota
-from cinder import wsgi as base_wsgi
+from cinder.wsgi import common as base_wsgi
 
 QUOTAS = quota.QUOTAS
 LIMITS_PREFIX = "limits."
@@ -217,12 +217,11 @@ class RateLimitingMiddleware(base_wsgi.Middleware):
     """
 
     def __init__(self, application, limits=None, limiter=None, **kwargs):
-        """Initialize new `RateLimitingMiddleware`, which wraps the given WSGI
-        application and sets up the given limits.
+        """Initialize class, wrap WSGI app, and set up given limits.
 
-        @param application: WSGI application to wrap
-        @param limits: String describing limits
-        @param limiter: String identifying class for representing limits
+        :param application: WSGI application to wrap
+        :param limits: String describing limits
+        :param limiter: String identifying class for representing limits
 
         Other parameters are passed to the constructor for the limiter.
         """

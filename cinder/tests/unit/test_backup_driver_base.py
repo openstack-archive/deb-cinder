@@ -14,7 +14,6 @@
 #    under the License.
 """ Tests for the backup service base driver. """
 
-import base64
 import uuid
 
 import mock
@@ -63,7 +62,7 @@ class BackupBaseDriverTestCase(test.TestCase):
     def test_get_metadata(self):
         json_metadata = self.driver.get_metadata(self.volume_id)
         metadata = jsonutils.loads(json_metadata)
-        self.assertEqual(metadata['version'], 2)
+        self.assertEqual(2, metadata['version'])
 
     def test_put_metadata(self):
         metadata = {'version': 1}
@@ -74,20 +73,13 @@ class BackupBaseDriverTestCase(test.TestCase):
         self.driver.put_metadata(self.volume_id, json_metadata)
 
     def test_export_record(self):
-        export_string = self.driver.export_record(self.backup)
-        export_dict = jsonutils.loads(base64.decodestring(export_string))
-        # Make sure we don't lose data when converting to string
-        for key in _backup_db_fields:
-            self.assertTrue(key in export_dict)
-            self.assertEqual(self.backup[key], export_dict[key])
+        export_record = self.driver.export_record(self.backup)
+        self.assertDictEqual({}, export_record)
 
     def test_import_record(self):
-        export_string = self.driver.export_record(self.backup)
-        imported_backup = self.driver.import_record(export_string)
-        # Make sure we don't lose data when converting from string
-        for key in _backup_db_fields:
-            self.assertTrue(key in imported_backup)
-            self.assertEqual(imported_backup[key], self.backup[key])
+        export_record = {'key1': 'value1'}
+        self.assertIsNone(self.driver.import_record(self.backup,
+                                                    export_record))
 
 
 class BackupMetadataAPITestCase(test.TestCase):
@@ -130,7 +122,7 @@ class BackupMetadataAPITestCase(test.TestCase):
         meta = self.bak_meta_api.get(self.volume_id)
         s1 = set(jsonutils.loads(meta).keys())
         s2 = ['version', self.bak_meta_api.TYPE_TAG_VOL_BASE_META]
-        self.assertEqual(s1.symmetric_difference(s2), set())
+        self.assertEqual(set(), s1.symmetric_difference(s2))
 
         self._add_metadata(vol_glance_meta=True)
 
@@ -138,7 +130,7 @@ class BackupMetadataAPITestCase(test.TestCase):
         s1 = set(jsonutils.loads(meta).keys())
         s2 = ['version', self.bak_meta_api.TYPE_TAG_VOL_BASE_META,
               self.bak_meta_api.TYPE_TAG_VOL_GLANCE_META]
-        self.assertEqual(s1.symmetric_difference(s2), set())
+        self.assertEqual(set(), s1.symmetric_difference(s2))
 
         self._add_metadata(vol_meta=True)
 
@@ -147,7 +139,7 @@ class BackupMetadataAPITestCase(test.TestCase):
         s2 = ['version', self.bak_meta_api.TYPE_TAG_VOL_BASE_META,
               self.bak_meta_api.TYPE_TAG_VOL_GLANCE_META,
               self.bak_meta_api.TYPE_TAG_VOL_META]
-        self.assertEqual(s1.symmetric_difference(s2), set())
+        self.assertEqual(set(), s1.symmetric_difference(s2))
 
     def test_put(self):
         meta = self.bak_meta_api.get(self.volume_id)
@@ -172,8 +164,8 @@ class BackupMetadataAPITestCase(test.TestCase):
         keys = [self.bak_meta_api.TYPE_TAG_VOL_META,
                 self.bak_meta_api.TYPE_TAG_VOL_GLANCE_META]
 
-        self.assertEqual(set(keys).symmetric_difference(set(fact.keys())),
-                         set([]))
+        self.assertEqual(set([]),
+                         set(keys).symmetric_difference(set(fact.keys())))
 
         meta_container = {self.bak_meta_api.TYPE_TAG_VOL_BASE_META:
                           {'display_name': 'vol-2',
@@ -197,8 +189,8 @@ class BackupMetadataAPITestCase(test.TestCase):
                 self.bak_meta_api.TYPE_TAG_VOL_META,
                 self.bak_meta_api.TYPE_TAG_VOL_GLANCE_META]
 
-        self.assertEqual(set(keys).symmetric_difference(set(fact.keys())),
-                         set([]))
+        self.assertEqual(set([]),
+                         set(keys).symmetric_difference(set(fact.keys())))
 
         for f in fact:
             func = fact[f][0]
@@ -206,7 +198,8 @@ class BackupMetadataAPITestCase(test.TestCase):
             func({}, self.volume_id, fields)
 
     def test_restore_vol_glance_meta(self):
-        fields = {}
+        # Fields is an empty list for _restore_vol_glance_meta method.
+        fields = []
         container = {}
         self.bak_meta_api._save_vol_glance_meta(container, self.volume_id)
         self.bak_meta_api._restore_vol_glance_meta(container, self.volume_id,
@@ -217,16 +210,24 @@ class BackupMetadataAPITestCase(test.TestCase):
                                                    fields)
 
     def test_restore_vol_meta(self):
-        fields = {}
+        # Fields is an empty list for _restore_vol_meta method.
+        fields = []
         container = {}
         self.bak_meta_api._save_vol_meta(container, self.volume_id)
-        self.bak_meta_api._restore_vol_meta(container, self.volume_id, fields)
+        # Extract volume metadata from container.
+        metadata = container.get('volume-metadata', {})
+        self.bak_meta_api._restore_vol_meta(metadata, self.volume_id,
+                                            fields)
         self._add_metadata(vol_meta=True)
         self.bak_meta_api._save_vol_meta(container, self.volume_id)
-        self.bak_meta_api._restore_vol_meta(container, self.volume_id, fields)
+        # Extract volume metadata from container.
+        metadata = container.get('volume-metadata', {})
+        self.bak_meta_api._restore_vol_meta(metadata, self.volume_id, fields)
 
     def test_restore_vol_base_meta(self):
-        fields = {}
+        # Fields is a list with 'encryption_key_id' for
+        # _restore_vol_base_meta method.
+        fields = ['encryption_key_id']
         container = {}
         self.bak_meta_api._save_vol_base_meta(container, self.volume_id)
         self.bak_meta_api._restore_vol_base_meta(container, self.volume_id,

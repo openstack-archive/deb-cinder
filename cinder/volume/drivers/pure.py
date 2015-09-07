@@ -22,7 +22,6 @@ import math
 import re
 import uuid
 
-from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -30,6 +29,7 @@ from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import objects
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
@@ -61,6 +61,9 @@ ERR_MSG_NOT_EXIST = "does not exist"
 ERR_MSG_PENDING_ERADICATION = "has been destroyed"
 
 CONNECT_LOCK_NAME = 'PureVolumeDriver_connect'
+
+UNMANAGED_SUFFIX = '-unmanaged'
+MANAGE_SNAP_REQUIRED_API_VERSIONS = ['1.4']
 
 
 def log_debug_trace(f):
@@ -129,9 +132,14 @@ class PureBaseVolumeDriver(san.SanDriver):
         """Creates a volume from a snapshot."""
         vol_name = self._get_vol_name(volume)
         if snapshot['cgsnapshot_id']:
-            snap_name = self._get_pgroup_vol_snap_name(snapshot)
+            snap_name = self._get_pgroup_snap_name_from_snapshot(snapshot)
         else:
             snap_name = self._get_snap_name(snapshot)
+
+        if not snap_name:
+            msg = _('Unable to determine snapshot name in Purity for snapshot '
+                    '%(id)s.') % {'id': snapshot['id']}
+            raise exception.PureDriverException(reason=msg)
 
         self._array.copy_volume(snap_name, vol_name)
         self._extend_if_needed(vol_name, snapshot["volume_size"],
@@ -205,7 +213,7 @@ class PureBaseVolumeDriver(san.SanDriver):
     def ensure_export(self, context, volume):
         pass
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         pass
 
     def _get_host(self, connector):
@@ -335,18 +343,57 @@ class PureBaseVolumeDriver(san.SanDriver):
         model_update = {'status': 'available'}
         return model_update
 
+    def _create_cg_from_cgsnap(self, volumes, snapshots):
+        """Creates a new consistency group from a cgsnapshot.
+
+        The new volumes will be consistent with the snapshot.
+        """
+        for volume, snapshot in zip(volumes, snapshots):
+            self.create_volume_from_snapshot(volume, snapshot)
+
+    def _create_cg_from_cg(self, group, source_group, volumes, source_vols):
+        """Creates a new consistency group from an existing cg.
+
+        The new volumes will be in a consistent state, but this requires
+        taking a new temporary group snapshot and cloning from that.
+        """
+        pgroup_name = self._get_pgroup_name_from_id(source_group.id)
+        tmp_suffix = '%s-tmp' % uuid.uuid4()
+        tmp_pgsnap_name = '%(pgroup_name)s.%(pgsnap_suffix)s' % {
+            'pgroup_name': pgroup_name,
+            'pgsnap_suffix': tmp_suffix,
+        }
+        LOG.debug('Creating temporary Protection Group snapshot %(snap_name)s '
+                  'while cloning Consistency Group %(source_group)s.',
+                  {'snap_name': tmp_pgsnap_name,
+                   'source_group': source_group.id})
+        self._array.create_pgroup_snapshot(pgroup_name, suffix=tmp_suffix)
+        try:
+            for source_vol, cloned_vol in zip(source_vols, volumes):
+                source_snap_name = self._get_pgroup_vol_snap_name(
+                    pgroup_name,
+                    tmp_suffix,
+                    self._get_vol_name(source_vol)
+                )
+                cloned_vol_name = self._get_vol_name(cloned_vol)
+                self._array.copy_volume(source_snap_name, cloned_vol_name)
+                self._add_volume_to_consistency_group(
+                    group.id,
+                    cloned_vol_name
+                )
+        finally:
+            self._delete_pgsnapshot(tmp_pgsnap_name)
+
     @log_debug_trace
     def create_consistencygroup_from_src(self, context, group, volumes,
-                                         cgsnapshot=None, snapshots=None):
-
+                                         cgsnapshot=None, snapshots=None,
+                                         source_cg=None, source_vols=None):
+        self.create_consistencygroup(context, group)
         if cgsnapshot and snapshots:
-            self.create_consistencygroup(context, group)
-            for volume, snapshot in zip(volumes, snapshots):
-                self.create_volume_from_snapshot(volume, snapshot)
-        else:
-            msg = _("create_consistencygroup_from_src only supports a"
-                    " cgsnapshot source, other sources cannot be used.")
-            raise exception.InvalidInput(reason=msg)
+            self._create_cg_from_cgsnap(volumes,
+                                        snapshots)
+        elif source_cg:
+            self._create_cg_from_cg(group, source_cg, volumes, source_vols)
 
         return None, None
 
@@ -406,7 +453,7 @@ class PureBaseVolumeDriver(san.SanDriver):
         pgsnap_suffix = self._get_pgroup_snap_suffix(cgsnapshot)
         self._array.create_pgroup_snapshot(pgroup_name, suffix=pgsnap_suffix)
 
-        snapshots = self.db.snapshot_get_all_for_cgsnapshot(
+        snapshots = objects.SnapshotList().get_all_for_cgsnapshot(
             context, cgsnapshot.id)
 
         for snapshot in snapshots:
@@ -416,12 +463,7 @@ class PureBaseVolumeDriver(san.SanDriver):
 
         return model_update, snapshots
 
-    @log_debug_trace
-    def delete_cgsnapshot(self, context, cgsnapshot):
-        """Deletes a cgsnapshot."""
-
-        pgsnap_name = self._get_pgroup_snap_name(cgsnapshot)
-
+    def _delete_pgsnapshot(self, pgsnap_name):
         try:
             # FlashArray.destroy_pgroup is also used for deleting
             # pgroup snapshots. The underlying REST API is identical.
@@ -437,7 +479,14 @@ class PureBaseVolumeDriver(san.SanDriver):
                     LOG.warning(_LW("Unable to delete Protection Group "
                                     "Snapshot: %s"), err.text)
 
-        snapshots = self.db.snapshot_get_all_for_cgsnapshot(
+    @log_debug_trace
+    def delete_cgsnapshot(self, context, cgsnapshot):
+        """Deletes a cgsnapshot."""
+
+        pgsnap_name = self._get_pgroup_snap_name(cgsnapshot)
+        self._delete_pgsnapshot(pgsnap_name)
+
+        snapshots = objects.SnapshotList.get_all_for_cgsnapshot(
             context, cgsnapshot.id)
 
         for snapshot in snapshots:
@@ -447,11 +496,14 @@ class PureBaseVolumeDriver(san.SanDriver):
 
         return model_update, snapshots
 
-    def _validate_manage_existing_ref(self, existing_ref):
+    def _validate_manage_existing_ref(self, existing_ref, is_snap=False):
         """Ensure that an existing_ref is valid and return volume info
 
         If the ref is not valid throw a ManageExistingInvalidReference
         exception with an appropriate error.
+
+        Will return volume or snapshot information from the array for
+        the object specified by existing_ref.
         """
         if "name" not in existing_ref or not existing_ref["name"]:
             raise exception.ManageExistingInvalidReference(
@@ -459,12 +511,21 @@ class PureBaseVolumeDriver(san.SanDriver):
                 reason=_("manage_existing requires a 'name'"
                          " key to identify an existing volume."))
 
-        ref_vol_name = existing_ref['name']
+        if is_snap:
+            # Purity snapshot names are prefixed with the source volume name
+            ref_vol_name, ref_snap_suffix = existing_ref['name'].split('.')
+        else:
+            ref_vol_name = existing_ref['name']
 
         try:
-            volume_info = self._array.get_volume(ref_vol_name)
+            volume_info = self._array.get_volume(ref_vol_name, snap=is_snap)
             if volume_info:
-                return volume_info
+                if is_snap:
+                    for snap in volume_info:
+                        if snap['name'] == existing_ref['name']:
+                            return snap
+                else:
+                    return volume_info
         except purestorage.PureHTTPError as err:
             with excutils.save_and_reraise_exception() as ctxt:
                 if (err.code == 400 and
@@ -475,7 +536,7 @@ class PureBaseVolumeDriver(san.SanDriver):
         # to throw a Invalid Reference exception
         raise exception.ManageExistingInvalidReference(
             existing_ref=existing_ref,
-            reason=_("Unable to find volume with name=%s") % ref_vol_name)
+            reason=_("Unable to find Purity ref with name=%s") % ref_vol_name)
 
     @log_debug_trace
     def manage_existing(self, volume, existing_ref):
@@ -500,7 +561,9 @@ class PureBaseVolumeDriver(san.SanDriver):
         new_vol_name = self._get_vol_name(volume)
         LOG.info(_LI("Renaming existing volume %(ref_name)s to %(new_name)s"),
                  {"ref_name": ref_vol_name, "new_name": new_vol_name})
-        self._array.rename_volume(ref_vol_name, new_vol_name)
+        self._rename_volume_object(ref_vol_name,
+                                   new_vol_name,
+                                   raise_not_exist=True)
         return None
 
     @log_debug_trace
@@ -511,9 +574,26 @@ class PureBaseVolumeDriver(san.SanDriver):
         """
 
         volume_info = self._validate_manage_existing_ref(existing_ref)
-        size = math.ceil(float(volume_info["size"]) / units.Gi)
+        size = int(math.ceil(float(volume_info["size"]) / units.Gi))
 
         return size
+
+    def _rename_volume_object(self, old_name, new_name, raise_not_exist=False):
+        """Rename a volume object (could be snapshot) in Purity.
+
+        This will not raise an exception if the object does not exist
+        """
+        try:
+            self._array.rename_volume(old_name, new_name)
+        except purestorage.PureHTTPError as err:
+            with excutils.save_and_reraise_exception() as ctxt:
+                if (err.code == 400 and
+                        ERR_MSG_NOT_EXIST in err.text):
+                    ctxt.reraise = raise_not_exist
+                    LOG.warning(_LW("Unable to rename %(old_name)s, error "
+                                    "message: %(error)s"),
+                                {"old_name": old_name, "error": err.text})
+        return new_name
 
     @log_debug_trace
     def unmanage(self, volume):
@@ -524,18 +604,67 @@ class PureBaseVolumeDriver(san.SanDriver):
         The volume will be renamed with "-unmanaged" as a suffix
         """
         vol_name = self._get_vol_name(volume)
-        unmanaged_vol_name = vol_name + "-unmanaged"
+        unmanaged_vol_name = vol_name + UNMANAGED_SUFFIX
         LOG.info(_LI("Renaming existing volume %(ref_name)s to %(new_name)s"),
                  {"ref_name": vol_name, "new_name": unmanaged_vol_name})
-        try:
-            self._array.rename_volume(vol_name, unmanaged_vol_name)
-        except purestorage.PureHTTPError as err:
-            with excutils.save_and_reraise_exception() as ctxt:
-                if (err.code == 400 and
-                        ERR_MSG_NOT_EXIST in err.text):
-                    ctxt.reraise = False
-                    LOG.warning(_LW("Volume unmanage was unable to rename "
-                                    "the volume, error message: %s"), err.text)
+        self._rename_volume_object(vol_name, unmanaged_vol_name)
+
+    def _verify_manage_snap_api_requirements(self):
+        api_version = self._array.get_rest_version()
+        if api_version not in MANAGE_SNAP_REQUIRED_API_VERSIONS:
+            msg = _('Unable to do manage snapshot operations with Purity REST '
+                    'API version %(api_version)s, requires '
+                    '%(required_versions)s.') % {
+                'api_version': api_version,
+                'required_versions': MANAGE_SNAP_REQUIRED_API_VERSIONS
+            }
+            raise exception.PureDriverException(reason=msg)
+
+    def manage_existing_snapshot(self, snapshot, existing_ref):
+        """Brings an existing backend storage object under Cinder management.
+
+        We expect a snapshot name in the existing_ref that matches one in
+        Purity.
+        """
+        self._verify_manage_snap_api_requirements()
+        self._validate_manage_existing_ref(existing_ref, is_snap=True)
+        ref_snap_name = existing_ref['name']
+        new_snap_name = self._get_snap_name(snapshot)
+        LOG.info(_LI("Renaming existing snapshot %(ref_name)s to "
+                     "%(new_name)s"), {"ref_name": ref_snap_name,
+                                       "new_name": new_snap_name})
+        self._rename_volume_object(ref_snap_name,
+                                   new_snap_name,
+                                   raise_not_exist=True)
+        return None
+
+    def manage_existing_snapshot_get_size(self, snapshot, existing_ref):
+        """Return size of snapshot to be managed by manage_existing.
+
+        We expect a snapshot name in the existing_ref that matches one in
+        Purity.
+        """
+        self._verify_manage_snap_api_requirements()
+        snap_info = self._validate_manage_existing_ref(existing_ref,
+                                                       is_snap=True)
+        size = int(math.ceil(float(snap_info["size"]) / units.Gi))
+        return size
+
+    def unmanage_snapshot(self, snapshot):
+        """Removes the specified snapshot from Cinder management.
+
+        Does not delete the underlying backend storage object.
+
+        We expect a snapshot name in the existing_ref that matches one in
+        Purity.
+        """
+        self._verify_manage_snap_api_requirements()
+        snap_name = self._get_snap_name(snapshot)
+        unmanaged_snap_name = snap_name + UNMANAGED_SUFFIX
+        LOG.info(_LI("Renaming existing snapshot %(ref_name)s to "
+                     "%(new_name)s"), {"ref_name": snap_name,
+                                       "new_name": unmanaged_snap_name})
+        self._rename_volume_object(snap_name, unmanaged_snap_name)
 
     @staticmethod
     def _get_vol_name(volume):
@@ -562,14 +691,23 @@ class PureBaseVolumeDriver(san.SanDriver):
         return "%s.%s" % (cls._get_pgroup_name_from_id(cg_id),
                           cls._get_pgroup_snap_suffix(cgsnapshot))
 
-    @classmethod
-    def _get_pgroup_vol_snap_name(cls, snapshot):
+    @staticmethod
+    def _get_pgroup_vol_snap_name(pg_name, pgsnap_suffix, volume_name):
+        return "%(pgroup_name)s.%(pgsnap_suffix)s.%(volume_name)s" % {
+            'pgroup_name': pg_name,
+            'pgsnap_suffix': pgsnap_suffix,
+            'volume_name': volume_name,
+        }
+
+    def _get_pgroup_snap_name_from_snapshot(self, snapshot):
         """Return the name of the snapshot that Purity will use."""
-        cg_id = snapshot.cgsnapshot.consistencygroup_id
-        cg_name = cls._get_pgroup_name_from_id(cg_id)
-        cgsnapshot_id = cls._get_pgroup_snap_suffix(snapshot.cgsnapshot)
-        volume_name = snapshot.volume_name
-        return "%s.%s.%s-cinder" % (cg_name, cgsnapshot_id, volume_name)
+        pg_snaps = self._array.list_volumes(snap=True, pgroup=True)
+        for pg_snap in pg_snaps:
+            pg_snap_name = pg_snap['name']
+            if (snapshot.cgsnapshot_id in pg_snap_name and
+                    snapshot.volume_id in pg_snap_name):
+                return pg_snap_name
+        return None
 
     @staticmethod
     def _generate_purity_host_name(name):
@@ -625,11 +763,9 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
         execute = kwargs.pop("execute", utils.execute)
         super(PureISCSIDriver, self).__init__(execute=execute, *args, **kwargs)
         self._storage_protocol = "iSCSI"
-        self._iscsi_port = None
 
     def do_setup(self, context):
         super(PureISCSIDriver, self).do_setup(context)
-        self._iscsi_port = self._choose_target_iscsi_port()
 
     def _get_host(self, connector):
         """Return dict describing existing Purity host object or None."""
@@ -642,18 +778,13 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
     @log_debug_trace
     def initialize_connection(self, volume, connector, initiator_data=None):
         """Allow connection to connector and return connection info."""
-        target_port = self._get_target_iscsi_port()
         connection = self._connect(volume, connector, initiator_data)
-        properties = {
-            "driver_volume_type": "iscsi",
-            "data": {
-                "target_iqn": target_port["iqn"],
-                "target_portal": target_port["portal"],
-                "target_lun": connection["lun"],
-                "target_discovered": True,
-                "access_mode": "rw",
-            },
-        }
+        target_ports = self._get_target_iscsi_ports()
+        multipath = connector.get("multipath", False)
+
+        properties = self._build_connection_properties(connection,
+                                                       target_ports,
+                                                       multipath)
 
         if self.configuration.use_chap_auth:
             properties["data"]["auth_method"] = "CHAP"
@@ -666,43 +797,44 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
 
         return properties
 
-    def _get_target_iscsi_port(self):
-        """Return dictionary describing iSCSI-enabled port on target array."""
-        try:
-            self._run_iscsiadm_bare(["-m", "discovery", "-t", "sendtargets",
-                                     "-p", self._iscsi_port["portal"]])
-        except processutils.ProcessExecutionError as err:
-            LOG.warning(_LW("iSCSI discovery of port %(port_name)s at "
-                            "%(port_portal)s failed with error: %(err_msg)s"),
-                        {"port_name": self._iscsi_port["name"],
-                         "port_portal": self._iscsi_port["portal"],
-                         "err_msg": err.stderr})
-            self._iscsi_port = self._choose_target_iscsi_port()
-        return self._iscsi_port
+    def _build_connection_properties(self, connection, target_ports,
+                                     multipath):
+        props = {
+            "driver_volume_type": "iscsi",
+            "data": {
+                "target_discovered": False,
+                "access_mode": "rw",
+                "discard": True,
+            },
+        }
 
-    @utils.retry(exception.PureDriverException, retries=3)
-    def _choose_target_iscsi_port(self):
-        """Find a reachable iSCSI-enabled port on target array."""
+        port_iter = iter(target_ports)
+
+        target_luns = []
+        target_iqns = []
+        target_portals = []
+
+        for port in port_iter:
+            target_luns.append(connection["lun"])
+            target_iqns.append(port["iqn"])
+            target_portals.append(port["portal"])
+
+        # If we have multiple ports always report them
+        if target_luns and target_iqns and target_portals:
+            props["data"]["target_luns"] = target_luns
+            props["data"]["target_iqns"] = target_iqns
+            props["data"]["target_portals"] = target_portals
+
+        return props
+
+    def _get_target_iscsi_ports(self):
+        """Return list of iSCSI-enabled port descriptions."""
         ports = self._array.list_ports()
         iscsi_ports = [port for port in ports if port["iqn"]]
-        for port in iscsi_ports:
-            try:
-                self._run_iscsiadm_bare(["-m", "discovery",
-                                         "-t", "sendtargets",
-                                         "-p", port["portal"]])
-            except processutils.ProcessExecutionError as err:
-                LOG.debug(("iSCSI discovery of port %(port_name)s at "
-                           "%(port_portal)s failed with error: %(err_msg)s"),
-                          {"port_name": port["name"],
-                           "port_portal": port["portal"],
-                           "err_msg": err.stderr})
-            else:
-                LOG.info(_LI("Using port %(name)s on the array at %(portal)s "
-                             "for iSCSI connectivity."),
-                         {"name": port["name"], "portal": port["portal"]})
-                return port
-        raise exception.PureDriverException(
-            reason=_("No reachable iSCSI-enabled ports on target array."))
+        if not iscsi_ports:
+            raise exception.PureDriverException(
+                reason=_("No iSCSI-enabled ports on target array."))
+        return iscsi_ports
 
     @staticmethod
     def _generate_chap_secret():
@@ -828,6 +960,7 @@ class PureFCDriver(PureBaseVolumeDriver, driver.FibreChannelDriver):
                 "target_wwn": target_wwns,
                 'access_mode': 'rw',
                 'initiator_target_map': init_targ_map,
+                "discard": True,
             }
         }
 

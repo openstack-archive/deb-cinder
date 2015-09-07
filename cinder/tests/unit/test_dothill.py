@@ -18,7 +18,7 @@
 
 from lxml import etree
 import mock
-from six.moves import urllib
+import requests
 
 from cinder import exception
 from cinder import test
@@ -51,7 +51,7 @@ response_stats_linear = '''<RESPONSE><OBJECT basetype="virtual-disks">
                     <PROPERTY name="size-numeric">3863830528</PROPERTY>
                     <PROPERTY name="freespace-numeric">3863830528</PROPERTY>
                     </OBJECT></RESPONSE>'''
-response_stats_realstor = '''<RESPONSE><OBJECT basetype="pools">
+response_stats_virtual = '''<RESPONSE><OBJECT basetype="pools">
                 <PROPERTY name="total-size-numeric">3863830528</PROPERTY>
                 <PROPERTY name="total-avail-numeric">3863830528</PROPERTY>
                 </OBJECT></RESPONSE>'''
@@ -87,7 +87,7 @@ response_ports = '''<RESPONSE>
                  </RESPONSE>'''
 
 response_ports_linear = response_ports % {'ip': 'primary-ip-address'}
-response_ports_realstor = response_ports % {'ip': 'ip-address'}
+response_ports_virtual = response_ports % {'ip': 'ip-address'}
 
 
 invalid_xml = '''<RESPONSE></RESPONSE>'''
@@ -146,17 +146,18 @@ class TestDotHillClient(test.TestCase):
         self.passwd = '!manage'
         self.ip = '10.0.0.1'
         self.protocol = 'http'
+        self.ssl_verify = False
         self.client = dothill.DotHillClient(self.ip, self.login, self.passwd,
-                                            self.protocol)
+                                            self.protocol, self.ssl_verify)
 
-    @mock.patch('six.moves.urllib.request.urlopen')
-    def test_login(self, mock_url_open):
+    @mock.patch('requests.get')
+    def test_login(self, mock_requests_get):
         m = mock.Mock()
-        m.read.side_effect = [resp_login]
-        mock_url_open.return_value = m
+        m.text.encode.side_effect = [resp_login]
+        mock_requests_get.return_value = m
         self.client.login()
         self.assertEqual(session_key, self.client._session_key)
-        m.read.side_effect = [resp_badlogin]
+        m.text.encode.side_effect = [resp_badlogin]
         self.assertRaises(exception.DotHillAuthenticationError,
                           self.client.login)
 
@@ -175,14 +176,15 @@ class TestDotHillClient(test.TestCase):
                                              arg2='val2')
         self.assertEqual('http://10.0.0.1/api/path/arg2/val2/arg1/arg3', url)
 
-    @mock.patch('six.moves.urllib.request.urlopen')
-    def test_request(self, mock_url_open):
+    @mock.patch('requests.get')
+    def test_request(self, mock_requests_get):
         self.client._session_key = session_key
 
         m = mock.Mock()
-        m.read.side_effect = [response_ok, malformed_xml,
-                              urllib.error.URLError("error")]
-        mock_url_open.return_value = m
+        m.text.encode.side_effect = [response_ok, malformed_xml,
+                                     requests.exceptions.
+                                     RequestException("error")]
+        mock_requests_get.return_value = m
         ret = self.client._request('/path')
         self.assertTrue(type(ret) == etree._Element)
         self.assertRaises(exception.DotHillConnectionError,
@@ -218,13 +220,13 @@ class TestDotHillClient(test.TestCase):
         stats = {'free_capacity_gb': 1979,
                  'total_capacity_gb': 1979}
         linear = etree.XML(response_stats_linear)
-        realstor = etree.XML(response_stats_realstor)
-        mock_request.side_effect = [linear, realstor]
+        virtual = etree.XML(response_stats_virtual)
+        mock_request.side_effect = [linear, virtual]
 
         self.assertEqual(stats, self.client.backend_stats('OpenStack',
                                                           'linear'))
-        self.assertEqual(stats, self.client.backend_stats('OpenStack',
-                                                          'realstor'))
+        self.assertEqual(stats, self.client.backend_stats('A',
+                                                          'virtual'))
 
     @mock.patch.object(dothill.DotHillClient, '_request')
     def test_get_lun(self, mock_request):
@@ -265,10 +267,10 @@ class TestDotHillClient(test.TestCase):
     def test_get_iscsi_portals(self, mock_request):
         portals = {'10.0.0.12': 'Up', '10.0.0.11': 'Up'}
         mock_request.side_effect = [etree.XML(response_ports_linear),
-                                    etree.XML(response_ports_realstor)]
-        ret = self.client.get_active_iscsi_target_portals('linear')
+                                    etree.XML(response_ports_virtual)]
+        ret = self.client.get_active_iscsi_target_portals()
         self.assertEqual(portals, ret)
-        ret = self.client.get_active_iscsi_target_portals('realstor')
+        ret = self.client.get_active_iscsi_target_portals()
         self.assertEqual(portals, ret)
 
 
@@ -278,7 +280,7 @@ class FakeConfiguration1(object):
     san_ip = '10.0.0.1'
     san_login = 'manage'
     san_password = '!manage'
-    dothill_wbi_protocol = 'http'
+    dothill_api_protocol = 'http'
 
     def safe_get(self, key):
         return 'fakevalue'
@@ -313,7 +315,8 @@ class TestFCDotHillCommon(test.TestCase):
         self.assertEqual(None, self.common.do_setup(None))
         mock_backend_exists.assert_called_with(self.common.backend_name,
                                                self.common.backend_type)
-        mock_owner_info.assert_called_with(self.common.backend_name)
+        mock_owner_info.assert_called_with(self.common.backend_name,
+                                           self.common.backend_type)
 
     def test_vol_name(self):
         self.assertEqual(encoded_volid, self.common._get_vol_name(vol_id))
@@ -411,7 +414,8 @@ class TestFCDotHillCommon(test.TestCase):
 
         mock_copy.assert_called_with(encoded_volid,
                                      'vqqqqqqqqqqqqqqqqqqq',
-                                     0, self.common.backend_name)
+                                     self.common.backend_name,
+                                     self.common.backend_type)
 
     @mock.patch.object(dothill.DotHillClient, 'copy_volume')
     @mock.patch.object(dothill.DotHillClient, 'backend_stats')
@@ -432,7 +436,8 @@ class TestFCDotHillCommon(test.TestCase):
         self.assertEqual(None, ret)
         mock_copy.assert_called_with('sqqqqqqqqqqqqqqqqqqq',
                                      'vqqqqqqqqqqqqqqqqqqq',
-                                     0, self.common.backend_name)
+                                     self.common.backend_name,
+                                     self.common.backend_type)
 
     @mock.patch.object(dothill.DotHillClient, 'extend_volume')
     def test_extend_volume(self, mock_extend):
@@ -557,20 +562,18 @@ class TestDotHillFC(test.TestCase):
 
     @mock.patch.object(dothill_common.DotHillCommon, 'create_volume')
     def test_create_volume(self, mock_create):
-        self._test_with_mock(mock_create, 'create_volume', [None],
-                             {'metadata': None})
+        self._test_with_mock(mock_create, 'create_volume', [None])
 
     @mock.patch.object(dothill_common.DotHillCommon,
                        'create_cloned_volume')
     def test_create_cloned_volume(self, mock_create):
-        self._test_with_mock(mock_create, 'create_cloned_volume', [None, None],
-                             {'metadata': None})
+        self._test_with_mock(mock_create, 'create_cloned_volume', [None, None])
 
     @mock.patch.object(dothill_common.DotHillCommon,
                        'create_volume_from_snapshot')
     def test_create_volume_from_snapshot(self, mock_create):
         self._test_with_mock(mock_create, 'create_volume_from_snapshot',
-                             [None, None], None)
+                             [None, None])
 
     @mock.patch.object(dothill_common.DotHillCommon, 'delete_volume')
     def test_delete_volume(self, mock_delete):

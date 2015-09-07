@@ -52,6 +52,7 @@ def make_backup(elem):
 def make_backup_restore(elem):
     elem.set('backup_id')
     elem.set('volume_id')
+    elem.set('volume_name')
 
 
 def make_backup_export_import_record(elem):
@@ -209,6 +210,8 @@ class BackupsController(wsgi.Controller):
         """Returns a list of backups, transformed through view builder."""
         context = req.environ['cinder.context']
         filters = req.params.copy()
+        marker, limit, offset = common.get_pagination_params(filters)
+        sort_keys, sort_dirs = common.get_sort_params(filters)
 
         utils.remove_invalid_filter_options(context,
                                             filters,
@@ -218,17 +221,20 @@ class BackupsController(wsgi.Controller):
             filters['display_name'] = filters['name']
             del filters['name']
 
-        backups = self.backup_api.get_all(context, search_opts=filters)
-        backup_count = len(backups)
-        limited_list = common.limited(backups.objects, req)
-        req.cache_db_backups(limited_list)
+        backups = self.backup_api.get_all(context, search_opts=filters,
+                                          marker=marker,
+                                          limit=limit,
+                                          offset=offset,
+                                          sort_keys=sort_keys,
+                                          sort_dirs=sort_dirs,
+                                          )
+
+        req.cache_db_backups(backups.objects)
 
         if is_detail:
-            backups = self._view_builder.detail_list(req, limited_list,
-                                                     backup_count)
+            backups = self._view_builder.detail_list(req, backups.objects)
         else:
-            backups = self._view_builder.summary_list(req, limited_list,
-                                                      backup_count)
+            backups = self._view_builder.summary_list(req, backups.objects)
         return backups
 
     # TODO(frankm): Add some checks here including
@@ -252,6 +258,7 @@ class BackupsController(wsgi.Controller):
             msg = _("Incorrect request body format")
             raise exc.HTTPBadRequest(explanation=msg)
         container = backup.get('container', None)
+        self.validate_name_and_description(backup)
         name = backup.get('name', None)
         description = backup.get('description', None)
         incremental = backup.get('incremental', False)

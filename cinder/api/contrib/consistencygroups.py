@@ -49,6 +49,7 @@ def make_consistencygroup_from_src(elem):
     elem.set('name')
     elem.set('description')
     elem.set('cgsnapshot_id')
+    elem.set('source_cgid')
 
 
 class ConsistencyGroupTemplate(xmlutil.TemplateBuilder):
@@ -116,7 +117,7 @@ class CreateFromSrcDeserializer(wsgi.MetadataXMLDeserializer):
         consistencygroup_node = self.find_first_child_named(
             node, 'consistencygroup-from-src')
 
-        attributes = ['cgsnapshot', 'name', 'description']
+        attributes = ['cgsnapshot', 'source_cgid', 'name', 'description']
 
         for attr in attributes:
             if consistencygroup_node.getAttribute(attr):
@@ -215,6 +216,7 @@ class ConsistencyGroupsController(wsgi.Controller):
 
         context = req.environ['cinder.context']
         consistencygroup = body['consistencygroup']
+        self.validate_name_and_description(consistencygroup)
         name = consistencygroup.get('name', None)
         description = consistencygroup.get('description', None)
         volume_types = consistencygroup.get('volume_types', None)
@@ -239,9 +241,7 @@ class ConsistencyGroupsController(wsgi.Controller):
         except exception.ConsistencyGroupNotFound as error:
             raise exc.HTTPNotFound(explanation=error.msg)
 
-        retval = self._view_builder.summary(
-            req,
-            dict(new_consistencygroup))
+        retval = self._view_builder.summary(req, new_consistencygroup)
         return retval
 
     @wsgi.response(202)
@@ -250,8 +250,7 @@ class ConsistencyGroupsController(wsgi.Controller):
     def create_from_src(self, req, body):
         """Create a new consistency group from a source.
 
-        The source can be a snapshot. It could be extended
-        in the future to support other sources. Note that
+        The source can be a CG snapshot or a CG. Note that
         this does not require volume_types as the "create"
         API above.
         """
@@ -260,34 +259,47 @@ class ConsistencyGroupsController(wsgi.Controller):
 
         context = req.environ['cinder.context']
         consistencygroup = body['consistencygroup-from-src']
+        self.validate_name_and_description(consistencygroup)
         name = consistencygroup.get('name', None)
         description = consistencygroup.get('description', None)
         cgsnapshot_id = consistencygroup.get('cgsnapshot_id', None)
-        if not cgsnapshot_id:
-            msg = _("Cgsnapshot id must be provided to create "
-                    "consistency group %(name)s from source.") % {'name': name}
+        source_cgid = consistencygroup.get('source_cgid', None)
+        if not cgsnapshot_id and not source_cgid:
+            msg = _("Either 'cgsnapshot_id' or 'source_cgid' must be "
+                    "provided to create consistency group %(name)s "
+                    "from source.") % {'name': name}
             raise exc.HTTPBadRequest(explanation=msg)
 
-        LOG.info(_LI("Creating consistency group %(name)s from cgsnapshot "
-                     "%(snap)s."),
-                 {'name': name, 'snap': cgsnapshot_id},
-                 context=context)
+        if cgsnapshot_id and source_cgid:
+            msg = _("Cannot provide both 'cgsnapshot_id' and 'source_cgid' "
+                    "to create consistency group %(name)s from "
+                    "source.") % {'name': name}
+            raise exc.HTTPBadRequest(explanation=msg)
+
+        if cgsnapshot_id:
+            LOG.info(_LI("Creating consistency group %(name)s from "
+                         "cgsnapshot %(snap)s."),
+                     {'name': name, 'snap': cgsnapshot_id},
+                     context=context)
+        elif source_cgid:
+            LOG.info(_LI("Creating consistency group %(name)s from "
+                         "source consistency group %(source_cgid)s."),
+                     {'name': name, 'source_cgid': source_cgid},
+                     context=context)
 
         try:
             new_consistencygroup = self.consistencygroup_api.create_from_src(
-                context, name, description, cgsnapshot_id)
+                context, name, description, cgsnapshot_id, source_cgid)
         except exception.InvalidConsistencyGroup as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.CgSnapshotNotFound as error:
-            raise exc.HTTPBadRequest(explanation=error.msg)
+            raise exc.HTTPNotFound(explanation=error.msg)
         except exception.ConsistencyGroupNotFound as error:
             raise exc.HTTPNotFound(explanation=error.msg)
         except exception.CinderException as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
 
-        retval = self._view_builder.summary(
-            req,
-            dict(new_consistencygroup))
+        retval = self._view_builder.summary(req, new_consistencygroup)
         return retval
 
     @wsgi.serializers(xml=ConsistencyGroupTemplate)
@@ -315,6 +327,7 @@ class ConsistencyGroupsController(wsgi.Controller):
         context = req.environ['cinder.context']
 
         consistencygroup = body.get('consistencygroup', None)
+        self.validate_name_and_description(consistencygroup)
         name = consistencygroup.get('name', None)
         description = consistencygroup.get('description', None)
         add_volumes = consistencygroup.get('add_volumes', None)

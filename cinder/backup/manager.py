@@ -57,7 +57,11 @@ LOG = logging.getLogger(__name__)
 backup_manager_opts = [
     cfg.StrOpt('backup_driver',
                default='cinder.backup.drivers.swift',
-               help='Driver to use for backups.',)
+               help='Driver to use for backups.',),
+    cfg.BoolOpt('backup_service_inithost_offload',
+                default=False,
+                help='Offload pending backup delete during '
+                     'backup service startup.',),
 ]
 
 # This map doesn't need to be extended in the future since it's only
@@ -189,9 +193,7 @@ class BackupManager(manager.SchedulerDependentManager):
         backup.save()
 
     def init_host(self):
-        """Do any initialization that needs to be run if this is a
-           standalone service.
-        """
+        """Run initialization needed for a standalone service."""
         ctxt = context.get_admin_context()
 
         for mgr in self.volume_managers.values():
@@ -202,39 +204,21 @@ class BackupManager(manager.SchedulerDependentManager):
         for volume in volumes:
             volume_host = volume_utils.extract_host(volume['host'], 'backend')
             backend = self._get_volume_backend(host=volume_host)
-            attachments = volume['volume_attachment']
-            if attachments:
-                if (volume['status'] == 'backing-up' and
-                        volume['previous_status'] == 'available'):
-                    LOG.info(_LI('Resetting volume %(vol_id)s to previous '
-                                 'status %(status)s (was backing-up).'),
-                             {'vol_id': volume['id'],
-                              'status': volume['previous_status']})
-                    mgr = self._get_manager(backend)
-                    for attachment in attachments:
-                        if (attachment['attached_host'] == self.host and
-                           attachment['instance_uuid'] is None):
-                            mgr.detach_volume(ctxt, volume['id'],
-                                              attachment['id'])
-                elif (volume['status'] == 'backing-up' and
-                        volume['previous_status'] == 'in-use'):
-                    LOG.info(_LI('Resetting volume %(vol_id)s to previous '
-                                 'status %(status)s (was backing-up).'),
-                             {'vol_id': volume['id'],
-                              'status': volume['previous_status']})
-                    self.db.volume_update(ctxt, volume['id'],
-                                          volume['previous_status'])
-                elif volume['status'] == 'restoring-backup':
-                    LOG.info(_LI('setting volume %s to error_restoring '
-                                 '(was restoring-backup).'), volume['id'])
-                    mgr = self._get_manager(backend)
-                    for attachment in attachments:
-                        if (attachment['attached_host'] == self.host and
-                           attachment['instance_uuid'] is None):
-                            mgr.detach_volume(ctxt, volume['id'],
-                                              attachment['id'])
-                    self.db.volume_update(ctxt, volume['id'],
-                                          {'status': 'error_restoring'})
+            mgr = self._get_manager(backend)
+            if volume['status'] == 'backing-up':
+                self._detach_all_attachments(ctxt, mgr, volume)
+                LOG.info(_LI('Resetting volume %(vol_id)s to previous '
+                             'status %(status)s (was backing-up).'),
+                         {'vol_id': volume['id'],
+                          'status': volume['previous_status']})
+                self.db.volume_update(ctxt, volume['id'],
+                                      {'status': volume['previous_status']})
+            elif volume['status'] == 'restoring-backup':
+                self._detach_all_attachments(ctxt, mgr, volume)
+                LOG.info(_LI('setting volume %s to error_restoring '
+                             '(was restoring-backup).'), volume['id'])
+                self.db.volume_update(ctxt, volume['id'],
+                                      {'status': 'error_restoring'})
 
         # TODO(smulcahy) implement full resume of backup and restore
         # operations on restart (rather than simply resetting)
@@ -253,9 +237,24 @@ class BackupManager(manager.SchedulerDependentManager):
                 backup.save()
             if backup['status'] == 'deleting':
                 LOG.info(_LI('Resuming delete on backup: %s.'), backup['id'])
-                self.delete_backup(ctxt, backup)
+                if CONF.backup_service_inithost_offload:
+                    # Offload all the pending backup delete operations to the
+                    # threadpool to prevent the main backup service thread
+                    # from being blocked.
+                    self._add_to_threadpool(self.delete_backup, ctxt, backup)
+                else:
+                    # By default, delete backups sequentially
+                    self.delete_backup(ctxt, backup)
 
         self._cleanup_temp_volumes_snapshots(backups)
+
+    def _detach_all_attachments(self, ctxt, mgr, volume):
+        attachments = volume['volume_attachment'] or []
+        for attachment in attachments:
+            if (attachment['attached_host'] == self.host and
+                    attachment['instance_uuid'] is None):
+                        mgr.detach_volume(ctxt, volume['id'],
+                                          attachment['id'])
 
     def _cleanup_temp_volumes_snapshots(self, backups):
         # NOTE(xyang): If the service crashes or gets restarted during the
@@ -275,22 +274,38 @@ class BackupManager(manager.SchedulerDependentManager):
                           "backup %s.", backup.id)
                 continue
             if backup.temp_volume_id and backup.status == 'error':
-                temp_volume = self.db.volume_get(ctxt,
-                                                 backup.temp_volume_id)
-                # The temp volume should be deleted directly thru the
-                # the volume driver, not thru the volume manager.
-                mgr.driver.delete_volume(temp_volume)
-                self.db.volume_destroy(ctxt, temp_volume['id'])
+                try:
+                    temp_volume = self.db.volume_get(ctxt,
+                                                     backup.temp_volume_id)
+                    # The temp volume should be deleted directly thru the
+                    # the volume driver, not thru the volume manager.
+                    mgr.driver.delete_volume(temp_volume)
+                    self.db.volume_destroy(ctxt, temp_volume['id'])
+                except exception.VolumeNotFound:
+                    LOG.debug("Could not find temp volume %(vol)s to clean up "
+                              "for backup %(backup)s.",
+                              {'vol': backup.temp_volume_id,
+                               'backup': backup.id})
+                backup.temp_volume_id = None
+                backup.save()
             if backup.temp_snapshot_id and backup.status == 'error':
-                temp_snapshot = objects.Snapshot.get_by_id(
-                    ctxt, backup.temp_snapshot_id)
-                # The temp snapshot should be deleted directly thru the
-                # volume driver, not thru the volume manager.
-                mgr.driver.delete_snapshot(temp_snapshot)
-                with temp_snapshot.obj_as_admin():
-                    self.db.volume_glance_metadata_delete_by_snapshot(
-                        ctxt, temp_snapshot.id)
-                    temp_snapshot.destroy()
+                try:
+                    temp_snapshot = objects.Snapshot.get_by_id(
+                        ctxt, backup.temp_snapshot_id)
+                    # The temp snapshot should be deleted directly thru the
+                    # volume driver, not thru the volume manager.
+                    mgr.driver.delete_snapshot(temp_snapshot)
+                    with temp_snapshot.obj_as_admin():
+                        self.db.volume_glance_metadata_delete_by_snapshot(
+                            ctxt, temp_snapshot.id)
+                        temp_snapshot.destroy()
+                except exception.SnapshotNotFound:
+                    LOG.debug("Could not find temp snapshot %(snap)s to clean "
+                              "up for backup %(backup)s.",
+                              {'snap': backup.temp_snapshot_id,
+                               'backup': backup.id})
+                backup.temp_snapshot_id = None
+                backup.save()
 
     def create_backup(self, context, backup):
         """Create volume backups using configured backup service."""
@@ -357,6 +372,13 @@ class BackupManager(manager.SchedulerDependentManager):
         backup.size = volume['size']
         backup.availability_zone = self.az
         backup.save()
+        # Handle the num_dependent_backups of parent backup when child backup
+        # has created successfully.
+        if backup.parent_id:
+            parent_backup = objects.Backup.get_by_id(context,
+                                                     backup.parent_id)
+            parent_backup.num_dependent_backups += 1
+            parent_backup.save()
         LOG.info(_LI('Create backup finished. backup: %s.'), backup.id)
         self._notify_about_backup_usage(context, backup, "create.end")
 
@@ -509,7 +531,14 @@ class BackupManager(manager.SchedulerDependentManager):
             LOG.exception(_LE("Failed to update usages deleting backup"))
 
         backup.destroy()
-
+        # If this backup is incremental backup, handle the
+        # num_dependent_backups of parent backup
+        if backup.parent_id:
+            parent_backup = objects.Backup.get_by_id(context,
+                                                     backup.parent_id)
+            if parent_backup.has_dependent_backups:
+                parent_backup.num_dependent_backups -= 1
+                parent_backup.save()
         # Commit the reservations
         if reservations:
             QUOTAS.commit(context, reservations,
@@ -569,7 +598,8 @@ class BackupManager(manager.SchedulerDependentManager):
         try:
             utils.require_driver_initialized(self.driver)
             backup_service = self.service.get_backup_driver(context)
-            backup_url = backup_service.export_record(backup)
+            driver_info = backup_service.export_record(backup)
+            backup_url = backup.encode_record(driver_info=driver_info)
             backup_record['backup_url'] = backup_url
         except Exception as err:
             msg = six.text_type(err)
@@ -618,36 +648,61 @@ class BackupManager(manager.SchedulerDependentManager):
         else:
             # Yes...
             try:
+                # Deserialize backup record information
+                backup_options = backup.decode_record(backup_url)
+
+                # Extract driver specific info and pass it to the driver
+                driver_options = backup_options.pop('driver_info', {})
                 utils.require_driver_initialized(self.driver)
                 backup_service = self.service.get_backup_driver(context)
-                backup_options = backup_service.import_record(backup_url)
+                backup_service.import_record(backup, driver_options)
             except Exception as err:
                 msg = six.text_type(err)
                 self._update_backup_error(backup, context, msg)
                 raise exception.InvalidBackup(reason=msg)
 
-            required_import_options = ['display_name',
-                                       'display_description',
-                                       'container',
-                                       'size',
-                                       'service_metadata',
-                                       'service',
-                                       'object_count']
+            required_import_options = {
+                'display_name',
+                'display_description',
+                'container',
+                'size',
+                'service_metadata',
+                'service',
+                'object_count',
+                'id'
+            }
 
-            backup_update = {}
-            backup_update['status'] = 'available'
-            backup_update['service'] = self.driver_name
-            backup_update['availability_zone'] = self.az
-            backup_update['host'] = self.host
-            for entry in required_import_options:
-                if entry not in backup_options:
-                    msg = (_('Backup metadata received from driver for '
-                             'import is missing %s.'), entry)
-                    self._update_backup_error(backup, context, msg)
-                    raise exception.InvalidBackup(reason=msg)
-                backup_update[entry] = backup_options[entry]
+            # Check for missing fields in imported data
+            missing_opts = required_import_options - set(backup_options)
+            if missing_opts:
+                msg = (_('Driver successfully decoded imported backup data, '
+                         'but there are missing fields (%s).') %
+                       ', '.join(missing_opts))
+                self._update_backup_error(backup, context, msg)
+                raise exception.InvalidBackup(reason=msg)
+
+            # Confirm the ID from the record in the DB is the right one
+            backup_id = backup_options['id']
+            if backup_id != backup.id:
+                msg = (_('Trying to import backup metadata from id %(meta_id)s'
+                         ' into backup %(id)s.') %
+                       {'meta_id': backup_id, 'id': backup.id})
+                self._update_backup_error(backup, context, msg)
+                raise exception.InvalidBackup(reason=msg)
+
+            # Overwrite some fields
+            backup_options['status'] = 'available'
+            backup_options['service'] = self.driver_name
+            backup_options['availability_zone'] = self.az
+            backup_options['host'] = self.host
+
+            # Remove some values which are not actual fields and some that
+            # were set by the API node
+            for key in ('name', 'user_id', 'project_id'):
+                backup_options.pop(key, None)
+
             # Update the database
-            backup.update(backup_update)
+            backup.update(backup_options)
             backup.save()
 
             # Verify backup

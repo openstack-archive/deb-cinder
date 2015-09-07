@@ -69,45 +69,69 @@ def validate_key_names(key_names_list):
     return True
 
 
-def get_pagination_params(request):
-    """Return marker, limit tuple from request.
+def get_pagination_params(params, max_limit=None):
+    """Return marker, limit, offset tuple from request.
 
-    :param request: `wsgi.Request` possibly containing 'marker' and 'limit'
-                    GET variables. 'marker' is the id of the last element
-                    the client has seen, and 'limit' is the maximum number
-                    of items to return. If 'limit' is not specified, 0, or
-                    > max_limit, we default to max_limit. Negative values
-                    for either marker or limit will cause
-                    exc.HTTPBadRequest() exceptions to be raised.
-
+    :param params: `wsgi.Request`'s GET dictionary, possibly containing
+                   'marker',  'limit', and 'offset' variables. 'marker' is the
+                   id of the last element the client has seen, 'limit' is the
+                   maximum number of items to return and 'offset' is the number
+                   of items to skip from the marker or from the first element.
+                   If 'limit' is not specified, or > max_limit, we default to
+                   max_limit. Negative values for either offset or limit will
+                   cause exc.HTTPBadRequest() exceptions to be raised. If no
+                   offset is present we'll default to 0 and if no marker is
+                   present we'll default to None.
+    :max_limit: Max value 'limit' return value can take
+    :returns: Tuple (marker, limit, offset)
     """
-    params = {}
-    if 'limit' in request.GET:
-        params['limit'] = _get_limit_param(request)
-    if 'marker' in request.GET:
-        params['marker'] = _get_marker_param(request)
-    return params
+    max_limit = max_limit or CONF.osapi_max_limit
+    limit = _get_limit_param(params, max_limit)
+    marker = _get_marker_param(params)
+    offset = _get_offset_param(params)
+    return marker, limit, offset
 
 
-def _get_limit_param(request):
-    """Extract integer limit from request or fail."""
+def _get_limit_param(params, max_limit=None):
+    """Extract integer limit from request's dictionary or fail.
+
+   Defaults to max_limit if not present and returns max_limit if present
+   'limit' is greater than max_limit.
+    """
+    max_limit = max_limit or CONF.osapi_max_limit
     try:
-        limit = int(request.GET['limit'])
+        limit = int(params.pop('limit', max_limit))
     except ValueError:
         msg = _('limit param must be an integer')
         raise webob.exc.HTTPBadRequest(explanation=msg)
     if limit < 0:
         msg = _('limit param must be positive')
         raise webob.exc.HTTPBadRequest(explanation=msg)
+    limit = min(limit, max_limit)
     return limit
 
 
-def _get_marker_param(request):
-    """Extract marker id from request or fail."""
-    return request.GET['marker']
+def _get_marker_param(params):
+    """Extract marker id from request's dictionary (defaults to None)."""
+    return params.pop('marker', None)
 
 
-def limited(items, request, max_limit=CONF.osapi_max_limit):
+def _get_offset_param(params):
+    """Extract offset id from request's dictionary (defaults to 0) or fail."""
+    try:
+        offset = int(params.pop('offset', 0))
+    except ValueError:
+        msg = _('offset param must be an integer')
+        raise webob.exc.HTTPBadRequest(explanation=msg)
+
+    if offset < 0:
+        msg = _('offset param must be positive')
+        raise webob.exc.HTTPBadRequest(explanation=msg)
+
+    return offset
+
+
+def limited(items, request, max_limit=None):
     """Return a slice of items according to requested offset and limit.
 
     :param items: A sliceable entity
@@ -119,39 +143,18 @@ def limited(items, request, max_limit=CONF.osapi_max_limit):
                     will cause exc.HTTPBadRequest() exceptions to be raised.
     :kwarg max_limit: The maximum number of items to return from 'items'
     """
-    try:
-        offset = int(request.GET.get('offset', 0))
-    except ValueError:
-        msg = _('offset param must be an integer')
-        raise webob.exc.HTTPBadRequest(explanation=msg)
-
-    try:
-        limit = int(request.GET.get('limit', max_limit))
-    except ValueError:
-        msg = _('limit param must be an integer')
-        raise webob.exc.HTTPBadRequest(explanation=msg)
-
-    if limit < 0:
-        msg = _('limit param must be positive')
-        raise webob.exc.HTTPBadRequest(explanation=msg)
-
-    if offset < 0:
-        msg = _('offset param must be positive')
-        raise webob.exc.HTTPBadRequest(explanation=msg)
-
-    limit = min(max_limit, limit or max_limit)
-    range_end = offset + limit
+    max_limit = max_limit or CONF.osapi_max_limit
+    marker, limit, offset = get_pagination_params(request.GET.copy(),
+                                                  max_limit)
+    range_end = offset + (limit or max_limit)
     return items[offset:range_end]
 
 
-def limited_by_marker(items, request, max_limit=CONF.osapi_max_limit):
+def limited_by_marker(items, request, max_limit=None):
     """Return a slice of items according to the requested marker and limit."""
-    params = get_pagination_params(request)
+    max_limit = max_limit or CONF.osapi_max_limit
+    marker, limit, __ = get_pagination_params(request.GET.copy(), max_limit)
 
-    limit = params.get('limit', max_limit)
-    marker = params.get('marker')
-
-    limit = min(max_limit, limit)
     start_index = 0
     if marker:
         start_index = -1
@@ -217,6 +220,17 @@ def get_sort_params(params, default_key='created_at', default_dir='desc'):
     return sort_keys, sort_dirs
 
 
+def get_request_url(request):
+    url = request.application_url
+    headers = request.headers
+    forwarded = headers.get('X-Forwarded-Host')
+    if forwarded:
+        url_parts = list(urllib.parse.urlsplit(url))
+        url_parts[1] = re.split(',\s?', forwarded)[-1]
+        url = urllib.parse.urlunsplit(url_parts).rstrip('/')
+    return url
+
+
 def remove_version_from_href(href):
     """Removes the first api version from the href.
 
@@ -262,7 +276,7 @@ class ViewBuilder(object):
         """Return href string with proper limit and marker params."""
         params = request.params.copy()
         params["marker"] = identifier
-        prefix = self._update_link_prefix(request.application_url,
+        prefix = self._update_link_prefix(get_request_url(request),
                                           CONF.osapi_volume_base_URL)
         url = os.path.join(prefix,
                            request.environ["cinder.context"].project_id,
@@ -271,7 +285,7 @@ class ViewBuilder(object):
 
     def _get_href_link(self, request, identifier):
         """Return an href string pointing to this object."""
-        prefix = self._update_link_prefix(request.application_url,
+        prefix = self._update_link_prefix(get_request_url(request),
                                           CONF.osapi_volume_base_URL)
         return os.path.join(prefix,
                             request.environ["cinder.context"].project_id,
@@ -280,7 +294,7 @@ class ViewBuilder(object):
 
     def _get_bookmark_link(self, request, identifier):
         """Create a URL that refers to a specific resource."""
-        base_url = remove_version_from_href(request.application_url)
+        base_url = remove_version_from_href(get_request_url(request))
         base_url = self._update_link_prefix(base_url,
                                             CONF.osapi_volume_base_URL)
         return os.path.join(base_url,
@@ -289,19 +303,19 @@ class ViewBuilder(object):
                             str(identifier))
 
     def _get_collection_links(self, request, items, collection_name,
-                              item_count, id_key="uuid"):
+                              item_count=None, id_key="uuid"):
         """Retrieve 'next' link, if applicable.
 
-        The next link is included if:
-        1) 'limit' param is specified and equal to or less than the
-        number of items.
-        2) 'limit' param is specified and both the limit and the number
-        of items are greater than CONF.osapi_max_limit, even if limit
-        is greater than the number of items.
-        3) 'limit' param is NOT specified and the number of items is
-        greater than CONF.osapi_max_limit.
-        Notes: The case limit equals to 0 or CONF.osapi_max_limit equals to 0
-        is not included in the above conditions.
+        The next link is included if we are returning as many items as we can,
+        given the restrictions of limit optional request parameter and
+        osapi_max_limit configuration parameter as long as we are returning
+        some elements.
+
+        So we return next link if:
+
+        1) 'limit' param is specified and equal to the number of items.
+        2) 'limit' param is NOT specified and the number of items is
+           equal to CONF.osapi_max_limit.
 
         :param request: API request
         :param items: List of collection items
@@ -313,25 +327,12 @@ class ViewBuilder(object):
                        to generate the next link marker for a pagination query
         :returns links
         """
-        limit = request.params.get("limit", None)
-        if limit is None or int(limit) > CONF.osapi_max_limit:
-            # If limit is not set in the request or greater than
-            # osapi_max_limit, len(items) < item_count means the items
-            # are limited by osapi_max_limit and we need to generate the
-            # next link. Otherwise, all the items will be returned in
-            # the response, no next link is generated.
-            if len(items) < item_count:
-                return self._generate_next_link(items, id_key, request,
-                                                collection_name)
-        else:
-            # If limit is set in the request and not more than
-            # osapi_max_limit, int(limit) == len(items) means it is possible
-            # that the DB still have more items left. In this case,
-            # we generate the next link.
-            limit = int(limit)
-            if limit and limit == len(items):
-                return self._generate_next_link(items, id_key, request,
-                                                collection_name)
+        item_count = item_count or len(items)
+        limit = _get_limit_param(request.GET.copy())
+        if len(items) and limit <= item_count:
+            return self._generate_next_link(items, id_key, request,
+                                            collection_name)
+
         return []
 
     def _generate_next_link(self, items, id_key, request,

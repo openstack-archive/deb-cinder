@@ -84,7 +84,6 @@ class VolumeApiTest(test.TestCase):
                                'display_description': 'Volume Test Desc',
                                'availability_zone': 'zone1:host1',
                                'display_name': 'Volume Test Name',
-                               'encrypted': False,
                                'attachments': [],
                                'multiattach': 'false',
                                'bootable': 'false',
@@ -97,7 +96,7 @@ class VolumeApiTest(test.TestCase):
                                                                1, 1, 1),
                                'size': 100,
                                'encrypted': False}}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
     def test_volume_create_with_type(self):
         vol_type = CONF.default_volume_type
@@ -121,18 +120,18 @@ class VolumeApiTest(test.TestCase):
         body.update(dict(volume=vol))
         res_dict = self.controller.create(req, body)
         self.assertIn('id', res_dict['volume'])
-        self.assertEqual(len(res_dict), 1)
-        self.assertEqual(res_dict['volume']['volume_type'],
-                         db_vol_type['name'])
+        self.assertEqual(1, len(res_dict))
+        self.assertEqual(db_vol_type['name'],
+                         res_dict['volume']['volume_type'])
 
         # Use correct volume type id
         vol.update(dict(volume_type=db_vol_type['id']))
         body.update(dict(volume=vol))
         res_dict = self.controller.create(req, body)
         self.assertIn('id', res_dict['volume'])
-        self.assertEqual(len(res_dict), 1)
-        self.assertEqual(res_dict['volume']['volume_type'],
-                         db_vol_type['name'])
+        self.assertEqual(1, len(res_dict))
+        self.assertEqual(db_vol_type['name'],
+                         res_dict['volume']['volume_type'])
 
     def test_volume_creation_fails_with_bad_size(self):
         vol = {"size": '',
@@ -188,7 +187,7 @@ class VolumeApiTest(test.TestCase):
         body = {"volume": vol}
         req = fakes.HTTPRequest.blank('/v1/volumes')
         res_dict = self.controller.create(req, body)
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
     def test_volume_create_with_image_id_is_integer(self):
         self.stubs.Set(volume_api.API, "create", stubs.stub_volume_create)
@@ -235,16 +234,19 @@ class VolumeApiTest(test.TestCase):
                           req,
                           body)
 
-    def test_volume_update(self):
-        self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
-        self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
-
+    @mock.patch.object(db, 'volume_admin_metadata_get',
+                       return_value={'attached_mode': 'rw',
+                                     'readonly': 'False'})
+    @mock.patch.object(db, 'volume_get', side_effect=stubs.stub_volume_get_db)
+    @mock.patch.object(volume_api.API, 'update',
+                       side_effect=stubs.stub_volume_update)
+    def test_volume_update(self, *args):
         updates = {
             "display_name": "Updated Test Name",
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
-        self.assertEqual(len(self.notifier.notifications), 0)
+        self.assertEqual(0, len(self.notifier.notifications))
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
@@ -263,19 +265,23 @@ class VolumeApiTest(test.TestCase):
             'id': '1',
             'created_at': datetime.datetime(1900, 1, 1, 1, 1, 1),
             'size': 1}}
-        self.assertEqual(res_dict, expected)
-        self.assertEqual(len(self.notifier.notifications), 2)
+        self.assertEqual(expected, res_dict)
+        self.assertEqual(2, len(self.notifier.notifications))
 
-    def test_volume_update_metadata(self):
-        self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
-        self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
-
+    @mock.patch.object(db, 'volume_admin_metadata_get',
+                       return_value={"qos_max_iops": 2000,
+                                     "readonly": "False",
+                                     "attached_mode": "rw"})
+    @mock.patch.object(db, 'volume_get', side_effect=stubs.stub_volume_get_db)
+    @mock.patch.object(volume_api.API, 'update',
+                       side_effect=stubs.stub_volume_update)
+    def test_volume_update_metadata(self, *args):
         updates = {
             "metadata": {"qos_max_iops": 2000}
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
-        self.assertEqual(len(self.notifier.notifications), 0)
+        self.assertEqual(0, len(self.notifier.notifications))
         res_dict = self.controller.update(req, '1', body)
         expected = {'volume': {
             'status': 'fakestatus',
@@ -296,10 +302,15 @@ class VolumeApiTest(test.TestCase):
             'created_at': datetime.datetime(1900, 1, 1, 1, 1, 1),
             'size': 1
         }}
-        self.assertEqual(res_dict, expected)
-        self.assertEqual(len(self.notifier.notifications), 2)
+        self.assertEqual(expected, res_dict)
+        self.assertEqual(2, len(self.notifier.notifications))
 
     def test_volume_update_with_admin_metadata(self):
+        def stubs_volume_admin_metadata_get(context, volume_id):
+            return {'key': 'value',
+                    'readonly': 'True'}
+        self.stubs.Set(db, 'volume_admin_metadata_get',
+                       stubs_volume_admin_metadata_get)
         self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
 
         volume = stubs.stub_volume("1")
@@ -322,7 +333,7 @@ class VolumeApiTest(test.TestCase):
         }
         body = {"volume": updates}
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
-        self.assertEqual(len(self.notifier.notifications), 0)
+        self.assertEqual(0, len(self.notifier.notifications))
         admin_ctx = context.RequestContext('admin', 'fakeproject', True)
         req.environ['cinder.context'] = admin_ctx
         res_dict = self.controller.update(req, '1', body)
@@ -350,8 +361,8 @@ class VolumeApiTest(test.TestCase):
             'id': '1',
             'created_at': datetime.datetime(1900, 1, 1, 1, 1, 1),
             'size': 1}}
-        self.assertEqual(res_dict, expected)
-        self.assertEqual(len(self.notifier.notifications), 2)
+        self.assertEqual(expected, res_dict)
+        self.assertEqual(2, len(self.notifier.notifications))
 
     def test_update_empty_body(self):
         body = {}
@@ -379,6 +390,11 @@ class VolumeApiTest(test.TestCase):
                           req, '1', body)
 
     def test_volume_list(self):
+        def stubs_volume_admin_metadata_get(context, volume_id):
+            return {'attached_mode': 'rw',
+                    'readonly': 'False'}
+        self.stubs.Set(db, 'volume_admin_metadata_get',
+                       stubs_volume_admin_metadata_get)
         self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
         self.stubs.Set(volume_api.API, 'get_all',
                        stubs.stub_volume_get_all_by_project)
@@ -402,7 +418,7 @@ class VolumeApiTest(test.TestCase):
                                  'created_at': datetime.datetime(1900, 1, 1,
                                                                  1, 1, 1),
                                  'size': 1}]}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
         # Finally test that we cached the returned volumes
         self.assertEqual(1, len(req.cached_resource()))
 
@@ -449,7 +465,7 @@ class VolumeApiTest(test.TestCase):
                                  'created_at': datetime.datetime(1900, 1, 1,
                                                                  1, 1, 1),
                                  'size': 1}]}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
     def test_volume_list_detail(self):
         self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
@@ -475,7 +491,7 @@ class VolumeApiTest(test.TestCase):
                                  'created_at': datetime.datetime(1900, 1, 1,
                                                                  1, 1, 1),
                                  'size': 1}]}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
         # Finally test that we cached the returned volumes
         self.assertEqual(1, len(req.cached_resource()))
 
@@ -522,11 +538,13 @@ class VolumeApiTest(test.TestCase):
                                  'created_at': datetime.datetime(1900, 1, 1,
                                                                  1, 1, 1),
                                  'size': 1}]}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
-    def test_volume_show(self):
-        self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
-
+    @mock.patch.object(db, 'volume_admin_metadata_get',
+                       return_value={'attached_mode': 'rw',
+                                     'readonly': 'False'})
+    @mock.patch.object(db, 'volume_get', side_effect=stubs.stub_volume_get_db)
+    def test_volume_show(self, *args):
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
         res_dict = self.controller.show(req, '1')
         expected = {'volume': {'status': 'fakestatus',
@@ -546,7 +564,7 @@ class VolumeApiTest(test.TestCase):
                                'created_at': datetime.datetime(1900, 1, 1,
                                                                1, 1, 1),
                                'size': 1}}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
         # Finally test that we cached the returned volume
         self.assertIsNotNone(req.cached_resource_by_id('1'))
 
@@ -574,7 +592,7 @@ class VolumeApiTest(test.TestCase):
                                'created_at': datetime.datetime(1900, 1, 1,
                                                                1, 1, 1),
                                'size': 1}}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
     def test_volume_show_bootable(self):
         def stub_volume_get(self, context, volume_id, **kwargs):
@@ -602,7 +620,7 @@ class VolumeApiTest(test.TestCase):
                                'created_at': datetime.datetime(1900, 1, 1,
                                                                1, 1, 1),
                                'size': 1}}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
     def test_volume_show_no_volume(self):
         self.stubs.Set(volume_api.API, "get", stubs.stub_volume_get_notfound)
@@ -620,7 +638,8 @@ class VolumeApiTest(test.TestCase):
             def stub_volume_get_all_by_project(context, project_id, marker,
                                                limit, sort_keys=None,
                                                sort_dirs=None, filters=None,
-                                               viewable_admin_meta=False):
+                                               viewable_admin_meta=False,
+                                               offset=None):
                 return [
                     stubs.stub_volume(1, display_name='vol1'),
                     stubs.stub_volume(2, display_name='vol2'),
@@ -635,8 +654,8 @@ class VolumeApiTest(test.TestCase):
                                           use_admin_context=is_admin)
             res_dict = self.controller.index(req)
             volumes = res_dict['volumes']
-            self.assertEqual(len(volumes), 1)
-            self.assertEqual(volumes[0]['id'], 2)
+            self.assertEqual(1, len(volumes))
+            self.assertEqual(2, volumes[0]['id'])
 
         # admin case
         volume_detail_limit_offset(is_admin=True)
@@ -686,7 +705,7 @@ class VolumeApiTest(test.TestCase):
                                'created_at': datetime.datetime(1900, 1, 1,
                                                                1, 1, 1),
                                'size': 1}}
-        self.assertEqual(res_dict, expected)
+        self.assertEqual(expected, res_dict)
 
     def test_volume_show_with_encrypted_volume(self):
         def stub_volume_get(self, context, volume_id, **kwargs):
@@ -696,7 +715,7 @@ class VolumeApiTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
         res_dict = self.controller.show(req, 1)
-        self.assertEqual(res_dict['volume']['encrypted'], True)
+        self.assertEqual(True, res_dict['volume']['encrypted'])
 
     def test_volume_show_with_unencrypted_volume(self):
         def stub_volume_get(self, context, volume_id, **kwargs):
@@ -706,14 +725,14 @@ class VolumeApiTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
         res_dict = self.controller.show(req, 1)
-        self.assertEqual(res_dict['volume']['encrypted'], False)
+        self.assertEqual(False, res_dict['volume']['encrypted'])
 
     def test_volume_delete(self):
         self.stubs.Set(db, 'volume_get', stubs.stub_volume_get_db)
 
         req = fakes.HTTPRequest.blank('/v1/volumes/1')
         resp = self.controller.delete(req, 1)
-        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(202, resp.status_int)
 
     def test_volume_delete_no_volume(self):
         self.stubs.Set(volume_api.API, "get", stubs.stub_volume_get_notfound)
@@ -805,7 +824,7 @@ class VolumeSerializerTest(test.TestCase):
             self.assertEqual(str(attach[attr]), tree.get(attr))
 
     def _verify_volume(self, vol, tree):
-        self.assertEqual(tree.tag, NS + 'volume')
+        self.assertEqual(NS + 'volume', tree.tag)
 
         for attr in ('id', 'status', 'size', 'availability_zone', 'created_at',
                      'display_name', 'display_description', 'volume_type',
@@ -911,7 +930,7 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
         size="1"></volume>"""
         request = self.deserializer.deserialize(self_request)
         expected = {"volume": {"size": "1", }, }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_display_name(self):
         self_request = """
@@ -925,7 +944,7 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
                 "display_name": "Volume-xml",
             },
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_display_description(self):
         self_request = """
@@ -941,7 +960,7 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
                 "display_description": "description",
             },
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_volume_type(self):
         self_request = """
@@ -953,14 +972,13 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
         request = self.deserializer.deserialize(self_request)
         expected = {
             "volume": {
-                "display_name": "Volume-xml",
                 "size": "1",
                 "display_name": "Volume-xml",
                 "display_description": "description",
                 "volume_type": "289da7f8-6440-407c-9fb4-7db01ec49164",
             },
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_availability_zone(self):
         self_request = """
@@ -980,7 +998,7 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
                 "availability_zone": "us-east1",
             },
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_metadata(self):
         self_request = """
@@ -998,7 +1016,7 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
                 },
             },
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_full_volume(self):
         self_request = """
@@ -1022,7 +1040,7 @@ class TestVolumeCreateRequestXMLDeserializer(test.TestCase):
                 },
             },
         }
-        self.assertEqual(request['body'], expected)
+        self.assertEqual(expected, request['body'])
 
     def test_imageref(self):
         self_request = """

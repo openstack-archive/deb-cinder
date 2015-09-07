@@ -403,19 +403,6 @@ class StorwizeHelpers(object):
 
     @staticmethod
     def check_vdisk_opts(state, opts):
-        # Check that rsize is either -1 or between 0 and 100
-        if not (opts['rsize'] >= -1 and opts['rsize'] <= 100):
-            raise exception.InvalidInput(
-                reason=_('Illegal value specified for storwize_svc_vol_rsize: '
-                         'set to either a percentage (0-100) or -1.'))
-
-        # Check that warning is either -1 or between 0 and 100
-        if not (opts['warning'] >= -1 and opts['warning'] <= 100):
-            raise exception.InvalidInput(
-                reason=_('Illegal value specified for '
-                         'storwize_svc_vol_warning: '
-                         'set to a percentage (0-100).'))
-
         # Check that grainsize is 32/64/128/256
         if opts['grainsize'] not in [32, 64, 128, 256]:
             raise exception.InvalidInput(
@@ -656,9 +643,9 @@ class StorwizeHelpers(object):
                   'secondary': None}
 
         resp = self.ssh.lsvdiskcopy(vdisk)
-        for copy_id, status, sync, primary, mdisk_grp in \
+        for copy_id, status, sync, primary, mdisk_grp in (
             resp.select('copy_id', 'status', 'sync',
-                        'primary', 'mdisk_grp_name'):
+                        'primary', 'mdisk_grp_name')):
             copy = {'copy_id': copy_id,
                     'status': status,
                     'sync': sync,

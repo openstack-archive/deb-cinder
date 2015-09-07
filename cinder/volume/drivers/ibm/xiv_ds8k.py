@@ -67,7 +67,6 @@ class XIVDS8KDriver(san.SanDriver,
                     driver.ConsistencyGroupVD,
                     driver.CloneableVD,
                     driver.CloneableImageVD,
-                    driver.RetypeVD,
                     driver.TransferVD):
     """Unified IBM XIV and DS8K volume driver."""
 
@@ -110,7 +109,7 @@ class XIVDS8KDriver(san.SanDriver,
 
         return self.xiv_ds8k_proxy.ensure_export(context, volume)
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         """Create an export."""
 
         return self.xiv_ds8k_proxy.create_export(context, volume)

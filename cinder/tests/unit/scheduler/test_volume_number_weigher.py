@@ -76,32 +76,32 @@ class VolumeNumberWeigherTestCase(test.TestCase):
         self.flags(volume_number_multiplier=-1.0)
         hostinfo_list = self._get_all_hosts()
 
-        # host1: 1 volume
+        # host1: 1 volume    Norm=0.0
         # host2: 2 volumes
         # host3: 3 volumes
         # host4: 4 volumes
-        # host5: 5 volumes
+        # host5: 5 volumes   Norm=-1.0
         # so, host1 should win:
         with mock.patch.object(api, 'volume_data_get_for_host',
                                fake_volume_data_get_for_host):
             weighed_host = self._get_weighed_host(hostinfo_list)
-            self.assertEqual(weighed_host.weight, -1.0)
-            self.assertEqual(utils.extract_host(weighed_host.obj.host),
-                             'host1')
+            self.assertEqual(0.0, weighed_host.weight)
+            self.assertEqual('host1',
+                             utils.extract_host(weighed_host.obj.host))
 
     def test_volume_number_weight_multiplier2(self):
         self.flags(volume_number_multiplier=1.0)
         hostinfo_list = self._get_all_hosts()
 
-        # host1: 1 volume
+        # host1: 1 volume      Norm=0
         # host2: 2 volumes
         # host3: 3 volumes
         # host4: 4 volumes
-        # host5: 5 volumes
+        # host5: 5 volumes     Norm=1
         # so, host5 should win:
         with mock.patch.object(api, 'volume_data_get_for_host',
                                fake_volume_data_get_for_host):
             weighed_host = self._get_weighed_host(hostinfo_list)
-            self.assertEqual(weighed_host.weight, 5.0)
-            self.assertEqual(utils.extract_host(weighed_host.obj.host),
-                             'host5')
+            self.assertEqual(1.0, weighed_host.weight)
+            self.assertEqual('host5',
+                             utils.extract_host(weighed_host.obj.host))

@@ -33,7 +33,7 @@ class DotHillFCDriver(cinder.volume.driver.FibreChannelDriver):
                      cinder/volume/drivers/san/hp"
         1.0    - Version developed for DotHill arrays with the following
                  modifications:
-                     - added support for v3 API(realstor feature)
+                     - added support for v3 API(virtual pool feature)
                      - added support for retype volume
                      - added support for manage/unmanage volume
                      - added initiator target mapping in FC zoning
@@ -66,13 +66,13 @@ class DotHillFCDriver(cinder.volume.driver.FibreChannelDriver):
         self._check_flags()
 
     def create_volume(self, volume):
-        return {'metadata': self.common.create_volume(volume)}
+        self.common.create_volume(volume)
 
     def create_volume_from_snapshot(self, volume, src_vref):
         self.common.create_volume_from_snapshot(volume, src_vref)
 
     def create_cloned_volume(self, volume, src_vref):
-        return {'metadata': self.common.create_cloned_volume(volume, src_vref)}
+        self.common.create_cloned_volume(volume, src_vref)
 
     def delete_volume(self, volume):
         self.common.delete_volume(volume)
@@ -141,7 +141,7 @@ class DotHillFCDriver(cinder.volume.driver.FibreChannelDriver):
                                         self.__class__.__name__)
         return stats
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         pass
 
     def ensure_export(self, context, volume):

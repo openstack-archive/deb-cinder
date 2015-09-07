@@ -31,6 +31,7 @@ common_opts = [
                help='Storage Center System Serial Number'),
     cfg.IntOpt('dell_sc_api_port',
                default=3033,
+               min=1, max=65535,
                help='Dell API port'),
     cfg.StrOpt('dell_sc_server_folder',
                default='openstack',
@@ -62,10 +63,11 @@ class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
 
     def _bytes_to_gb(self, spacestring):
         """Space is returned in a string like ...
+
         7.38197504E8 Bytes
         Need to split that apart and convert to GB.
 
-        returns gbs in int form
+        :returns: gbs in int form
         """
         try:
             n = spacestring.split(' ', 1)
@@ -288,7 +290,7 @@ class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
         raise exception.VolumeBackendAPIException(
             _('Failed to delete snapshot %s') % snapshot_id)
 
-    def create_export(self, context, volume):
+    def create_export(self, context, volume, connector):
         """Create an export of a volume.
 
         The volume exists on creation and will be visible on
@@ -663,16 +665,25 @@ class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
                                 storage_profiles)
                     return False
 
+                current = storage_profiles[0]
                 requested = storage_profiles[1]
-                volume_name = volume.get('id')
-                LOG.debug('Retyping volume %(vol)s to use storage '
-                          'profile %(profile)s',
-                          {'vol': volume_name,
-                           'profile': requested})
-                with self._client.open_connection() as api:
-                    if api.find_sc():
-                        scvolume = api.find_volume(volume_name)
-                        return api.update_storage_profile(
-                            scvolume, requested)
+
+                if current != requested:
+                    volume_name = volume.get('id')
+                    LOG.debug('Retyping volume %(vol)s to use storage '
+                              'profile %(profile)s.',
+                              {'vol': volume_name,
+                               'profile': requested})
+                    with self._client.open_connection() as api:
+                        if api.find_sc():
+                            scvolume = api.find_volume(volume_name)
+                            return api.update_storage_profile(
+                                scvolume, requested)
+                else:
+                    # We only support retype of Storage Profile and they are
+                    # the same, so just return True to avoid unnecessary data
+                    # migration.
+                    LOG.info(_LI('Retype was to same Storage Profile.'))
+                    return True
 
         return False

@@ -3,6 +3,7 @@
 # Copyright (c) 2015 Alex Meade
 # Copyright (c) 2015 Rushil Chugh
 # Copyright (c) 2015 Yogesh Kshirsagar
+# Copyright (c) 2015 Michael Price
 #  All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -25,78 +26,112 @@ import json
 import uuid
 
 from oslo_log import log as logging
-import requests
+from oslo_utils import importutils
 import six
 from six.moves import urllib
 
 from cinder import exception
-from cinder.i18n import _, _LE
+from cinder.i18n import _
 import cinder.utils as cinder_utils
+from cinder.volume.drivers.netapp.eseries import exception as es_exception
 from cinder.volume.drivers.netapp.eseries import utils
+from cinder.volume.drivers.netapp import utils as na_utils
+
+netapp_lib = importutils.try_import('netapp_lib')
+if netapp_lib:
+    from netapp_lib.api.rest import rest as netapp_restclient
 
 
 LOG = logging.getLogger(__name__)
 
 
-class WebserviceClient(object):
-    """Base client for e-series web services."""
-
-    def __init__(self, scheme, host, port, service_path, username,
-                 password, **kwargs):
-        self._validate_params(scheme, host, port)
-        self._create_endpoint(scheme, host, port, service_path)
-        self._username = username
-        self._password = password
-        self._init_connection()
-
-    def _validate_params(self, scheme, host, port):
-        """Does some basic validation for web service params."""
-        if host is None or port is None or scheme is None:
-            msg = _("One of the required inputs from host, port"
-                    " or scheme not found.")
-            raise exception.InvalidInput(reason=msg)
-        if scheme not in ('http', 'https'):
-            raise exception.InvalidInput(reason=_("Invalid transport type."))
-
-    def _create_endpoint(self, scheme, host, port, service_path):
-        """Creates end point url for the service."""
-        netloc = '%s:%s' % (host, port)
-        self._endpoint = urllib.parse.urlunparse((scheme, netloc, service_path,
-                                                 None, None, None))
-
-    def _init_connection(self):
-        """Do client specific set up for session and connection pooling."""
-        self.conn = requests.Session()
-        if self._username and self._password:
-            self.conn.auth = (self._username, self._password)
-
-    def invoke_service(self, method='GET', url=None, params=None, data=None,
-                       headers=None, timeout=None, verify=False):
-        url = url or self._endpoint
-        try:
-            response = self.conn.request(method, url, params, data,
-                                         headers=headers, timeout=timeout,
-                                         verify=verify)
-        # Catching error conditions other than the perceived ones.
-        # Helps propagating only known exceptions back to the caller.
-        except Exception as e:
-            LOG.exception(_LE("Unexpected error while invoking web service."
-                              " Error - %s."), e)
-            raise exception.NetAppDriverException(
-                _("Invoking web service failed."))
-        return response
-
-
-class RestClient(WebserviceClient):
+class RestClient(object):
     """REST client specific to e-series storage service."""
 
+    ID = 'id'
+    WWN = 'worldWideName'
+    NAME = 'label'
+
+    ASUP_VALID_VERSION = (1, 52, 9000, 3)
+    # We need to check for both the release and the pre-release versions
+    SSC_VALID_VERSIONS = ((1, 53, 9000, 1), (1, 53, 9010, 17))
+
+    RESOURCE_PATHS = {
+        'volumes': '/storage-systems/{system-id}/volumes',
+        'volume': '/storage-systems/{system-id}/volumes/{object-id}',
+        'ssc_volumes': '/storage-systems/{system-id}/ssc/volumes',
+        'ssc_volume': '/storage-systems/{system-id}/ssc/volumes/{object-id}'
+    }
+
     def __init__(self, scheme, host, port, service_path, username,
                  password, **kwargs):
-        super(RestClient, self).__init__(scheme, host, port, service_path,
-                                         username, password, **kwargs)
+
         kwargs = kwargs or {}
+        self.client = netapp_restclient.WebserviceClient(scheme, host, port,
+                                                         service_path,
+                                                         username, password,
+                                                         **kwargs)
         self._system_id = kwargs.get('system_id')
         self._content_type = kwargs.get('content_type') or 'json'
+
+    def _init_features(self):
+        """Sets up and initializes E-Series feature support map."""
+        self.features = na_utils.Features()
+        self.api_operating_mode, self.api_version = self.get_eseries_api_info(
+            verify=False)
+
+        api_version_tuple = tuple(int(version)
+                                  for version in self.api_version.split('.'))
+
+        asup_api_valid_version = self._validate_version(
+            self.ASUP_VALID_VERSION, api_version_tuple)
+
+        ssc_api_valid_version = any(self._validate_version(valid_version,
+                                                           api_version_tuple)
+                                    for valid_version
+                                    in self.SSC_VALID_VERSIONS)
+
+        self.features.add_feature('AUTOSUPPORT',
+                                  supported=asup_api_valid_version,
+                                  min_version=self._version_tuple_to_str(
+                                      self.ASUP_VALID_VERSION))
+        self.features.add_feature('SSC_API_V2',
+                                  supported=ssc_api_valid_version,
+                                  min_version=self._version_tuple_to_str(
+                                      self.SSC_VALID_VERSIONS[0]))
+
+    def _version_tuple_to_str(self, version):
+        return ".".join([str(part) for part in version])
+
+    def _validate_version(self, version, actual_version):
+        """Determine if version is newer than, or equal to the actual version
+
+        The proxy version number is formatted as AA.BB.CCCC.DDDD
+        A: Major version part 1
+        B: Major version part 2
+        C: Release version: 9000->Release, 9010->Pre-release, 9090->Integration
+        D: Minor version
+
+        Examples:
+        02.53.9000.0010
+        02.52.9010.0001
+
+        Note: The build version is actually 'newer' the lower the release
+        (CCCC) number is.
+
+        :param version: The version to validate
+        :param actual_version: The running version of the Webservice
+        :return: True if the actual_version is equal or newer than the
+        current running version, otherwise False
+        """
+        major_1, major_2, release, minor = version
+        actual_major_1, actual_major_2, actual_release, actual_minor = (
+            actual_version)
+
+        # We need to invert the release number for it to work with this
+        # comparison
+        return (actual_major_1, actual_major_2, 10000 - actual_release,
+                actual_minor) >= (major_1, major_2, 10000 - release, minor)
 
     def set_system_id(self, system_id):
         """Set the storage system id."""
@@ -114,9 +149,9 @@ class RestClient(WebserviceClient):
                 raise exception.NotFound(_('Storage system id not set.'))
             kwargs['system-id'] = self._system_id
         path = path.format(**kwargs)
-        if not self._endpoint.endswith('/'):
-            self._endpoint = '%s/' % self._endpoint
-        return urllib.parse.urljoin(self._endpoint, path.lstrip('/'))
+        if not self.client._endpoint.endswith('/'):
+            self.client._endpoint = '%s/' % self.client._endpoint
+        return urllib.parse.urljoin(self.client._endpoint, path.lstrip('/'))
 
     def _invoke(self, method, path, data=None, use_system=True,
                 timeout=None, verify=False, **kwargs):
@@ -128,9 +163,9 @@ class RestClient(WebserviceClient):
             if cinder_utils.TRACE_API:
                 self._log_http_request(method, url, headers, data)
             data = json.dumps(data) if data else None
-            res = self.invoke_service(method, url, data=data,
-                                      headers=headers,
-                                      timeout=timeout, verify=verify)
+            res = self.client.invoke_service(method, url, data=data,
+                                             headers=headers,
+                                             timeout=timeout, verify=verify)
             res_dict = res.json() if res.text else None
 
             if cinder_utils.TRACE_API:
@@ -188,33 +223,130 @@ class RestClient(WebserviceClient):
                 msg = _("Response error - %s.") % response.text
             else:
                 msg = _("Response error code - %s.") % status_code
-            raise exception.NetAppDriverException(msg)
+            raise es_exception.WebServiceException(msg,
+                                                   status_code=status_code)
 
-    def create_volume(self, pool, label, size, unit='gb', seg_size=0):
-        """Creates volume on array."""
-        path = "/storage-systems/{system-id}/volumes"
-        data = {'poolId': pool, 'name': label, 'sizeUnit': unit,
-                'size': int(size), 'segSize': seg_size}
+    def _get_volume_api_path(self, path_key):
+        """Retrieve the correct API path based on API availability
+
+        :param path_key: The volume API to request (volume or volumes)
+        :raise KeyError: If the path_key is not valid
+        """
+        if self.features.SSC_API_V2:
+            path_key = 'ssc_' + path_key
+        return self.RESOURCE_PATHS[path_key]
+
+    def create_volume(self, pool, label, size, unit='gb', seg_size=0,
+                      read_cache=None, write_cache=None, flash_cache=None,
+                      data_assurance=None, thin_provision=False):
+        """Creates a volume on array with the configured attributes
+
+        Note: if read_cache, write_cache, flash_cache, or data_assurance
+         are not provided, the default will be utilized by the Webservice.
+
+        :param pool: The pool unique identifier
+        :param label: The unqiue label for the volume
+        :param size: The capacity in units
+        :param unit: The unit for capacity
+        :param seg_size: The segment size for the volume, expressed in KB.
+        Default will allow the Webservice to choose.
+        :param read_cache: If true, enable read caching, if false,
+        explicitly disable it.
+        :param write_cache: If true, enable write caching, if false,
+        explicitly disable it.
+        :param flash_cache: If true, add the volume to a Flash Cache
+        :param data_assurance: If true, enable the Data Assurance capability
+        :return The created volume
+        """
+
+        # Utilize the new API if it is available
+        if self.features.SSC_API_V2:
+            path = "/storage-systems/{system-id}/ssc/volumes"
+            data = {'poolId': pool, 'name': label, 'sizeUnit': unit,
+                    'size': int(size), 'dataAssuranceEnable': data_assurance,
+                    'flashCacheEnable': flash_cache,
+                    'readCacheEnable': read_cache,
+                    'writeCacheEnable': write_cache,
+                    'thinProvision': thin_provision}
+        # Use the old API
+        else:
+            # Determine if there are were extra specs provided that are not
+            # supported
+            extra_specs = [read_cache, write_cache]
+            unsupported_spec = any([spec is not None for spec in extra_specs])
+            if(unsupported_spec):
+                msg = _("E-series proxy API version %(current_version)s does "
+                        "not support full set of SSC extra specs. The proxy"
+                        " version must be at at least %(min_version)s.")
+                min_version = self.features.SSC_API_V2.minimum_version
+                raise exception.NetAppDriverException(msg %
+                                                      {'current_version':
+                                                       self.api_version,
+                                                       'min_version':
+                                                       min_version})
+
+            path = "/storage-systems/{system-id}/volumes"
+            data = {'poolId': pool, 'name': label, 'sizeUnit': unit,
+                    'size': int(size), 'segSize': seg_size}
         return self._invoke('POST', path, data)
 
     def delete_volume(self, object_id):
         """Deletes given volume from array."""
-        path = "/storage-systems/{system-id}/volumes/{object-id}"
+        if self.features.SSC_API_V2:
+            path = self.RESOURCE_PATHS.get('ssc_volume')
+        else:
+            path = self.RESOURCE_PATHS.get('volume')
         return self._invoke('DELETE', path, **{'object-id': object_id})
 
     def list_volumes(self):
         """Lists all volumes in storage array."""
-        path = "/storage-systems/{system-id}/volumes"
+        if self.features.SSC_API_V2:
+            path = self.RESOURCE_PATHS.get('ssc_volumes')
+        else:
+            path = self.RESOURCE_PATHS.get('volumes')
+
         return self._invoke('GET', path)
 
     def list_volume(self, object_id):
-        """List given volume from array."""
-        path = "/storage-systems/{system-id}/volumes/{object-id}"
-        return self._invoke('GET', path, **{'object-id': object_id})
+        """Retrieve the given volume from array.
+
+        :param object_id: The volume id, label, or wwn
+        :return The volume identified by object_id
+        :raise VolumeNotFound if the volume could not be found
+        """
+
+        if self.features.SSC_API_V2:
+            return self._list_volume_v2(object_id)
+        # The new API is not available,
+        else:
+            # Search for the volume with label, id, or wwn.
+            return self._list_volume_v1(object_id)
+
+    def _list_volume_v1(self, object_id):
+        # Search for the volume with label, id, or wwn.
+        for vol in self.list_volumes():
+            if (object_id == vol.get(self.NAME) or object_id == vol.get(
+                    self.WWN) or object_id == vol.get(self.ID)):
+                return vol
+        # The volume could not be found
+        raise exception.VolumeNotFound(volume_id=object_id)
+
+    def _list_volume_v2(self, object_id):
+        path = self.RESOURCE_PATHS.get('ssc_volume')
+        try:
+            return self._invoke('GET', path, **{'object-id': object_id})
+        except es_exception.WebServiceException as e:
+            if(404 == e.status_code):
+                raise exception.VolumeNotFound(volume_id=object_id)
+            else:
+                raise
 
     def update_volume(self, object_id, label):
-        """Renames given volume in array."""
-        path = "/storage-systems/{system-id}/volumes/{object-id}"
+        """Renames given volume on array."""
+        if self.features.SSC_API_V2:
+            path = self.RESOURCE_PATHS.get('ssc_volume')
+        else:
+            path = self.RESOURCE_PATHS.get('volume')
         data = {'name': label}
         return self._invoke('POST', path, data, **{'object-id': object_id})
 
@@ -416,6 +548,16 @@ class RestClient(WebserviceClient):
         path = "/storage-systems/{system-id}/snapshot-volumes/{object-id}"
         return self._invoke('DELETE', path, **{'object-id': object_id})
 
+    def list_ssc_storage_pools(self):
+        """Lists pools and their service quality defined on the array."""
+        path = "/storage-systems/{system-id}/ssc/pools"
+        return self._invoke('GET', path)
+
+    def get_ssc_storage_pool(self, volume_group_ref):
+        """Get storage pool service quality information from the array."""
+        path = "/storage-systems/{system-id}/ssc/pools/{object-id}"
+        return self._invoke('GET', path, **{'object-id': volume_group_ref})
+
     def list_storage_pools(self):
         """Lists storage pools in the array."""
         path = "/storage-systems/{system-id}/storage-pools"
@@ -481,3 +623,57 @@ class RestClient(WebserviceClient):
         """Delete volume copy job."""
         path = "/storage-systems/{system-id}/volume-copy-jobs/{object-id}"
         return self._invoke('DELETE', path, **{'object-id': object_id})
+
+    def add_autosupport_data(self, key, data):
+        """Register driver statistics via autosupport log."""
+        path = ('/key-values/%s' % key)
+        self._invoke('POST', path, json.dumps(data))
+
+    def get_firmware_version(self):
+        """Get firmware version information from the array."""
+        return self.list_storage_system()['fwVersion']
+
+    def set_counter(self, key, value):
+        path = ('/counters/%s/setCounter?value=%d' % (key, value))
+        self._invoke('POST', path)
+
+    def _get_controllers(self):
+        """Get controller information from the array."""
+        return self.list_hardware_inventory()['controllers']
+
+    def get_eseries_api_info(self, verify=False):
+        """Get E-Series API information from the array."""
+        api_operating_mode = 'embedded'
+        path = 'devmgr/utils/about'
+        headers = {'Content-Type': 'application/json',
+                   'Accept': 'application/json'}
+        url = self._get_resource_url(path, True).replace(
+            '/devmgr/v2', '', 1)
+        result = self.client.invoke_service(method='GET', url=url,
+                                            headers=headers,
+                                            verify=verify)
+        about_response_dict = result.json()
+        mode_is_proxy = about_response_dict['runningAsProxy']
+        if mode_is_proxy:
+            api_operating_mode = 'proxy'
+        return api_operating_mode, about_response_dict['version']
+
+    def get_serial_numbers(self):
+        """Get the list of Serial Numbers from the array."""
+        controllers = self._get_controllers()
+        if not controllers:
+            return ['unknown', 'unknown']
+        serial_numbers = [value['serialNumber'].rstrip()
+                          for _, value in enumerate(controllers)]
+        serial_numbers.sort()
+        for index, value in enumerate(serial_numbers):
+            if not value:
+                serial_numbers[index] = 'unknown'
+        return serial_numbers
+
+    def get_model_name(self):
+        """Get Model Name from the array."""
+        controllers = self._get_controllers()
+        if not controllers:
+            return 'unknown'
+        return controllers[0].get('modelName', 'unknown')

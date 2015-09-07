@@ -73,10 +73,12 @@ class FlashSystemDriver(san.SanDriver):
     1.0.3 - Initial driver for iSCSI
     1.0.4 - Split Flashsystem driver into common and FC
     1.0.5 - Report capability of volume multiattach
+    1.0.6 - Fix bug #1469581, add I/T mapping check in
+            terminate_connection
 
     """
 
-    VERSION = "1.0.5"
+    VERSION = "1.0.6"
 
     def __init__(self, *args, **kwargs):
         super(FlashSystemDriver, self).__init__(*args, **kwargs)
@@ -375,8 +377,8 @@ class FlashSystemDriver(san.SanDriver):
 
     def _get_hdr_dic(self, header, row, delim):
         """Return CLI row data as a dictionary indexed by names from header.
-        string. The strings are converted to columns using the delimiter in
-        delim.
+
+        The strings are converted to columns using the delimiter in delim.
         """
 
         attributes = header.split(delim)
@@ -386,7 +388,7 @@ class FlashSystemDriver(san.SanDriver):
             (_('_get_hdr_dic: attribute headers and values do not match.\n '
                'Headers: %(header)s\n Values: %(row)s.')
              % {'header': six.text_type(header), 'row': six.text_type(row)}))
-        dic = {a: v for a, v in map(None, attributes, values)}
+        dic = {a: v for a, v in zip(attributes, values)}
         return dic
 
     def _get_host_from_connector(self, connector):
