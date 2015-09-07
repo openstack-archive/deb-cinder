@@ -5,6 +5,7 @@ cinder (2:7.0.0~b3-1) experimental; urgency=medium
     - Bumped EPOCH to 2 instead of 1.
     - Some Ubuntu version lower bounds for dependencies.
     - Added a cinder-doc package.
+  * Fixed (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 01 Sep 2015 13:56:21 +0200
 
