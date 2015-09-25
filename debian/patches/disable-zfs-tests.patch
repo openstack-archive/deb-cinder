@@ -3,9 +3,9 @@ Author: Thomsa Goirand <zigo@debian.org>
 Forwarded: not-needed
 Last-Update: 2015-09-07
 
---- a/cinder/tests/unit/test_zfssa.py	2015-09-07 11:05:23.024290479 +0000
-+++ b/cinder/tests/unit/test_zfssa.py	2015-09-06 21:45:46.949716107 +0000
-@@ -1,1370 +0,0 @@
+--- a/cinder/tests/unit/test_zfssa.py	2015-09-25 10:05:38.146159244 +0200
++++ /dev/null	2015-09-21 11:09:20.434834482 +0200
+@@ -1,1394 +0,0 @@
 -# Copyright (c) 2014, 2015, Oracle and/or its affiliates. All rights reserved.
 -#
 -#    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -468,10 +468,13 @@ Last-Update: 2015-09-07
 -            '')
 -
 -    def test_get_volume_stats(self):
--        self.drv.zfssa.get_pool_stats.return_value = 2 * units.Gi, 3 * units.Gi
+-        self.drv.zfssa.get_project_stats.return_value = 2 * units.Gi,\
+-            3 * units.Gi
 -        lcfg = self.configuration
 -        stats = self.drv.get_volume_stats(refresh=True)
--        self.drv.zfssa.get_pool_stats.assert_called_once_with(lcfg.zfssa_pool)
+-        self.drv.zfssa.get_project_stats.assert_called_once_with(
+-            lcfg.zfssa_pool,
+-            lcfg.zfssa_project)
 -        self.assertEqual('Oracle', stats['vendor_name'])
 -        self.assertEqual(self.configuration.volume_backend_name,
 -                         stats['volume_backend_name'])
@@ -1183,6 +1186,27 @@ Last-Update: 2015-09-07
 -                        'share': self.clone,
 -                        'nodestroy': True}
 -        self.zfssa.rclient.put.assert_called_with(expected_svc, expected_arg)
+-
+-    def test_get_project_stats(self):
+-        ret_val = json.dumps({"project": {"name": self.project,
+-                                          "space_available": 15754895360,
+-                                          "space_total": 25754895360,
+-                                          "dedup": False,
+-                                          "logbias": "latency",
+-                                          "encryption": "off"}})
+-        self.zfssa.rclient.get.return_value = self._create_response(
+-            client.Status.OK, ret_val)
+-        self.zfssa.get_project_stats(self.pool, self.project)
+-        expected_svc = '/api/storage/v1/pools/' + self.pool + '/projects/' + \
+-            self.project
+-        self.zfssa.rclient.get.assert_called_with(expected_svc)
+-
+-        self.zfssa.rclient.get.return_value = self._create_response(
+-            client.Status.NOT_FOUND)
+-        self.assertRaises(exception.VolumeBackendAPIException,
+-                          self.zfssa.get_project_stats,
+-                          self.pool,
+-                          self.project)
 -
 -
 -class TestZFSSANfsApi(test.TestCase):
