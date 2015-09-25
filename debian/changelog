@@ -6,6 +6,7 @@ cinder (2:7.0.0~b3-1) experimental; urgency=medium
     - Some Ubuntu version lower bounds for dependencies.
     - Added a cinder-doc package.
   * Fixed (build-)depends for this release.
+  * Refreshed disable-zfs-tests.patch.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 01 Sep 2015 13:56:21 +0200
 
