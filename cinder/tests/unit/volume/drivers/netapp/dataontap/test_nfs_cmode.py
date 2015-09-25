@@ -178,39 +178,113 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
     def test_delete_volume(self):
         fake_provider_location = 'fake_provider_location'
-        fake_volume = {'name': 'fake_name',
-                       'provider_location': 'fake_provider_location'}
-        fake_qos_policy_group_info = {'legacy': None, 'spec': None}
-        self.mock_object(nfs_base.NetAppNfsDriver, 'delete_volume')
-        self.mock_object(na_utils, 'get_valid_qos_policy_group_info',
-                         mock.Mock(return_value=fake_qos_policy_group_info))
-        self.mock_object(self.driver, '_post_prov_deprov_in_ssc')
+        fake_volume = {'provider_location': fake_provider_location}
+        self.mock_object(self.driver, '_delete_backing_file_for_volume')
+        self.mock_object(na_utils, 'get_valid_qos_policy_group_info')
         self.driver.zapi_client = mock.Mock()
+        mock_prov_deprov = self.mock_object(self.driver,
+                                            '_post_prov_deprov_in_ssc')
 
         self.driver.delete_volume(fake_volume)
 
-        nfs_base.NetAppNfsDriver.delete_volume.assert_called_once_with(
-            fake_volume)
-        self.driver.zapi_client.mark_qos_policy_group_for_deletion\
-            .assert_called_once_with(fake_qos_policy_group_info)
-        self.driver._post_prov_deprov_in_ssc.assert_called_once_with(
-            fake_provider_location)
+        mock_prov_deprov.assert_called_once_with(fake_provider_location)
 
-    def test_delete_volume_get_qos_info_exception(self):
+    def test_delete_volume_exception_path(self):
         fake_provider_location = 'fake_provider_location'
-        fake_volume = {'name': 'fake_name',
-                       'provider_location': 'fake_provider_location'}
-        self.mock_object(nfs_base.NetAppNfsDriver, 'delete_volume')
-        self.mock_object(na_utils, 'get_valid_qos_policy_group_info',
-                         mock.Mock(side_effect=exception.Invalid))
-        self.mock_object(self.driver, '_post_prov_deprov_in_ssc')
+        fake_volume = {'provider_location': fake_provider_location}
+        self.mock_object(self.driver, '_delete_backing_file_for_volume')
+        self.mock_object(na_utils, 'get_valid_qos_policy_group_info')
+        self.driver.zapi_client = mock.Mock(side_effect=[Exception])
+        mock_prov_deprov = self.mock_object(self.driver,
+                                            '_post_prov_deprov_in_ssc')
 
         self.driver.delete_volume(fake_volume)
 
-        nfs_base.NetAppNfsDriver.delete_volume.assert_called_once_with(
-            fake_volume)
-        self.driver._post_prov_deprov_in_ssc.assert_called_once_with(
-            fake_provider_location)
+        mock_prov_deprov.assert_called_once_with(fake_provider_location)
+
+    def test_delete_backing_file_for_volume(self):
+        mock_filer_delete = self.mock_object(self.driver,
+                                             '_delete_volume_on_filer')
+        mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
+                                             'delete_volume')
+
+        self.driver._delete_backing_file_for_volume(fake.NFS_VOLUME)
+
+        mock_filer_delete.assert_called_once_with(fake.NFS_VOLUME)
+        self.assertEqual(0, mock_super_delete.call_count)
+
+    def test_delete_backing_file_for_volume_exception_path(self):
+        mock_filer_delete = self.mock_object(self.driver,
+                                             '_delete_volume_on_filer')
+        mock_filer_delete.side_effect = [Exception]
+        mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
+                                             'delete_volume')
+
+        self.driver._delete_backing_file_for_volume(fake.NFS_VOLUME)
+
+        mock_filer_delete.assert_called_once_with(fake.NFS_VOLUME)
+        mock_super_delete.assert_called_once_with(fake.NFS_VOLUME)
+
+    def test_delete_volume_on_filer(self):
+        mock_get_vs_ip = self.mock_object(self.driver, '_get_export_ip_path')
+        mock_get_vs_ip.return_value = (fake.VSERVER_NAME, '/%s' % fake.FLEXVOL)
+        self.driver.zapi_client = mock.Mock()
+        mock_zapi_delete = self.driver.zapi_client.delete_file
+
+        self.driver._delete_volume_on_filer(fake.NFS_VOLUME)
+
+        mock_zapi_delete.assert_called_once_with(
+            '/vol/%s/%s' % (fake.FLEXVOL, fake.NFS_VOLUME['name']))
+
+    def test_delete_snapshot(self):
+        mock_get_location = self.mock_object(self.driver,
+                                             '_get_provider_location')
+        mock_get_location.return_value = fake.PROVIDER_LOCATION
+
+        mock_delete_backing = self.mock_object(
+            self.driver, '_delete_backing_file_for_snapshot')
+
+        mock_prov_deprov = self.mock_object(self.driver,
+                                            '_post_prov_deprov_in_ssc')
+
+        self.driver.delete_snapshot(fake.test_snapshot)
+
+        mock_delete_backing.assert_called_once_with(fake.test_snapshot)
+        mock_prov_deprov.assert_called_once_with(fake.PROVIDER_LOCATION)
+
+    def test_delete_backing_file_for_snapshot(self):
+        mock_filer_delete = self.mock_object(
+            self.driver, '_delete_snapshot_on_filer')
+        mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
+                                             'delete_snapshot')
+
+        self.driver._delete_backing_file_for_snapshot(fake.test_snapshot)
+
+        mock_filer_delete.assert_called_once_with(fake.test_snapshot)
+        self.assertEqual(0, mock_super_delete.call_count)
+
+    def test_delete_backing_file_for_snapshot_exception_path(self):
+        mock_filer_delete = self.mock_object(
+            self.driver, '_delete_snapshot_on_filer')
+        mock_filer_delete.side_effect = [Exception]
+        mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
+                                             'delete_snapshot')
+
+        self.driver._delete_backing_file_for_snapshot(fake.test_snapshot)
+
+        mock_filer_delete.assert_called_once_with(fake.test_snapshot)
+        mock_super_delete.assert_called_once_with(fake.test_snapshot)
+
+    def test_delete_snapshot_on_filer(self):
+        mock_get_vs_ip = self.mock_object(self.driver, '_get_export_ip_path')
+        mock_get_vs_ip.return_value = (fake.VSERVER_NAME, '/%s' % fake.FLEXVOL)
+        self.driver.zapi_client = mock.Mock()
+        mock_zapi_delete = self.driver.zapi_client.delete_file
+
+        self.driver._delete_snapshot_on_filer(fake.test_snapshot)
+
+        mock_zapi_delete.assert_called_once_with(
+            '/vol/%s/%s' % (fake.FLEXVOL, fake.test_snapshot['name']))
 
     def test_do_qos_for_volume_no_exception(self):
 
@@ -442,3 +516,98 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         mock_loopingcall.assert_has_calls([
             mock.call(mock_remove_unused_qos_policy_groups)])
         self.assertTrue(harvest_qos_periodic_task.start.called)
+
+    @ddt.data(
+        {'space': True, 'ssc': True, 'match': True, 'expected': True},
+        {'space': True, 'ssc': True, 'match': False, 'expected': False},
+        {'space': True, 'ssc': False, 'match': True, 'expected': True},
+        {'space': True, 'ssc': False, 'match': False, 'expected': True},
+        {'space': False, 'ssc': True, 'match': True, 'expected': False},
+        {'space': False, 'ssc': True, 'match': False, 'expected': False},
+        {'space': False, 'ssc': False, 'match': True, 'expected': False},
+        {'space': False, 'ssc': False, 'match': False, 'expected': False},
+    )
+    @ddt.unpack
+    @mock.patch.object(nfs_cmode.NetAppCmodeNfsDriver,
+                       '_is_share_vol_type_match')
+    @mock.patch.object(nfs_cmode.NetAppCmodeNfsDriver,
+                       '_share_has_space_for_clone')
+    @mock.patch.object(nfs_cmode.NetAppCmodeNfsDriver,
+                       '_is_volume_thin_provisioned')
+    def test_is_share_clone_compatible(self,
+                                       mock_is_volume_thin_provisioned,
+                                       mock_share_has_space_for_clone,
+                                       mock_is_share_vol_type_match,
+                                       space, ssc, match, expected):
+        mock_share_has_space_for_clone.return_value = space
+        mock_is_share_vol_type_match.return_value = match
+
+        with mock.patch.object(self.driver, 'ssc_enabled', ssc):
+            result = self.driver._is_share_clone_compatible(fake.VOLUME,
+                                                            fake.NFS_SHARE)
+        self.assertEqual(expected, result)
+
+    @ddt.data(
+        {'sparsed': True, 'ssc': True, 'vol_thin': True, 'expected': True},
+        {'sparsed': True, 'ssc': True, 'vol_thin': False, 'expected': True},
+        {'sparsed': True, 'ssc': False, 'vol_thin': True, 'expected': True},
+        {'sparsed': True, 'ssc': False, 'vol_thin': False, 'expected': True},
+        {'sparsed': False, 'ssc': True, 'vol_thin': True, 'expected': True},
+        {'sparsed': False, 'ssc': True, 'vol_thin': False, 'expected': False},
+        {'sparsed': False, 'ssc': False, 'vol_thin': True, 'expected': False},
+        {'sparsed': False, 'ssc': False, 'vol_thin': False, 'expected': False},
+    )
+    @ddt.unpack
+    def test_is_volume_thin_provisioned(
+            self, sparsed, ssc, vol_thin, expected):
+        fake_volume = object()
+        ssc_vols = {'thin': {fake_volume if vol_thin else None}}
+
+        with mock.patch.object(self.driver, 'ssc_enabled', ssc):
+            with mock.patch.object(self.driver, 'ssc_vols', ssc_vols):
+                with mock.patch.object(self.driver.configuration,
+                                       'nfs_sparsed_volumes',
+                                       sparsed):
+                    result = self.driver._is_volume_thin_provisioned(
+                        fake_volume)
+
+        self.assertEqual(expected, result)
+
+    @ddt.data(
+        {'ssc': True, 'share': fake.NFS_SHARE, 'vol': fake.test_volume},
+        {'ssc': True, 'share': fake.NFS_SHARE, 'vol': None},
+        {'ssc': True, 'share': None, 'vol': fake.test_volume},
+        {'ssc': True, 'share': None, 'vol': None},
+        {'ssc': False, 'share': fake.NFS_SHARE, 'vol': fake.test_volume},
+        {'ssc': False, 'share': fake.NFS_SHARE, 'vol': None},
+        {'ssc': False, 'share': None, 'vol': fake.test_volume},
+        {'ssc': False, 'share': None, 'vol': None},
+    )
+    @ddt.unpack
+    def test_post_prov_deprov_in_ssc(self, ssc, share, vol):
+
+        with mock.patch.object(self.driver, 'ssc_enabled', ssc):
+            with mock.patch.object(
+                    self.driver, '_get_vol_for_share') as mock_get_vol:
+                with mock.patch.object(
+                        self.driver, '_update_stale_vols') as mock_update:
+                    mock_get_vol.return_value = vol
+                    self.driver._post_prov_deprov_in_ssc(share)
+
+        if ssc and share and vol:
+            mock_update.assert_called_once_with(volume=vol)
+        else:
+            self.assertEqual(0, mock_update.call_count)
+
+    def test_get_vol_for_share(self):
+        fake_volume = fake.test_volume
+        ssc_vols = {'all': {fake_volume}}
+
+        with mock.patch.object(self.driver, 'ssc_vols', ssc_vols):
+            result = self.driver._get_vol_for_share(fake.NFS_SHARE)
+
+        self.assertEqual(fake.test_volume, result)
+
+    def test_get_vol_for_share_no_ssc_vols(self):
+        with mock.patch.object(self.driver, 'ssc_vols', None):
+            self.assertIsNone(self.driver._get_vol_for_share(fake.NFS_SHARE))

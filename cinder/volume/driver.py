@@ -48,10 +48,6 @@ volume_opts = [
                default=0,
                min=0, max=100,
                help='The percentage of backend capacity is reserved'),
-    cfg.IntOpt('iscsi_num_targets',
-               default=None,
-               help='This option is deprecated and unused. '
-                    'It will be removed in the Liberty release.'),
     cfg.StrOpt('iscsi_target_prefix',
                default='iqn.2010-10.org.openstack:',
                help='Prefix for iSCSI volumes'),
@@ -268,10 +264,6 @@ iser_opts = [
                default=3,
                help='The maximum number of times to rescan iSER target'
                     'to find volume'),
-    cfg.IntOpt('iser_num_targets',
-               default=None,
-               help='This option is deprecated and unused. '
-                    'It will be removed in the Liberty release.'),
     cfg.StrOpt('iser_target_prefix',
                default='iqn.2010-10.org.openstack:',
                help='Prefix for iSER volumes'),
@@ -331,7 +323,7 @@ class BaseVD(object):
             self.configuration.append_config_values(iser_opts)
             utils.setup_tracing(self.configuration.safe_get('trace_flags'))
 
-        self.set_execute(execute)
+        self._execute = execute
         self._stats = {}
 
         self.pools = []
@@ -460,9 +452,6 @@ class BaseVD(object):
                               {"snapshot": snapshot.id})
                 raise exception.RemoveExportException(volume=snapshot.id,
                                                       reason=ex)
-
-    def set_execute(self, execute):
-        self._execute = execute
 
     def set_initialized(self):
         self._initialized = True
@@ -1396,13 +1385,25 @@ class BaseVD(object):
         """
         return None
 
-    def update_provider_info(self, volumes):
+    def update_provider_info(self, volumes, snapshots):
         """Get provider info updates from driver.
 
         :param volumes: List of Cinder volumes to check for updates
-        :return: dict of update {'id': uuid, provider_id: <provider-id>}
+        :param snapshots: List of Cinder snapshots to check for updates
+        :return: tuple (volume_updates, snapshot_updates)
+
+        where volume updates {'id': uuid, provider_id: <provider-id>}
+        and snapshot updates {'id': uuid, provider_id: <provider-id>}
         """
-        return None
+        return None, None
+
+    def migrate_volume(self, context, volume, host):
+        """Migrate volume stub.
+
+        This is for drivers that don't implement an enhanced version
+        of this operation.
+        """
+        return (False, None)
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -1968,8 +1969,7 @@ class VolumeDriver(ConsistencyGroupVD, TransferVD, ManageableVD, ExtendVD,
         raise NotImplementedError(msg)
 
     def unmanage(self, volume):
-        msg = _("Unmanage volume not implemented.")
-        raise NotImplementedError(msg)
+        pass
 
     def manage_existing_snapshot(self, snapshot, existing_ref):
         msg = _("Manage existing snapshot not implemented.")

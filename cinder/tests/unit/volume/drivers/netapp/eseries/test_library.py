@@ -21,6 +21,7 @@ import copy
 import ddt
 
 import mock
+from oslo_utils import units
 import six
 
 from cinder import exception
@@ -59,6 +60,8 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
                   eseries_fake.create_configuration_eseries()}
 
         self.library = library.NetAppESeriesLibrary('FAKE', **kwargs)
+        # Deprecated Option
+        self.library.configuration.netapp_storage_pools = None
         self.library._client = eseries_fake.FakeEseriesClient()
         self.library.check_for_setup_error()
 
@@ -72,19 +75,54 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
 
         self.assertTrue(mock_check_flags.called)
 
-    def test_get_storage_pools(self):
-        pool_labels = list()
-        # Retrieve the first pool's label
-        for pool in eseries_fake.STORAGE_POOLS:
-            pool_labels.append(pool['label'])
-            break
-        self.library.configuration.netapp_storage_pools = (
-            ",".join(pool_labels))
+    def test_get_storage_pools_empty_result(self):
+        """Verify an exception is raised if no pools are returned."""
+        self.library.configuration.netapp_pool_name_search_pattern = '$'
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.library.check_for_setup_error)
+
+    def test_get_storage_pools_invalid_conf(self):
+        """Verify an exception is raised if the regex pattern is invalid."""
+        self.library.configuration.netapp_pool_name_search_pattern = '(.*'
+
+        self.assertRaises(exception.InvalidConfigurationValue,
+                          self.library._get_storage_pools)
+
+    def test_get_storage_pools_default(self):
+        """Verify that all pools are returned if the search option is empty."""
+        filtered_pools = self.library._get_storage_pools()
+
+        self.assertEqual(eseries_fake.STORAGE_POOLS, filtered_pools)
+
+    @ddt.data(('[\d]+,a', ['1', '2', 'a', 'b'], ['1', '2', 'a']),
+              ('1   ,    3', ['1', '2', '3'], ['1', '3']),
+              ('$,3', ['1', '2', '3'], ['3']),
+              ('[a-zA-Z]+', ['1', 'a', 'B'], ['a', 'B']),
+              ('', ['1', '2'], ['1', '2'])
+              )
+    @ddt.unpack
+    def test_get_storage_pools(self, pool_filter, pool_labels,
+                               expected_pool_labels):
+        """Verify that pool filtering via the search_pattern works correctly
+
+        :param pool_filter: A regular expression to be used for filtering via
+         pool labels
+        :param pool_labels: A list of pool labels
+        :param expected_pool_labels: The labels from 'pool_labels' that
+         should be matched by 'pool_filter'
+        """
+        self.library.configuration.netapp_pool_name_search_pattern = (
+            pool_filter)
+        pools = [{'label': label} for label in pool_labels]
+
+        self.library._client.list_storage_pools = mock.Mock(
+            return_value=pools)
 
         filtered_pools = self.library._get_storage_pools()
 
         filtered_pool_labels = [pool['label'] for pool in filtered_pools]
-        self.assertListEqual(pool_labels, filtered_pool_labels)
+        self.assertEqual(expected_pool_labels, filtered_pool_labels)
 
     def test_get_volume(self):
         fake_volume = copy.deepcopy(get_fake_volume())
@@ -119,7 +157,7 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
             False, minimum_version="1.53.9000.1")
         self.library._client.SSC_VALID_VERSIONS = [(1, 53, 9000, 1),
                                                    (1, 53, 9010, 15)]
-        self.library.configuration.netapp_storage_pools = "test_vg1"
+        self.library.configuration.netapp_pool_name_search_pattern = "test_vg1"
         self.library._client.list_storage_pools = mock.Mock(return_value=pools)
         self.library._client.list_drives = mock.Mock(return_value=drives)
 
@@ -244,6 +282,118 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'},
                           'test_vg2': {'netapp_disk_encryption': 'true'}},
                          ssc_stats)
+
+    @ddt.data(True, False)
+    def test_get_volume_stats(self, refresh):
+        fake_stats = {'key': 'val'}
+
+        def populate_stats():
+            self.library._stats = fake_stats
+
+        self.library._update_volume_stats = mock.Mock(
+            side_effect=populate_stats)
+        self.library._update_ssc_info = mock.Mock()
+        self.library._ssc_stats = {self.library.THIN_UQ_SPEC: True}
+
+        actual = self.library.get_volume_stats(refresh = refresh)
+
+        if(refresh):
+            self.library._update_volume_stats.assert_called_once_with()
+            self.assertEqual(fake_stats, actual)
+        else:
+            self.assertEqual(0, self.library._update_volume_stats.call_count)
+        self.assertEqual(0, self.library._update_ssc_info.call_count)
+
+    def test_get_volume_stats_no_ssc(self):
+        """Validate that SSC data is collected if not yet populated"""
+        fake_stats = {'key': 'val'}
+
+        def populate_stats():
+            self.library._stats = fake_stats
+
+        self.library._update_volume_stats = mock.Mock(
+            side_effect=populate_stats)
+        self.library._update_ssc_info = mock.Mock()
+        self.library._ssc_stats = None
+
+        actual = self.library.get_volume_stats(refresh = True)
+
+        self.library._update_volume_stats.assert_called_once_with()
+        self.library._update_ssc_info.assert_called_once_with()
+        self.assertEqual(fake_stats, actual)
+
+    def test_update_volume_stats_provisioning(self):
+        """Validate pool capacity calculations"""
+        fake_pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        self.library._get_storage_pools = mock.Mock(return_value=[fake_pool])
+        self.mock_object(self.library, '_ssc_stats', new_attr={fake_pool[
+            "volumeGroupRef"]: {self.library.THIN_UQ_SPEC: True}})
+        self.library.configuration = mock.Mock()
+        reserved_pct = 5
+        over_subscription_ratio = 1.0
+        self.library.configuration.max_over_subscription_ratio = (
+            over_subscription_ratio)
+        self.library.configuration.reserved_percentage = reserved_pct
+        total_gb = int(fake_pool['totalRaidedSpace']) / units.Gi
+        used_gb = int(fake_pool['usedSpace']) / units.Gi
+        free_gb = total_gb - used_gb
+
+        self.library._update_volume_stats()
+
+        self.assertEqual(1, len(self.library._stats['pools']))
+        pool_stats = self.library._stats['pools'][0]
+        self.assertEqual(fake_pool['label'], pool_stats.get('pool_name'))
+        self.assertEqual(reserved_pct, pool_stats['reserved_percentage'])
+        self.assertEqual(over_subscription_ratio,
+                         pool_stats['max_oversubscription_ratio'])
+        self.assertEqual(total_gb, pool_stats.get('total_capacity_gb'))
+        self.assertEqual(used_gb, pool_stats.get('provisioned_capacity_gb'))
+        self.assertEqual(free_gb, pool_stats.get('free_capacity_gb'))
+
+    @ddt.data(False, True)
+    def test_update_volume_stats_thin_provisioning(self, thin_provisioning):
+        """Validate that thin provisioning support is correctly reported"""
+        fake_pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        self.library._get_storage_pools = mock.Mock(return_value=[fake_pool])
+        self.mock_object(self.library, '_ssc_stats', new_attr={fake_pool[
+            "volumeGroupRef"]: {self.library.THIN_UQ_SPEC: thin_provisioning}})
+
+        self.library._update_volume_stats()
+
+        self.assertEqual(1, len(self.library._stats['pools']))
+        pool_stats = self.library._stats['pools'][0]
+        self.assertEqual(thin_provisioning, pool_stats.get(
+            'thin_provisioning_support'))
+        # Should always be True
+        self.assertTrue(pool_stats.get('thick_provisioning_support'))
+
+    def test_update_volume_stats_ssc(self):
+        """Ensure that the SSC data is correctly reported in the pool stats"""
+        ssc = {self.library.THIN_UQ_SPEC: True, 'key': 'val'}
+        fake_pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        self.library._get_storage_pools = mock.Mock(return_value=[fake_pool])
+        self.mock_object(self.library, '_ssc_stats', new_attr={fake_pool[
+            "volumeGroupRef"]: ssc})
+
+        self.library._update_volume_stats()
+
+        self.assertEqual(1, len(self.library._stats['pools']))
+        pool_stats = self.library._stats['pools'][0]
+        for key in ssc:
+            self.assertIn(key, pool_stats)
+            self.assertEqual(ssc[key], pool_stats[key])
+
+    def test_update_volume_stats_no_ssc(self):
+        """Ensure that that pool stats are correctly reported without SSC"""
+        fake_pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        self.library._get_storage_pools = mock.Mock(return_value=[fake_pool])
+        self.library._update_volume_stats()
+
+        self.assertEqual(1, len(self.library._stats['pools']))
+        pool_stats = self.library._stats['pools'][0]
+        self.assertFalse(pool_stats.get('thin_provisioning_support'))
+        # Should always be True
+        self.assertTrue(pool_stats.get('thick_provisioning_support'))
 
     def test_terminate_connection_iscsi_no_hosts(self):
         connector = {'initiator': eseries_fake.INITIATOR_NAME}
@@ -937,6 +1087,67 @@ class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
             1, self.library._client.delete_snapshot_volume.call_count)
         # Ensure the volume we created is not cleaned up
         self.assertEqual(0, self.library._client.delete_volume.call_count)
+
+    def test_extend_volume(self):
+        fake_volume = copy.deepcopy(get_fake_volume())
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        new_capacity = 10
+        volume['objectType'] = 'volume'
+        self.library.create_cloned_volume = mock.Mock()
+        self.library._get_volume = mock.Mock(return_value=volume)
+        self.library._client.update_volume = mock.Mock()
+
+        self.library.extend_volume(fake_volume, new_capacity)
+
+        self.library.create_cloned_volume.assert_called_with(mock.ANY,
+                                                             fake_volume)
+
+    def test_extend_volume_thin(self):
+        fake_volume = copy.deepcopy(get_fake_volume())
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        new_capacity = 10
+        volume['objectType'] = 'thinVolume'
+        self.library._client.expand_volume = mock.Mock(return_value=volume)
+        self.library._get_volume = mock.Mock(return_value=volume)
+
+        self.library.extend_volume(fake_volume, new_capacity)
+
+        self.library._client.expand_volume.assert_called_with(volume['id'],
+                                                              new_capacity)
+
+    def test_extend_volume_stage_2_failure(self):
+        fake_volume = copy.deepcopy(get_fake_volume())
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        new_capacity = 10
+        volume['objectType'] = 'volume'
+        self.library.create_cloned_volume = mock.Mock()
+        self.library._client.delete_volume = mock.Mock()
+        # Create results for multiple calls to _get_volume and _update_volume
+        get_volume_results = [volume, {'id': 'newId', 'label': 'newVolume'}]
+        self.library._get_volume = mock.Mock(side_effect=get_volume_results)
+        update_volume_results = [volume, exception.NetAppDriverException,
+                                 volume]
+        self.library._client.update_volume = mock.Mock(
+            side_effect=update_volume_results)
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.library.extend_volume, fake_volume,
+                          new_capacity)
+        self.assertTrue(self.library._client.delete_volume.called)
+
+    def test_extend_volume_stage_1_failure(self):
+        fake_volume = copy.deepcopy(get_fake_volume())
+        volume = copy.deepcopy(eseries_fake.VOLUME)
+        new_capacity = 10
+        volume['objectType'] = 'volume'
+        self.library.create_cloned_volume = mock.Mock()
+        self.library._get_volume = mock.Mock(return_value=volume)
+        self.library._client.update_volume = mock.Mock(
+            side_effect=exception.NetAppDriverException)
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.library.extend_volume, fake_volume,
+                          new_capacity)
 
     def test_delete_non_existing_volume(self):
         volume2 = get_fake_volume()

@@ -2,6 +2,7 @@
 # Copyright (c) 2015 Rushil Chugh
 # Copyright (c) 2015 Navneet Singh
 # Copyright (c) 2015 Yogesh Kshirsagar
+# Copyright (c) 2015 Tom Barron
 # Copyright (c) 2015 Michael Price
 #  All Rights Reserved.
 #
@@ -25,6 +26,7 @@ import uuid
 
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_log import versionutils
 from oslo_service import loopingcall
 from oslo_utils import excutils
 from oslo_utils import units
@@ -61,8 +63,7 @@ class NetAppESeriesLibrary(object):
     AUTOSUPPORT_INTERVAL_SECONDS = 3600  # hourly
     VERSION = "1.0.0"
     REQUIRED_FLAGS = ['netapp_server_hostname', 'netapp_controller_ips',
-                      'netapp_login', 'netapp_password',
-                      'netapp_storage_pools']
+                      'netapp_login', 'netapp_password']
     SLEEP_SECS = 5
     HOST_TYPES = {'aix': 'AIX MPIO',
                   'avt': 'AVT_4M',
@@ -176,6 +177,7 @@ class NetAppESeriesLibrary(object):
     def check_for_setup_error(self):
         self._check_host_type()
         self._check_multipath()
+        self._check_pools()
         self._check_storage_system()
         self._start_periodic_tasks()
 
@@ -195,6 +197,14 @@ class NetAppESeriesLibrary(object):
                             '"%(mpflag)s" to be set to "True".'),
                         {'backend': self._backend_name,
                          'mpflag': 'use_multipath_for_image_xfer'})
+
+    def _check_pools(self):
+        """Ensure that the pool listing contains at least one pool"""
+        if not self._get_storage_pools():
+            msg = _('No pools are available for provisioning volumes. '
+                    'Ensure that the configuration option '
+                    'netapp_pool_name_search_pattern is set correctly.')
+            raise exception.NetAppDriverException(msg)
 
     def _ensure_multi_attach_host_group_exists(self):
         try:
@@ -903,9 +913,13 @@ class NetAppESeriesLibrary(object):
             cinder_pool = {}
             cinder_pool["pool_name"] = storage_pool.get("label")
             cinder_pool["QoS_support"] = False
-            cinder_pool["reserved_percentage"] = 0
+            cinder_pool["reserved_percentage"] = (
+                self.configuration.reserved_percentage)
+            cinder_pool["max_oversubscription_ratio"] = (
+                self.configuration.max_over_subscription_ratio)
             tot_bytes = int(storage_pool.get("totalRaidedSpace", 0))
             used_bytes = int(storage_pool.get("usedSpace", 0))
+            cinder_pool["provisioned_capacity_gb"] = used_bytes / units.Gi
             cinder_pool["free_capacity_gb"] = ((tot_bytes - used_bytes) /
                                                units.Gi)
             cinder_pool["total_capacity_gb"] = tot_bytes / units.Gi
@@ -914,7 +928,14 @@ class NetAppESeriesLibrary(object):
                 storage_pool["volumeGroupRef"])
 
             if pool_ssc_stats:
+                thin = pool_ssc_stats.get(self.THIN_UQ_SPEC) or False
                 cinder_pool.update(pool_ssc_stats)
+            else:
+                thin = False
+            cinder_pool["thin_provisioning_support"] = thin
+            # All E-Series pools support thick provisioning
+            cinder_pool["thick_provisioning_support"] = True
+
             data["pools"].append(cinder_pool)
 
         self._stats = data
@@ -1103,17 +1124,34 @@ class NetAppESeriesLibrary(object):
         return ssc_stats
 
     def _get_storage_pools(self):
-        conf_enabled_pools = []
-        for value in self.configuration.netapp_storage_pools.split(','):
-            if value:
-                conf_enabled_pools.append(value.strip().lower())
+        """Retrieve storage pools that match user-configured search pattern."""
+
+        # Inform deprecation of legacy option.
+        if self.configuration.safe_get('netapp_storage_pools'):
+            msg = _LW("The option 'netapp_storage_pools' is deprecated and "
+                      "will be removed in the future releases. Please use "
+                      "the option 'netapp_pool_name_search_pattern' instead.")
+            versionutils.report_deprecated_feature(LOG, msg)
+
+        pool_regex = na_utils.get_pool_name_filter_regex(self.configuration)
+
+        storage_pools = self._client.list_storage_pools()
 
         filtered_pools = []
-        storage_pools = self._client.list_storage_pools()
-        for storage_pool in storage_pools:
-            # Check if pool can be used
-            if (storage_pool['label'].lower() in conf_enabled_pools):
-                filtered_pools.append(storage_pool)
+        for pool in storage_pools:
+            pool_name = pool['label']
+
+            if pool_regex.match(pool_name):
+                msg = ("Pool '%(pool_name)s' matches against regular "
+                       "expression: %(pool_pattern)s")
+                LOG.debug(msg, {'pool_name': pool_name,
+                                'pool_pattern': pool_regex.pattern})
+                filtered_pools.append(pool)
+            else:
+                msg = ("Pool '%(pool_name)s' does not match against regular "
+                       "expression: %(pool_pattern)s")
+                LOG.debug(msg, {'pool_name': pool_name,
+                                'pool_pattern': pool_regex.pattern})
 
         return filtered_pools
 
@@ -1132,28 +1170,37 @@ class NetAppESeriesLibrary(object):
                             "%s."), size_gb)
         return avl_pools
 
+    def _is_thin_provisioned(self, volume):
+        """Determine if a volume is thin provisioned"""
+        return volume.get('objectType') == 'thinVolume' or volume.get(
+            'thinProvisioned', False)
+
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""
-        stage_1, stage_2 = 0, 0
         src_vol = self._get_volume(volume['name_id'])
-        src_label = src_vol['label']
-        stage_label = 'tmp-%s' % utils.convert_uuid_to_es_fmt(uuid.uuid4())
-        extend_vol = {'id': uuid.uuid4(), 'size': new_size}
-        self.create_cloned_volume(extend_vol, volume)
-        new_vol = self._get_volume(extend_vol['id'])
-        try:
-            stage_1 = self._client.update_volume(src_vol['id'], stage_label)
-            stage_2 = self._client.update_volume(new_vol['id'], src_label)
-            new_vol = stage_2
-            LOG.info(_LI('Extended volume with label %s.'), src_label)
-        except exception.NetAppDriverException:
-            if stage_1 == 0:
-                with excutils.save_and_reraise_exception():
-                    self._client.delete_volume(new_vol['id'])
-            if stage_2 == 0:
-                with excutils.save_and_reraise_exception():
-                    self._client.update_volume(src_vol['id'], src_label)
-                    self._client.delete_volume(new_vol['id'])
+        if self._is_thin_provisioned(src_vol):
+            self._client.expand_volume(src_vol['id'], new_size)
+        else:
+            stage_1, stage_2 = 0, 0
+            src_label = src_vol['label']
+            stage_label = 'tmp-%s' % utils.convert_uuid_to_es_fmt(uuid.uuid4())
+            extend_vol = {'id': uuid.uuid4(), 'size': new_size}
+            self.create_cloned_volume(extend_vol, volume)
+            new_vol = self._get_volume(extend_vol['id'])
+            try:
+                stage_1 = self._client.update_volume(src_vol['id'],
+                                                     stage_label)
+                stage_2 = self._client.update_volume(new_vol['id'], src_label)
+                new_vol = stage_2
+                LOG.info(_LI('Extended volume with label %s.'), src_label)
+            except exception.NetAppDriverException:
+                if stage_1 == 0:
+                    with excutils.save_and_reraise_exception():
+                        self._client.delete_volume(new_vol['id'])
+                elif stage_2 == 0:
+                    with excutils.save_and_reraise_exception():
+                        self._client.update_volume(src_vol['id'], src_label)
+                        self._client.delete_volume(new_vol['id'])
 
     def _garbage_collect_tmp_vols(self):
         """Removes tmp vols with no snapshots."""
@@ -1170,8 +1217,8 @@ class NetAppESeriesLibrary(object):
                     try:
                         self._client.delete_volume(vol['volumeRef'])
                     except exception.NetAppDriverException as e:
-                        LOG.debug("Error deleting vol with label %s: %s",
-                                  (label, e))
+                        LOG.debug("Error deleting vol with label %(label)s:"
+                                  " %(error)s.", {'label': label, 'error': e})
         finally:
             na_utils.set_safe_attr(self, 'clean_job_running', False)
 

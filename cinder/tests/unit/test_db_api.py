@@ -1149,6 +1149,30 @@ class DBAPISnapshotTestCase(BaseTest):
                                             'host2', {'fake_key': 'fake'}),
                                         ignored_keys='volume')
 
+    def test_snapshot_get_by_host_with_pools(self):
+        db.volume_create(self.ctxt, {'id': 1, 'host': 'host1#pool1'})
+        db.volume_create(self.ctxt, {'id': 2, 'host': 'host1#pool2'})
+
+        snapshot1 = db.snapshot_create(self.ctxt, {'id': 1, 'volume_id': 1})
+        snapshot2 = db.snapshot_create(self.ctxt, {'id': 2, 'volume_id': 2})
+
+        self._assertEqualListsOfObjects([snapshot1, snapshot2],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host1'),
+                                        ignored_keys='volume')
+        self._assertEqualListsOfObjects([snapshot1],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host1#pool1'),
+                                        ignored_keys='volume')
+
+        self._assertEqualListsOfObjects([],
+                                        db.snapshot_get_by_host(
+                                            self.ctxt,
+                                            'host1#pool0'),
+                                        ignored_keys='volume')
+
     def test_snapshot_get_all_by_project(self):
         db.volume_create(self.ctxt, {'id': 1})
         db.volume_create(self.ctxt, {'id': 2})
@@ -1326,6 +1350,34 @@ class DBAPIVolumeTypeTestCase(BaseTest):
                           db.volume_type_create,
                           self.ctxt,
                           {'name': 'n2', 'id': vt['id']})
+
+    def test_volume_type_access_remove(self):
+        vt = db.volume_type_create(self.ctxt, {'name': 'n1'})
+        db.volume_type_access_add(self.ctxt, vt['id'], 'fake_project')
+        vtas = db.volume_type_access_get_all(self.ctxt, vt['id'])
+        self.assertEqual(1, len(vtas))
+        db.volume_type_access_remove(self.ctxt, vt['id'], 'fake_project')
+        vtas = db.volume_type_access_get_all(self.ctxt, vt['id'])
+        self.assertEqual(0, len(vtas))
+
+    def test_volume_type_access_remove_high_id(self):
+        vt = db.volume_type_create(self.ctxt, {'name': 'n1'})
+        vta = db.volume_type_access_add(self.ctxt, vt['id'], 'fake_project')
+        vtas = db.volume_type_access_get_all(self.ctxt, vt['id'])
+        self.assertEqual(1, len(vtas))
+
+        # NOTE(dulek): Bug 1496747 uncovered problems when deleting accesses
+        # with id column higher than 128. This is regression test for that
+        # case.
+
+        session = sqlalchemy_api.get_session()
+        vta.id = 150
+        vta.save(session=session)
+        session.close()
+
+        db.volume_type_access_remove(self.ctxt, vt['id'], 'fake_project')
+        vtas = db.volume_type_access_get_all(self.ctxt, vt['id'])
+        self.assertEqual(0, len(vtas))
 
     def test_get_volume_type_extra_specs(self):
         # Ensure that volume type extra specs can be accessed after

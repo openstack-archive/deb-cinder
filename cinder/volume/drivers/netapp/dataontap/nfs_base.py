@@ -75,9 +75,6 @@ class NetAppNfsDriver(driver.ManageableVD,
         self.configuration.append_config_values(na_opts.netapp_img_cache_opts)
         self.configuration.append_config_values(na_opts.netapp_nfs_extra_opts)
 
-    def set_execute(self, execute):
-        self._execute = execute
-
     def do_setup(self, context):
         super(NetAppNfsDriver, self).do_setup(context)
         self._context = context
@@ -327,7 +324,7 @@ class NetAppNfsDriver(driver.ManageableVD,
                 dir = self._get_mount_point_for_share(share)
                 file_name = 'img-cache-%s' % image_id
                 file_path = '%s/%s' % (dir, file_name)
-                if os.path.exists(file_path):
+                if os.path.isfile(file_path):
                     LOG.debug('Found cache file for image %(image_id)s'
                               ' on share %(share)s',
                               {'image_id': image_id, 'share': share})
@@ -493,7 +490,7 @@ class NetAppNfsDriver(driver.ManageableVD,
             (share, file_name) = res
             LOG.debug('Cache share: %s', share)
             if (share and
-                    self._is_share_vol_compatible(volume, share)):
+                    self._is_share_clone_compatible(volume, share)):
                 try:
                     self._do_clone_rel_img_cache(
                         file_name, volume['name'], share, file_name)
@@ -513,7 +510,7 @@ class NetAppNfsDriver(driver.ManageableVD,
         run_as_root = self._execute_as_root
         for loc in image_locations:
             share = self._is_cloneable_share(loc)
-            if share and self._is_share_vol_compatible(volume, share):
+            if share and self._is_share_clone_compatible(volume, share):
                 LOG.debug('Share is cloneable %s', share)
                 volume['provider_location'] = share
                 (__, ___, img_file) = loc.rpartition('/')
@@ -676,19 +673,16 @@ class NetAppNfsDriver(driver.ManageableVD,
             urls.append(direct_url)
         else:
             for location in locations:
-                url = location['url']
                 if not location['metadata']:
-                    urls.append(url)
-                    break
+                    continue
                 location_type = location['metadata'].get('type')
                 if not location_type or location_type.lower() != "nfs":
-                    urls.append(url)
-                    break
+                    continue
                 share_location = location['metadata'].get('share_location')
                 mountpoint = location['metadata'].get('mountpoint')
                 if not share_location or not mountpoint:
-                    urls.append(url)
-                    break
+                    continue
+                url = location['url']
                 url_parse = urllib.parse.urlparse(url)
                 abs_path = os.path.join(url_parse.netloc, url_parse.path)
                 rel_path = os.path.relpath(abs_path, mountpoint)
@@ -702,9 +696,23 @@ class NetAppNfsDriver(driver.ManageableVD,
         path = self.local_path(volume)
         self._resize_image_file(path, new_size)
 
-    def _is_share_vol_compatible(self, volume, share):
-        """Checks if share is compatible with volume to host it."""
+    def _is_share_clone_compatible(self, volume, share):
+        """Checks if share is compatible with volume to host its clone."""
         raise NotImplementedError()
+
+    def _share_has_space_for_clone(self, share, size_in_gib, thin=True):
+        """Is there space on the share for a clone given the original size?"""
+        requested_size = size_in_gib * units.Gi
+
+        total_size, total_available = self._get_capacity_info(share)
+
+        reserved_ratio = self.reserved_percentage / 100.0
+        reserved = int(round(total_size * reserved_ratio))
+        available = max(0, total_available - reserved)
+        if thin:
+            available = available * self.over_subscription_ratio
+
+        return available >= requested_size
 
     def _check_share_can_hold_size(self, share, size):
         """Checks if volume can hold image with size."""

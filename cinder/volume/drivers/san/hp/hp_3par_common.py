@@ -201,10 +201,11 @@ class HP3PARCommon(object):
         2.0.49 - Added client CPG stats to driver volume stats. bug #1482741
         2.0.50 - Add over subscription support
         2.0.51 - Adds consistency group support
+        2.0.52 - Added update_migrated_volume. bug # 1492023
 
     """
 
-    VERSION = "2.0.51"
+    VERSION = "2.0.52"
 
     stats = {}
 
@@ -335,6 +336,17 @@ class HP3PARCommon(object):
                         {'srstatld_version': SRSTATLD_API_VERSION,
                          'version': self.API_VERSION})
 
+        # TODO(walter-boring) BUG: 1491088.  For the time being disable
+        # making the drivers usable if they enable the image cache
+        # The image cache feature fails on 3PAR drivers
+        # because it tries to extend a volume as it's still being cloned.
+        if self.config.image_volume_cache_enabled:
+            msg = _("3PAR drivers do not support enabling the image "
+                    "cache capability at this time.  You must disable "
+                    "the configuration setting in cinder.conf")
+            LOG.error(msg)
+            raise exception.InvalidInput(message=msg)
+
     def check_for_setup_error(self):
         self.client_login()
         try:
@@ -431,10 +443,10 @@ class HP3PARCommon(object):
             LOG.warning(err)
         except hpexceptions.HTTPConflict as e:
             err = (_LE("Conflict detected in Virtual Volume Set"
-                       " %(volume_set): %(error)"),
-                   {"volume_set": cg_name,
-                    "error": e})
-            LOG.error(err)
+                       " %(volume_set)s: %(error)s"))
+            LOG.error(err,
+                      {"volume_set": cg_name,
+                       "error": e})
 
         volumes = self.db.volume_get_all_by_group(context, group.id)
         for volume in volumes:
@@ -1571,7 +1583,7 @@ class HP3PARCommon(object):
 
     def create_cloned_volume(self, volume, src_vref):
         try:
-            orig_name = self._get_3par_vol_name(volume['source_volid'])
+            orig_name = self._get_3par_vol_name(src_vref['id'])
             vol_name = self._get_3par_vol_name(volume['id'])
 
             type_info = self.get_volume_settings_from_type(volume)
@@ -1899,6 +1911,41 @@ class HP3PARCommon(object):
         LOG.debug('migrate_volume result: %(supported)s, %(model_update)s',
                   dbg_ret)
         return ret
+
+    def update_migrated_volume(self, context, volume, new_volume,
+                               original_volume_status):
+        """Rename the new (temp) volume to it's original name.
+
+
+        This method tries to rename the new volume to it's original
+        name after the migration has completed.
+
+        """
+        LOG.debug("Update volume name for %(id)s", {'id': new_volume['id']})
+        name_id = None
+        provider_location = None
+        if original_volume_status == 'available':
+            # volume isn't attached and can be updated
+            original_name = self._get_3par_vol_name(volume['id'])
+            current_name = self._get_3par_vol_name(new_volume['id'])
+            try:
+                volumeMods = {'newName': original_name}
+                self.client.modifyVolume(current_name, volumeMods)
+                LOG.info(_LI("Volume name changed from %(tmp)s to %(orig)s"),
+                         {'tmp': current_name, 'orig': original_name})
+            except Exception as e:
+                LOG.error(_LE("Changing the volume name from %(tmp)s to "
+                              "%(orig)s failed because %(reason)s"),
+                          {'tmp': current_name, 'orig': original_name,
+                           'reason': e})
+                name_id = new_volume['_name_id'] or new_volume['id']
+                provider_location = new_volume['provider_location']
+        else:
+            # the backend can't change the name.
+            name_id = new_volume['_name_id'] or new_volume['id']
+            provider_location = new_volume['provider_location']
+
+        return {'_name_id': name_id, 'provider_location': provider_location}
 
     def _convert_to_base_volume(self, volume, new_cpg=None):
         try:

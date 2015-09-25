@@ -65,7 +65,9 @@ def _xml_read(root, element, check=None):
 
     try:
         val = root.findtext(element)
-        LOG.info(_LI("%(element)s: %(val)s"), {'element': element, 'val': val})
+        LOG.info(_LI("%(element)s: %(val)s"),
+                 {'element': element,
+                  'val': val if element != 'password' else '***'})
         if val:
             return val.strip()
         if check:
@@ -220,9 +222,6 @@ class HDSNFSDriver(nfs.NfsDriver):
             raise exception.ParameterNotFound(param=label)
 
         return service
-
-    def set_execute(self, execute):
-        self._execute = execute
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume.

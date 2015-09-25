@@ -250,10 +250,10 @@ class VolumeManager(manager.SchedulerDependentManager):
                 max_cache_size,
                 max_cache_entries
             )
-            LOG.info(_LI('Image-volume cache enabled for host %(host)s'),
+            LOG.info(_LI('Image-volume cache enabled for host %(host)s.'),
                      {'host': self.host})
         else:
-            LOG.info(_LI('Image-volume cache disabled for host %(host)s'),
+            LOG.info(_LI('Image-volume cache disabled for host %(host)s.'),
                      {'host': self.host})
             self.image_volume_cache = None
 
@@ -317,13 +317,14 @@ class VolumeManager(manager.SchedulerDependentManager):
             LOG.info(_LI("Determined volume DB was not empty at startup."))
             return False
 
-    def _sync_provider_info(self, ctxt, volumes):
+    def _sync_provider_info(self, ctxt, volumes, snapshots):
         # NOTE(jdg): For now this just updates provider_id, we can add more
         # add more items to the update if theyr'e releveant but we need
         # to be safe in what we allow and add a list of allowed keys
         # things that make sense are provider_*, replication_status etc
 
-        updates = self.driver.update_provider_info(volumes)
+        updates, snapshot_updates = self.driver.update_provider_info(
+            volumes, snapshots)
         host_vols = utils.list_of_dicts_to_dict(volumes, 'id')
 
         for u in updates or []:
@@ -335,6 +336,24 @@ class VolumeManager(manager.SchedulerDependentManager):
                 self.db.volume_update(ctxt,
                                       u['id'],
                                       update)
+
+        # NOTE(jdg): snapshots are slighty harder, because
+        # we do not have a host column and of course no get
+        # all by host, so we use a get_all and bounce our
+        # response off of it
+        if snapshot_updates:
+            cinder_snaps = self.db.snapshot_get_all(ctxt)
+            for snap in cinder_snaps:
+                # NOTE(jdg): For now we only update those that have no entry
+                if not snap.get('provider_id', None):
+                    update = (
+                        [updt for updt in snapshot_updates if updt['id'] ==
+                            snap['id']][0])
+                    if update:
+                        self.db.snapshot_update(
+                            ctxt,
+                            updt['id'],
+                            {'provider_id': updt['provider_id']})
 
     def init_host(self):
         """Perform any required initialization."""
@@ -359,7 +378,8 @@ class VolumeManager(manager.SchedulerDependentManager):
         self.driver.init_capabilities()
 
         volumes = self.db.volume_get_all_by_host(ctxt, self.host)
-        self._sync_provider_info(ctxt, volumes)
+        snapshots = self.db.snapshot_get_by_host(ctxt, self.host)
+        self._sync_provider_info(ctxt, volumes, snapshots)
         # FIXME volume count for exporting is wrong
 
         try:
@@ -751,6 +771,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         self._notify_about_snapshot_usage(context, snapshot, "create.end")
         LOG.info(_LI("Create snapshot completed successfully"),
                  resource=snapshot)
+        return snapshot.id
 
     @locked_snapshot_operation
     def delete_snapshot(self, context, snapshot, unmanage_only=False):
@@ -759,7 +780,8 @@ class VolumeManager(manager.SchedulerDependentManager):
         snapshot._context = context
         project_id = snapshot.project_id
 
-        self._notify_about_snapshot_usage(context, snapshot, "delete.start")
+        self._notify_about_snapshot_usage(
+            context, snapshot, "delete.start")
 
         try:
             # NOTE(flaper87): Verify the driver is enabled
@@ -797,9 +819,11 @@ class VolumeManager(manager.SchedulerDependentManager):
                     'gigabytes': -snapshot.volume_size,
                 }
             volume_ref = self.db.volume_get(context, snapshot.volume_id)
-            QUOTAS.add_volume_type_opts(context, reserve_opts,
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
                                         volume_ref.get('volume_type_id'))
-            reservations = QUOTAS.reserve(context, project_id=project_id,
+            reservations = QUOTAS.reserve(context,
+                                          project_id=project_id,
                                           **reserve_opts)
         except Exception:
             reservations = None
@@ -814,6 +838,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             QUOTAS.commit(context, reservations, project_id=project_id)
         LOG.info(_LI("Delete snapshot completed successfully"),
                  resource=snapshot)
+        return True
 
     def attach_volume(self, context, volume_id, instance_uuid, host_name,
                       mountpoint, mode):
@@ -1023,7 +1048,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                                                     image_meta)
             if not image_volume:
                 LOG.warning(_LW('Unable to clone image_volume for image '
-                                '%(image_id) will not create cache entry.'),
+                                '%(image_id)s will not create cache entry.'),
                             {'image_id': image_id})
                 return
 
@@ -1034,7 +1059,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                 image_meta
             )
         except exception.CinderException as e:
-            LOG.warning(_LW('Failed to create new image-volume cache entry'
+            LOG.warning(_LW('Failed to create new image-volume cache entry.'
                             ' Error: %(exception)s'), {'exception': e})
             if image_volume:
                 self.delete_volume(ctx, image_volume.id)
@@ -1082,7 +1107,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             return image_volume
         except exception.CinderException:
             LOG.exception(_LE('Failed to clone volume %(volume_id)s for '
-                              'image %(image_id).'),
+                              'image %(image_id)s.'),
                           {'volume_id': volume.id,
                            'image_id': image_meta['id']})
             try:
@@ -1295,7 +1320,7 @@ class VolumeManager(manager.SchedulerDependentManager):
             raise exception.InvalidInput(reason=six.text_type(err))
         except Exception as err:
             err_msg = (_("Validate volume connection failed "
-                         "(error: %(err)).") % {'err': six.text_type(err)})
+                         "(error: %(err)s).") % {'err': six.text_type(err)})
             LOG.error(err_msg, resource=volume)
             raise exception.VolumeBackendAPIException(data=err_msg)
 
@@ -2031,7 +2056,10 @@ class VolumeManager(manager.SchedulerDependentManager):
 
         volume_ref = self.db.volume_get(ctxt, volume_id)
         status_update = {'status': volume_ref['previous_status']}
-        project_id = volume_ref['project_id']
+        if context.project_id != volume_ref['project_id']:
+            project_id = volume_ref['project_id']
+        else:
+            project_id = context.project_id
 
         try:
             # NOTE(flaper87): Verify the driver is enabled
@@ -2353,7 +2381,7 @@ class VolumeManager(manager.SchedulerDependentManager):
                                      "not in a valid state. Valid states are: "
                                      "%(valid)s.") %
                                    {'group': group.id,
-                                    'snap': snap.id,
+                                    'snap': snap['id'],
                                     'valid': VALID_CREATE_CG_SRC_SNAP_STATUS})
                             raise exception.InvalidConsistencyGroup(reason=msg)
 
@@ -2469,7 +2497,7 @@ class VolumeManager(manager.SchedulerDependentManager):
         sorted_snapshots = []
         for vol in volumes:
             found_snaps = filter(
-                lambda snap: snap.id == vol['snapshot_id'], snapshots)
+                lambda snap: snap['id'] == vol['snapshot_id'], snapshots)
             if not found_snaps:
                 LOG.error(_LE("Source snapshot cannot be found for target "
                               "volume %(volume_id)s."),
@@ -3017,6 +3045,13 @@ class VolumeManager(manager.SchedulerDependentManager):
                                volume_status):
         """Finalize migration process on backend device."""
         model_update = None
+        # This is temporary fix for bug 1491210.
+        volume = self.db.volume_get(ctxt, volume['id'])
+        new_volume = self.db.volume_get(ctxt, new_volume['id'])
+        model_update_default = {'_name_id': new_volume['_name_id'] or
+                                new_volume['id'],
+                                'provider_location':
+                                new_volume['provider_location']}
         try:
             model_update = self.driver.update_migrated_volume(ctxt,
                                                               volume,
@@ -3026,19 +3061,32 @@ class VolumeManager(manager.SchedulerDependentManager):
             # If update_migrated_volume is not implemented for the driver,
             # _name_id and provider_location will be set with the values
             # from new_volume.
-            model_update = {'_name_id': new_volume['_name_id'] or
-                            new_volume['id'],
-                            'provider_location':
-                            new_volume['provider_location']}
+            model_update = model_update_default
         if model_update:
-            self.db.volume_update(ctxt.elevated(), volume['id'],
-                                  model_update)
+            model_update_default.update(model_update)
             # Swap keys that were changed in the source so we keep their values
             # in the temporary volume's DB record.
-            model_update_new = {key: volume[key]
-                                for key in model_update.iterkeys()}
+            # Need to convert 'metadata' and 'admin_metadata' since
+            # they are not keys of volume, their corresponding keys are
+            # 'volume_metadata' and 'volume_admin_metadata'.
+            model_update_new = dict()
+            for key in model_update:
+                if key == 'metadata':
+                    if volume.get('volume_metadata'):
+                        model_update_new[key] = {
+                            metadata['key']: metadata['value']
+                            for metadata in volume.get('volume_metadata')}
+                elif key == 'admin_metadata':
+                        model_update_new[key] = {
+                            metadata['key']: metadata['value']
+                            for metadata in volume.get(
+                                'volume_admin_metadata')}
+                else:
+                    model_update_new[key] = volume[key]
             self.db.volume_update(ctxt.elevated(), new_volume['id'],
                                   model_update_new)
+        self.db.volume_update(ctxt.elevated(), volume['id'],
+                              model_update_default)
 
     # Replication V2 methods
     def enable_replication(self, context, volume):
@@ -3137,18 +3185,18 @@ class VolumeManager(manager.SchedulerDependentManager):
         """
         try:
             volume = self.db.volume_get(context, volume['id'])
-            volume_updates = self.driver.replication_failover(context,
-                                                              volume,
-                                                              secondary)
+            model_update = self.driver.replication_failover(context,
+                                                            volume,
+                                                            secondary)
 
-            # volume_updates is a dict containing a report of relevant
-            # items based on the backend and how it operates or what it needs
+            # model_updates is a dict containing a report of relevant
+            # items based on the backend and how it operates or what it needs.
+            # For example:
             # {'host': 'secondary-configured-cinder-backend',
-            #  'model_update': {'update-all-the-provider-info-etc'},
+            #  'provider_location: 'foo',
             #  'replication_driver_data': 'driver-specific-stuff-for-db'}
             # Where 'host' is a valid cinder host string like
             #  'foo@bar#baz'
-            # model_update and replication_driver_data are required
 
         except exception.CinderException:
 
@@ -3167,25 +3215,12 @@ class VolumeManager(manager.SchedulerDependentManager):
                                   {'replication_status': 'error'})
             raise exception.VolumeBackendAPIException(data=err_msg)
 
-        # TODO(jdg): Come back and condense thes into a single update
-        update = {}
-        model_update = volume_updates.get('model_update', None)
-        driver_update = volume_updates.get('replication_driver_data', None)
-        host_update = volume_updates.get('host', None)
-
         if model_update:
-            update['model'] = model_update
-        if driver_update:
-            update['replication_driver_data'] = driver_update
-        if host_update:
-            update['host'] = host_update
-
-        if update:
             try:
                 volume = self.db.volume_update(
                     context,
                     volume['id'],
-                    update)
+                    model_update)
 
             except exception.CinderException as ex:
                 LOG.exception(_LE("Driver replication data update failed."),

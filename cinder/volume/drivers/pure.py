@@ -27,6 +27,7 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import units
 
+from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import objects
@@ -315,6 +316,7 @@ class PureBaseVolumeDriver(san.SanDriver):
             "max_over_subscription_ratio": thin_provisioning,
             "total_volumes": total_vols,
             "filter_function": self.get_filter_function(),
+            "multiattach": True,
         }
         self._stats = data
 
@@ -701,13 +703,17 @@ class PureBaseVolumeDriver(san.SanDriver):
 
     def _get_pgroup_snap_name_from_snapshot(self, snapshot):
         """Return the name of the snapshot that Purity will use."""
-        pg_snaps = self._array.list_volumes(snap=True, pgroup=True)
-        for pg_snap in pg_snaps:
-            pg_snap_name = pg_snap['name']
-            if (snapshot.cgsnapshot_id in pg_snap_name and
-                    snapshot.volume_id in pg_snap_name):
-                return pg_snap_name
-        return None
+
+        # TODO(patrickeast): Remove DB calls once the cgsnapshot objects are
+        # available to use and can be associated with the snapshot objects.
+        ctxt = context.get_admin_context()
+        cgsnapshot = self.db.cgsnapshot_get(ctxt, snapshot.cgsnapshot_id)
+
+        pg_vol_snap_name = "%(group_snap)s.%(volume_name)s-cinder" % {
+            'group_snap': self._get_pgroup_snap_name(cgsnapshot),
+            'volume_name': snapshot.volume_name
+        }
+        return pg_vol_snap_name
 
     @staticmethod
     def _generate_purity_host_name(name):
@@ -943,8 +949,8 @@ class PureFCDriver(PureBaseVolumeDriver, driver.FibreChannelDriver):
         ports = self._array.list_ports()
         return [port["wwn"] for port in ports if port["wwn"]]
 
-    @log_debug_trace
     @fczm_utils.AddFCZone
+    @log_debug_trace
     def initialize_connection(self, volume, connector, initiator_data=None):
         """Allow connection to connector and return connection info."""
 
@@ -1010,8 +1016,8 @@ class PureFCDriver(PureBaseVolumeDriver, driver.FibreChannelDriver):
 
         return init_targ_map
 
-    @log_debug_trace
     @fczm_utils.RemoveFCZone
+    @log_debug_trace
     def terminate_connection(self, volume, connector, **kwargs):
         """Terminate connection."""
         no_more_connections = self._disconnect(volume, connector, **kwargs)

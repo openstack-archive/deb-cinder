@@ -115,8 +115,9 @@ class API(base.Base):
         volume_type_list = cg_volume_types.split(',')
 
         req_volume_types = []
+        # NOTE: Admin context is required to get extra_specs of volume_types.
         req_volume_types = (self.db.volume_types_get_by_name_or_id(
-            context, volume_type_list))
+            context.elevated(), volume_type_list))
 
         req_volume_type_ids = ""
         for voltype in req_volume_types:
@@ -170,7 +171,7 @@ class API(base.Base):
                 cgsnapshot = self.db.cgsnapshot_get(context, cgsnapshot_id)
             except exception.CgSnapshotNotFound:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_LE("CG snapshot %(cgsnap) not found when "
+                    LOG.error(_LE("CG snapshot %(cgsnap)s not found when "
                                   "creating consistency group %(cg)s from "
                                   "source."),
                               {'cg': name, 'cgsnap': cgsnapshot_id})
@@ -184,7 +185,7 @@ class API(base.Base):
                                                                source_cgid)
             except exception.ConsistencyGroupNotFound:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_LE("Source CG %(source_cg) not found when "
+                    LOG.error(_LE("Source CG %(source_cg)s not found when "
                                   "creating consistency group %(cg)s from "
                                   "source."),
                               {'cg': name, 'source_cg': source_cgid})

@@ -268,7 +268,7 @@ class VolumeCommands(object):
     def __init__(self):
         self._client = None
 
-    def rpc_client(self):
+    def _rpc_client(self):
         if self._client is None:
             if not rpc.initialized():
                 rpc.init(CONF)
@@ -297,7 +297,7 @@ class VolumeCommands(object):
             print(_("Detach volume from instance and then try again."))
             return
 
-        cctxt = self.rpc_client().prepare(server=host)
+        cctxt = self._rpc_client().prepare(server=host)
         cctxt.cast(ctxt, "delete_volume", volume_id=volume['id'])
 
     @args('--currenthost', required=True, help='Existing volume host name')
@@ -451,9 +451,12 @@ class ServiceCommands(object):
             status = 'enabled'
             if svc.disabled:
                 status = 'disabled'
+            updated_at = svc.updated_at
+            if updated_at:
+                updated_at = timeutils.normalize_time(updated_at)
             print(print_format % (svc.binary, svc.host.partition('.')[0],
                                   svc.availability_zone, status, art,
-                                  timeutils.normalize_time(svc.updated_at)))
+                                  updated_at))
 
     @args('binary', type=str,
           help='Service to delete from the host.')

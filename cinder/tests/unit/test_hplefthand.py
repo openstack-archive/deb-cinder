@@ -1629,6 +1629,49 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
                 len(expected),
                 len(mock_client.method_calls))
 
+    def test_update_migrated_volume(self):
+        mock_client = self.setup_driver()
+        volume_id = 'fake_vol_id'
+        clone_id = 'fake_clone_id'
+        fake_old_volume = {'id': volume_id}
+        provider_location = 'foo'
+        fake_new_volume = {'id': clone_id,
+                           '_name_id': clone_id,
+                           'provider_location': provider_location}
+        original_volume_status = 'available'
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+            actual_update = self.driver.update_migrated_volume(
+                context.get_admin_context(), fake_old_volume,
+                fake_new_volume, original_volume_status)
+
+            expected_update = {'_name_id': None,
+                               'provider_location': None}
+            self.assertEqual(expected_update, actual_update)
+
+    def test_update_migrated_volume_attached(self):
+        mock_client = self.setup_driver()
+        volume_id = 'fake_vol_id'
+        clone_id = 'fake_clone_id'
+        fake_old_volume = {'id': volume_id}
+        provider_location = 'foo'
+        fake_new_volume = {'id': clone_id,
+                           '_name_id': clone_id,
+                           'provider_location': provider_location}
+        original_volume_status = 'in-use'
+
+        with mock.patch.object(hp_lefthand_rest_proxy.HPLeftHandRESTProxy,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+            actual_update = self.driver.update_migrated_volume(
+                context.get_admin_context(), fake_old_volume,
+                fake_new_volume, original_volume_status)
+
+            expected_update = {'_name_id': fake_new_volume['_name_id'],
+                               'provider_location': provider_location}
+            self.assertEqual(expected_update, actual_update)
+
     @mock.patch.object(volume_types, 'get_volume_type',
                        return_value={'extra_specs': {'hplh:ao': 'true'}})
     def test_create_volume_with_ao_true(self, _mock_volume_type):
@@ -2071,8 +2114,8 @@ class TestHPLeftHandRESTISCSIDriver(HPLeftHandBaseDriver, test.TestCase):
             self.assertEqual(GOODNESS_FUNCTION, stats['goodness_function'])
             self.assertEqual(FILTER_FUNCTION, stats['filter_function'])
             self.assertEqual(1, int(stats['total_volumes']))
-            self.assertEqual(True, stats['thin_provisioning_support'])
-            self.assertEqual(True, stats['thick_provisioning_support'])
+            self.assertTrue(stats['thin_provisioning_support'])
+            self.assertTrue(stats['thick_provisioning_support'])
             self.assertEqual(1, int(stats['provisioned_capacity_gb']))
             self.assertEqual(25, int(stats['reserved_percentage']))
 

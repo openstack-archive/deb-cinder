@@ -65,13 +65,15 @@ EXTRA_CONFIG_VOLUME_ID_KEY = "cinder.volume.id"
 vmdk_opts = [
     cfg.StrOpt('vmware_host_ip',
                default=None,
-               help='IP address for connecting to VMware ESX/VC server.'),
+               help='IP address for connecting to VMware ESX/vCenter server.'),
     cfg.StrOpt('vmware_host_username',
                default=None,
-               help='Username for authenticating with VMware ESX/VC server.'),
+               help='Username for authenticating with VMware ESX/vCenter '
+                    'server.'),
     cfg.StrOpt('vmware_host_password',
                default=None,
-               help='Password for authenticating with VMware ESX/VC server.',
+               help='Password for authenticating with VMware ESX/vCenter '
+                    'server.',
                secret=True),
     cfg.StrOpt('vmware_wsdl_location',
                default=None,
@@ -80,12 +82,12 @@ vmdk_opts = [
                     'to default location for bug work-arounds.'),
     cfg.IntOpt('vmware_api_retry_count',
                default=10,
-               help='Number of times VMware ESX/VC server API must be '
+               help='Number of times VMware ESX/vCenter server API must be '
                     'retried upon connection related issues.'),
     cfg.FloatOpt('vmware_task_poll_interval',
                  default=0.5,
                  help='The interval (in seconds) for polling remote tasks '
-                      'invoked on VMware ESX/VC server.'),
+                      'invoked on VMware ESX/vCenter server.'),
     cfg.StrOpt('vmware_volume_folder',
                default='Volumes',
                help='Name of the vCenter inventory folder that will '
@@ -103,10 +105,11 @@ vmdk_opts = [
                     'server and not in one shot. Server may still limit the '
                     'count to something less than the configured value.'),
     cfg.StrOpt('vmware_host_version',
-               help='Optional string specifying the VMware VC server version. '
+               help='Optional string specifying the VMware vCenter server '
+                    'version. '
                     'The driver attempts to retrieve the version from VMware '
-                    'VC server. Set this configuration only if you want to '
-                    'override the VC server version.'),
+                    'vCenter server. Set this configuration only if you want '
+                    'to override the vCenter server version.'),
     cfg.StrOpt('vmware_tmp_dir',
                default='/tmp',
                help='Directory where virtual disks are stored during volume '
@@ -486,7 +489,10 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         hosts = []
         if clusters:
             for cluster in clusters:
-                hosts.extend(self.volumeops.get_cluster_hosts(cluster))
+                cluster_hosts = self.volumeops.get_cluster_hosts(cluster)
+                for host in cluster_hosts:
+                    if self.volumeops.is_host_usable(host):
+                        hosts.append(host)
         return hosts
 
     def _select_datastore(self, req, host=None):
@@ -810,6 +816,8 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
 
         timeout = self.configuration.vmware_image_transfer_timeout_secs
         host_ip = self.configuration.vmware_host_ip
+        ca_file = self.configuration.vmware_ca_file
+        insecure = self.configuration.vmware_insecure
         cookies = self.session.vim.client.options.transport.cookiejar
         dc_name = self.volumeops.get_entity_name(dc_ref)
 
@@ -817,6 +825,13 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
                   {'image_id': image_id,
                    'path': upload_file_path})
         # TODO(vbala): add config option to override non-default port
+
+        # ca_file is used for verifying vCenter certificate if it is set.
+        # If ca_file is unset and insecure is False, the default CA truststore
+        # is used for verification. We should pass cacerts=True in this
+        # case. If ca_file is unset and insecure is True, there is no
+        # certificate verification, and we should pass cacerts=False.
+        cacerts = ca_file if ca_file else not insecure
         image_transfer.download_flat_image(context,
                                            timeout,
                                            image_service,
@@ -827,7 +842,8 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
                                            data_center_name=dc_name,
                                            datastore_name=ds_name,
                                            cookies=cookies,
-                                           file_path=upload_file_path)
+                                           file_path=upload_file_path,
+                                           cacerts=cacerts)
         LOG.debug("Image: %(image_id)s copied to %(path)s.",
                   {'image_id': image_id,
                    'path': upload_file_path})
@@ -1108,7 +1124,7 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         """Creates volume from image using HttpNfc VM import.
 
         Uses Nfc API to download the VMDK file from Glance. Nfc creates the
-        backing VM that wraps the VMDK in the ESX/VC inventory.
+        backing VM that wraps the VMDK in the ESX/vCenter inventory.
         This method assumes glance image is VMDK disk format and its
         vmware_disktype is 'streamOptimized'.
         """
@@ -1129,7 +1145,7 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         disk_type = VMwareEsxVmdkDriver._get_disk_type(volume)
 
         # The size of stream optimized glance image is often suspect,
-        # so better let VC figure out the disk capacity during import.
+        # so better let vCenter figure out the disk capacity during import.
         dummy_disk_size = 0
         extra_config = self._get_extra_config(volume)
         vm_create_spec = self.volumeops.get_create_spec(
@@ -1218,7 +1234,7 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
         This method only supports Glance image of VMDK disk format.
         Uses flat vmdk file copy for "sparse" and "preallocated" disk types
         Uses HttpNfc import API for "streamOptimized" disk types. This API
-        creates a backing VM that wraps the VMDK in the ESX/VC inventory.
+        creates a backing VM that wraps the VMDK in the ESX/vCenter inventory.
 
         :param context: context
         :param volume: Volume object
@@ -1803,12 +1819,12 @@ class VMwareEsxVmdkDriver(driver.VolumeDriver):
 
 
 class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
-    """Manage volumes on VMware VC server."""
+    """Manage volumes on VMware vCenter server."""
 
     # Minimum supported vCenter version.
     MIN_SUPPORTED_VC_VERSION = dist_version.LooseVersion('5.1')
 
-    # PBM is enabled only for VC versions 5.5 and above
+    # PBM is enabled only for vCenter versions 5.5 and above
     PBM_ENABLED_VC_VERSION = dist_version.LooseVersion('5.5')
 
     def _do_deprecation_warning(self):
@@ -1841,10 +1857,10 @@ class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
         return self._session
 
     def _get_vc_version(self):
-        """Connect to VC server and fetch version.
+        """Connect to vCenter server and fetch version.
 
         Can be over-ridden by setting 'vmware_host_version' config.
-        :returns: VC version as a LooseVersion object
+        :returns: vCenter version as a LooseVersion object
         """
         version_str = self.configuration.vmware_host_version
         if version_str:
@@ -1852,7 +1868,7 @@ class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
                          "%s"), version_str)
         else:
             version_str = vim_util.get_vc_version(self.session)
-            LOG.info(_LI("Fetched VC server version: %s"), version_str)
+            LOG.info(_LI("Fetched vCenter server version: %s"), version_str)
         # Convert version_str to LooseVersion and return.
         version = None
         try:
@@ -1876,7 +1892,7 @@ class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""
         super(VMwareVcVmdkDriver, self).do_setup(context)
-        # VC specific setup is done here
+        # vCenter specific setup is done here
 
         # Validate vCenter version.
         vc_version = self._get_vc_version()
@@ -1887,8 +1903,8 @@ class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
             self.pbm_wsdl = pbm.get_pbm_wsdl_location(
                 six.text_type(vc_version))
             if not self.pbm_wsdl:
-                LOG.error(_LE("Not able to configure PBM for VC server: %s"),
-                          vc_version)
+                LOG.error(_LE("Not able to configure PBM for vCenter server: "
+                              "%s"), vc_version)
                 raise exceptions.VMwareDriverException()
             self._storage_policy_enabled = True
             # Destroy current session so that it is recreated with pbm enabled
@@ -1945,17 +1961,22 @@ class VMwareVcVmdkDriver(VMwareEsxVmdkDriver):
         # Check if the current datastore is visible to the host managing
         # the instance and compliant with the storage profile.
         datastore = self.volumeops.get_datastore(backing)
-        backing_profile = self.volumeops.get_profile(backing)
+        backing_profile = None
+        if self._storage_policy_enabled:
+            backing_profile = self.volumeops.get_profile(backing)
         if (self.volumeops.is_datastore_accessible(datastore, host) and
                 self.ds_sel.is_datastore_compliant(datastore,
                                                    backing_profile)):
             LOG.debug("Datastore: %(datastore)s of backing: %(backing)s is "
-                      "already accessible to instance's host: %(host)s and "
-                      "compliant with storage profile: %(profile)s.",
+                      "already accessible to instance's host: %(host)s.",
                       {'backing': backing,
                        'datastore': datastore,
-                       'host': host,
-                       'profile': backing_profile})
+                       'host': host})
+            if backing_profile:
+                LOG.debug("Backing: %(backing)s is compliant with "
+                          "storage profile: %(profile)s.",
+                          {'backing': backing,
+                           'profile': backing_profile})
             return
 
         # We need to relocate the backing to an accessible and profile

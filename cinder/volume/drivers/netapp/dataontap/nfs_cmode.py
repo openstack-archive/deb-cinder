@@ -301,13 +301,23 @@ class NetAppCmodeNfsDriver(nfs_base.NetAppNfsDriver):
                     return vol
         return None
 
-    def _is_share_vol_compatible(self, volume, share):
-        """Checks if share is compatible with volume to host it."""
-        compatible = self._is_share_eligible(share, volume['size'])
+    def _is_share_clone_compatible(self, volume, share):
+        """Checks if share is compatible with volume to host its clone."""
+        thin = self._is_volume_thin_provisioned(volume)
+        compatible = self._share_has_space_for_clone(share,
+                                                     volume['size'],
+                                                     thin)
         if compatible and self.ssc_enabled:
             matched = self._is_share_vol_type_match(volume, share)
             compatible = compatible and matched
         return compatible
+
+    def _is_volume_thin_provisioned(self, volume):
+        if self.configuration.nfs_sparsed_volumes:
+            return True
+        if self.ssc_enabled and volume in self.ssc_vols['thin']:
+            return True
+        return False
 
     def _is_share_vol_type_match(self, volume, share):
         """Checks if share matches volume type."""
@@ -321,7 +331,7 @@ class NetAppCmodeNfsDriver(nfs_base.NetAppNfsDriver):
     def delete_volume(self, volume):
         """Deletes a logical volume."""
         share = volume['provider_location']
-        super(NetAppCmodeNfsDriver, self).delete_volume(volume)
+        self._delete_backing_file_for_volume(volume)
         try:
             qos_policy_group_info = na_utils.get_valid_qos_policy_group_info(
                 volume)
@@ -333,11 +343,59 @@ class NetAppCmodeNfsDriver(nfs_base.NetAppNfsDriver):
             pass
         self._post_prov_deprov_in_ssc(share)
 
+    def _delete_backing_file_for_volume(self, volume):
+        """Deletes file on nfs share that backs a cinder volume."""
+        try:
+            LOG.debug('Deleting backing file for volume %s.', volume['id'])
+            self._delete_volume_on_filer(volume)
+        except Exception:
+            LOG.exception(_LE('Could not do delete of volume %s on filer, '
+                              'falling back to exec of "rm" command.'),
+                          volume['id'])
+            try:
+                super(NetAppCmodeNfsDriver, self).delete_volume(volume)
+            except Exception:
+                LOG.exception(_LE('Exec of "rm" command on backing file for '
+                                  '%s was unsuccessful.'), volume['id'])
+
+    def _delete_volume_on_filer(self, volume):
+        (_vserver, flexvol) = self._get_export_ip_path(volume_id=volume['id'])
+        path_on_filer = '/vol' + flexvol + '/' + volume['name']
+        LOG.debug('Attempting to delete backing file %s for volume %s on '
+                  'filer.', path_on_filer, volume['id'])
+        self.zapi_client.delete_file(path_on_filer)
+
+    @utils.trace_method
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
         share = self._get_provider_location(snapshot.volume_id)
-        super(NetAppCmodeNfsDriver, self).delete_snapshot(snapshot)
+        self._delete_backing_file_for_snapshot(snapshot)
         self._post_prov_deprov_in_ssc(share)
+
+    @utils.trace_method
+    def _delete_backing_file_for_snapshot(self, snapshot):
+        """Deletes file on nfs share that backs a cinder volume."""
+        try:
+            LOG.debug('Deleting backing file for snapshot %s.', snapshot['id'])
+            self._delete_snapshot_on_filer(snapshot)
+        except Exception:
+            LOG.exception(_LE('Could not do delete of snapshot %s on filer, '
+                              'falling back to exec of "rm" command.'),
+                          snapshot['id'])
+            try:
+                super(NetAppCmodeNfsDriver, self).delete_snapshot(snapshot)
+            except Exception:
+                LOG.exception(_LE('Exec of "rm" command on backing file for'
+                                  ' %s was unsuccessful.'), snapshot['id'])
+
+    @utils.trace_method
+    def _delete_snapshot_on_filer(self, snapshot):
+        (_vserver, flexvol) = self._get_export_ip_path(
+            volume_id=snapshot['volume_id'])
+        path_on_filer = '/vol' + flexvol + '/' + snapshot['name']
+        LOG.debug('Attempting to delete backing file %s for snapshot %s '
+                  'on filer.', path_on_filer, snapshot['id'])
+        self.zapi_client.delete_file(path_on_filer)
 
     def _post_prov_deprov_in_ssc(self, share):
         if self.ssc_enabled and share:
@@ -351,15 +409,24 @@ class NetAppCmodeNfsDriver(nfs_base.NetAppNfsDriver):
         try:
             major, minor = self.zapi_client.get_ontapi_version()
             col_path = self.configuration.netapp_copyoffload_tool_path
-            if major == 1 and minor >= 20 and col_path:
-                self._try_copyoffload(context, volume, image_service, image_id)
-                copy_success = True
-                LOG.info(_LI('Copied image %(img)s to volume %(vol)s using '
-                             'copy offload workflow.'),
+            # Search the local image cache before attempting copy offload
+            cache_result = self._find_image_in_cache(image_id)
+            if cache_result:
+                copy_success = self._copy_from_cache(volume, image_id,
+                                                     cache_result)
+                if copy_success:
+                    LOG.info(_LI('Copied image %(img)s to volume %(vol)s '
+                                 'using local image cache.'),
+                             {'img': image_id, 'vol': volume['id']})
+            # Image cache was not present, attempt copy offload workflow
+            if not copy_success and col_path and major == 1 and minor >= 20:
+                LOG.debug('No result found in image cache')
+                self._copy_from_img_service(context, volume, image_service,
+                                            image_id)
+                LOG.info(_LI('Copied image %(img)s to volume %(vol)s using'
+                             ' copy offload workflow.'),
                          {'img': image_id, 'vol': volume['id']})
-            else:
-                LOG.debug("Copy offload either not configured or"
-                          " unsupported.")
+                copy_success = True
         except Exception as e:
             LOG.exception(_LE('Copy offload workflow unsuccessful. %s'), e)
         finally:
@@ -369,16 +436,6 @@ class NetAppCmodeNfsDriver(nfs_base.NetAppNfsDriver):
             if self.ssc_enabled:
                 sh = self._get_provider_location(volume['id'])
                 self._update_stale_vols(self._get_vol_for_share(sh))
-
-    def _try_copyoffload(self, context, volume, image_service, image_id):
-        """Tries server side file copy offload."""
-        copied = False
-        cache_result = self._find_image_in_cache(image_id)
-        if cache_result:
-            copied = self._copy_from_cache(volume, image_id, cache_result)
-        if not cache_result or not copied:
-            self._copy_from_img_service(context, volume, image_service,
-                                        image_id)
 
     def _get_ip_verify_on_cluster(self, host):
         """Verifies if host on same cluster and returns ip."""
