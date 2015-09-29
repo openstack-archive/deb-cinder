@@ -63,8 +63,8 @@ override_dh_install:
 	sed -i 's|#state_path=$pybasedir|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Fix the missing sql_connection directive
-	echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-	echo "sql_connection = sqlite:////var/lib/cinder/cinderdb" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	#echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	#echo "sql_connection = sqlite:////var/lib/cinder/cinderdb" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	install -D -m 0644 $(CURDIR)/etc/cinder/logging_sample.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/logging.conf
 
