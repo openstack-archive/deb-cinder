@@ -40,7 +40,7 @@ override_dh_install:
 		--namespace oslo.concurrency \
 		--namespace oslo.context \
 		--namespace oslo.db \
-		--namesapce oslo.i18n \
+		--namespace oslo.i18n \
 		--namespace oslo.log \
 		--namespace oslo.messaging \
 		--namespace oslo.middleware \
