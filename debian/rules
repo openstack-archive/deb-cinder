@@ -31,23 +31,30 @@ override_dh_install:
 	dh_install --fail-missing -Xbin/cinder-all
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
-	oslo-config-generator --output-file $(CURDIR)/etc/cinder/cinder.conf.sample \
+	mkdir -p $(CURDIR)/debian/cinder-common/usr/share/cinder-common
+	PYTHONPATH=. oslo-config-generator --output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
 		--wrap-width 140 \
 		--namespace cinder \
-		--namespace oslo_concurrency \
-		--namespace oslo_db \
-		--namespace oslo_messaging \
-		--namespace cinder.policy \
 		--namespace keystonemiddleware.auth_token \
-		--namespace cinder.openstack.common.eventlet_backdoor \
-		--namespace cinder.openstack.common.log \
-		--namespace cinder.openstack.common.periodic_task \
-		--namespace cinder.openstack.common.policy \
-		--namespace oslo_db.concurrency
-	install -D -m 0644 $(CURDIR)/etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+		--namespace oslo.config \
+		--namespace oslo.concurrency \
+		--namespace oslo.context \
+		--namespace oslo.db \
+		--namesapce oslo.i18n \
+		--namespace oslo.log \
+		--namespace oslo.messaging \
+		--namespace oslo.middleware \
+		--namespace oslo.policy \
+		--namespace oslo.reports \
+		--namespace oslo.rootwrap \
+		--namespace oslo.serialization \
+		--namespace oslo.service \
+		--namespace oslo.utils \
+		--namespace oslo.versionedobjects \
+		--namespace oslo.vmware
 
 	# Disable https in default setup, as this makes our CI fail
-	sed -i 's/#auth_protocol=https/auth_protocol=http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	sed -i 's/^[ \t#]*auth_protocol[ \t]*=[ \t].*/auth_protocol = http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Default to keystone auth
 	sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
