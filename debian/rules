@@ -32,26 +32,28 @@ override_dh_install:
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
 	mkdir -p $(CURDIR)/debian/cinder-common/usr/share/cinder-common
-	PYTHONPATH=. oslo-config-generator --output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
-		--wrap-width 140 \
-		--namespace cinder \
-		--namespace keystonemiddleware.auth_token \
-		--namespace oslo.config \
-		--namespace oslo.concurrency \
-		--namespace oslo.context \
-		--namespace oslo.db \
-		--namespace oslo.i18n \
-		--namespace oslo.log \
-		--namespace oslo.messaging \
-		--namespace oslo.middleware \
-		--namespace oslo.policy \
-		--namespace oslo.reports \
-		--namespace oslo.rootwrap \
-		--namespace oslo.serialization \
-		--namespace oslo.service \
-		--namespace oslo.utils \
-		--namespace oslo.versionedobjects \
-		--namespace oslo.vmware
+	$(CURDIR)/tools/config/generate_sample.sh from_tox
+#	PYTHONPATH=. oslo-config-generator --output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
+#		--wrap-width 140 \
+#		--namespace cinder \
+#		--namespace keystonemiddleware.auth_token \
+#		--namespace oslo.config \
+#		--namespace oslo.concurrency \
+#		--namespace oslo.context \
+#		--namespace oslo.db \
+#		--namespace oslo.i18n \
+#		--namespace oslo.log \
+#		--namespace oslo.messaging \
+#		--namespace oslo.middleware \
+#		--namespace oslo.policy \
+#		--namespace oslo.reports \
+#		--namespace oslo.rootwrap \
+#		--namespace oslo.serialization \
+#		--namespace oslo.service \
+#		--namespace oslo.utils \
+#		--namespace oslo.versionedobjects \
+#		--namespace oslo.vmware
+	cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Disable https in default setup, as this makes our CI fail
 	sed -i 's/^[ \t#]*auth_protocol[ \t]*=[ \t].*/auth_protocol = http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
