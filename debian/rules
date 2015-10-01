@@ -59,14 +59,17 @@ override_dh_install:
 	./debian/gen-fixed-config
 	#cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
+	# Set a default value for lock_path
+	sed -i 's|^[ \t#]*lock_path[ \t]*=.*|lock_path = /var/lock/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+
 	# Disable https in default setup, as this makes our CI fail
-	sed -i 's/^[ \t#]*auth_protocol[ \t]*=[ \t].*/auth_protocol = http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	sed -i 's/^[ \t#]*auth_protocol[ \t]*=.*/auth_protocol = http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Default to keystone auth
 	sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Write only in /var/lib/cinder please
-	sed -i 's|#state_path=$pybasedir|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	sed -i 's|#[ \t#]*state_path[ \t]*=.*|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Fix the missing sql_connection directive
 	#echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
