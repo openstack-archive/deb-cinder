@@ -53,7 +53,11 @@ override_dh_install:
 #		--namespace oslo.utils \
 #		--namespace oslo.versionedobjects \
 #		--namespace oslo.vmware
-	cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	# The generator is currently missing enabled_backend and the [lvm]
+	# section. This script fixes it until upstream gets smarter.
+	chmod +x debian/gen-fixed-config
+	./debian/gen-fixed-config
+	#cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
 	# Disable https in default setup, as this makes our CI fail
 	sed -i 's/^[ \t#]*auth_protocol[ \t]*=[ \t].*/auth_protocol = http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf

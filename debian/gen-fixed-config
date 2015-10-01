@@ -1,0 +1,26 @@
+#!/bin/sh
+
+set -e
+set -x
+
+#tools/config/generate_sample.sh
+
+SOURCE=etc/cinder/cinder.conf.sample
+DESTIN=debian/cinder-common/usr/share/cinder-common/cinder.conf
+
+TMP_FILE=`mktemp -t build-cinder-XXXXXX`
+TMP_FILE2=`mktemp -t build-cinder-XXXXXX`
+NUM_LINES=`cat ${SOURCE} | wc -l`
+NUM_LINES_MINUS_ONE=$(( ${NUM_LINES} - 1 ))
+tail -n ${NUM_LINES_MINUS_ONE} ${SOURCE} > ${TMP_FILE}
+echo "[DEFAULT]" >${DESTIN}
+
+echo "enabled_backends = lvm" >>${DESTIN}
+
+cat ${TMP_FILE} >>${DESTIN}
+echo "[lvm]
+volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
+volume_group = pkgosvg0
+iscsi_protocol = iscsi
+iscsi_helper = tgtadm  
+" >>${DESTIN}
