@@ -1,0 +1,276 @@
+Subject: Missing configuration opts from cinder.sample.conf
+ The logic for writing opts registered with register_opt() to the
+ auto-generated opts.py file was flawed in that the directories where
+ there were opts being registered with this method would be imported,
+ but the actual opt would be missed when looking through the file for
+ the name of the opt being registered. Now the singular opts are being
+ caught and written to opts.py for the oslo-config-generator to process.
+ .
+ The 'backend' section was added to generate_cinder_opts.py
+ due to some of the missing opts being a part of that section.
+ .
+ Also the way some of the opts that were being registered with groups
+ were incorrect and so this addresses those in both how they were
+ processed in generate_cinder_opts.py and the files in which they are being
+ registered.
+ .
+ There is also one change to the name of an opt in cinder/volume/api.py.
+ Instances such as this one will be caught by the in-progress hacking
+ check patch: https://review.openstack.org/#/c/223375/
+Author: Kendall Nelson <kjnelson@us.ibm.com>
+Date: Mon, 21 Sep 2015 18:11:19 +0000 (-0500)
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fcinder.git;a=commitdiff_plain;h=10f5e92e1246dd33b244c4a7031bb81b17b240a3
+Change-Id: I8d333d7529d40f3a3b3651ca3a52c0048d96b99a
+Bug-Ubuntu: https://bugs.launchpad.net/cinder/+bug/1498122
+Origin: upstream, https://review.openstack.org/#/c/225974/
+Last-Update: 2015-09-01
+
+diff --git a/cinder/config/generate_cinder_opts.py b/cinder/config/generate_cinder_opts.py
+index 9fa8d13..50c206b 100644
+--- a/cinder/config/generate_cinder_opts.py
++++ b/cinder/config/generate_cinder_opts.py
+@@ -19,6 +19,8 @@ if __name__ == "__main__":
+     opt_file = open("cinder/opts.py", 'a')
+     opt_dict = {}
+     dir_trees_list = []
++    REGISTER_OPTS_STR = "CONF.register_opts("
++    REGISTER_OPT_STR = "CONF.register_opt("
+ 
+     opt_file.write("import copy\n")
+     opt_file.write("import itertools\n\n")
+@@ -31,11 +33,11 @@ if __name__ == "__main__":
+                      '+  | sed -e "s/^' + basedir +
+                      '\///g" | sort -u')
+ 
+-    cmd_opts = common_string % "CONF.register_opts("
++    cmd_opts = common_string % REGISTER_OPTS_STR
+     output_opts = subprocess.check_output('{}'.format(cmd_opts), shell = True)
+     dir_trees_list = output_opts.split()
+ 
+-    cmd_opt = common_string % "CONF.register_opt("
++    cmd_opt = common_string % REGISTER_OPT_STR
+     output_opt = subprocess.check_output('{}'.format(cmd_opt), shell = True)
+     temp_list = output_opt.split()
+ 
+@@ -84,21 +86,29 @@ if __name__ == "__main__":
+                             'BRCD_FABRIC_EXAMPLE': [],
+                             'CISCO_FABRIC_EXAMPLE': [],
+                             'profiler': [],
++                            'backend': [],
+                             'DEFAULT': [], }
+ 
+     def _write_item(opts):
+         list_name = opts[-3:]
+-        if list_name.lower() == "opts":
++        if list_name.lower() == "opt":
+             opt_file.write("            [" + opts.strip("\n") + "],\n")
+         else:
+             opt_file.write("            " + opts.strip("\n") + ",\n")
+ 
++    def _retrieve_name(aline):
++        if REGISTER_OPT_STR in aline:
++            str_to_replace = REGISTER_OPT_STR
++        else:
++            str_to_replace = REGISTER_OPTS_STR
++        return aline.replace(str_to_replace, "")
++
+     for key in opt_dict:
+         fd = os.open(opt_dict[key], os.O_RDONLY)
+         afile = os.fdopen(fd, "r")
+ 
+         for aline in afile:
+-            exists = aline.find("CONF.register_opts(")
++            exists = aline.find("CONF.register_opt")
+             if exists != -1:
+                 # TODO(kjnelson) FIX THIS LATER. These are instances where
+                 # CONF.register_opts is happening without actually registering
+@@ -109,41 +119,48 @@ if __name__ == "__main__":
+                     continue
+ 
+                 if aline.find("fc-zone-manager") != -1:
+-                    fc_zm_list = aline.replace("CONF.register_opts(", '')
+-                    fc_zm_list = fc_zm_list.replace(", 'fc-zone-manager')", '')
+-                    fc_zm_list.strip()
++                    fc_zm_list = _retrieve_name(aline)
++                    replace_string = ", group='fc-zone-manager')"
++                    fc_zm_list = fc_zm_list.replace(replace_string, '')
++                    fc_zm_list = fc_zm_list.strip()
+                     line = key + "." + fc_zm_list
+                     registered_opts_dict['fc-zone-manager'].append(line)
+                 elif aline.find("keymgr") != -1:
+-                    keymgr_list = aline.replace("CONF.register_opts(", '')
++                    keymgr_list = _retrieve_name(aline)
+                     keymgr_list = keymgr_list.replace(", group='keymgr')", '')
+-                    keymgr_list = keymgr_list.replace(", 'keymgr')", '')
+-                    keymgr_list.strip()
++                    keymgr_list = keymgr_list.strip()
+                     line = key + "." + keymgr_list
+                     registered_opts_dict['keymgr'].append(line)
+                 elif aline.find("BRCD_FABRIC_EXAMPLE") != -1:
+-                    brcd_list = aline.replace("CONF.register_opts(", '')
+-                    replace_string = ", 'BRCD_FABRIC_EXAMPLE')"
++                    brcd_list = _retrieve_name(aline)
++                    replace_string = ", group='BRCD_FABRIC_EXAMPLE')"
+                     brcd_list = brcd_list.replace(replace_string, '')
+-                    brcd_list.strip()
++                    brcd_list = brcd_list.strip()
+                     line = key + "." + brcd_list
+                     registered_opts_dict['BRCD_FABRIC_EXAMPLE'].append(line)
+                 elif aline.find("CISCO_FABRIC_EXAMPLE") != -1:
+-                    cisco_list = aline.replace("CONF.register_opts(", '')
+-                    replace_string = ", 'CISCO_FABRIC_EXAMPLE')"
++                    cisco_list = _retrieve_name(aline)
++                    replace_string = ", group='CISCO_FABRIC_EXAMPLE')"
+                     cisco_list = cisco_list.replace(replace_string, '')
+-                    cisco_list.strip()
++                    cisco_list = cisco_list.strip()
+                     line = key + "." + cisco_list
+                     registered_opts_dict['CISCO_FABRIC_EXAMPLE'].append(line)
+                 elif aline.find("profiler") != -1:
+-                    profiler_list = aline.replace("CONF.register_opts(", '')
++                    profiler_list = _retrieve_name(aline)
+                     replace_string = ', group="profiler")'
+                     profiler_list = profiler_list.replace(replace_string, '')
+-                    profiler_list.strip()
++                    profiler_list = profiler_list.strip()
+                     line = key + "." + profiler_list
+                     registered_opts_dict['profiler'].append(line)
++                elif aline.find("backend") != -1:
++                    backend_list = _retrieve_name(aline)
++                    replace_string = ', group=backend)'
++                    backend_list = backend_list.replace(replace_string, '')
++                    backend_list = backend_list.strip()
++                    line = key + "." + backend_list
++                    registered_opts_dict['backend'].append(line)
+                 else:
+-                    default_list = aline.replace("CONF.register_opts(", '')
++                    default_list = _retrieve_name(aline)
+                     default_list = default_list.replace(')', '').strip()
+                     line = key + "." + default_list
+                     registered_opts_dict['DEFAULT'].append(line)
+@@ -166,6 +183,14 @@ if __name__ == "__main__":
+     for item in registered_opts_dict["profiler"]:
+         _write_item(item)
+ 
++    backend_str = ("    )),\n"
++                   "    ('backend',\n"
++                   "    itertools.chain(\n")
++    opt_file.write(backend_str)
++
++    for item in registered_opts_dict["backend"]:
++        _write_item(item)
++
+     cisco_str = ("    )),\n"
+                  "    ('CISCO_FABRIC_EXAMPLE',\n"
+                  "    itertools.chain(\n")
+diff --git a/cinder/keymgr/key_mgr.py b/cinder/keymgr/key_mgr.py
+index 4d8bbdb..71ed7a7 100644
+--- a/cinder/keymgr/key_mgr.py
++++ b/cinder/keymgr/key_mgr.py
+@@ -32,7 +32,7 @@ encryption_opts = [
+ ]
+ 
+ CONF = cfg.CONF
+-CONF.register_opts(encryption_opts, 'keymgr')
++CONF.register_opts(encryption_opts, group='keymgr')
+ 
+ 
+ @six.add_metaclass(abc.ABCMeta)
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index 03f1d74..5db3a7b 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -52,12 +52,13 @@ from cinder.volume import utils as volume_utils
+ from cinder.volume import volume_types
+ 
+ 
+-allow_force_upload = cfg.BoolOpt('enable_force_upload',
+-                                 default=False,
+-                                 help='Enables the Force option on '
+-                                      'upload_to_image. This enables '
+-                                      'running upload_volume on in-use '
+-                                      'volumes for backends that support it.')
++allow_force_upload_opt = cfg.BoolOpt('enable_force_upload',
++                                     default=False,
++                                     help='Enables the Force option on '
++                                          'upload_to_image. This enables '
++                                          'running upload_volume on in-use '
++                                          'volumes for backends that '
++                                          'support it.')
+ volume_host_opt = cfg.BoolOpt('snapshot_same_host',
+                               default=True,
+                               help='Create volume from snapshot at the host '
+@@ -73,7 +74,7 @@ az_cache_time_opt = cfg.IntOpt('az_cache_duration',
+                                     'seconds')
+ 
+ CONF = cfg.CONF
+-CONF.register_opt(allow_force_upload)
++CONF.register_opt(allow_force_upload_opt)
+ CONF.register_opt(volume_host_opt)
+ CONF.register_opt(volume_same_az_opt)
+ CONF.register_opt(az_cache_time_opt)
+diff --git a/cinder/zonemanager/drivers/brocade/brcd_fabric_opts.py b/cinder/zonemanager/drivers/brocade/brcd_fabric_opts.py
+index 6c1276a..26c8fbe 100644
+--- a/cinder/zonemanager/drivers/brocade/brcd_fabric_opts.py
++++ b/cinder/zonemanager/drivers/brocade/brcd_fabric_opts.py
+@@ -50,7 +50,7 @@ brcd_zone_opts = [
+ ]
+ 
+ CONF = cfg.CONF
+-CONF.register_opts(brcd_zone_opts, 'BRCD_FABRIC_EXAMPLE')
++CONF.register_opts(brcd_zone_opts, group='BRCD_FABRIC_EXAMPLE')
+ LOG = logging.getLogger(__name__)
+ 
+ 
+diff --git a/cinder/zonemanager/drivers/brocade/brcd_fc_zone_driver.py b/cinder/zonemanager/drivers/brocade/brcd_fc_zone_driver.py
+index 696af1f..506888d 100644
+--- a/cinder/zonemanager/drivers/brocade/brcd_fc_zone_driver.py
++++ b/cinder/zonemanager/drivers/brocade/brcd_fc_zone_driver.py
+@@ -52,7 +52,7 @@ brcd_opts = [
+ ]
+ 
+ CONF = cfg.CONF
+-CONF.register_opts(brcd_opts, 'fc-zone-manager')
++CONF.register_opts(brcd_opts, group='fc-zone-manager')
+ 
+ 
+ class BrcdFCZoneDriver(fc_zone_driver.FCZoneDriver):
+diff --git a/cinder/zonemanager/drivers/cisco/cisco_fabric_opts.py b/cinder/zonemanager/drivers/cisco/cisco_fabric_opts.py
+index c105b31..0aa0cea 100644
+--- a/cinder/zonemanager/drivers/cisco/cisco_fabric_opts.py
++++ b/cinder/zonemanager/drivers/cisco/cisco_fabric_opts.py
+@@ -47,7 +47,7 @@ cisco_zone_opts = [
+ ]
+ 
+ CONF = cfg.CONF
+-CONF.register_opts(cisco_zone_opts, 'CISCO_FABRIC_EXAMPLE')
++CONF.register_opts(cisco_zone_opts, group='CISCO_FABRIC_EXAMPLE')
+ 
+ 
+ def load_fabric_configurations(fabric_names):
+diff --git a/cinder/zonemanager/drivers/cisco/cisco_fc_zone_driver.py b/cinder/zonemanager/drivers/cisco/cisco_fc_zone_driver.py
+index 98d4535..85d69b6 100644
+--- a/cinder/zonemanager/drivers/cisco/cisco_fc_zone_driver.py
++++ b/cinder/zonemanager/drivers/cisco/cisco_fc_zone_driver.py
+@@ -50,7 +50,7 @@ cisco_opts = [
+ ]
+ 
+ CONF = cfg.CONF
+-CONF.register_opts(cisco_opts, 'fc-zone-manager')
++CONF.register_opts(cisco_opts, group='fc-zone-manager')
+ 
+ 
+ class CiscoFCZoneDriver(fc_zone_driver.FCZoneDriver):
+diff --git a/cinder/zonemanager/fc_zone_manager.py b/cinder/zonemanager/fc_zone_manager.py
+index ecbbe23..011890b 100644
+--- a/cinder/zonemanager/fc_zone_manager.py
++++ b/cinder/zonemanager/fc_zone_manager.py
+@@ -64,7 +64,7 @@ zone_manager_opts = [
+ ]
+ 
+ CONF = cfg.CONF
+-CONF.register_opts(zone_manager_opts, 'fc-zone-manager')
++CONF.register_opts(zone_manager_opts, group='fc-zone-manager')
+ 
+ 
+ class ZoneManager(fc_common.FCCommon):

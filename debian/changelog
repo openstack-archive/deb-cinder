@@ -4,6 +4,7 @@ cinder (2:7.0.0~rc1-2) experimental; urgency=medium
   * Fixed cinder.conf generation.
   * cinder-api also registering the volumev2 type.
   * Fixed the default path for lock_path.
+  * Added upstream patch for fixing config file generation.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 29 Sep 2015 13:23:42 +0000
 
