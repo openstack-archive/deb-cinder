@@ -6,7 +6,8 @@ set -e
 
 if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/debconf/confmodule
-	pkgos_register_endpoint_postinst cinder cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
+	pkgos_register_endpoint_postinst cinder cinder volume "OpenStack Block Storage" 8776 /v2/'%(tenant_id)s'
+	pkgos_register_endpoint_postinst cinder cinderv2 volumev2 "Cinder Volume Service" 8776 /v2/'%(tenant_id)s'
 	db_stop
 fi
 
