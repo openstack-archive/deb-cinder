@@ -1,2 +1,3 @@
 install-missing-files.patch
 disable-zfs-tests.patch
+Downstream_Fix_for_Genconfig.patch
