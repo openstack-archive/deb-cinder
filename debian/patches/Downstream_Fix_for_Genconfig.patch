@@ -1,22 +1,15 @@
-From: Kendall Nelson <kjnelson@us.ibm.com>
-Date: Wed, 7 Oct 2015 13:53:38 +0000 (-0500)
-Subject: Downstream Fix for Genconfig
-X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fcinder.git;a=commitdiff_plain;h=54fd32a70f9539703d57bebc4c321452debda01c
-
-Downstream Fix for Genconfig
-
-This patch adds the opts.py file to the tree as a fix for deployers
-that package cinder. The opts.py file is no longer being deleted right
-away by generate_sample.sh after the cinder.sample.conf is being
-generated.
-
-This patch also introduces a pep8 check to make sure that the opts.py
-file is up to date, so that it will catch when new opts get added to
-Cinder without the opts.py being updated.
-
-To support the ability to keep and check the opts file a number
-of changes were needed in the check_uptodate.sh script as well as
-the generate_sample.sh script:
+Description: Downstream Fix for Genconfig
+ This patch adds the opts.py file to the tree as a fix for deployers that
+ package cinder. The opts.py file is no longer being deleted right away by
+ generate_sample.sh after the cinder.sample.conf is being generated.
+ .
+ This patch also introduces a pep8 check to make sure that the opts.py file is
+ up to date, so that it will catch when new opts get added to Cinder without
+ the opts.py being updated.
+ .
+ To support the ability to keep and check the opts file a number of changes
+ were needed in the check_uptodate.sh script as well as the generate_sample.sh
+ script:
     - check_uptodate now takes --checkopts instead of --checkonly
       When checkopts is used the opts.py file is generated using the
       current code and the generated file is compared to the existing
@@ -28,19 +21,18 @@ the generate_sample.sh script:
     - generate_sample also has some coding style consistency changes.
     - Added the 'genopts' option to tox so users can generate
       a fresh opts.py without a sample file when necessary.
-
-Closes-Bug: 1501820
+Author: Kendall Nelson <kjnelson@us.ibm.com>
+Date: Wed, 7 Oct 2015 13:53:38 +0000 (-0500)
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fcinder.git;a=commitdiff_plain;h=54fd32a70f9539703d57bebc4c321452debda01c
+Bug-Ubuntu: https://bugs.launchpad.net/cinder/+bug/1501820
 Co-Author: Jay Bryant <jsbryant@us.ibm.com>
-
 Change-Id: I1f5494ebb19d5f4e8c651cbeef0acad07ad96829
----
+Origin: upstream, https://review.openstack.org/#/c/232205/
+Last-Update: 2015-09-08
 
-diff --git a/cinder/opts.py b/cinder/opts.py
-new file mode 100644
-index 0000000..3583915
 --- /dev/null
-+++ b/cinder/opts.py
-@@ -0,0 +1,335 @@
++++ cinder-7.0.0~rc1/cinder/opts.py
+@@ -0,0 +1,330 @@
 +# Licensed under the Apache License, Version 2.0 (the "License");
 +# you may not use this file except in compliance with the License.
 +# You may obtain a copy of the License at
@@ -190,8 +182,6 @@ index 0000000..3583915
 +from cinder.volume.drivers.windows import windows as \
 +    cinder_volume_drivers_windows_windows
 +from cinder.volume.drivers import xio as cinder_volume_drivers_xio
-+from cinder.volume.drivers.zfssa import zfssaiscsi as \
-+    cinder_volume_drivers_zfssa_zfssaiscsi
 +from cinder.volume.drivers.zfssa import zfssanfs as \
 +    cinder_volume_drivers_zfssa_zfssanfs
 +from cinder.volume import manager as cinder_volume_manager
@@ -278,7 +268,6 @@ index 0000000..3583915
 +                cinder_scheduler_weights_volumenumber.
 +                volume_number_weight_opts,
 +                cinder_volume_drivers_xio.XIO_OPTS,
-+                cinder_volume_drivers_zfssa_zfssaiscsi.ZFSSA_OPTS,
 +                cinder_wsgi_eventletserver.socket_opts,
 +                cinder_wsgi_eventletserver.eventlet_opts,
 +                cinder_volume_driver.volume_opts,
@@ -289,7 +278,6 @@ index 0000000..3583915
 +                cinder_volume_drivers_san_hp_hpmsacommon.common_opts,
 +                cinder_volume_drivers_san_hp_hpmsacommon.iscsi_opts,
 +                cinder_image_glance.glance_opts,
-+                cinder_image_glance.glance_core_properties_opts,
 +                cinder_volume_drivers_lvm.volume_opts,
 +                cinder_volume_drivers_emc_emcvmaxcommon.emc_opts,
 +                cinder_volume_drivers_remotefs.nas_opts,
@@ -331,7 +319,6 @@ index 0000000..3583915
 +                cinder_volume_drivers_ibm_flashsystemiscsi.
 +                flashsystem_iscsi_opts,
 +                cinder_volume_drivers_ibm_flashsystemcommon.flashsystem_opts,
-+                [cinder_volume_api.allow_force_upload_opt],
 +                [cinder_volume_api.volume_host_opt],
 +                [cinder_volume_api.volume_same_az_opt],
 +                [cinder_volume_api.az_cache_time_opt],
