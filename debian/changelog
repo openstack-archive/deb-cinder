@@ -1,4 +1,4 @@
-cinder (2:7.0.0~rc1-2) experimental; urgency=medium
+cinder (2:7.0.0~rc2-1) experimental; urgency=medium
 
   * cinder-api depends on python-openstackclient.
   * cinder-api also registering the volumev2 type.
