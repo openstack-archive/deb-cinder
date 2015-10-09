@@ -59,20 +59,6 @@ fake_smartx_value = {'smarttier': 'true',
                      'partitionname': 'partition-test',
                      }
 
-error_volume = {'name': 'volume-21ec7341-9256-497b-97d9-ef48edcf0637',
-                'size': 2,
-                'volume_name': 'vol2',
-                'id': '21ec7341-9256-497b-97d9-ef48edcf0637',
-                'volume_id': '21ec7341-9256-497b-97d9-ef48edcf0637',
-                'provider_auth': None,
-                'project_id': 'project',
-                'display_name': 'vol2',
-                'display_description': 'test error_volume',
-                'volume_type_id': None,
-                'host': 'ubuntu@huawei#OpenStack_Pool_error',
-                'provider_location': '12',
-                }
-
 test_snap = {'name': 'volume-21ec7341-9256-497b-97d9-ef48edcf0635',
              'size': 1,
              'volume_name': 'vol1',
@@ -1475,9 +1461,6 @@ class Huawei18000ISCSIDriverTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_volume, test_volume)
 
-        self.assertRaises(exception.VolumeBackendAPIException,
-                          self.driver.create_volume, error_volume)
-
     def test_delete_volume_fail(self):
         self.driver.restclient.login()
         self.driver.restclient.test_fail = True
@@ -1607,7 +1590,13 @@ class Huawei18000ISCSIDriverTestCase(test.TestCase):
                  "ID": "1",
                  "USERFREECAPACITY": "37",
                  "USERTOTALCAPACITY": "49",
-                 "USAGETYPE": constants.FILE_SYSTEM_POOL_TYPE}]}
+                 "USAGETYPE": constants.FILE_SYSTEM_POOL_TYPE},
+                {"NAME": "test003",
+                 "ID": "0",
+                 "USERFREECAPACITY": "36",
+                 "DATASPACE": "35",
+                 "USERTOTALCAPACITY": "48",
+                 "USAGETYPE": constants.BLOCK_STORAGE_POOL_TYPE}]}
         pool_name = 'test001'
         test_info = {'CAPACITY': '36', 'ID': '0', 'TOTALCAPACITY': '48'}
         pool_info = self.driver.restclient.find_pool_info(pool_name, pools)
@@ -1620,6 +1609,11 @@ class Huawei18000ISCSIDriverTestCase(test.TestCase):
 
         pool_name = 'test000'
         test_info = {}
+        pool_info = self.driver.restclient.find_pool_info(pool_name, pools)
+        self.assertEqual(test_info, pool_info)
+
+        pool_name = 'test003'
+        test_info = {'CAPACITY': '35', 'ID': '0', 'TOTALCAPACITY': '48'}
         pool_info = self.driver.restclient.find_pool_info(pool_name, pools)
         self.assertEqual(test_info, pool_info)
 
@@ -1650,6 +1644,49 @@ class Huawei18000ISCSIDriverTestCase(test.TestCase):
         self.driver.restclient.login()
         lun_info = self.driver.create_volume(test_volume)
         self.assertEqual('1', lun_info['provider_location'])
+
+    def test_find_available_qos(self):
+        self.driver.restclient.login()
+        qos = {'MAXIOPS': '100', 'IOType': '2'}
+        fake_qos_info_response_equal = {
+            "error": {
+                "code": 0
+            },
+            "data": [{
+                "ID": "11",
+                "MAXIOPS": "100",
+                "IOType": "2",
+                "LUNLIST": u'["1", "2", "3", "4", "5", "6", "7", "8", "9",\
+                "10", ,"11", "12", "13", "14", "15", "16", "17", "18", "19",\
+                "20", ,"21", "22", "23", "24", "25", "26", "27", "28", "29",\
+                "30", ,"31", "32", "33", "34", "35", "36", "37", "38", "39",\
+                "40", ,"41", "42", "43", "44", "45", "46", "47", "48", "49",\
+                "50", ,"51", "52", "53", "54", "55", "56", "57", "58", "59",\
+                "60", ,"61", "62", "63", "64"]'
+            }]
+        }
+        # Number of LUNs in QoS is equal to 64
+        with mock.patch.object(rest_client.RestClient, 'get_qos',
+                               return_value=fake_qos_info_response_equal):
+            (qos_id, lun_list) = self.driver.restclient.find_available_qos(qos)
+            self.assertEqual((None, []), (qos_id, lun_list))
+
+        # Number of LUNs in QoS is less than 64
+        fake_qos_info_response_less = {
+            "error": {
+                "code": 0
+            },
+            "data": [{
+                "ID": "11",
+                "MAXIOPS": "100",
+                "IOType": "2",
+                "LUNLIST": u'["0", "1", "2"]'
+            }]
+        }
+        with mock.patch.object(rest_client.RestClient, 'get_qos',
+                               return_value=fake_qos_info_response_less):
+            (qos_id, lun_list) = self.driver.restclient.find_available_qos(qos)
+            self.assertEqual(("11", u'["0", "1", "2"]'), (qos_id, lun_list))
 
     def create_fake_conf_file(self):
         """Create a fake Config file.
@@ -1686,11 +1723,6 @@ class Huawei18000ISCSIDriverTestCase(test.TestCase):
                                       'deviceManager/rest/')
         url.appendChild(url_text)
         storage.appendChild(url)
-
-        storagepool = doc.createElement('StoragePool')
-        pool_text = doc.createTextNode('OpenStack_Pool')
-        storagepool.appendChild(pool_text)
-        storage.appendChild(storagepool)
 
         lun = doc.createElement('LUN')
         config.appendChild(lun)
@@ -1837,9 +1869,6 @@ class Huawei18000FCDriverTestCase(test.TestCase):
         self.driver.restclient.test_fail = True
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_volume, test_volume)
-
-        self.assertRaises(exception.VolumeBackendAPIException,
-                          self.driver.create_volume, error_volume)
 
     def test_delete_volume_fail(self):
         self.driver.restclient.login()
@@ -2157,11 +2186,6 @@ class Huawei18000FCDriverTestCase(test.TestCase):
                                       'deviceManager/rest/')
         url.appendChild(url_text)
         storage.appendChild(url)
-
-        storagepool = doc.createElement('StoragePool')
-        pool_text = doc.createTextNode('OpenStack_Pool')
-        storagepool.appendChild(pool_text)
-        storage.appendChild(storagepool)
 
         lun = doc.createElement('LUN')
         config.appendChild(lun)

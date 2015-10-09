@@ -216,7 +216,8 @@ class RestClient(object):
                        item['USAGETYPE'] == constants.FILE_SYSTEM_POOL_TYPE):
                         break
                     pool_info['ID'] = item['ID']
-                    pool_info['CAPACITY'] = item['USERFREECAPACITY']
+                    pool_info['CAPACITY'] = item.get('DATASPACE',
+                                                     item['USERFREECAPACITY'])
                     pool_info['TOTALCAPACITY'] = item['USERTOTALCAPACITY']
                     break
         return pool_info
@@ -1479,13 +1480,17 @@ class RestClient(object):
         result = self.call(url, data, "PUT")
         self._assert_rest_result(result, _('Remove lun from cache error.'))
 
+    def get_qos(self):
+        url = "/ioclass"
+        result = self.call(url, None, "GET")
+        self._assert_rest_result(result, _('Get QoS information error.'))
+        return result
+
     def find_available_qos(self, qos):
         """"Find available QoS on the array."""
         qos_id = None
         lun_list = []
-        url = "/ioclass"
-        result = self.call(url, None, "GET")
-        self._assert_rest_result(result, _('Get QoS information error.'))
+        result = self.get_qos()
 
         if 'data' in result:
             for item in result['data']:
@@ -1496,7 +1501,11 @@ class RestClient(object):
                     elif qos[key] != item[key]:
                         break
                     qos_flag = qos_flag + 1
-                if qos_flag == len(qos):
+                lun_num = len(item['LUNLIST'].split(","))
+                # We use this QoS only if the LUNs in it is less than 64,
+                # else we cannot add LUN to this QoS any more.
+                if (qos_flag == len(qos)
+                        and lun_num < constants.MAX_LUN_NUM_IN_QOS):
                     qos_id = item['ID']
                     lun_list = item['LUNLIST']
                     break
