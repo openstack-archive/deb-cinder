@@ -1,3 +1,9 @@
+cinder (2:7.0.0~rc2-2) experimental; urgency=medium
+
+  * Setup both v1 and v2 endpoints.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 12 Oct 2015 21:41:08 +0000
+
 cinder (2:7.0.0~rc2-1) experimental; urgency=medium
 
   * cinder-api depends on python-openstackclient.

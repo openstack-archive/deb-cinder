@@ -6,7 +6,58 @@ set -e
 
 if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/debconf/confmodule
-	pkgos_register_endpoint_postinst cinder cinderv2 volumev2 "Cinder Volume Service" 8776 /v2/'%(tenant_id)s'
+
+	# We need special handling for Cinder, as it needs 2 endpoints
+	PKG_NAME=cinder
+	db_get ${PKG_NAME}/register-endpoint
+	if [ "${RET}" = "true" ] ; then
+		# Setup the v1 endpoint
+		db_get ${PKG_NAME}/keystone-ip
+		KEYSTONE_ENDPOINT_IP=`echo ${RET} | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'`
+		db_get ${PKG_NAME}/keystone-auth-token
+		AUTH_TOKEN=${RET}
+		db_get ${PKG_NAME}/endpoint-ip
+		PKG_ENDPOINT_IP=`echo ${RET} | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'`
+		db_get ${PKG_NAME}/region-name
+		REGION_NAME=${RET}
+
+		if [ -n "${KEYSTONE_ENDPOINT_IP}" ] && [ -n "${PKG_ENDPOINT_IP}" ] && [ -n "${REGION_NAME}" ] && [ -n "${AUTH_TOKEN}" ] ; then
+		        SERVICE_NAME=cinder
+		        SERVICE_TYPE=volume
+			SERVICE_DESC="OpenStack Block Storage"
+			SERVICE_PORT=8776
+			SERVICE_URL=/v1/'%(tenant_id)s'
+			echo "Registering service and endpoints for ${SERVICE_NAME} with type ${SERVICE_TYPE} at http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}"
+			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ service create \
+				--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
+			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ endpoint create \
+				--region "${REGION_NAME}" \
+				--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
+				--internalurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
+				--adminurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} ${SERVICE_NAME}
+		        SERVICE_NAME=cinderv2
+		        SERVICE_TYPE=volumev2
+			SERVICE_DESC="OpenStack Block Storage v2"
+			SERVICE_PORT=8776
+			SERVICE_URL=/v2/'%(tenant_id)s'
+			echo "Registering service and endpoints for ${SERVICE_NAME} with type ${SERVICE_TYPE} at http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}"
+			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ service create \
+				--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
+			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ endpoint create \
+				--region "${REGION_NAME}" \
+				--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
+				--internalurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
+				--adminurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} ${SERVICE_NAME}
+#			pkgos_register_endpoint_postinst cinder cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
+#			pkgos_register_endpoint_postinst cinder cinderv2 volumev2 "Cinder Volume Service" 8776 /v2/'%(tenant_id)s'
+		else
+			echo "Problem in endpoint parameter (IPs or otherwise)."
+		fi
+		db_unregister ${PKG_NAME}/register-endpoint
+	else
+		echo "Will not register "${SERVICE_NAME}" endpoint this time (no user request for it)."
+	fi
+	db_unregister ${PKG_NAME}/keystone-auth-token
 	db_stop
 fi
 
