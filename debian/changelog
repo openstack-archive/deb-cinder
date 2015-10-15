@@ -1,8 +1,9 @@
-cinder (2:7.0.0~rc2-2) experimental; urgency=medium
+cinder (2:7.0.0-1) experimental; urgency=medium
 
+  * New upstream release.
   * Setup both v1 and v2 endpoints.
 
- -- Thomas Goirand <zigo@debian.org>  Mon, 12 Oct 2015 21:41:08 +0000
+ -- Thomas Goirand <zigo@debian.org>  Thu, 15 Oct 2015 15:49:18 +0200
 
 cinder (2:7.0.0~rc2-1) experimental; urgency=medium
 
