@@ -1,3 +1,9 @@
+cinder (2:7.0.0-3) unstable; urgency=medium
+
+  * Using Keystone API v3 to register in the catalog.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 02 Nov 2015 18:19:42 +0000
+
 cinder (2:7.0.0-2) unstable; urgency=medium
 
   * Uploading to unstable.

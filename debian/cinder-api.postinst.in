@@ -28,26 +28,41 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 			SERVICE_PORT=8776
 			SERVICE_URL=/v1/'%(tenant_id)s'
 			echo "Registering service and endpoints for ${SERVICE_NAME} with type ${SERVICE_TYPE} at http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}"
-			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ service create \
-				--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
-			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ endpoint create \
-				--region "${REGION_NAME}" \
-				--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
-				--internalurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
-				--adminurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} ${SERVICE_NAME}
+			NUM_LINES=$(openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service list --format=csv | q -d , -H 'SELECT ID FROM - WHERE `Type`="'${SERVICE_TYPE}'"' | wc -l)
+			if [ "${NUM_LINES}" = "0" ] ; then
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service create \
+					--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
+
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
+					--region "${REGION_NAME}" ${SERVICE_NAME} public http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
+					--region "${REGION_NAME}" ${SERVICE_NAME} internal http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
+					--region "${REGION_NAME}" ${SERVICE_NAME} admin http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+			fi
+
 		        SERVICE_NAME=cinderv2
 		        SERVICE_TYPE=volumev2
 			SERVICE_DESC="OpenStack Block Storage v2"
 			SERVICE_PORT=8776
 			SERVICE_URL=/v2/'%(tenant_id)s'
 			echo "Registering service and endpoints for ${SERVICE_NAME} with type ${SERVICE_TYPE} at http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}"
-			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ service create \
-				--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
-			openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v2.0/ endpoint create \
-				--region "${REGION_NAME}" \
-				--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \--publicurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
-				--internalurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} \
-				--adminurl=http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL} ${SERVICE_NAME}
+			NUM_LINES=$(openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service list --format=csv | q -d , -H 'SELECT ID FROM - WHERE `Type`="'${SERVICE_TYPE}'"' | wc -l)
+			if [ "${NUM_LINES}" = "0" ] ; then
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service create \
+					--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
+
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
+					--region "${REGION_NAME}" ${SERVICE_NAME} public http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
+					--region "${REGION_NAME}" ${SERVICE_NAME} internal http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+
+				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
+					--region "${REGION_NAME}" ${SERVICE_NAME} admin http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+			fi
 #			pkgos_register_endpoint_postinst cinder cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
 #			pkgos_register_endpoint_postinst cinder cinderv2 volumev2 "Cinder Volume Service" 8776 /v2/'%(tenant_id)s'
 		else
