@@ -1,3 +1,9 @@
+cinder (2:7.0.0-4) unstable; urgency=medium
+
+  * Added q-text-as-data as depends for cinder-api.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 03 Nov 2015 11:32:01 +0000
+
 cinder (2:7.0.0-3) unstable; urgency=medium
 
   * Using Keystone API v3 to register in the catalog.
