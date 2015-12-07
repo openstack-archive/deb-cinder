@@ -1,3 +1,9 @@
+cinder (2:8.0.0~b1-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 07 Dec 2015 14:05:41 +0100
+
 cinder (2:7.0.0-4) unstable; urgency=medium
 
   * Added q-text-as-data as depends for cinder-api.
