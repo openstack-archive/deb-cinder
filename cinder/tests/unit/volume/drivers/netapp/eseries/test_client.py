@@ -70,18 +70,21 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
 
             self.assertEqual(status_code, exc.status_code)
 
-    def test_eval_response_422(self):
+    @ddt.data(('30', 'storage array password.*?incorrect'),
+              ('authFailPassword', 'storage array password.*?incorrect'),
+              ('unknown', None))
+    @ddt.unpack
+    def test_eval_response_422(self, ret_code, exc_regex):
         status_code = 422
-        resp_text = "Fake Error Message"
         fake_resp = mock.Mock()
+        fake_resp.text = "fakeError"
+        fake_resp.json = mock.Mock(return_value={'retcode': ret_code})
         fake_resp.status_code = status_code
-        fake_resp.text = resp_text
-        expected_msg = "Response error - %s." % resp_text
+        exc_regex = exc_regex if exc_regex is not None else fake_resp.text
 
-        with self.assertRaisesRegex(es_exception.WebServiceException,
-                                    expected_msg) as exc:
+        with self.assertRaisesRegexp(es_exception.WebServiceException,
+                                     exc_regex) as exc:
             self.my_client._eval_response(fake_resp)
-
             self.assertEqual(status_code, exc.status_code)
 
     def test_register_storage_system_does_not_log_password(self):
@@ -629,6 +632,19 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
                                                        )
         self.assertDictMatch(expected_volume, updated_volume)
 
+    def test_get_pool_operation_progress(self):
+        fake_pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        fake_response = copy.deepcopy(eseries_fake.FAKE_POOL_ACTION_PROGRESS)
+        self.my_client._invoke = mock.Mock(return_value=fake_response)
+
+        response = self.my_client.get_pool_operation_progress(fake_pool['id'])
+
+        url = self.my_client.RESOURCE_PATHS.get('pool_operation_progress')
+        self.my_client._invoke.assert_called_once_with('GET', url,
+                                                       **{'object-id':
+                                                          fake_pool['id']})
+        self.assertEqual(fake_response, response)
+
     def test_extend_volume(self):
         new_capacity = 10
         fake_volume = copy.deepcopy(eseries_fake.VOLUME)
@@ -638,27 +654,33 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
         self.my_client._invoke = mock.Mock(return_value=fake_volume)
 
         expanded_volume = self.my_client.expand_volume(fake_volume['id'],
-                                                       new_capacity)
+                                                       new_capacity, False)
 
-        url = self.my_client.RESOURCE_PATHS.get('ssc_volume')
-        body = {'newSize': new_capacity, 'sizeUnit': 'gb'}
+        url = self.my_client.RESOURCE_PATHS.get('volume_expand')
+        body = {'expansionSize': new_capacity, 'sizeUnit': 'gb'}
         self.my_client._invoke.assert_called_once_with('POST', url, body,
                                                        **{'object-id':
                                                           fake_volume['id']})
         self.assertEqual(fake_volume, expanded_volume)
 
-    def test_extend_volume_unsupported(self):
+    def test_extend_volume_thin(self):
         new_capacity = 10
-        min_version = 1
         fake_volume = copy.deepcopy(eseries_fake.VOLUME)
         self.my_client.features = mock.Mock()
         self.my_client.features.SSC_API_V2 = na_utils.FeatureState(
-            supported=False, minimum_version=min_version)
+            supported=True)
         self.my_client._invoke = mock.Mock(return_value=fake_volume)
 
-        self.assertRaises(exception.NetAppDriverException,
-                          self.my_client.expand_volume, fake_volume['id'],
-                          new_capacity)
+        expanded_volume = self.my_client.expand_volume(fake_volume['id'],
+                                                       new_capacity, True)
+
+        url = self.my_client.RESOURCE_PATHS.get('thin_volume_expand')
+        body = {'newVirtualSize': new_capacity, 'sizeUnit': 'gb',
+                'newRepositorySize': new_capacity}
+        self.my_client._invoke.assert_called_once_with('POST', url, body,
+                                                       **{'object-id':
+                                                          fake_volume['id']})
+        self.assertEqual(fake_volume, expanded_volume)
 
     @ddt.data(True, False)
     def test_delete_volume(self, ssc_api_enabled):

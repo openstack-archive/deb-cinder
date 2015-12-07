@@ -874,7 +874,7 @@ class GlusterFsDriverTestCase(test.TestCase):
         drv = self._driver
 
         with mock.patch.object(drv, '_execute') as mock_execute,\
-                mock.patch.object(drv, '_ensure_share_mounted') as \
+            mock.patch.object(drv, '_ensure_share_mounted') as \
                 mock_ensure_share_mounted:
             volume = DumbVolume()
             volume['id'] = self.VOLUME_UUID
@@ -890,23 +890,23 @@ class GlusterFsDriverTestCase(test.TestCase):
         drv = self._driver
 
         with mock.patch.object(drv, '_read_file') as mock_read_file:
-                hashed = drv._get_hash_str(self.TEST_EXPORT1)
-                volume_path = '%s/%s/volume-%s' % (self.TEST_MNT_POINT_BASE,
-                                                   hashed,
-                                                   self.VOLUME_UUID)
-                info_path = '%s%s' % (volume_path, '.info')
+            hashed = drv._get_hash_str(self.TEST_EXPORT1)
+            volume_path = '%s/%s/volume-%s' % (self.TEST_MNT_POINT_BASE,
+                                               hashed,
+                                               self.VOLUME_UUID)
+            info_path = '%s%s' % (volume_path, '.info')
 
-                mock_read_file.return_value = '{"%(id)s": "volume-%(id)s"}' %\
-                    {'id': self.VOLUME_UUID}
+            mock_read_file.return_value = '{"%(id)s": "volume-%(id)s"}' %\
+                {'id': self.VOLUME_UUID}
 
-                volume = DumbVolume()
-                volume['id'] = self.VOLUME_UUID
-                volume['name'] = 'volume-%s' % self.VOLUME_UUID
+            volume = DumbVolume()
+            volume['id'] = self.VOLUME_UUID
+            volume['name'] = 'volume-%s' % self.VOLUME_UUID
 
-                info = drv._read_info_file(info_path)
+            info = drv._read_info_file(info_path)
 
-                self.assertEqual('volume-%s' % self.VOLUME_UUID,
-                                 info[self.VOLUME_UUID])
+            self.assertEqual('volume-%s' % self.VOLUME_UUID,
+                             info[self.VOLUME_UUID])
 
     def test_extend_volume(self):
         drv = self._driver
@@ -922,15 +922,51 @@ class GlusterFsDriverTestCase(test.TestCase):
 
         with mock.patch.object(drv, 'get_active_image_from_info') as \
                 mock_get_active_image_from_info,\
+                mock.patch.object(self._driver, '_local_volume_dir') as \
+                mock_local_volume_dir,\
                 mock.patch.object(image_utils, 'qemu_img_info') as \
                 mock_qemu_img_info,\
                 mock.patch.object(image_utils, 'resize_image') as \
                 mock_resize_image:
             mock_get_active_image_from_info.return_value = volume['name']
+            mock_local_volume_dir.return_value = self.TEST_MNT_POINT
             mock_qemu_img_info.return_value = img_info
 
             drv.extend_volume(volume, 3)
             self.assertTrue(mock_resize_image.called)
+
+    def test_extend_volume_with_snapshot(self):
+        drv = self._driver
+
+        volume = self._simple_volume()
+
+        snap_file = 'volume-%s.%s' % (self.VOLUME_UUID,
+                                      self.SNAP_UUID)
+
+        qemu_img_info_output = """image: %s
+        file format: qcow2
+        virtual size: 1.0G (1073741824 bytes)
+        disk size: 473K
+        """ % snap_file
+
+        img_info = imageutils.QemuImgInfo(qemu_img_info_output)
+
+        with mock.patch.object(drv, 'get_active_image_from_info') as \
+                mock_get_active_image_from_info,\
+                mock.patch.object(self._driver, '_local_volume_dir') as \
+                mock_local_volume_dir,\
+                mock.patch.object(image_utils, 'qemu_img_info') as \
+                mock_qemu_img_info,\
+                mock.patch.object(image_utils, 'resize_image') as \
+                mock_resize_image:
+            mock_get_active_image_from_info.return_value = snap_file
+            mock_local_volume_dir.return_value = self.TEST_MNT_POINT
+            mock_qemu_img_info.return_value = img_info
+
+            snap_path = '%s/%s' % (self.TEST_MNT_POINT,
+                                   snap_file)
+            drv.extend_volume(volume, 3)
+            mock_resize_image.assert_called_once_with(snap_path, 3)
 
     def test_create_snapshot_online(self):
         drv = self._driver
@@ -1792,3 +1828,24 @@ class GlusterFsDriverTestCase(test.TestCase):
                                  mock.sentinel.host)
 
         self.assertEqual((False, None), ret)
+
+    def test_manage_existing_is_there(self):
+        """Ensure that driver.manage_existing() is there."""
+
+        drv = self._driver
+
+        volume = self._simple_volume(id=mock.sentinel.manage_id)
+
+        self.assertRaises(NotImplementedError,
+                          drv.manage_existing,
+                          volume, mock.sentinel.existing_ref)
+
+    def test_unmanage_is_there(self):
+        """Ensure that driver.unmanage() is there."""
+
+        drv = self._driver
+
+        volume = self._simple_volume(id=mock.sentinel.unmanage_id)
+        self.assertRaises(NotImplementedError,
+                          drv.unmanage,
+                          volume)

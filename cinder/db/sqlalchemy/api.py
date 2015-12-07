@@ -19,13 +19,14 @@
 """Implementation of SQLAlchemy backend."""
 
 
+import collections
 import datetime as dt
 import functools
+import re
 import sys
 import threading
 import time
 import uuid
-import warnings
 
 from oslo_config import cfg
 from oslo_db import exception as db_exc
@@ -38,7 +39,7 @@ import osprofiler.sqlalchemy
 import six
 import sqlalchemy
 from sqlalchemy import MetaData
-from sqlalchemy import or_
+from sqlalchemy import or_, case
 from sqlalchemy.orm import joinedload, joinedload_all
 from sqlalchemy.orm import RelationshipProperty
 from sqlalchemy.schema import Table
@@ -46,16 +47,17 @@ from sqlalchemy.sql.expression import desc
 from sqlalchemy.sql.expression import literal_column
 from sqlalchemy.sql.expression import true
 from sqlalchemy.sql import func
+from sqlalchemy.sql import sqltypes
 
 from cinder.api import common
 from cinder.common import sqlalchemyutils
+from cinder import db
 from cinder.db.sqlalchemy import models
 from cinder import exception
 from cinder.i18n import _, _LW, _LE, _LI
 
 
 CONF = cfg.CONF
-CONF.import_group("profiler", "cinder.service")
 LOG = logging.getLogger(__name__)
 
 options.set_defaults(CONF, connection='sqlite:///$state_path/cinder.sqlite')
@@ -74,6 +76,11 @@ def _create_facade_lazily():
                 **dict(CONF.database)
             )
 
+            # NOTE(geguileo): To avoid a cyclical dependency we import the
+            # group here.  Dependency cycle is objects.base requires db.api,
+            # which requires db.sqlalchemy.api, which requires service which
+            # requires objects.base
+            CONF.import_group("profiler", "cinder.service")
             if CONF.profiler.profiler_enabled:
                 if CONF.profiler.trace_sqlalchemy:
                     osprofiler.sqlalchemy.add_tracing(sqlalchemy,
@@ -108,8 +115,8 @@ def get_backend():
 def is_admin_context(context):
     """Indicates if the request context is an administrator."""
     if not context:
-        warnings.warn(_('Use of empty request context is deprecated'),
-                      DeprecationWarning)
+        LOG.warning(_LW('Use of empty request context is deprecated'),
+                    DeprecationWarning)
         raise Exception('die')
     return context.is_admin
 
@@ -396,29 +403,17 @@ def service_get_by_host_and_topic(context, host, topic):
 
 
 @require_admin_context
-def _service_get_all_topic_subquery(context, session, topic, subq, label):
-    sort_value = getattr(subq.c, label)
-    return model_query(context, models.Service,
-                       func.coalesce(sort_value, 0),
-                       session=session, read_deleted="no").\
-        filter_by(topic=topic).\
-        filter_by(disabled=False).\
-        outerjoin((subq, models.Service.host == subq.c.host)).\
-        order_by(sort_value).\
-        all()
-
-
-@require_admin_context
 def service_get_by_args(context, host, binary):
-    result = model_query(context, models.Service).\
+    results = model_query(context, models.Service).\
         filter_by(host=host).\
         filter_by(binary=binary).\
-        first()
+        all()
 
-    if not result:
-        raise exception.HostBinaryNotFound(host=host, binary=binary)
+    for result in results:
+        if host == result['host']:
+            return result
 
-    return result
+    raise exception.HostBinaryNotFound(host=host, binary=binary)
 
 
 @require_admin_context
@@ -435,6 +430,7 @@ def service_create(context, values):
 
 
 @require_admin_context
+@_retry_on_deadlock
 def service_update(context, service_id, values):
     session = get_session()
     with session.begin():
@@ -563,11 +559,13 @@ def quota_allocated_get_all_by_project(context, project_id):
 
 
 @require_admin_context
-def quota_create(context, project_id, resource, limit):
+def quota_create(context, project_id, resource, limit, allocated):
     quota_ref = models.Quota()
     quota_ref.project_id = project_id
     quota_ref.resource = resource
     quota_ref.hard_limit = limit
+    if allocated:
+        quota_ref.allocated = allocated
 
     session = get_session()
     with session.begin():
@@ -1104,6 +1102,18 @@ def volume_create(context, values):
     return _volume_get(context, values['id'], session=session)
 
 
+def get_booleans_for_table(table_name):
+    booleans = set()
+    table = getattr(models, table_name.capitalize())
+    if hasattr(table, '__table__'):
+        columns = table.__table__.columns
+        for column in columns:
+            if isinstance(column.type, sqltypes.Boolean):
+                booleans.add(column.name)
+
+    return booleans
+
+
 @require_admin_context
 def volume_data_get_for_host(context, host, count_only=False):
     host_attr = models.Volume.host
@@ -1188,9 +1198,11 @@ def finish_volume_migration(context, src_vol_id, dest_vol_id):
     """
     session = get_session()
     with session.begin():
-        src_volume_ref = _volume_get(context, src_vol_id, session=session)
+        src_volume_ref = _volume_get(context, src_vol_id, session=session,
+                                     joined_load=False)
         src_original_data = dict(src_volume_ref.iteritems())
-        dest_volume_ref = _volume_get(context, dest_vol_id, session=session)
+        dest_volume_ref = _volume_get(context, dest_vol_id, session=session,
+                                      joined_load=False)
 
         # NOTE(rpodolyaka): we should copy only column values, while model
         #                   instances also have relationships attributes, which
@@ -1259,16 +1271,6 @@ def volume_destroy(context, volume_id):
 
 
 @require_admin_context
-def volume_detach(context, attachment_id):
-    session = get_session()
-    with session.begin():
-        volume_attachment_ref = volume_attachment_get(context, attachment_id,
-                                                      session=session)
-        volume_attachment_ref['attach_status'] = 'detaching'
-        volume_attachment_ref.save(session=session)
-
-
-@require_admin_context
 def volume_detached(context, volume_id, attachment_id):
     """This updates a volume attachment and marks it as detached.
 
@@ -1320,7 +1322,24 @@ def volume_detached(context, volume_id, attachment_id):
 
 
 @require_context
-def _volume_get_query(context, session=None, project_only=False):
+def _volume_get_query(context, session=None, project_only=False,
+                      joined_load=True):
+    """Get the query to retrieve the volume.
+
+    :param context: the context used to run the method _volume_get_query
+    :param session: the session to use
+    :param project_only: the boolean used to decide whether to query the
+                         volume in the current project or all projects
+    :param joined_load: the boolean used to decide whether the query loads
+                        the other models, which join the volume model in
+                        the database. Currently, the False value for this
+                        parameter is specially for the case of updating
+                        database during volume migration
+    :returns: updated query or None
+    """
+    if not joined_load:
+        return model_query(context, models.Volume, session=session,
+                           project_only=project_only)
     if is_admin_context(context):
         return model_query(context, models.Volume, session=session,
                            project_only=project_only).\
@@ -1339,11 +1358,12 @@ def _volume_get_query(context, session=None, project_only=False):
 
 
 @require_context
-def _volume_get(context, volume_id, session=None):
-    result = _volume_get_query(context, session=session, project_only=True).\
-        options(joinedload('volume_type.extra_specs')).\
-        filter_by(id=volume_id).\
-        first()
+def _volume_get(context, volume_id, session=None, joined_load=True):
+    result = _volume_get_query(context, session=session, project_only=True,
+                               joined_load=joined_load)
+    if joined_load:
+        result = result.options(joinedload('volume_type.extra_specs'))
+    result = result.filter_by(id=volume_id).first()
 
     if not result:
         raise exception.VolumeNotFound(volume_id=volume_id)
@@ -1842,47 +1862,49 @@ def _volume_x_metadata_get_item(context, volume_id, key, model, notfound_exec,
     return result
 
 
-def _volume_x_metadata_update(context, volume_id, metadata, delete,
-                              model, notfound_exec, session=None):
-    if not session:
-        session = get_session()
+def _volume_x_metadata_update(context, volume_id, metadata, delete, model,
+                              session=None):
+    session = session or get_session()
+    metadata = metadata.copy()
 
     with session.begin(subtransactions=True):
-        # Set existing metadata to deleted if delete argument is True
+        # Set existing metadata to deleted if delete argument is True.  This is
+        # commited immediately to the DB
         if delete:
-            original_metadata = _volume_x_metadata_get(context, volume_id,
-                                                       model, session=session)
-            for meta_key, meta_value in original_metadata.items():
-                if meta_key not in metadata:
-                    meta_ref = _volume_x_metadata_get_item(context, volume_id,
-                                                           meta_key, model,
-                                                           notfound_exec,
-                                                           session=session)
-                    meta_ref.update({'deleted': True})
-                    meta_ref.save(session=session)
+            expected_values = {'volume_id': volume_id}
+            # We don't want to delete keys we are going to update
+            if metadata:
+                expected_values['key'] = db.Not(metadata.keys())
+            conditional_update(context, model, {'deleted': True},
+                               expected_values)
 
-        meta_ref = None
+        # Get existing metadata
+        db_meta = _volume_x_metadata_get_query(context, volume_id, model).all()
+        save = []
+        skip = []
 
-        # Now update all existing items with new values, or create new meta
-        # objects
-        for meta_key, meta_value in metadata.items():
+        # We only want to send changed metadata.
+        for row in db_meta:
+            if row.key in metadata:
+                value = metadata.pop(row.key)
+                if row.value != value:
+                    # ORM objects will not be saved until we do the bulk save
+                    row.value = value
+                    save.append(row)
+                    continue
+            skip.append(row)
 
-            # update the value whether it exists or not
-            item = {"value": meta_value}
+        # We also want to save non-existent metadata
+        save.extend(model(key=key, value=value, volume_id=volume_id)
+                    for key, value in metadata.items())
+        # Do a bulk save
+        if save:
+            session.bulk_save_objects(save, update_changed_only=True)
 
-            try:
-                meta_ref = _volume_x_metadata_get_item(context, volume_id,
-                                                       meta_key, model,
-                                                       notfound_exec,
-                                                       session=session)
-            except notfound_exec:
-                meta_ref = model()
-                item.update({"key": meta_key, "volume_id": volume_id})
-
-            meta_ref.update(item)
-            meta_ref.save(session=session)
-
-    return _volume_x_metadata_get(context, volume_id, model)
+        # Construct result dictionary with current metadata
+        save.extend(skip)
+        result = {row['key']: row['value'] for row in save}
+    return result
 
 
 def _volume_user_metadata_get_query(context, volume_id, session=None):
@@ -1917,7 +1939,6 @@ def _volume_user_metadata_update(context, volume_id, metadata, delete,
                                  session=None):
     return _volume_x_metadata_update(context, volume_id, metadata, delete,
                                      models.VolumeMetadata,
-                                     exception.VolumeMetadataNotFound,
                                      session=session)
 
 
@@ -1927,14 +1948,7 @@ def _volume_image_metadata_update(context, volume_id, metadata, delete,
                                   session=None):
     return _volume_x_metadata_update(context, volume_id, metadata, delete,
                                      models.VolumeGlanceMetadata,
-                                     exception.GlanceMetadataNotFound,
                                      session=session)
-
-
-@require_context
-@require_volume_exists
-def volume_metadata_get_item(context, volume_id, key):
-    return _volume_user_metadata_get_item(context, volume_id, key)
 
 
 @require_context
@@ -2005,7 +2019,6 @@ def _volume_admin_metadata_update(context, volume_id, metadata, delete,
                                   session=None):
     return _volume_x_metadata_update(context, volume_id, metadata, delete,
                                      models.VolumeAdminMetadata,
-                                     exception.VolumeAdminMetadataNotFound,
                                      session=session)
 
 
@@ -2228,6 +2241,8 @@ def snapshot_get_all_by_project(context, project_id, filters=None, marker=None,
     # No snapshots would match, return empty list
     if not query:
         return []
+
+    query = query.options(joinedload('snapshot_metadata'))
     return query.all()
 
 
@@ -2264,6 +2279,7 @@ def snapshot_get_active_by_window(context, begin, end=None, project_id=None):
     query = query.filter(or_(models.Snapshot.deleted_at == None,  # noqa
                              models.Snapshot.deleted_at > begin))
     query = query.options(joinedload(models.Snapshot.volume))
+    query = query.options(joinedload('snapshot_metadata'))
     if end:
         query = query.filter(models.Snapshot.created_at < end)
     if project_id:
@@ -2557,6 +2573,12 @@ def volume_type_get(context, id, inactive=False, expected_fields=None):
                             expected_fields=expected_fields)
 
 
+def _volume_type_get_full(context, id):
+    """Return dict for a specific volume_type with extra_specs and projects."""
+    return _volume_type_get(context, id, session=None, inactive=False,
+                            expected_fields=('extra_specs', 'projects'))
+
+
 @require_context
 def _volume_type_ref_get(context, id, session=None, inactive=False):
     read_deleted = "yes" if inactive else "no"
@@ -2730,6 +2752,14 @@ def volume_get_active_by_window(context,
         query = query.filter(models.Volume.created_at < end)
     if project_id:
         query = query.filter_by(project_id=project_id)
+
+    query = (query.options(joinedload('volume_metadata')).
+             options(joinedload('volume_type')).
+             options(joinedload('volume_attachment')).
+             options(joinedload('consistencygroup')))
+
+    if is_admin_context(context):
+        query = query.options(joinedload('volume_admin_metadata'))
 
     return query.all()
 
@@ -3182,8 +3212,8 @@ def volume_type_encryption_update(context, volume_type_id, values):
                                                 session)
 
         if not encryption:
-            raise exception.VolumeTypeEncryptionNotFound(type_id=
-                                                         volume_type_id)
+            raise exception.VolumeTypeEncryptionNotFound(
+                type_id=volume_type_id)
 
         encryption.update(values)
 
@@ -3239,6 +3269,17 @@ def volume_glance_metadata_get_all(context):
     """Return the Glance metadata for all volumes."""
 
     return _volume_glance_metadata_get_all(context)
+
+
+@require_context
+def volume_glance_metadata_list_get(context, volume_id_list):
+    """Return the glance metadata for a volume list."""
+    query = model_query(context,
+                        models.VolumeGlanceMetadata,
+                        session=None)
+    query = query.filter(
+        models.VolumeGlanceMetadata.volume_id.in_(volume_id_list))
+    return query.all()
 
 
 @require_context
@@ -3720,11 +3761,6 @@ def _consistencygroup_data_get_for_project(context, project_id,
     return (0, result[0] or 0)
 
 
-@require_admin_context
-def consistencygroup_data_get_for_project(context, project_id):
-    return _consistencygroup_data_get_for_project(context, project_id)
-
-
 @require_context
 def _consistencygroup_get(context, consistencygroup_id, session=None):
     result = model_query(context, models.ConsistencyGroup, session=session,
@@ -4077,3 +4113,133 @@ def image_volume_cache_get_all_for_host(context, host):
             filter_by(host=host).\
             order_by(desc(models.ImageVolumeCacheEntry.last_used)).\
             all()
+
+
+###############################
+
+
+def get_model_for_versioned_object(versioned_object):
+    # Exceptions to model mapping, in general Versioned Objects have the same
+    # name as their ORM models counterparts, but there are some that diverge
+    VO_TO_MODEL_EXCEPTIONS = {
+        'BackupImport': models.Backup,
+        'VolumeType': models.VolumeTypes,
+        'CGSnapshot': models.Cgsnapshot,
+    }
+
+    model_name = versioned_object.obj_name()
+    return (VO_TO_MODEL_EXCEPTIONS.get(model_name) or
+            getattr(models, model_name))
+
+
+def _get_get_method(model):
+    # Exceptions to model to get methods, in general method names are a simple
+    # conversion changing ORM name from camel case to snake format and adding
+    # _get to the string
+    GET_EXCEPTIONS = {
+        models.ConsistencyGroup: consistencygroup_get,
+        models.VolumeTypes: _volume_type_get_full,
+    }
+
+    if model in GET_EXCEPTIONS:
+        return GET_EXCEPTIONS[model]
+
+    # General conversion
+    # Convert camel cased model name to snake format
+    s = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', model.__name__)
+    # Get method must be snake formatted model name concatenated with _get
+    method_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s).lower() + '_get'
+    return globals().get(method_name)
+
+
+_GET_METHODS = {}
+
+
+@require_context
+def get_by_id(context, model, id, *args, **kwargs):
+    # Add get method to cache dictionary if it's not already there
+    if not _GET_METHODS.get(model):
+        _GET_METHODS[model] = _get_get_method(model)
+
+    return _GET_METHODS[model](context, id, *args, **kwargs)
+
+
+def condition_db_filter(model, field, value):
+    """Create matching filter.
+
+    If value is an iterable other than a string, any of the values is
+    a valid match (OR), so we'll use SQL IN operator.
+
+    If it's not an iterator == operator will be used.
+    """
+    orm_field = getattr(model, field)
+    # For values that must match and are iterables we use IN
+    if (isinstance(value, collections.Iterable) and
+            not isinstance(value, six.string_types)):
+        # We cannot use in_ when one of the values is None
+        if None not in value:
+            return orm_field.in_(value)
+
+        return or_(orm_field == v for v in value)
+
+    # For values that must match and are not iterables we use ==
+    return orm_field == value
+
+
+def condition_not_db_filter(model, field, value, auto_none=True):
+    """Create non matching filter.
+
+    If value is an iterable other than a string, any of the values is
+    a valid match (OR), so we'll use SQL IN operator.
+
+    If it's not an iterator == operator will be used.
+
+    If auto_none is True then we'll consider NULL values as different as well,
+    like we do in Python and not like SQL does.
+    """
+    result = ~condition_db_filter(model, field, value)
+
+    if (auto_none
+            and ((isinstance(value, collections.Iterable) and
+                  not isinstance(value, six.string_types)
+                  and None not in value)
+                 or (value is not None))):
+        orm_field = getattr(model, field)
+        result = or_(result, orm_field.is_(None))
+
+    return result
+
+
+def is_orm_value(obj):
+    """Check if object is an ORM field or expression."""
+    return isinstance(obj, (sqlalchemy.orm.attributes.InstrumentedAttribute,
+                            sqlalchemy.sql.expression.ColumnElement))
+
+
+@_retry_on_deadlock
+@require_context
+def conditional_update(context, model, values, expected_values, filters=(),
+                       include_deleted='no', project_only=False):
+    """Compare-and-swap conditional update SQLAlchemy implementation."""
+    # Provided filters will become part of the where clause
+    where_conds = list(filters)
+
+    # Build where conditions with operators ==, !=, NOT IN and IN
+    for field, condition in expected_values.items():
+        if not isinstance(condition, db.Condition):
+            condition = db.Condition(condition, field)
+        where_conds.append(condition.get_filter(model, field))
+
+    # Transform case values
+    values = {field: case(value.whens, value.value, value.else_)
+              if isinstance(value, db.Case)
+              else value
+              for field, value in values.items()}
+
+    query = model_query(context, model, read_deleted=include_deleted,
+                        project_only=project_only)
+
+    # Return True if we were able to change any DB entry, False otherwise
+    result = query.filter(*where_conds).update(values,
+                                               synchronize_session=False)
+    return 0 != result

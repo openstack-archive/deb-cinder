@@ -98,7 +98,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
             db=self.db,
             executor=self._execute)
         self.protocol = self.target_driver.protocol
-        self.sparse_copy_volume = False
+        self._sparse_copy_volume = False
 
     def _sizestr(self, size_in_g):
         return '%sg' % size_in_g
@@ -248,7 +248,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         data["pools"].append(single_pool)
 
         # Check availability of sparse volume copy.
-        data['sparse_copy_volume'] = self.configuration.lvm_type == 'thin'
+        data['sparse_copy_volume'] = self._sparse_copy_volume
 
         self._stats = data
 
@@ -320,7 +320,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
                         data=exception_message)
 
             # Enable sparse copy since lvm_type is 'thin'
-            self.sparse_copy_volume = True
+            self._sparse_copy_volume = True
 
     def create_volume(self, volume):
         """Creates a logical volume."""
@@ -386,7 +386,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
                              snapshot['volume_size'] * units.Ki,
                              self.configuration.volume_dd_blocksize,
                              execute=self._execute,
-                             sparse=self.sparse_copy_volume)
+                             sparse=self._sparse_copy_volume)
 
     def delete_volume(self, volume):
         """Deletes a logical volume."""
@@ -493,7 +493,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
                 src_vref['size'] * units.Ki,
                 self.configuration.volume_dd_blocksize,
                 execute=self._execute,
-                sparse=self.sparse_copy_volume)
+                sparse=self._sparse_copy_volume)
         finally:
             self.delete_snapshot(temp_snapshot)
 
@@ -625,6 +625,14 @@ class LVMVolumeDriver(driver.VolumeDriver):
             existing_ref = {"source-name": existing_ref}
         return self.manage_existing(snapshot_temp, existing_ref)
 
+    def retype(self, context, volume, new_type, diff, host):
+        """Retypes a volume, allow QoS and extra_specs change."""
+
+        LOG.debug('LVM retype called for volume %s. No action '
+                  'required for LVM volumes.',
+                  volume['id'])
+        return True
+
     def migrate_volume(self, ctxt, volume, host, thin=False, mirror_count=0):
         """Optimize the migration if the destination is on the same server.
 
@@ -682,7 +690,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
                                      size_in_mb,
                                      self.configuration.volume_dd_blocksize,
                                      execute=self._execute,
-                                     sparse=self.sparse_copy_volume)
+                                     sparse=self._sparse_copy_volume)
             except Exception as e:
                 with excutils.save_and_reraise_exception():
                     LOG.error(_LE("Volume migration failed due to "
@@ -697,7 +705,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
                          "check your configuration because source and "
                          "destination are the same Volume Group: %(name)s.") %
                        {'id': volume['id'], 'name': self.vg.vg_name})
-            LOG.exception(message)
+            LOG.error(message)
             raise exception.VolumeBackendAPIException(data=message)
 
     def get_pool(self, volume):

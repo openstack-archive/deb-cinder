@@ -40,7 +40,6 @@ test_service_opts = [
                default="cinder.tests.unit.test_service.FakeManager",
                help="Manager for testing"),
     cfg.StrOpt("test_service_listen",
-               default=None,
                help="Host to bind test service to"),
     cfg.IntOpt("test_service_listen_port",
                default=0,
@@ -181,10 +180,11 @@ class ServiceTestCase(test.TestCase):
                        'report_count': 0,
                        'availability_zone': 'nova',
                        'id': 1}
-        with mock.patch.object(objects.service, 'db') as mock_db:
+        with mock.patch.object(objects.service, 'db') as mock_db,\
+                mock.patch('cinder.db.sqlalchemy.api.get_by_id') as get_by_id:
             mock_db.service_get_by_args.side_effect = exception.NotFound()
             mock_db.service_create.return_value = service_ref
-            mock_db.service_get.return_value = service_ref
+            get_by_id.return_value = service_ref
 
             serv = service.Service(
                 self.host,

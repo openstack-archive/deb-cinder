@@ -14,6 +14,7 @@
 #    under the License.
 
 import datetime
+import hashlib
 import random
 import re
 from xml.dom import minidom
@@ -629,12 +630,12 @@ class EMCVMAXUtils(object):
         shortHostName = None
 
         hostArray = hostName.split('.')
-        if len(hostArray) > 2:
+        if len(hostArray) > 1:
             shortHostName = hostArray[0]
         else:
             shortHostName = hostName
 
-        return shortHostName
+        return self.generate_unique_trunc_host(shortHostName)
 
     def get_instance_name(self, classname, bindings):
         """Get the instance from the classname and bindings.
@@ -911,7 +912,7 @@ class EMCVMAXUtils(object):
         """
         errorDesc = None
         if compositeType in 'concatenated' and int(sizeStr) > 240:
-            newMemberCount = int(sizeStr) / 240
+            newMemberCount = int(sizeStr) // 240
             modular = int(sizeStr) % 240
             if modular > 0:
                 newMemberCount += 1
@@ -1011,7 +1012,7 @@ class EMCVMAXUtils(object):
         :param strBitSize: string -- The size in bytes
         :returns: int -- The size in GB
         """
-        gbSize = int(strBitSize) / 1024 / 1024 / 1024
+        gbSize = int(strBitSize) // 1024 // 1024 // 1024
         return gbSize
 
     def compare_size(self, size1Str, size2Str):
@@ -1153,8 +1154,8 @@ class EMCVMAXUtils(object):
         :returns: string -- truncated string or original string
         """
         if len(strToTruncate) > maxNum:
-            newNum = len(strToTruncate) - maxNum / 2
-            firstChars = strToTruncate[:maxNum / 2]
+            newNum = len(strToTruncate) - maxNum // 2
+            firstChars = strToTruncate[:maxNum // 2]
             lastChars = strToTruncate[newNum:]
             strToTruncate = firstChars + lastChars
 
@@ -2343,3 +2344,101 @@ class EMCVMAXUtils(object):
                       {'volume': volumeInstance.path, 'rc': rc, 'ret': ret})
             memberVolumes = ret['OutElements']
         return memberVolumes
+
+    def generate_unique_trunc_host(self, hostName):
+        """Create a unique short host name under 40 chars
+
+        :param sgName: long storage group name
+        :returns: truncated storage group name
+        """
+        if hostName and len(hostName) > 38:
+            hostName = hostName.lower()
+            m = hashlib.md5()
+            m.update(hostName.encode('utf-8'))
+            uuid = m.hexdigest()
+            return(
+                ("%(host)s%(uuid)s"
+                 % {'host': hostName[-6:],
+                    'uuid': uuid}))
+        else:
+            return hostName
+
+    def generate_unique_trunc_pool(self, poolName):
+        """Create a unique pool name under 16 chars
+
+        :param poolName: long pool name
+        :returns: truncated pool name
+        """
+        if poolName and len(poolName) > 16:
+            return (
+                ("%(first)s_%(last)s"
+                 % {'first': poolName[:8],
+                    'last': poolName[-7:]}))
+        else:
+            return poolName
+
+    def generate_unique_trunc_fastpolicy(self, fastPolicyName):
+        """Create a unique fast policy name under 14 chars
+
+        :param fastPolicyName: long fast policy name
+        :returns: truncated fast policy name
+        """
+        if fastPolicyName and len(fastPolicyName) > 14:
+            return (
+                ("%(first)s_%(last)s"
+                 % {'first': fastPolicyName[:7],
+                    'last': fastPolicyName[-6:]}))
+        else:
+            return fastPolicyName
+
+    def get_iscsi_protocol_endpoints(self, conn, portgroupinstancename):
+        """Get the iscsi protocol endpoints of a port group.
+
+        :param conn: the ecom connection
+        :param portgroupinstancename: the portgroup instance name
+        :returns: iscsiendpoints
+        """
+        iscsiendpoints = conn.AssociatorNames(
+            portgroupinstancename,
+            AssocClass='CIM_MemberOfCollection')
+        return iscsiendpoints
+
+    def get_tcp_protocol_endpoints(self, conn, iscsiendpointinstancename):
+        """Get the tcp protocol endpoints associated with an iscsi endpoint
+
+        :param conn: the ecom connection
+        :param iscsiendpointinstancename: the iscsi endpoint instance name
+        :returns: tcpendpoints
+        """
+        tcpendpoints = conn.AssociatorNames(
+            iscsiendpointinstancename,
+            AssocClass='CIM_BindsTo')
+        return tcpendpoints
+
+    def get_ip_protocol_endpoints(self, conn, tcpendpointinstancename):
+        """Get the ip protocol endpoints associated with an tcp endpoint
+
+        :param conn: the ecom connection
+        :param tcpendpointinstancename: the tcp endpoint instance name
+        :returns: ipendpoints
+        """
+        ipendpoints = conn.AssociatorNames(
+            tcpendpointinstancename,
+            AssocClass='CIM_BindsTo')
+        return ipendpoints
+
+    def get_iscsi_ip_address(self, conn, ipendpointinstancename):
+        """Get the IPv4Address from the ip endpoint instance name
+
+        :param conn: the ecom connection
+        :param ipendpointinstancename: the ip endpoint instance name
+        :returns: foundIpAddress
+        """
+        foundIpAddress = None
+        ipendpointinstance = conn.GetInstance(ipendpointinstancename)
+        propertiesList = ipendpointinstance.properties.items()
+        for properties in propertiesList:
+            if properties[0] == 'IPv4Address':
+                cimProperties = properties[1]
+                foundIpAddress = cimProperties.value
+        return foundIpAddress

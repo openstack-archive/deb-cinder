@@ -65,7 +65,6 @@ class XIVDS8KDriver(san.SanDriver,
                     driver.MigrateVD,
                     driver.ReplicaVD,
                     driver.ConsistencyGroupVD,
-                    driver.CloneableVD,
                     driver.CloneableImageVD,
                     driver.TransferVD):
     """Unified IBM XIV and DS8K volume driver."""
@@ -248,17 +247,36 @@ class XIVDS8KDriver(san.SanDriver,
 
         return self.xiv_ds8k_proxy.create_consistencygroup(context, group)
 
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         """Deletes a consistency group."""
 
-        return self.xiv_ds8k_proxy.delete_consistencygroup(context, group)
+        return self.xiv_ds8k_proxy.delete_consistencygroup(
+            context, group, volumes)
 
-    def create_cgsnapshot(self, context, cgsnapshot):
+    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Creates a consistency group snapshot."""
 
-        return self.xiv_ds8k_proxy.create_cgsnapshot(context, cgsnapshot)
+        return self.xiv_ds8k_proxy.create_cgsnapshot(
+            context, cgsnapshot, snapshots)
 
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a consistency group snapshot."""
 
-        return self.xiv_ds8k_proxy.delete_cgsnapshot(context, cgsnapshot)
+        return self.xiv_ds8k_proxy.delete_cgsnapshot(
+            context, cgsnapshot, snapshots)
+
+    def update_consistencygroup(self, context, group,
+                                add_volumes, remove_volumes):
+        """Adds or removes volume(s) to/from an existing consistency group."""
+
+        return self.xiv_ds8k_proxy.update_consistencygroup(
+            context, group, add_volumes, remove_volumes)
+
+    def create_consistencygroup_from_src(
+            self, context, group, volumes, cgsnapshot, snapshots,
+            source_cg=None, source_vols=None):
+        """Creates a consistencygroup from source."""
+
+        return self.xiv_ds8k_proxy.create_consistencygroup_from_src(
+            context, group, volumes, cgsnapshot, snapshots,
+            source_cg, source_vols)

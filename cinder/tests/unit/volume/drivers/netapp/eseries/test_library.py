@@ -19,6 +19,7 @@
 
 import copy
 import ddt
+import time
 
 import mock
 from oslo_utils import units
@@ -26,7 +27,9 @@ import six
 
 from cinder import exception
 from cinder import test
+
 from cinder.tests.unit import fake_snapshot
+from cinder.tests.unit import utils as cinder_utils
 from cinder.tests.unit.volume.drivers.netapp.eseries import fakes as \
     eseries_fake
 from cinder.volume.drivers.netapp.eseries import client as es_client
@@ -63,7 +66,9 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
         # Deprecated Option
         self.library.configuration.netapp_storage_pools = None
         self.library._client = eseries_fake.FakeEseriesClient()
-        self.library.check_for_setup_error()
+        with mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall',
+                        new = cinder_utils.ZeroIntervalLoopingCall):
+            self.library.check_for_setup_error()
 
     def test_do_setup(self):
         self.mock_object(self.library,
@@ -75,12 +80,111 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
 
         self.assertTrue(mock_check_flags.called)
 
+    @ddt.data(('optimal', True), ('offline', False), ('needsAttn', True),
+              ('neverContacted', False), ('newKey', True), (None, True))
+    @ddt.unpack
+    @mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall', new=
+                cinder_utils.ZeroIntervalLoopingCall)
+    def test_check_storage_system_status(self, status, status_valid):
+        system = copy.deepcopy(eseries_fake.STORAGE_SYSTEM)
+        system['status'] = status
+        status = status.lower() if status is not None else ''
+
+        actual_status, actual_valid = (
+            self.library._check_storage_system_status(system))
+
+        self.assertEqual(status, actual_status)
+        self.assertEqual(status_valid, actual_valid)
+
+    @ddt.data(('valid', True), ('invalid', False), ('unknown', False),
+              ('newKey', True), (None, True))
+    @ddt.unpack
+    @mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall', new=
+                cinder_utils.ZeroIntervalLoopingCall)
+    def test_check_password_status(self, status, status_valid):
+        system = copy.deepcopy(eseries_fake.STORAGE_SYSTEM)
+        system['passwordStatus'] = status
+        status = status.lower() if status is not None else ''
+
+        actual_status, actual_valid = (
+            self.library._check_password_status(system))
+
+        self.assertEqual(status, actual_status)
+        self.assertEqual(status_valid, actual_valid)
+
+    def test_check_storage_system_bad_system(self):
+        exc_str = "bad_system"
+        controller_ips = self.library.configuration.netapp_controller_ips
+        self.library._client.list_storage_system = mock.Mock(
+            side_effect=exception.NetAppDriverException(message=exc_str))
+        info_log = self.mock_object(library.LOG, 'info', mock.Mock())
+
+        self.assertRaisesRegexp(exception.NetAppDriverException, exc_str,
+                                self.library._check_storage_system)
+
+        info_log.assert_called_once_with(mock.ANY, controller_ips)
+
+    @mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall', new=
+                cinder_utils.ZeroIntervalLoopingCall)
+    def test_check_storage_system(self):
+        system = copy.deepcopy(eseries_fake.STORAGE_SYSTEM)
+        self.mock_object(self.library._client, 'list_storage_system',
+                         new_attr=mock.Mock(return_value=system))
+        update_password = self.mock_object(self.library._client,
+                                           'update_stored_system_password')
+        info_log = self.mock_object(library.LOG, 'info', mock.Mock())
+
+        self.library._check_storage_system()
+
+        self.assertTrue(update_password.called)
+        self.assertTrue(info_log.called)
+
+    @ddt.data({'status': 'optimal', 'passwordStatus': 'invalid'},
+              {'status': 'offline', 'passwordStatus': 'valid'})
+    @mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall', new=
+                cinder_utils.ZeroIntervalLoopingCall)
+    def test_check_storage_system_bad_status(self, system):
+        self.mock_object(self.library._client, 'list_storage_system',
+                         new_attr=mock.Mock(return_value=system))
+        self.mock_object(self.library._client, 'update_stored_system_password')
+        self.mock_object(time, 'time', new_attr = mock.Mock(
+            side_effect=xrange(0, 60, 5)))
+
+        self.assertRaisesRegexp(exception.NetAppDriverException,
+                                'bad.*?status',
+                                self.library._check_storage_system)
+
+    @mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall', new=
+                cinder_utils.ZeroIntervalLoopingCall)
+    def test_check_storage_system_update_password(self):
+        self.library.configuration.netapp_sa_password = 'password'
+
+        def get_system_iter():
+            key = 'passwordStatus'
+            system = copy.deepcopy(eseries_fake.STORAGE_SYSTEM)
+            system[key] = 'invalid'
+            yield system
+            yield system
+
+            system[key] = 'valid'
+            yield system
+
+        self.mock_object(self.library._client, 'list_storage_system',
+                         new_attr=mock.Mock(side_effect=get_system_iter()))
+        update_password = self.mock_object(self.library._client,
+                                           'update_stored_system_password',
+                                           new_attr=mock.Mock())
+        info_log = self.mock_object(library.LOG, 'info', mock.Mock())
+
+        self.library._check_storage_system()
+
+        update_password.assert_called_once_with(
+            self.library.configuration.netapp_sa_password)
+        self.assertTrue(info_log.called)
+
     def test_get_storage_pools_empty_result(self):
         """Verify an exception is raised if no pools are returned."""
         self.library.configuration.netapp_pool_name_search_pattern = '$'
-
-        self.assertRaises(exception.NetAppDriverException,
-                          self.library.check_for_setup_error)
 
     def test_get_storage_pools_invalid_conf(self):
         """Verify an exception is raised if the regex pattern is invalid."""
@@ -878,6 +982,78 @@ class NetAppEseriesLibraryTestCase(test.TestCase):
 
         mock_invoke.assert_not_called()
 
+    @mock.patch.object(library, 'LOG', mock.Mock())
+    def test_create_volume_fail_clean(self):
+        """Test volume creation fail w/o a partial volume being created.
+
+        Test the failed creation of a volume where a partial volume with
+        the name has not been created, thus no cleanup is required.
+        """
+        self.library._get_volume = mock.Mock(
+            side_effect = exception.VolumeNotFound(message=''))
+        self.library._client.create_volume = mock.Mock(
+            side_effect = exception.NetAppDriverException)
+        self.library._client.delete_volume = mock.Mock()
+        fake_volume = copy.deepcopy(get_fake_volume())
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.library.create_volume, fake_volume)
+
+        self.assertTrue(self.library._get_volume.called)
+        self.assertFalse(self.library._client.delete_volume.called)
+        self.assertEqual(1, library.LOG.error.call_count)
+
+    @mock.patch.object(library, 'LOG', mock.Mock())
+    def test_create_volume_fail_dirty(self):
+        """Test volume creation fail where a partial volume has been created.
+
+        Test scenario where the creation of a volume fails and a partial
+        volume is created with the name/id that was supplied by to the
+        original creation call.  In this situation the partial volume should
+        be detected and removed.
+        """
+        fake_volume = copy.deepcopy(get_fake_volume())
+        self.library._get_volume = mock.Mock(return_value=fake_volume)
+        self.library._client.list_volume = mock.Mock(return_value=fake_volume)
+        self.library._client.create_volume = mock.Mock(
+            side_effect = exception.NetAppDriverException)
+        self.library._client.delete_volume = mock.Mock()
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.library.create_volume, fake_volume)
+
+        self.assertTrue(self.library._get_volume.called)
+        self.assertTrue(self.library._client.delete_volume.called)
+        self.library._client.delete_volume.assert_called_once_with(
+            fake_volume["id"])
+        self.assertEqual(1, library.LOG.error.call_count)
+
+    @mock.patch.object(library, 'LOG', mock.Mock())
+    def test_create_volume_fail_dirty_fail_delete(self):
+        """Volume creation fail with partial volume deletion fails
+
+        Test scenario where the creation of a volume fails and a partial
+        volume is created with the name/id that was supplied by to the
+        original creation call. The partial volume is detected but when
+        the cleanup deletetion of that fragment volume is attempted it fails.
+        """
+        fake_volume = copy.deepcopy(get_fake_volume())
+        self.library._get_volume = mock.Mock(return_value=fake_volume)
+        self.library._client.list_volume = mock.Mock(return_value=fake_volume)
+        self.library._client.create_volume = mock.Mock(
+            side_effect = exception.NetAppDriverException)
+        self.library._client.delete_volume = mock.Mock(
+            side_effect = exception.NetAppDriverException)
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.library.create_volume, fake_volume)
+
+        self.assertTrue(self.library._get_volume.called)
+        self.assertTrue(self.library._client.delete_volume.called)
+        self.library._client.delete_volume.assert_called_once_with(
+            fake_volume["id"])
+        self.assertEqual(2, library.LOG.error.call_count)
+
 
 @ddt.ddt
 class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
@@ -896,7 +1072,9 @@ class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
 
         self.library = library.NetAppESeriesLibrary("FAKE", **kwargs)
         self.library._client = eseries_fake.FakeEseriesClient()
-        self.library.check_for_setup_error()
+        with mock.patch('oslo_service.loopingcall.FixedIntervalLoopingCall',
+                        new = cinder_utils.ZeroIntervalLoopingCall):
+            self.library.check_for_setup_error()
 
     def test_do_setup_host_group_already_exists(self):
         mock_check_flags = self.mock_object(na_utils, 'check_flags')
@@ -1088,66 +1266,107 @@ class NetAppEseriesLibraryMultiAttachTestCase(test.TestCase):
         # Ensure the volume we created is not cleaned up
         self.assertEqual(0, self.library._client.delete_volume.call_count)
 
-    def test_extend_volume(self):
+    @ddt.data(False, True)
+    def test_get_pool_operation_progress(self, expect_complete):
+        """Validate the operation progress is interpreted correctly"""
+
+        pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        if expect_complete:
+            pool_progress = []
+        else:
+            pool_progress = copy.deepcopy(
+                eseries_fake.FAKE_POOL_ACTION_PROGRESS)
+
+        expected_actions = set(action['currentAction'] for action in
+                               pool_progress)
+        expected_eta = reduce(lambda x, y: x + y['estimatedTimeToCompletion'],
+                              pool_progress, 0)
+
+        self.library._client.get_pool_operation_progress = mock.Mock(
+            return_value=pool_progress)
+
+        complete, actions, eta = self.library._get_pool_operation_progress(
+            pool['id'])
+        self.assertEqual(expect_complete, complete)
+        self.assertEqual(expected_actions, actions)
+        self.assertEqual(expected_eta, eta)
+
+    @ddt.data(False, True)
+    def test_get_pool_operation_progress_with_action(self, expect_complete):
+        """Validate the operation progress is interpreted correctly"""
+
+        expected_action = 'fakeAction'
+        pool = copy.deepcopy(eseries_fake.STORAGE_POOL)
+        if expect_complete:
+            pool_progress = copy.deepcopy(
+                eseries_fake.FAKE_POOL_ACTION_PROGRESS)
+            for progress in pool_progress:
+                progress['currentAction'] = 'none'
+        else:
+            pool_progress = copy.deepcopy(
+                eseries_fake.FAKE_POOL_ACTION_PROGRESS)
+            pool_progress[0]['currentAction'] = expected_action
+
+        expected_actions = set(action['currentAction'] for action in
+                               pool_progress)
+        expected_eta = reduce(lambda x, y: x + y['estimatedTimeToCompletion'],
+                              pool_progress, 0)
+
+        self.library._client.get_pool_operation_progress = mock.Mock(
+            return_value=pool_progress)
+
+        complete, actions, eta = self.library._get_pool_operation_progress(
+            pool['id'], expected_action)
+        self.assertEqual(expect_complete, complete)
+        self.assertEqual(expected_actions, actions)
+        self.assertEqual(expected_eta, eta)
+
+    @mock.patch('eventlet.greenthread.sleep')
+    def test_extend_volume(self, _mock_sleep):
+        """Test volume extend with a thick-provisioned volume"""
+
+        def get_copy_progress():
+            for eta in xrange(5, -1, -1):
+                action_status = 'none' if eta == 0 else 'remappingDve'
+                complete = action_status == 'none'
+                yield complete, action_status, eta
+
         fake_volume = copy.deepcopy(get_fake_volume())
         volume = copy.deepcopy(eseries_fake.VOLUME)
         new_capacity = 10
         volume['objectType'] = 'volume'
-        self.library.create_cloned_volume = mock.Mock()
+        self.library._client.expand_volume = mock.Mock()
+        self.library._get_pool_operation_progress = mock.Mock(
+            side_effect=get_copy_progress())
         self.library._get_volume = mock.Mock(return_value=volume)
-        self.library._client.update_volume = mock.Mock()
 
         self.library.extend_volume(fake_volume, new_capacity)
 
-        self.library.create_cloned_volume.assert_called_with(mock.ANY,
-                                                             fake_volume)
+        # Ensure that the extend method waits until the expansion is completed
+        self.assertEqual(6,
+                         self.library._get_pool_operation_progress.call_count
+                         )
+        self.library._client.expand_volume.assert_called_with(volume['id'],
+                                                              new_capacity,
+                                                              False)
 
     def test_extend_volume_thin(self):
+        """Test volume extend with a thin-provisioned volume"""
+
         fake_volume = copy.deepcopy(get_fake_volume())
         volume = copy.deepcopy(eseries_fake.VOLUME)
         new_capacity = 10
         volume['objectType'] = 'thinVolume'
         self.library._client.expand_volume = mock.Mock(return_value=volume)
+        self.library._get_volume_operation_progress = mock.Mock()
         self.library._get_volume = mock.Mock(return_value=volume)
 
         self.library.extend_volume(fake_volume, new_capacity)
 
+        self.assertFalse(self.library._get_volume_operation_progress.called)
         self.library._client.expand_volume.assert_called_with(volume['id'],
-                                                              new_capacity)
-
-    def test_extend_volume_stage_2_failure(self):
-        fake_volume = copy.deepcopy(get_fake_volume())
-        volume = copy.deepcopy(eseries_fake.VOLUME)
-        new_capacity = 10
-        volume['objectType'] = 'volume'
-        self.library.create_cloned_volume = mock.Mock()
-        self.library._client.delete_volume = mock.Mock()
-        # Create results for multiple calls to _get_volume and _update_volume
-        get_volume_results = [volume, {'id': 'newId', 'label': 'newVolume'}]
-        self.library._get_volume = mock.Mock(side_effect=get_volume_results)
-        update_volume_results = [volume, exception.NetAppDriverException,
-                                 volume]
-        self.library._client.update_volume = mock.Mock(
-            side_effect=update_volume_results)
-
-        self.assertRaises(exception.NetAppDriverException,
-                          self.library.extend_volume, fake_volume,
-                          new_capacity)
-        self.assertTrue(self.library._client.delete_volume.called)
-
-    def test_extend_volume_stage_1_failure(self):
-        fake_volume = copy.deepcopy(get_fake_volume())
-        volume = copy.deepcopy(eseries_fake.VOLUME)
-        new_capacity = 10
-        volume['objectType'] = 'volume'
-        self.library.create_cloned_volume = mock.Mock()
-        self.library._get_volume = mock.Mock(return_value=volume)
-        self.library._client.update_volume = mock.Mock(
-            side_effect=exception.NetAppDriverException)
-
-        self.assertRaises(exception.NetAppDriverException,
-                          self.library.extend_volume, fake_volume,
-                          new_capacity)
+                                                              new_capacity,
+                                                              True)
 
     def test_delete_non_existing_volume(self):
         volume2 = get_fake_volume()

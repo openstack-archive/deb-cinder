@@ -49,10 +49,9 @@ nas_opts = [
                default='',
                help='Password to connect to NAS system.',
                secret=True),
-    cfg.IntOpt('nas_ssh_port',
-               default=22,
-               min=1, max=65535,
-               help='SSH port to use to connect to NAS system.'),
+    cfg.PortOpt('nas_ssh_port',
+                default=22,
+                help='SSH port to use to connect to NAS system.'),
     cfg.StrOpt('nas_private_key',
                default='',
                help='Filename of private key to use for SSH authentication.'),
@@ -81,7 +80,6 @@ nas_opts = [
                      'For example:  "/srv/export1" for an NFS server export '
                      'available at 10.0.5.10:/srv/export1 .')),
     cfg.StrOpt('nas_mount_options',
-               default=None,
                help=('Options used to mount the storage backend file system '
                      'where Cinder volumes are stored.')),
 ]

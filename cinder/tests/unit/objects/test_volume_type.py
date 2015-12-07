@@ -14,27 +14,14 @@
 
 import mock
 
-from cinder import context
 from cinder import objects
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import objects as test_objects
 
 
 class TestVolumeType(test_objects.BaseObjectsTestCase):
-    def setUp(self):
-        super(TestVolumeType, self).setUp()
-        # NOTE (e0ne): base tests contains original RequestContext from
-        # oslo_context. We change it to our RequestContext implementation
-        # to have 'elevated' method
-        self.context = context.RequestContext(self.user_id, self.project_id,
-                                              is_admin=False)
 
-    @staticmethod
-    def _compare(test, db, obj):
-        for field, value in db.items():
-            test.assertEqual(db[field], obj[field])
-
-    @mock.patch('cinder.db.volume_type_get')
+    @mock.patch('cinder.db.sqlalchemy.api._volume_type_get_full')
     def test_get_by_id(self, volume_type_get):
         db_volume_type = fake_volume.fake_db_volume_type()
         volume_type_get.return_value = db_volume_type
@@ -88,7 +75,7 @@ class TestVolumeTypeList(test_objects.BaseObjectsTestCase):
     @mock.patch('cinder.volume.volume_types.get_all_types')
     def test_get_all(self, get_all_types):
         db_volume_type = fake_volume.fake_db_volume_type()
-        get_all_types.return_value = [db_volume_type]
+        get_all_types.return_value = {db_volume_type['name']: db_volume_type}
 
         volume_types = objects.VolumeTypeList.get_all(self.context)
         self.assertEqual(1, len(volume_types))

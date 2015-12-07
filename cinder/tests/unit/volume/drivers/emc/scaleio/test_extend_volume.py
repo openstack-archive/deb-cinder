@@ -12,7 +12,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-import urllib
+from six.moves import urllib
 
 from cinder import context
 from cinder import exception
@@ -42,8 +42,8 @@ class TestExtendVolume(scaleio.TestScaleIODriver):
 
         self.volume = fake_volume_obj(ctx, **{'id': 'fake_volume',
                                               'provider_id': 'pid_1'})
-        self.volume_name_2x_enc = urllib.quote(
-            urllib.quote(self.driver._id_to_base64(self.volume.id))
+        self.volume_name_2x_enc = urllib.parse.quote(
+            urllib.parse.quote(self.driver._id_to_base64(self.volume.id))
         )
 
         self.HTTPS_MOCK_RESPONSES = {
@@ -93,10 +93,7 @@ class TestExtendVolume(scaleio.TestScaleIODriver):
         self.driver.configuration.set_override('sio_round_volume_capacity',
                                                override=False)
         self.set_https_response_mode(self.RESPONSE_MODE.Valid)
-        self.assertRaises(exception.VolumeBackendAPIException,
-                          self.driver.extend_volume,
-                          self.volume,
-                          self.BAD_SIZE)
+        self.driver.extend_volume(self.volume, self.BAD_SIZE)
 
     def test_extend_volume_bad_size_round(self):
         self.driver.configuration.set_override('sio_round_volume_capacity',

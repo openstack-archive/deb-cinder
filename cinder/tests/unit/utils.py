@@ -52,7 +52,8 @@ def create_volume(ctxt,
     vol['user_id'] = ctxt.user_id
     vol['project_id'] = ctxt.project_id
     vol['status'] = status
-    vol['migration_status'] = migration_status
+    if migration_status:
+        vol['migration_status'] = migration_status
     vol['display_name'] = display_name
     vol['display_description'] = display_description
     vol['attach_status'] = 'detached'
@@ -64,11 +65,16 @@ def create_volume(ctxt,
     for key in kwargs:
         vol[key] = kwargs[key]
     vol['replication_status'] = replication_status
-    vol['replication_extended_status'] = replication_extended_status
-    vol['replication_driver_data'] = replication_driver_data
-    vol['previous_status'] = previous_status
+    if replication_extended_status:
+        vol['replication_extended_status'] = replication_extended_status
+    if replication_driver_data:
+        vol['replication_driver_data'] = replication_driver_data
+    if previous_status:
+        vol['previous_status'] = previous_status
 
-    return db.volume_create(ctxt, vol)
+    volume = objects.Volume(ctxt, **vol)
+    volume.create()
+    return volume
 
 
 def attach_volume(ctxt, volume_id, instance_uuid, attached_host,
@@ -139,22 +145,23 @@ def create_consistencygroup(ctxt,
 
 
 def create_cgsnapshot(ctxt,
-                      name='test_cgsnap',
-                      description='this is a test cgsnap',
-                      status='available',
-                      consistencygroup_id=None,
+                      consistencygroup_id,
+                      name='test_cgsnapshot',
+                      description='this is a test cgsnapshot',
+                      status='creating',
                       **kwargs):
     """Create a cgsnapshot object in the DB."""
-    cgsnap = {}
-    cgsnap['user_id'] = ctxt.user_id
-    cgsnap['project_id'] = ctxt.project_id
-    cgsnap['status'] = status
-    cgsnap['name'] = name
-    cgsnap['description'] = description
-    cgsnap['consistencygroup_id'] = consistencygroup_id
+    cgsnap = objects.CGSnapshot(ctxt)
+    cgsnap.user_id = ctxt.user_id or 'fake_user_id'
+    cgsnap.project_id = ctxt.project_id or 'fake_project_id'
+    cgsnap.status = status
+    cgsnap.name = name
+    cgsnap.description = description
+    cgsnap.consistencygroup_id = consistencygroup_id
     for key in kwargs:
-        cgsnap[key] = kwargs[key]
-    return db.cgsnapshot_create(ctxt, cgsnap)
+        setattr(cgsnap, key, kwargs[key])
+    cgsnap.create()
+    return cgsnap
 
 
 def create_backup(ctxt,

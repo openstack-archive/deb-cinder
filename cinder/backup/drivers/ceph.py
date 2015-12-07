@@ -310,7 +310,7 @@ class CephBackupDriver(driver.BackupDriver):
             data = src.read(self.chunk_size)
             # If we have reach end of source, discard any extraneous bytes from
             # destination volume if trim is enabled and stop writing.
-            if data == '':
+            if data == b'':
                 if CONF.restore_discard_excess_bytes:
                     self._discard_bytes(dest, dest.tell(),
                                         length - dest.tell())
@@ -334,7 +334,7 @@ class CephBackupDriver(driver.BackupDriver):
         if rem:
             LOG.debug("Transferring remaining %s bytes", rem)
             data = src.read(rem)
-            if data == '':
+            if data == b'':
                 if CONF.restore_discard_excess_bytes:
                     self._discard_bytes(dest, dest.tell(), rem)
             else:
@@ -979,21 +979,6 @@ class CephBackupDriver(driver.BackupDriver):
 
         LOG.debug("Restore transfer completed in %.4fs",
                   (time.time() - before))
-
-    def _num_backup_snaps(self, backup_base_name):
-        """Return the number of snapshots that exist on the base image."""
-        with rbd_driver.RADOSClient(self, self._ceph_backup_pool) as client:
-            base_rbd = self.rbd.Image(client.ioctx, backup_base_name,
-                                      read_only=True)
-            try:
-                snaps = self.get_backup_snaps(base_rbd)
-            finally:
-                base_rbd.close()
-
-        if snaps:
-            return len(snaps)
-        else:
-            return 0
 
     def _get_restore_point(self, base_name, backup_id):
         """Get restore point snapshot name for incremental backup.

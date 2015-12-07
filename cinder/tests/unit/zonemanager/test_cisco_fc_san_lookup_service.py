@@ -70,8 +70,8 @@ class TestCiscoFCSanLookupService(cisco_lookup.CiscoFCSanLookupService,
         fc_fabric_opts.append(cfg.StrOpt('cisco_fc_fabric_password',
                                          default='admin1234', help='',
                                          secret=True))
-        fc_fabric_opts.append(cfg.IntOpt('cisco_fc_fabric_port',
-                                         default=22, help=''))
+        fc_fabric_opts.append(cfg.PortOpt('cisco_fc_fabric_port',
+                                          default=22, help=''))
         fc_fabric_opts.append(cfg.StrOpt('cisco_zoning_vsan',
                                          default='304', help=''))
         config = conf.Configuration(fc_fabric_opts, 'CISCO_FAB_2')
@@ -85,7 +85,7 @@ class TestCiscoFCSanLookupService(cisco_lookup.CiscoFCSanLookupService,
         get_nameserver_info_mock.return_value = (nsshow_data)
         device_map = self.get_device_mapping_from_network(
             initiator_list, target_list)
-        self.assertDictMatch(device_map, _device_map_to_verify)
+        self.assertDictMatch(_device_map_to_verify, device_map)
 
     @mock.patch.object(cisco_lookup.CiscoFCSanLookupService,
                        '_get_switch_info')

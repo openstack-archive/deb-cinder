@@ -23,14 +23,17 @@ import webob
 from cinder.api import common
 from cinder.api.contrib import volume_image_metadata
 from cinder.api.openstack import wsgi
+from cinder import context
 from cinder import db
 from cinder import exception
+from cinder import objects
 from cinder import test
 from cinder.tests.unit.api import fakes
+from cinder.tests.unit import fake_volume
 from cinder import volume
 
 
-def fake_volume_get(*args, **kwargs):
+def fake_db_volume_get(*args, **kwargs):
     return {
         'id': 'fake',
         'host': 'host001',
@@ -44,11 +47,20 @@ def fake_volume_get(*args, **kwargs):
         'volume_type_id': None,
         'snapshot_id': None,
         'project_id': 'fake',
+        'migration_status': None,
+        '_name_id': 'fake2',
+        'attach_status': 'detached',
     }
 
 
+def fake_volume_api_get(*args, **kwargs):
+    ctx = context.RequestContext('admin', 'fake', True)
+    db_volume = fake_db_volume_get()
+    return fake_volume.fake_volume_obj(ctx, **db_volume)
+
+
 def fake_volume_get_all(*args, **kwargs):
-    return [fake_volume_get()]
+    return objects.VolumeList(objects=[fake_volume_api_get()])
 
 
 fake_image_metadata = {
@@ -89,13 +101,12 @@ class VolumeImageMetadataTest(test.TestCase):
 
     def setUp(self):
         super(VolumeImageMetadataTest, self).setUp()
-        self.stubs.Set(volume.API, 'get', fake_volume_get)
+        self.stubs.Set(volume.API, 'get', fake_volume_api_get)
         self.stubs.Set(volume.API, 'get_all', fake_volume_get_all)
         self.stubs.Set(volume.API, 'get_volume_image_metadata',
                        fake_get_volume_image_metadata)
         self.stubs.Set(volume.API, 'get_volumes_image_metadata',
                        fake_get_volumes_image_metadata)
-        self.stubs.Set(db, 'volume_get', fake_volume_get)
         self.UUID = uuid.uuid4()
         self.controller = (volume_image_metadata.
                            VolumeImageMetadataController())
@@ -115,16 +126,42 @@ class VolumeImageMetadataTest(test.TestCase):
             for volume in json.loads(body)['volumes']
         ]
 
+    def _create_volume_and_glance_metadata(self):
+        ctxt = context.get_admin_context()
+        db.volume_create(ctxt, {'id': 'fake', 'status': 'available',
+                                'host': 'test', 'provider_location': '',
+                                'size': 1})
+        db.volume_glance_metadata_create(ctxt, 'fake', 'image_id', 'someid')
+        db.volume_glance_metadata_create(ctxt, 'fake', 'image_name', 'fake')
+        db.volume_glance_metadata_create(ctxt, 'fake', 'kernel_id',
+                                         'somekernel')
+        db.volume_glance_metadata_create(ctxt, 'fake', 'ramdisk_id',
+                                         'someramdisk')
+
     def test_get_volume(self):
+        self._create_volume_and_glance_metadata()
         res = self._make_request('/v2/fake/volumes/%s' % self.UUID)
         self.assertEqual(200, res.status_int)
         self.assertEqual(fake_image_metadata,
                          self._get_image_metadata(res.body))
 
     def test_list_detail_volumes(self):
+        self._create_volume_and_glance_metadata()
         res = self._make_request('/v2/fake/volumes/detail')
         self.assertEqual(200, res.status_int)
         self.assertEqual(fake_image_metadata,
+                         self._get_image_metadata_list(res.body)[0])
+
+    def test_list_detail_volumes_with_limit(self):
+        ctxt = context.get_admin_context()
+        db.volume_create(ctxt, {'id': 'fake', 'status': 'available',
+                                'host': 'test', 'provider_location': '',
+                                'size': 1})
+        db.volume_glance_metadata_create(ctxt, 'fake', 'key1', 'value1')
+        db.volume_glance_metadata_create(ctxt, 'fake', 'key2', 'value2')
+        res = self._make_request('/v2/fake/volumes/detail?limit=1')
+        self.assertEqual(200, res.status_int)
+        self.assertEqual({'key1': 'value1', 'key2': 'value2'},
                          self._get_image_metadata_list(res.body)[0])
 
     def test_create_image_metadata(self):
@@ -267,6 +304,18 @@ class VolumeImageMetadataTest(test.TestCase):
 
         self.assertRaises(webob.exc.HTTPNotFound,
                           self.controller.delete, req, 1, body)
+
+    def test_show_image_metadata(self):
+        body = {"os-show_image_metadata": None}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = 'POST'
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(200, res.status_int)
+        self.assertEqual(fake_image_metadata,
+                         json.loads(res.body)["metadata"])
 
 
 class ImageMetadataXMLDeserializer(common.MetadataXMLDeserializer):

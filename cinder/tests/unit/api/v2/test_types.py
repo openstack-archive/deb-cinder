@@ -21,7 +21,7 @@ import six
 import webob
 
 from cinder.api.v2 import types
-from cinder.api.views import types as views_types
+from cinder.api.v2.views import types as views_types
 from cinder import exception
 from cinder import test
 from cinder.tests.unit.api import fakes
@@ -85,7 +85,7 @@ class VolumeTypesApiTest(test.TestCase):
         self.stubs.Set(volume_types, 'get_all_types',
                        return_volume_types_get_all_types)
 
-        req = fakes.HTTPRequest.blank('/v2/fake/types')
+        req = fakes.HTTPRequest.blank('/v2/fake/types', use_admin_context=True)
         res_dict = self.controller.index(req)
 
         self.assertEqual(3, len(res_dict['volume_types']))
@@ -153,6 +153,7 @@ class VolumeTypesApiTest(test.TestCase):
         raw_volume_type = dict(
             name='new_type',
             description='new_type_desc',
+            qos_specs_id='new_id',
             is_public=True,
             deleted=False,
             created_at=now,
@@ -170,10 +171,40 @@ class VolumeTypesApiTest(test.TestCase):
             name='new_type',
             description='new_type_desc',
             is_public=True,
+            id=42,
+        )
+        self.assertDictMatch(expected_volume_type, output['volume_type'])
+
+    def test_view_builder_show_admin(self):
+        view_builder = views_types.ViewBuilder()
+
+        now = timeutils.utcnow().isoformat()
+        raw_volume_type = dict(
+            name='new_type',
+            description='new_type_desc',
+            qos_specs_id='new_id',
+            is_public=True,
+            deleted=False,
+            created_at=now,
+            updated_at=now,
+            extra_specs={},
+            deleted_at=None,
+            id=42,
+        )
+
+        request = fakes.HTTPRequest.blank("/v2", use_admin_context=True)
+        output = view_builder.show(request, raw_volume_type)
+
+        self.assertIn('volume_type', output)
+        expected_volume_type = dict(
+            name='new_type',
+            description='new_type_desc',
+            qos_specs_id='new_id',
+            is_public=True,
             extra_specs={},
             id=42,
         )
-        self.assertDictMatch(output['volume_type'], expected_volume_type)
+        self.assertDictMatch(expected_volume_type, output['volume_type'])
 
     def test_view_builder_list(self):
         view_builder = views_types.ViewBuilder()
@@ -185,6 +216,7 @@ class VolumeTypesApiTest(test.TestCase):
                 dict(
                     name='new_type',
                     description='new_type_desc',
+                    qos_specs_id='new_id',
                     is_public=True,
                     deleted=False,
                     created_at=now,
@@ -204,11 +236,47 @@ class VolumeTypesApiTest(test.TestCase):
                 name='new_type',
                 description='new_type_desc',
                 is_public=True,
+                id=42 + i
+            )
+            self.assertDictMatch(expected_volume_type,
+                                 output['volume_types'][i])
+
+    def test_view_builder_list_admin(self):
+        view_builder = views_types.ViewBuilder()
+
+        now = timeutils.utcnow().isoformat()
+        raw_volume_types = []
+        for i in range(0, 10):
+            raw_volume_types.append(
+                dict(
+                    name='new_type',
+                    description='new_type_desc',
+                    qos_specs_id='new_id',
+                    is_public=True,
+                    deleted=False,
+                    created_at=now,
+                    updated_at=now,
+                    extra_specs={},
+                    deleted_at=None,
+                    id=42 + i
+                )
+            )
+
+        request = fakes.HTTPRequest.blank("/v2", use_admin_context=True)
+        output = view_builder.index(request, raw_volume_types)
+
+        self.assertIn('volume_types', output)
+        for i in range(0, 10):
+            expected_volume_type = dict(
+                name='new_type',
+                description='new_type_desc',
+                qos_specs_id='new_id',
+                is_public=True,
                 extra_specs={},
                 id=42 + i
             )
-            self.assertDictMatch(output['volume_types'][i],
-                                 expected_volume_type)
+            self.assertDictMatch(expected_volume_type,
+                                 output['volume_types'][i])
 
 
 class VolumeTypesSerializerTest(test.TestCase):

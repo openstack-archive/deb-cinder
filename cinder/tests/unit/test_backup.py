@@ -270,6 +270,15 @@ class BackupTestCase(BaseBackupTest):
         mock_add_threadpool.assert_has_calls(calls, any_order=True)
         self.assertEqual(2, mock_add_threadpool.call_count)
 
+    def test_is_working(self):
+        self.assertTrue(self.backup_mgr.is_working())
+
+        vmanager_mock = mock.Mock()
+        vmanager_mock.is_working.side_effect = [True, False, True]
+        vms = {'a': vmanager_mock, 'b': vmanager_mock, 'c': vmanager_mock}
+        with mock.patch.dict(self.backup_mgr.volume_managers, vms, True):
+            self.assertFalse(self.backup_mgr.is_working())
+
     def test_init_host_handles_exception(self):
         """Test that exception in cleanup is handled."""
 
@@ -531,6 +540,27 @@ class BackupTestCase(BaseBackupTest):
         self.backup_mgr.create_backup(self.ctxt, backup)
         self.assertEqual(2, notify.call_count)
 
+    def test_require_driver_initialized_in_create_backup(self):
+        """Test backup creation.
+
+        Test require_driver_initialized with _get_driver
+        in a normal backup creation.
+        """
+        vol_size = 1
+        vol_id = self._create_volume_db_entry(size=vol_size)
+        backup = self._create_backup_db_entry(volume_id=vol_id)
+
+        self.backup_mgr._get_driver = mock.MagicMock()
+        self.backup_mgr._get_volume_backend = mock.MagicMock()
+        self.backup_mgr._get_volume_backend.return_value = 'mybackend'
+
+        self.backup_mgr.create_backup(self.ctxt, backup)
+        self.assertEqual(2, self.backup_mgr._get_driver.call_count)
+        self.assertEqual(self.backup_mgr._get_driver.call_args_list[0],
+                         mock.call('mybackend'))
+        self.assertEqual(self.backup_mgr._get_driver.call_args_list[1],
+                         mock.call('mybackend'))
+
     def test_restore_backup_with_bad_volume_status(self):
         """Test error handling.
 
@@ -639,6 +669,29 @@ class BackupTestCase(BaseBackupTest):
         self.backup_mgr.restore_backup(self.ctxt, backup, vol_id)
         self.assertEqual(2, notify.call_count)
 
+    def test_require_driver_initialized_in_restore_backup(self):
+        """Test backup restoration.
+
+        Test require_driver_initialized with _get_driver
+        in a normal backup restoration.
+        """
+        vol_size = 1
+        vol_id = self._create_volume_db_entry(status='restoring-backup',
+                                              size=vol_size)
+        backup = self._create_backup_db_entry(status='restoring',
+                                              volume_id=vol_id)
+
+        self.backup_mgr._get_driver = mock.MagicMock()
+        self.backup_mgr._get_volume_backend = mock.MagicMock()
+        self.backup_mgr._get_volume_backend.return_value = 'mybackend'
+
+        self.backup_mgr.restore_backup(self.ctxt, backup, vol_id)
+        self.assertEqual(2, self.backup_mgr._get_driver.call_count)
+        self.assertEqual(self.backup_mgr._get_driver.call_args_list[0],
+                         mock.call('mybackend'))
+        self.assertEqual(self.backup_mgr._get_driver.call_args_list[1],
+                         mock.call('mybackend'))
+
     def test_delete_backup_with_bad_backup_status(self):
         """Test error handling.
 
@@ -712,7 +765,7 @@ class BackupTestCase(BaseBackupTest):
 
         ctxt_read_deleted = context.get_admin_context('yes')
         backup = db.backup_get(ctxt_read_deleted, backup.id)
-        self.assertEqual(True, backup.deleted)
+        self.assertTrue(backup.deleted)
         self.assertGreaterEqual(timeutils.utcnow(), backup.deleted_at)
         self.assertEqual('deleted', backup.status)
 

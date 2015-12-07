@@ -53,7 +53,6 @@ vzstorage_opts = [
                help=('Base dir containing mount points for '
                      'vzstorage shares.')),
     cfg.ListOpt('vzstorage_mount_options',
-                default=None,
                 help=('Mount options passed to the vzstorage client. '
                       'See section of the pstorage-mount man page '
                       'for details.')),
@@ -220,7 +219,7 @@ class VZStorageDriver(remotefs_drv.RemoteFSSnapDriver):
 
         total_size, available, allocated = self._get_capacity_info(vz_share)
 
-        if (allocated + volume_size) / total_size > used_ratio:
+        if (allocated + volume_size) // total_size > used_ratio:
             LOG.debug('_is_share_eligible: %s is above '
                       'vzstorage_used_ratio.', vz_share)
             return False

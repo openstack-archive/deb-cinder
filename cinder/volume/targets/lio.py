@@ -33,18 +33,6 @@ class LioAdm(iscsi.ISCSITarget):
 
         self._verify_rtstool()
 
-    def _get_target_chap_auth(self, context, iscsi_name):
-        """Get the current chap auth username and password."""
-        try:
-            # 'iscsi_name': 'iqn.2010-10.org.openstack:volume-00000001'
-            vol_id = iscsi_name.split(':volume-')[1]
-            volume_info = self.db.volume_get(context, vol_id)
-            # 'provider_auth': 'CHAP user_id password'
-            if volume_info['provider_auth']:
-                return tuple(volume_info['provider_auth'].split(' ', 3)[1:])
-        except exception.NotFound:
-            LOG.debug('Failed to get CHAP auth from DB for %s', vol_id)
-
     def _verify_rtstool(self):
         try:
             # This call doesn't need locking
@@ -193,8 +181,9 @@ class LioAdm(iscsi.ISCSITarget):
                           connector['initiator'],
                           run_as_root=True)
         except putils.ProcessExecutionError:
-            LOG.exception(_LE("Failed to delete initiator iqn %s to target."),
-                          connector['initiator'])
+            LOG.exception(
+                _LE("Failed to delete initiator iqn %s from target."),
+                connector['initiator'])
             raise exception.ISCSITargetDetachFailed(volume_id=volume['id'])
 
         # We make changes persistent

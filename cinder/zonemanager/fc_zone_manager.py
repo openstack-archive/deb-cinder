@@ -53,7 +53,6 @@ zone_manager_opts = [
                help='Zoning policy configured by user; valid values include '
                '"initiator-target" or "initiator"'),
     cfg.StrOpt('fc_fabric_names',
-               default=None,
                help='Comma separated list of Fibre Channel fabric names.'
                ' This list of names is used to retrieve other SAN credentials'
                ' for connecting to each SAN fabric'),
@@ -64,7 +63,7 @@ zone_manager_opts = [
 ]
 
 CONF = cfg.CONF
-CONF.register_opts(zone_manager_opts, 'fc-zone-manager')
+CONF.register_opts(zone_manager_opts, group='fc-zone-manager')
 
 
 class ZoneManager(fc_common.FCCommon):

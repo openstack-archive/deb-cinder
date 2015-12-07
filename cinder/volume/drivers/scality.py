@@ -40,7 +40,6 @@ LOG = logging.getLogger(__name__)
 
 volume_opts = [
     cfg.StrOpt('scality_sofs_config',
-               default=None,
                help='Path or URL to Scality SOFS configuration file'),
     cfg.StrOpt('scality_sofs_mount_point',
                default='$state_path/scality',
@@ -125,7 +124,7 @@ class ScalityDriver(remotefs_drv.RemoteFSSnapDriver):
             parts = mount.split()
             if (parts[0].endswith('fuse') and
                     parts[1].rstrip('/') == mount_path):
-                        return True
+                return True
         return False
 
     @lockutils.synchronized('mount-sofs', 'cinder-sofs', external=True)

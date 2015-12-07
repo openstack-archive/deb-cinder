@@ -17,7 +17,6 @@
 LVM class for performing LVM operations.
 """
 
-import itertools
 import math
 import os
 import re
@@ -26,6 +25,7 @@ from os_brick import executor
 from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
 from oslo_utils import excutils
+from six import moves
 
 from cinder import exception
 from cinder.i18n import _LE, _LI
@@ -71,6 +71,15 @@ class LVM(executor.Executor):
         self._supports_lvchange_ignoreskipactivation = None
         self.vg_provisioned_capacity = 0.0
 
+        # Ensure LVM_SYSTEM_DIR has been added to LVM.LVM_CMD_PREFIX
+        # before the first LVM command is executed, and use the directory
+        # where the specified lvm_conf file is located as the value.
+        if lvm_conf and os.path.isfile(lvm_conf):
+            lvm_sys_dir = os.path.dirname(lvm_conf)
+            LVM.LVM_CMD_PREFIX = ['env',
+                                  'LC_ALL=C',
+                                  'LVM_SYSTEM_DIR=' + lvm_sys_dir]
+
         if create_vg and physical_volumes is not None:
             self.pv_list = physical_volumes
 
@@ -104,10 +113,6 @@ class LVM(executor.Executor):
             self.vg_thin_pool = pool_name
             self.activate_lv(self.vg_thin_pool)
         self.pv_list = self.get_all_physical_volumes(root_helper, vg_name)
-        if lvm_conf and os.path.isfile(lvm_conf):
-            LVM.LVM_CMD_PREFIX = ['env',
-                                  'LC_ALL=C',
-                                  'LVM_SYSTEM_DIR=/etc/cinder']
 
     def _vg_exists(self):
         """Simple check to see if VG exists.
@@ -287,7 +292,8 @@ class LVM(executor.Executor):
         lv_list = []
         if out is not None:
             volumes = out.split()
-            for vg, name, size in itertools.izip(*[iter(volumes)] * 3):
+            iterator = moves.zip(*[iter(volumes)] * 3)  # pylint: disable=E1101
+            for vg, name, size in iterator:
                 lv_list.append({"vg": vg, "name": name, "size": size})
 
         return lv_list
@@ -501,7 +507,8 @@ class LVM(executor.Executor):
         if not size_str:
             size_str = self._calculate_thin_pool_size()
 
-        cmd = ['lvcreate', '-T', '-L', size_str, vg_pool_name]
+        cmd = LVM.LVM_CMD_PREFIX + ['lvcreate', '-T', '-L', size_str,
+                                    vg_pool_name]
         LOG.debug("Creating thin pool '%(pool)s' with size %(size)s of "
                   "total %(free)sg", {'pool': vg_pool_name,
                                       'size': size_str,
@@ -526,9 +533,11 @@ class LVM(executor.Executor):
 
         if lv_type == 'thin':
             pool_path = '%s/%s' % (self.vg_name, self.vg_thin_pool)
-            cmd = ['lvcreate', '-T', '-V', size_str, '-n', name, pool_path]
+            cmd = LVM.LVM_CMD_PREFIX + ['lvcreate', '-T', '-V', size_str, '-n',
+                                        name, pool_path]
         else:
-            cmd = ['lvcreate', '-n', name, self.vg_name, '-L', size_str]
+            cmd = LVM.LVM_CMD_PREFIX + ['lvcreate', '-n', name, self.vg_name,
+                                        '-L', size_str]
 
         if mirror_count > 0:
             cmd.extend(['-m', mirror_count, '--nosync',
@@ -565,8 +574,8 @@ class LVM(executor.Executor):
             LOG.error(_LE("Trying to create snapshot by non-existent LV: %s"),
                       source_lv_name)
             raise exception.VolumeDeviceNotFound(device=source_lv_name)
-        cmd = ['lvcreate', '--name', name,
-               '--snapshot', '%s/%s' % (self.vg_name, source_lv_name)]
+        cmd = LVM.LVM_CMD_PREFIX + ['lvcreate', '--name', name, '--snapshot',
+                                    '%s/%s' % (self.vg_name, source_lv_name)]
         if lv_type != 'thin':
             size = source_lvref['size']
             cmd.extend(['-L', '%sg' % (size)])
@@ -724,9 +733,9 @@ class LVM(executor.Executor):
         if self.lv_has_snapshot(lv_name):
             self.deactivate_lv(lv_name)
         try:
-            self._execute('lvextend', '-L', new_size,
-                          '%s/%s' % (self.vg_name, lv_name),
-                          root_helper=self._root_helper,
+            cmd = LVM.LVM_CMD_PREFIX + ['lvextend', '-L', new_size,
+                                        '%s/%s' % (self.vg_name, lv_name)]
+            self._execute(*cmd, root_helper=self._root_helper,
                           run_as_root=True)
         except putils.ProcessExecutionError as err:
             LOG.exception(_LE('Error extending Volume'))

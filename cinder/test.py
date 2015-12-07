@@ -21,6 +21,7 @@ inline callbacks.
 
 """
 
+import copy
 import logging
 import os
 import shutil
@@ -42,7 +43,7 @@ from cinder.common import config  # noqa Need to register global_opts
 from cinder.db import migration
 from cinder.db.sqlalchemy import api as sqla_api
 from cinder import i18n
-from cinder import objects
+from cinder.objects import base as objects_base
 from cinder import rpc
 from cinder import service
 from cinder.tests.unit import conf_fixture
@@ -149,9 +150,6 @@ class TestCase(testtools.TestCase):
                        side_effect=self._get_joined_notifier)
         p.start()
 
-        # Import cinder objects for test cases
-        objects.register_all()
-
         # Unit tests do not need to use lazy gettext
         i18n.enable_lazy(False)
 
@@ -213,6 +211,14 @@ class TestCase(testtools.TestCase):
                                  sqlite_clean_db=CONF.sqlite_clean_db)
         self.useFixture(_DB_CACHE)
 
+        # NOTE(danms): Make sure to reset us back to non-remote objects
+        # for each test to avoid interactions. Also, backup the object
+        # registry.
+        objects_base.CinderObject.indirection_api = None
+        self._base_test_obj_backup = copy.copy(
+            objects_base.CinderObjectRegistry._registry._obj_classes)
+        self.addCleanup(self._restore_obj_registry)
+
         # emulate some of the mox stuff, we can't use the metaclass
         # because it screws with our generators
         mox_fixture = self.useFixture(moxstubout.MoxStubout())
@@ -245,6 +251,16 @@ class TestCase(testtools.TestCase):
                              group='oslo_policy')
 
         self._disable_osprofiler()
+
+        # NOTE(geguileo): This is required because common get_by_id method in
+        # cinder.db.sqlalchemy.api caches get methods and if we use a mocked
+        # get method in one test it would carry on to the next test.  So we
+        # clear out the cache.
+        sqla_api._GET_METHODS = {}
+
+    def _restore_obj_registry(self):
+        objects_base.CinderObjectRegistry._registry._obj_classes = \
+            self._base_test_obj_backup
 
     def _disable_osprofiler(self):
         """Disable osprofiler.

@@ -42,7 +42,7 @@ NFS_OVERSUB_RATIO_DEFAULT = 1.0
 nfs_opts = [
     cfg.StrOpt('nfs_shares_config',
                default='/etc/cinder/nfs_shares',
-               help='File with the list of available nfs shares'),
+               help='File with the list of available NFS shares'),
     cfg.BoolOpt('nfs_sparsed_volumes',
                 default=True,
                 help=('Create volumes as sparsed files which take no space.'
@@ -67,16 +67,15 @@ nfs_opts = [
                        'in the Mitaka release.')),
     cfg.StrOpt('nfs_mount_point_base',
                default='$state_path/mnt',
-               help=('Base dir containing mount points for nfs shares.')),
+               help=('Base dir containing mount points for NFS shares.')),
     cfg.StrOpt('nfs_mount_options',
-               default=None,
-               help=('Mount options passed to the nfs client. See section '
-                     'of the nfs man page for details.')),
+               help=('Mount options passed to the NFS client. See section '
+                     'of the NFS man page for details.')),
     cfg.IntOpt('nfs_mount_attempts',
                default=3,
-               help=('The number of attempts to mount nfs shares before '
+               help=('The number of attempts to mount NFS shares before '
                      'raising an error.  At least one attempt will be '
-                     'made to mount an nfs share, regardless of the '
+                     'made to mount an NFS share, regardless of the '
                      'value specified.')),
 ]
 
@@ -143,9 +142,14 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
 
         self.shares = {}  # address : options
 
-        # Check if mount.nfs is installed on this system; note that we don't
-        # need to be root to see if the package is installed.
-        package = 'mount.nfs'
+        # Check if /sbin/mount.nfs is installed on this system;
+        # note that we don't need to be root, to see if the package
+        # is installed.
+        # We rely on the absolute path /sbin/mount.nfs; this seems to be
+        # common on most distributions (SUSE, RedHat, CentOS, Ubuntu, Debian)
+        # and it does not depend on correct PATH of the executing user,
+        # when trying to find the relative binary.
+        package = '/sbin/mount.nfs'
         try:
             self._execute(package, check_exit_code=False,
                           run_as_root=False)
@@ -213,7 +217,7 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
             raise exception.NfsNoSuitableShareFound(
                 volume_size=volume_size_in_gib)
 
-        LOG.debug('Selected %s as target nfs share.', target_share)
+        LOG.debug('Selected %s as target NFS share.', target_share)
 
         return target_share
 
@@ -227,7 +231,7 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
         space (total_available * nfs_oversub_ratio) to ensure enough space is
         available for the new volume.
 
-        :param nfs_share: nfs share
+        :param nfs_share: NFS share
         :param volume_size_in_gib: int size in GB
         """
         # Because the generic NFS driver aggregates over all shares
@@ -377,6 +381,45 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
                             "environment. Please see %s "
                             "for information on a secure NAS configuration."),
                         doc_html)
+
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status):
+        """Return the keys and values updated from NFS for migrated volume.
+
+        This method should rename the back-end volume name(id) on the
+        destination host back to its original name(id) on the source host.
+
+        :param ctxt: The context used to run the method update_migrated_volume
+        :param volume: The original volume that was migrated to this backend
+        :param new_volume: The migration volume object that was created on
+                           this backend as part of the migration process
+        :param original_volume_status: The status of the original volume
+        :return model_update to update DB with any needed changes
+        """
+        # TODO(vhou) This method may need to be updated after
+        # NFS snapshots are introduced.
+        name_id = None
+        if original_volume_status == 'available':
+            current_name = CONF.volume_name_template % new_volume['id']
+            original_volume_name = CONF.volume_name_template % volume['id']
+            current_path = self.local_path(new_volume)
+            # Replace the volume name with the original volume name
+            original_path = current_path.replace(current_name,
+                                                 original_volume_name)
+            try:
+                os.rename(current_path, original_path)
+            except OSError:
+                LOG.error(_LE('Unable to rename the logical volume '
+                              'for volume: %s'), volume['id'])
+                # If the rename fails, _name_id should be set to the new
+                # volume id and provider_location should be set to the
+                # one from the new volume as well.
+                name_id = new_volume['_name_id'] or new_volume['id']
+        else:
+            # The back-end will not be renamed.
+            name_id = new_volume['_name_id'] or new_volume['id']
+        return {'_name_id': name_id,
+                'provider_location': new_volume['provider_location']}
 
     def _update_volume_stats(self):
         """Retrieve stats info from volume group."""

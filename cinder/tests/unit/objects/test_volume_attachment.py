@@ -20,12 +20,8 @@ from cinder.tests.unit import objects as test_objects
 
 
 class TestVolumeAttachment(test_objects.BaseObjectsTestCase):
-    @staticmethod
-    def _compare(test, db, obj):
-        for field, value in db.items():
-            test.assertEqual(db[field], obj[field])
 
-    @mock.patch('cinder.db.volume_attachment_get')
+    @mock.patch('cinder.db.sqlalchemy.api.volume_attachment_get')
     def test_get_by_id(self, volume_attachment_get):
         db_attachment = fake_volume.fake_db_volume_attachment()
         volume_attachment_get.return_value = db_attachment

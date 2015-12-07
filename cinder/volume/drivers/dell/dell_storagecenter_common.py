@@ -29,10 +29,9 @@ common_opts = [
     cfg.IntOpt('dell_sc_ssn',
                default=64702,
                help='Storage Center System Serial Number'),
-    cfg.IntOpt('dell_sc_api_port',
-               default=3033,
-               min=1, max=65535,
-               help='Dell API port'),
+    cfg.PortOpt('dell_sc_api_port',
+                default=3033,
+                help='Dell API port'),
     cfg.StrOpt('dell_sc_server_folder',
                default='openstack',
                help='Name of the server folder to use on the Storage Center'),
@@ -51,8 +50,7 @@ CONF.register_opts(common_opts)
 
 
 class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
-                       driver.ExtendVD, driver.CloneableVD, driver.SnapshotVD,
-                       driver.BaseVD):
+                       driver.ExtendVD, driver.SnapshotVD, driver.BaseVD):
 
     def __init__(self, *args, **kwargs):
         super(DellCommonDriver, self).__init__(*args, **kwargs)
@@ -431,7 +429,7 @@ class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
         raise exception.VolumeBackendAPIException(
             _('Unable to create consistency group %s') % gid)
 
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         """Delete the Dell SC profile associated with this consistency group.
 
         :param context: the context of the caller.
@@ -498,7 +496,7 @@ class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
         raise exception.VolumeBackendAPIException(
             _('Unable to update consistency group %s') % gid)
 
-    def create_cgsnapshot(self, context, cgsnapshot):
+    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Takes a snapshot of the consistency group.
 
         :param context: the context of the caller.
@@ -531,7 +529,7 @@ class DellCommonDriver(driver.ConsistencyGroupVD, driver.ManageableVD,
         raise exception.VolumeBackendAPIException(
             _('Unable to snap Consistency Group %s') % cgid)
 
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot.
 
         If profile isn't found return success.  If failed to delete the

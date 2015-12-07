@@ -10,8 +10,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import ast
-
 import fixtures
 import mock
 from oslo_concurrency import lockutils
@@ -24,7 +22,6 @@ import webob
 from webob import exc
 
 from cinder.api.contrib import admin_actions
-from cinder.brick.local_dev import lvm as brick_lvm
 from cinder import context
 from cinder import db
 from cinder import exception
@@ -36,7 +33,6 @@ from cinder.tests.unit.api.v2 import stubs
 from cinder.tests.unit import cast_as_call
 from cinder.tests.unit import fake_snapshot
 from cinder.volume import api as volume_api
-from cinder.volume.targets import tgt
 
 CONF = cfg.CONF
 
@@ -64,21 +60,12 @@ class AdminActionsTest(test.TestCase):
         self.volume_api = volume_api.API()
         cast_as_call.mock_cast_as_call(self.volume_api.volume_rpcapi.client)
         cast_as_call.mock_cast_as_call(self.volume_api.scheduler_rpcapi.client)
-        self.stubs.Set(brick_lvm.LVM, '_vg_exists', lambda x: True)
-        self.stubs.Set(tgt.TgtAdm,
-                       'create_iscsi_target',
-                       self._fake_create_iscsi_target)
-
-    def _fake_create_iscsi_target(self, name, tid, lun,
-                                  path, chap_auth=None, **kwargs):
-        return 1
 
     def _issue_volume_reset(self, ctx, volume, updated_status):
         req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = \
-            jsonutils.dumps({'os-reset_status': updated_status})
+        req.body = jsonutils.dump_as_bytes({'os-reset_status': updated_status})
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         return resp
@@ -88,8 +75,7 @@ class AdminActionsTest(test.TestCase):
                                   snapshot.id)
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = \
-            jsonutils.dumps({'os-reset_status': updated_status})
+        req.body = jsonutils.dump_as_bytes({'os-reset_status': updated_status})
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         return resp
@@ -98,11 +84,22 @@ class AdminActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/backups/%s/action' % backup['id'])
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = \
-            jsonutils.dumps({'os-reset_status': updated_status})
+        req.body = jsonutils.dump_as_bytes({'os-reset_status': updated_status})
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         return resp
+
+    def _create_volume(self, context, updates=None):
+        db_volume = {'status': 'available',
+                     'host': 'test',
+                     'availability_zone': 'fake_zone',
+                     'attach_status': 'detached'}
+        if updates:
+            db_volume.update(updates)
+
+        volume = objects.Volume(context=context, **db_volume)
+        volume.create()
+        return volume
 
     def test_valid_updates(self):
         vac = admin_actions.VolumeAdminController()
@@ -156,7 +153,7 @@ class AdminActionsTest(test.TestCase):
 
         self.assertEqual(400, resp.status_int)
         volume = db.volume_get(ctx, volume['id'])
-        self.assertEqual(None, volume['migration_status'])
+        self.assertIsNone(volume['migration_status'])
 
     def test_reset_migration_status(self):
         ctx = context.RequestContext('admin', 'fake', True)
@@ -297,8 +294,8 @@ class AdminActionsTest(test.TestCase):
                                   'missing-volume-id')
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = jsonutils.dumps({'os-reset_status': {'status':
-                                                        'available'}})
+        body = {'os-reset_status': {'status': 'available'}}
+        req.body = jsonutils.dump_as_bytes(body)
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         self.assertEqual(404, resp.status_int)
@@ -380,18 +377,19 @@ class AdminActionsTest(test.TestCase):
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is creating
-        volume = db.volume_create(ctx, {'size': 1})
+        volume = self._create_volume(ctx, {'size': 1, 'host': None})
         req = webob.Request.blank('/v2/fake/volumes/%s/action' % volume['id'])
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = jsonutils.dumps({'os-force_delete': {}})
+        req.body = jsonutils.dump_as_bytes({'os-force_delete': {}})
         # attach admin context to request
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         # request is accepted
         self.assertEqual(202, resp.status_int)
         # volume is deleted
-        self.assertRaises(exception.NotFound, db.volume_get, ctx, volume['id'])
+        self.assertRaises(exception.NotFound, objects.Volume.get_by_id, ctx,
+                          volume.id)
 
     @mock.patch.object(volume_api.API, 'delete_snapshot', return_value=True)
     @mock.patch('cinder.objects.Snapshot.get_by_id')
@@ -411,7 +409,7 @@ class AdminActionsTest(test.TestCase):
         req = webob.Request.blank(path)
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = jsonutils.dumps({'os-force_delete': {}})
+        req.body = jsonutils.dump_as_bytes({'os-force_delete': {}})
         # attach admin context to request
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
@@ -421,11 +419,12 @@ class AdminActionsTest(test.TestCase):
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.reserve_volume(ctx, volume)
         mountpoint = '/dev/vbd'
         attachment = self.volume_api.attach(ctx, volume, stubs.FAKE_UUID,
@@ -451,9 +450,9 @@ class AdminActionsTest(test.TestCase):
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
         # request status of 'error'
-        req.body = jsonutils.dumps({'os-force_detach':
-                                   {'attachment_id': attachment['id'],
-                                    'connector': connector}})
+        body = {'os-force_detach': {'attachment_id': attachment['id'],
+                                    'connector': connector}}
+        req.body = jsonutils.dump_as_bytes(body)
         # attach admin context to request
         req.environ['cinder.context'] = ctx
         # make request
@@ -471,18 +470,17 @@ class AdminActionsTest(test.TestCase):
         self.assertEqual(1, len(admin_metadata))
         self.assertEqual('readonly', admin_metadata[0]['key'], 'readonly')
         self.assertEqual('False', admin_metadata[0]['value'])
-        # cleanup
-        svc.stop()
 
     def test_force_detach_host_attached_volume(self):
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.initialize_connection(ctx, volume, connector)
         mountpoint = '/dev/vbd'
         host_name = 'fake-host'
@@ -509,9 +507,9 @@ class AdminActionsTest(test.TestCase):
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
         # request status of 'error'
-        req.body = jsonutils.dumps({'os-force_detach':
-                                    {'attachment_id': attachment['id'],
-                                     'connector': connector}})
+        body = {'os-force_detach': {'attachment_id': attachment['id'],
+                                    'connector': connector}}
+        req.body = jsonutils.dump_as_bytes(body)
         # attach admin context to request
         req.environ['cinder.context'] = ctx
         # make request
@@ -528,18 +526,17 @@ class AdminActionsTest(test.TestCase):
         self.assertEqual(1, len(admin_metadata))
         self.assertEqual('readonly', admin_metadata[0]['key'])
         self.assertEqual('False', admin_metadata[0]['value'])
-        # cleanup
-        svc.stop()
 
     def test_volume_force_detach_raises_remote_error(self):
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.reserve_volume(ctx, volume)
         mountpoint = '/dev/vbd'
         attachment = self.volume_api.attach(ctx, volume, stubs.FAKE_UUID,
@@ -569,8 +566,8 @@ class AdminActionsTest(test.TestCase):
                                       volume['id'])
             req.method = 'POST'
             req.headers['content-type'] = 'application/json'
-            req.body = jsonutils.dumps({'os-force_detach':
-                                        {'attachment_id': 'fake'}})
+            body = {'os-force_detach': {'attachment_id': 'fake'}}
+            req.body = jsonutils.dump_as_bytes(body)
             # attach admin context to request
             req.environ['cinder.context'] = ctx
             # make request
@@ -586,8 +583,8 @@ class AdminActionsTest(test.TestCase):
                                       volume['id'])
             req.method = 'POST'
             req.headers['content-type'] = 'application/json'
-            req.body = jsonutils.dumps({'os-force_detach':
-                                        {'attachment_id': 'fake'}})
+            body = {'os-force_detach': {'attachment_id': 'fake'}}
+            req.body = jsonutils.dump_as_bytes(body)
             # attach admin context to request
             req.environ['cinder.context'] = ctx
             # make request
@@ -604,9 +601,9 @@ class AdminActionsTest(test.TestCase):
                                       volume['id'])
             req.method = 'POST'
             req.headers['content-type'] = 'application/json'
-            req.body = jsonutils.dumps({'os-force_detach':
-                                       {'attachment_id': 'fake',
-                                        'connector': connector}})
+            body = {'os-force_detach': {'attachment_id': 'fake',
+                                        'connector': connector}}
+            req.body = jsonutils.dump_as_bytes(body)
 
             # attach admin context to request
             req.environ['cinder.context'] = ctx
@@ -614,19 +611,18 @@ class AdminActionsTest(test.TestCase):
             self.assertRaises(messaging.RemoteError,
                               req.get_response,
                               app())
-        # cleanup
-        svc.stop()
 
     def test_volume_force_detach_raises_db_error(self):
         # In case of DB error 500 error code is returned to user
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.reserve_volume(ctx, volume)
         mountpoint = '/dev/vbd'
         attachment = self.volume_api.attach(ctx, volume, stubs.FAKE_UUID,
@@ -656,28 +652,27 @@ class AdminActionsTest(test.TestCase):
                                       volume['id'])
             req.method = 'POST'
             req.headers['content-type'] = 'application/json'
-            req.body = jsonutils.dumps({'os-force_detach':
-                                       {'attachment_id': 'fake',
-                                        'connector': connector}})
+            body = {'os-force_detach': {'attachment_id': 'fake',
+                                        'connector': connector}}
+            req.body = jsonutils.dump_as_bytes(body)
             # attach admin context to request
             req.environ['cinder.context'] = ctx
             # make request
             self.assertRaises(messaging.RemoteError,
                               req.get_response,
                               app())
-        # cleanup
-        svc.stop()
 
     def test_attach_in_used_volume_by_instance(self):
         """Test that attaching to an in-use volume fails."""
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.reserve_volume(ctx, volume)
         conn_info = self.volume_api.initialize_connection(ctx,
                                                           volume, connector)
@@ -692,19 +687,18 @@ class AdminActionsTest(test.TestCase):
                           None,
                           '/dev/vdb1',
                           'ro')
-        # cleanup
-        svc.stop()
 
     def test_attach_in_used_volume_by_host(self):
         """Test that attaching to an in-use volume fails."""
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {'initiator': 'iqn.2012-07.org.fake:01'}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.reserve_volume(ctx, volume)
         self.volume_api.initialize_connection(ctx, volume, connector)
         self.volume_api.attach(ctx, volume, None, 'fake_host1',
@@ -720,33 +714,31 @@ class AdminActionsTest(test.TestCase):
                           'fake_host2',
                           '/dev/vbd1',
                           'ro')
-        # cleanup
-        svc.stop()
 
     def test_invalid_iscsi_connector(self):
         """Test connector without the initiator (required by iscsi driver)."""
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         connector = {}
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.assertRaises(exception.InvalidInput,
                           self.volume_api.initialize_connection,
                           ctx, volume, connector)
-        # cleanup
-        svc.stop()
 
     def test_attach_attaching_volume_with_different_instance(self):
         """Test that attaching volume reserved for another instance fails."""
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         self.volume_api.reserve_volume(ctx, volume)
         values = {'volume_id': volume['id'],
                   'attach_status': 'attaching',
@@ -764,17 +756,17 @@ class AdminActionsTest(test.TestCase):
         self.assertEqual(stubs.FAKE_UUID, attachment['instance_uuid'])
         self.assertEqual(volume['id'], attachment['volume_id'], volume['id'])
         self.assertEqual('attached', attachment['attach_status'])
-        svc.stop()
 
     def test_attach_attaching_volume_with_different_mode(self):
         """Test that attaching volume reserved for another mode fails."""
         # admin context
         ctx = context.RequestContext('admin', 'fake', True)
         # current status is available
-        volume = db.volume_create(ctx, {'status': 'available', 'host': 'test',
-                                        'provider_location': '', 'size': 1})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'size': 1})
         # start service to handle rpc messages for attach requests
         svc = self.start_service('volume', host='test')
+        self.addCleanup(svc.stop)
         values = {'status': 'attaching',
                   'instance_uuid': fakes.get_fake_uuid()}
         db.volume_update(ctx, volume['id'], values)
@@ -789,8 +781,6 @@ class AdminActionsTest(test.TestCase):
                           None,
                           mountpoint,
                           'ro')
-        # cleanup
-        svc.stop()
 
     def _migrate_volume_prep(self):
         admin_ctx = context.get_admin_context()
@@ -804,11 +794,7 @@ class AdminActionsTest(test.TestCase):
                            'topic': CONF.volume_topic,
                            'created_at': timeutils.utcnow()})
         # current status is available
-        volume = db.volume_create(admin_ctx,
-                                  {'status': 'available',
-                                   'host': 'test',
-                                   'provider_location': '',
-                                   'attach_status': ''})
+        volume = self._create_volume(admin_ctx)
         return volume
 
     def _migrate_volume_exec(self, ctx, volume, host, expected_status,
@@ -820,7 +806,7 @@ class AdminActionsTest(test.TestCase):
         req.headers['content-type'] = 'application/json'
         body = {'os-migrate_volume': {'host': host,
                                       'force_host_copy': force_host_copy}}
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         # verify status
@@ -842,12 +828,9 @@ class AdminActionsTest(test.TestCase):
         ctx = context.RequestContext('admin', 'fake', True)
         volume = self._migrate_volume_prep()
         # current status is available
-        volume = db.volume_create(ctx,
-                                  {'status': 'available',
-                                   'host': 'test',
-                                   'provider_location': '',
-                                   'attach_status': '',
-                                   'replication_status': 'active'})
+        volume = self._create_volume(ctx, {'provider_location': '',
+                                           'attach_status': '',
+                                           'replication_status': 'active'})
         volume = self._migrate_volume_exec(ctx, volume, host, expected_status)
 
     def test_migrate_volume_as_non_admin(self):
@@ -868,7 +851,7 @@ class AdminActionsTest(test.TestCase):
         req.headers['content-type'] = 'application/json'
         body = {'os-migrate_volume': {'host': host,
                                       'force_host_copy': False}}
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
         # verify status
@@ -922,12 +905,13 @@ class AdminActionsTest(test.TestCase):
         req.headers['content-type'] = 'application/json'
         body = {'new_volume': new_volume['id'], 'error': error}
         if no_body:
-            req.body = jsonutils.dumps({'': body})
+            body = {'': body}
         else:
-            req.body = jsonutils.dumps({'os-migrate_volume_completion': body})
+            body = {'os-migrate_volume_completion': body}
+        req.body = jsonutils.dump_as_bytes(body)
         req.environ['cinder.context'] = ctx
         resp = req.get_response(app())
-        resp_dict = ast.literal_eval(resp.body)
+        resp_dict = resp.json
         # verify status
         self.assertEqual(expected_status, resp.status_int)
         if expected_id:
@@ -947,10 +931,9 @@ class AdminActionsTest(test.TestCase):
 
     def test_migrate_volume_comp_no_mig_status(self):
         admin_ctx = context.get_admin_context()
-        volume1 = db.volume_create(admin_ctx, {'id': 'fake1',
-                                               'migration_status': 'foo'})
-        volume2 = db.volume_create(admin_ctx, {'id': 'fake2',
-                                               'migration_status': None})
+        volume1 = self._create_volume(admin_ctx, {'migration_status': 'foo'})
+        volume2 = self._create_volume(admin_ctx, {'migration_status': None})
+
         expected_status = 400
         expected_id = None
         ctx = context.RequestContext('admin', 'fake', True)
@@ -961,12 +944,10 @@ class AdminActionsTest(test.TestCase):
 
     def test_migrate_volume_comp_bad_mig_status(self):
         admin_ctx = context.get_admin_context()
-        volume1 = db.volume_create(admin_ctx,
-                                   {'id': 'fake1',
-                                    'migration_status': 'migrating'})
-        volume2 = db.volume_create(admin_ctx,
-                                   {'id': 'fake2',
-                                    'migration_status': 'target:foo'})
+        volume1 = self._create_volume(admin_ctx,
+                                      {'migration_status': 'migrating'})
+        volume2 = self._create_volume(admin_ctx,
+                                      {'migration_status': 'target:foo'})
         expected_status = 400
         expected_id = None
         ctx = context.RequestContext('admin', 'fake', True)
@@ -985,20 +966,14 @@ class AdminActionsTest(test.TestCase):
 
     def test_migrate_volume_comp_from_nova(self):
         admin_ctx = context.get_admin_context()
-        volume = db.volume_create(admin_ctx,
-                                  {'id': 'fake1',
-                                   'status': 'in-use',
-                                   'host': 'test',
-                                   'migration_status': None,
-                                   'attach_status': 'attached'})
-        new_volume = db.volume_create(admin_ctx,
-                                      {'id': 'fake2',
-                                       'status': 'available',
-                                       'host': 'test',
-                                       'migration_status': None,
-                                       'attach_status': 'detached'})
+        volume = self._create_volume(admin_ctx, {'status': 'in-use',
+                                                 'migration_status': None,
+                                                 'attach_status': 'attached'})
+        new_volume = self._create_volume(admin_ctx,
+                                         {'migration_status': None,
+                                          'attach_status': 'detached'})
         expected_status = 200
-        expected_id = 'fake2'
+        expected_id = new_volume.id
         ctx = context.RequestContext('admin', 'fake', True)
         self._migrate_volume_comp_exec(ctx, volume, new_volume, False,
                                        expected_status, expected_id)
@@ -1024,7 +999,7 @@ class AdminActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/backups/%s/action' % id)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = jsonutils.dumps({'os-force_delete': {}})
+        req.body = jsonutils.dump_as_bytes({'os-force_delete': {}})
         req.environ['cinder.context'] = ctx
         res = req.get_response(app())
 
@@ -1062,7 +1037,7 @@ class AdminActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/backups/%s/action' % id)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = jsonutils.dumps({'os-force_delete': {}})
+        req.body = jsonutils.dump_as_bytes({'os-force_delete': {}})
         req.environ['cinder.context'] = ctx
         res = req.get_response(app())
         self.assertEqual(405, res.status_int)

@@ -38,13 +38,15 @@ from cinder.volume.drivers.san import san
 from cinder.volume import volume_types
 
 
-DRIVER_VERSION = '2.0.0'
+DRIVER_VERSION = '2.0.2'
 AES_256_XTS_CIPHER = 2
 DEFAULT_CIPHER = 3
 EXTRA_SPEC_ENCRYPTION = 'nimble:encryption'
 EXTRA_SPEC_PERF_POLICY = 'nimble:perfpol-name'
+EXTRA_SPEC_MULTI_INITIATOR = 'nimble:multi-initiator'
 DEFAULT_PERF_POLICY_SETTING = 'default'
 DEFAULT_ENCRYPTION_SETTING = 'no'
+DEFAULT_MULTI_INITIATOR_SETTING = 'false'
 DEFAULT_SNAP_QUOTA = sys.maxsize
 VOL_EDIT_MASK = 4 + 16 + 32 + 64 + 256 + 512
 MANAGE_EDIT_MASK = 1 + 262144
@@ -93,6 +95,8 @@ class NimbleISCSIDriver(san.SanISCSIDriver):
         2.0.0 - Added Extra Spec Capability
                 Correct capacity reporting
                 Added Manage/Unmanage volume support
+        2.0.1 - Added multi-initiator support through extra-specs
+        2.0.2 - Fixed supporting extra specs while cloning vols
     """
 
     VERSION = DRIVER_VERSION
@@ -361,9 +365,9 @@ class NimbleISCSIDriver(san.SanISCSIDriver):
         # Get vol info from the volume name obtained from the reference
         vol_info = self.APIExecutor.get_vol_info(target_vol_name)
 
-        # Check if volume is already managed by Openstack
+        # Check if volume is already managed by OpenStack
         if vol_info['agent-type'] == AGENT_TYPE_OPENSTACK:
-            msg = (_('Volume %s is already managed by Openstack.')
+            msg = (_('Volume %s is already managed by OpenStack.')
                    % target_vol_name)
             raise exception.ManageExistingAlreadyManaged(
                 volume_ref=volume['id'])
@@ -377,7 +381,7 @@ class NimbleISCSIDriver(san.SanISCSIDriver):
 
         if vol_info['online']:
             msg = (_('Volume %s is online. Set volume to offline for '
-                     'managing using Openstack.') % target_vol_name)
+                     'managing using OpenStack.') % target_vol_name)
             raise exception.InvalidVolume(reason=msg)
 
         # edit the volume
@@ -417,7 +421,7 @@ class NimbleISCSIDriver(san.SanISCSIDriver):
         # check agent type
         vol_info = self.APIExecutor.get_vol_info(vol_name)
         if vol_info['agent-type'] != AGENT_TYPE_OPENSTACK:
-            msg = (_('Only volumes managed by Openstack can be unmanaged.'))
+            msg = (_('Only volumes managed by OpenStack can be unmanaged.'))
             raise exception.InvalidVolume(reason=msg)
 
         # update the agent-type to None
@@ -617,8 +621,14 @@ class NimbleAPIExecutor(object):
                                            DEFAULT_PERF_POLICY_SETTING)
         encryption = extra_specs.get(EXTRA_SPEC_ENCRYPTION,
                                      DEFAULT_ENCRYPTION_SETTING)
+        multi_initiator = extra_specs.get(EXTRA_SPEC_MULTI_INITIATOR,
+                                          DEFAULT_MULTI_INITIATOR_SETTING)
+        extra_specs_map = {}
+        extra_specs_map[EXTRA_SPEC_PERF_POLICY] = perf_policy_name
+        extra_specs_map[EXTRA_SPEC_ENCRYPTION] = encryption
+        extra_specs_map[EXTRA_SPEC_MULTI_INITIATOR] = multi_initiator
 
-        return perf_policy_name, encryption
+        return extra_specs_map
 
     @_connection_checker
     @_response_checker
@@ -634,7 +644,10 @@ class NimbleAPIExecutor(object):
         description = description[:254]
 
         specs = self._get_volumetype_extraspecs(volume)
-        perf_policy_name, encrypt = self._get_extra_spec_values(specs)
+        extra_specs_map = self._get_extra_spec_values(specs)
+        perf_policy_name = extra_specs_map[EXTRA_SPEC_PERF_POLICY]
+        encrypt = extra_specs_map[EXTRA_SPEC_ENCRYPTION]
+        multi_initiator = extra_specs_map[EXTRA_SPEC_MULTI_INITIATOR]
         # default value of cipher for encryption
         cipher = DEFAULT_CIPHER
         if encrypt.lower() == 'yes':
@@ -645,7 +658,8 @@ class NimbleAPIExecutor(object):
                   ' description=%(description)s with Extra Specs'
                   ' perfpol-name=%(perfpol-name)s'
                   ' encryption=%(encryption)s cipher=%(cipher)s'
-                  ' agent-type=%(agent-type)s',
+                  ' agent-type=%(agent-type)s'
+                  ' multi-initiator=%(multi-initiator)s',
                   {'vol': volume['name'],
                    'size': volume_size,
                    'reserve': reserve,
@@ -654,7 +668,8 @@ class NimbleAPIExecutor(object):
                    'perfpol-name': perf_policy_name,
                    'encryption': encrypt,
                    'cipher': cipher,
-                   'agent-type': AGENT_TYPE_OPENSTACK})
+                   'agent-type': AGENT_TYPE_OPENSTACK,
+                   'multi-initiator': multi_initiator})
 
         return self.client.service.createVol(
             request={'sid': self.sid,
@@ -669,7 +684,8 @@ class NimbleAPIExecutor(object):
                               'pool-name': pool_name,
                               'agent-type': AGENT_TYPE_OPENSTACK,
                               'perfpol-name': perf_policy_name,
-                              'encryptionAttr': {'cipher': cipher}}})
+                              'encryptionAttr': {'cipher': cipher},
+                              'multi-initiator': multi_initiator}})
 
     def create_vol(self, volume, pool_name, reserve):
         """Execute createVol API."""
@@ -813,27 +829,47 @@ class NimbleAPIExecutor(object):
         clone_name = volume['name']
         snap_size = snapshot['volume_size']
         reserve_size = snap_size * units.Gi if reserve else 0
+
+        specs = self._get_volumetype_extraspecs(volume)
+        extra_specs_map = self._get_extra_spec_values(specs)
+        perf_policy_name = extra_specs_map.get(EXTRA_SPEC_PERF_POLICY)
+        encrypt = extra_specs_map.get(EXTRA_SPEC_ENCRYPTION)
+        multi_initiator = extra_specs_map.get(EXTRA_SPEC_MULTI_INITIATOR)
+        # default value of cipher for encryption
+        cipher = DEFAULT_CIPHER
+        if encrypt.lower() == 'yes':
+            cipher = AES_256_XTS_CIPHER
+
         LOG.info(_LI('Cloning volume from snapshot volume=%(vol)s '
-                     'snapshot=%(snap)s clone=%(clone)s snap_size=%(size)s'
-                     'reserve=%(reserve)s' 'agent-type=%(agent-type)s'),
+                     'snapshot=%(snap)s clone=%(clone)s snap_size=%(size)s '
+                     'reserve=%(reserve)s' 'agent-type=%(agent-type)s '
+                     'perfpol-name=%(perfpol-name)s '
+                     'encryption=%(encryption)s cipher=%(cipher)s '
+                     'multi-initiator=%(multi-initiator)s'),
                  {'vol': volume_name,
                   'snap': snap_name,
                   'clone': clone_name,
                   'size': snap_size,
                   'reserve': reserve,
-                  'agent-type': AGENT_TYPE_OPENSTACK})
+                  'agent-type': AGENT_TYPE_OPENSTACK,
+                  'perfpol-name': perf_policy_name,
+                  'encryption': encrypt,
+                  'cipher': cipher,
+                  'multi-initiator': multi_initiator})
         clone_size = snap_size * units.Gi
         return self.client.service.cloneVol(
             request={'sid': self.sid,
                      'name': volume_name,
                      'attr': {'name': clone_name,
-                              'perfpol-name': 'default',
                               'reserve': reserve_size,
                               'warn-level': int(clone_size * WARN_LEVEL),
                               'quota': clone_size,
                               'snap-quota': DEFAULT_SNAP_QUOTA,
                               'online': True,
-                              'agent-type': AGENT_TYPE_OPENSTACK},
+                              'agent-type': AGENT_TYPE_OPENSTACK,
+                              'perfpol-name': perf_policy_name,
+                              'encryptionAttr': {'cipher': cipher},
+                              'multi-initiator': multi_initiator},
                      'snap-name': snap_name})
 
     @_connection_checker

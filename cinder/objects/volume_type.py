@@ -33,6 +33,8 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
     # Version 1.0: Initial version
     VERSION = '1.0'
 
+    DEFAULT_EXPECTED_ATTR = ('extra_specs', 'projects')
+
     fields = {
         'id': fields.UUIDField(),
         'name': fields.StringField(nullable=True),
@@ -70,14 +72,6 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
         type._context = context
         type.obj_reset_changes()
         return type
-
-    @base.remotable_classmethod
-    def get_by_id(cls, context, id):
-        db_volume_type = volume_types.get_volume_type(
-            context, id, expected_fields=['extra_specs', 'projects'])
-        expected_attrs = ['extra_specs', 'projects']
-        return cls._from_db_object(context, cls(context), db_volume_type,
-                                   expected_attrs=expected_attrs)
 
     @base.remotable
     def create(self):
@@ -121,5 +115,5 @@ class VolumeTypeList(base.ObjectListBase, base.CinderObject):
         types = volume_types.get_all_types(context, inactive, search_opts)
         expected_attrs = ['extra_specs', 'projects']
         return base.obj_make_list(context, cls(context),
-                                  objects.VolumeType, types,
+                                  objects.VolumeType, types.values(),
                                   expected_attrs=expected_attrs)

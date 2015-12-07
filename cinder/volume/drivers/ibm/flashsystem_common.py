@@ -122,8 +122,7 @@ class FlashSystemDriver(san.SanDriver):
                                 'err': six.text_type(err)}))
 
     def _build_default_params(self):
-        return {'protocol': self.configuration.flashsystem_connection_protocol,
-                'multipath': self.configuration.flashsystem_multipath_enabled}
+        return {'protocol': self.configuration.flashsystem_connection_protocol}
 
     def _build_initiator_target_map(self, initiator_wwpns, target_wwpns):
         map = {}
@@ -789,9 +788,8 @@ class FlashSystemDriver(san.SanDriver):
                      'via the path %(path)s.') % {'path': host_device})
             raise exception.VolumeBackendAPIException(data=msg)
 
-        return device
-
         LOG.debug('leave: _scan_device')
+        return device
 
     @utils.synchronized('flashsystem-unmap', external=True)
     def _unmap_vdisk_from_host(self, vdisk_name, connector):
@@ -820,7 +818,7 @@ class FlashSystemDriver(san.SanDriver):
                             {'vdisk_name': vdisk_name})
                 return
             else:
-                host_name = mapping_data.keys()[0]
+                host_name = list(mapping_data.keys())[0]
         else:
             if host_name not in mapping_data:
                 LOG.error(_LE('_unmap_vdisk_from_host: No mapping of volume '

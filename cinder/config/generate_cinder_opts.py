@@ -14,13 +14,32 @@
 
 import os
 import subprocess
+import textwrap
 
 if __name__ == "__main__":
     opt_file = open("cinder/opts.py", 'a')
     opt_dict = {}
     dir_trees_list = []
+    REGISTER_OPTS_STR = "CONF.register_opts("
+    REGISTER_OPT_STR = "CONF.register_opt("
 
-    opt_file.write("import copy\n")
+    license_str = textwrap.dedent(
+        """
+        # Licensed under the Apache License, Version 2.0 (the "License");
+        # you may not use this file except in compliance with the License.
+        # You may obtain a copy of the License at
+        #
+        #    http://www.apache.org/licenses/LICENSE-2.0
+        #
+        # Unless required by applicable law or agreed to in writing, software
+        # distributed under the License is distributed on an "AS IS" BASIS,
+        # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+        # implied.
+        # See the License for the specific language governing permissions and
+        # limitations under the License.\n
+    """)
+    opt_file.write(license_str)
+
     opt_file.write("import itertools\n\n")
 
     targetdir = os.environ['TARGETDIR']
@@ -31,11 +50,11 @@ if __name__ == "__main__":
                      '+  | sed -e "s/^' + basedir +
                      '\///g" | sort -u')
 
-    cmd_opts = common_string % "CONF.register_opts("
+    cmd_opts = common_string % REGISTER_OPTS_STR
     output_opts = subprocess.check_output('{}'.format(cmd_opts), shell = True)
     dir_trees_list = output_opts.split()
 
-    cmd_opt = common_string % "CONF.register_opt("
+    cmd_opt = common_string % REGISTER_OPT_STR
     output_opt = subprocess.check_output('{}'.format(cmd_opt), shell = True)
     temp_list = output_opt.split()
 
@@ -45,9 +64,18 @@ if __name__ == "__main__":
 
     flag = False
 
+    def _check_import(aline):
+        if len(aline) > 79:
+            new_lines = aline.partition(' as ')
+            return new_lines
+        else:
+            return [aline]
+
     for atree in dir_trees_list:
 
-        if atree == "cinder/config/generate_cinder_opts.py":
+        if atree in ["cinder/config/generate_cinder_opts.py",
+                     "cinder/hacking/checks.py",
+                     "cinder/volume/configuration.py", ]:
             continue
 
         dirs_list = atree.split('/')
@@ -66,11 +94,18 @@ if __name__ == "__main__":
                     import_name += dir[:-3].replace("_", "")
                     import_module = (import_module[:-1] + " import " +
                                      dir[:-3] + " as " + import_name)
-                    opt_file.write(import_module + "\n")
+                    lines = _check_import(import_module)
+                    if len(lines) > 1:
+                        opt_file.write(lines[0] + lines[1] + "\\\n")
+                        opt_file.write("    " + lines[2] + "\n")
+                    else:
+                        opt_file.write(lines[0] + "\n")
+
                 else:
                     import_name = import_name[:-1].replace('/', '.')
                     init_import = atree[:-12].replace('/', '.')
                     opt_file.write("import " + init_import + "\n")
+
                     flag = True
         if flag is False:
             opt_dict[import_name] = atree
@@ -84,21 +119,55 @@ if __name__ == "__main__":
                             'BRCD_FABRIC_EXAMPLE': [],
                             'CISCO_FABRIC_EXAMPLE': [],
                             'profiler': [],
+                            'backend': [],
                             'DEFAULT': [], }
 
     def _write_item(opts):
         list_name = opts[-3:]
-        if list_name.lower() == "opts":
-            opt_file.write("            [" + opts.strip("\n") + "],\n")
+        if list_name.lower() == "opt":
+            line_to_write = "                [" + opts.strip("\n") + "],\n"
+            opt_line = _check_line_length(line_to_write)
+            if len(opt_line) > 1:
+                opt_file.write(opt_line[0] + opt_line[1] + "\n")
+                opt_file.write("                    " + opt_line[2])
+            else:
+                opt_file.write(opt_line[0])
         else:
-            opt_file.write("            " + opts.strip("\n") + ",\n")
+            line_to_write = "                " + opts.strip("\n") + ",\n"
+            opt_line = _check_line_length(line_to_write)
+            if len(opt_line) > 1:
+                opt_file.write(opt_line[0] + opt_line[1] + "\n")
+                opt_file.write("                " + opt_line[2])
+            else:
+                opt_file.write(opt_line[0])
+
+    def _retrieve_name(aline):
+        if REGISTER_OPT_STR in aline:
+            str_to_replace = REGISTER_OPT_STR
+        else:
+            str_to_replace = REGISTER_OPTS_STR
+        return aline.replace(str_to_replace, "")
+
+    def _check_line_length(aline):
+        if len(aline) > 79:
+            temp = aline.split(".")
+            lines_to_write = []
+
+            for section in temp:
+                lines_to_write.append(section)
+                lines_to_write.append('.')
+
+            return lines_to_write
+
+        else:
+            return [aline]
 
     for key in opt_dict:
         fd = os.open(opt_dict[key], os.O_RDONLY)
         afile = os.fdopen(fd, "r")
 
         for aline in afile:
-            exists = aline.find("CONF.register_opts(")
+            exists = aline.find("CONF.register_opt")
             if exists != -1:
                 # TODO(kjnelson) FIX THIS LATER. These are instances where
                 # CONF.register_opts is happening without actually registering
@@ -109,96 +178,112 @@ if __name__ == "__main__":
                     continue
 
                 if aline.find("fc-zone-manager") != -1:
-                    fc_zm_list = aline.replace("CONF.register_opts(", '')
-                    fc_zm_list = fc_zm_list.replace(", 'fc-zone-manager')", '')
-                    fc_zm_list.strip()
+                    fc_zm_list = _retrieve_name(aline)
+                    replace_string = ", group='fc-zone-manager')"
+                    fc_zm_list = fc_zm_list.replace(replace_string, '')
+                    fc_zm_list = fc_zm_list.strip()
                     line = key + "." + fc_zm_list
                     registered_opts_dict['fc-zone-manager'].append(line)
                 elif aline.find("keymgr") != -1:
-                    keymgr_list = aline.replace("CONF.register_opts(", '')
+                    keymgr_list = _retrieve_name(aline)
                     keymgr_list = keymgr_list.replace(", group='keymgr')", '')
-                    keymgr_list = keymgr_list.replace(", 'keymgr')", '')
-                    keymgr_list.strip()
+                    keymgr_list = keymgr_list.strip()
                     line = key + "." + keymgr_list
                     registered_opts_dict['keymgr'].append(line)
                 elif aline.find("BRCD_FABRIC_EXAMPLE") != -1:
-                    brcd_list = aline.replace("CONF.register_opts(", '')
-                    replace_string = ", 'BRCD_FABRIC_EXAMPLE')"
+                    brcd_list = _retrieve_name(aline)
+                    replace_string = ", group='BRCD_FABRIC_EXAMPLE')"
                     brcd_list = brcd_list.replace(replace_string, '')
-                    brcd_list.strip()
+                    brcd_list = brcd_list.strip()
                     line = key + "." + brcd_list
                     registered_opts_dict['BRCD_FABRIC_EXAMPLE'].append(line)
                 elif aline.find("CISCO_FABRIC_EXAMPLE") != -1:
-                    cisco_list = aline.replace("CONF.register_opts(", '')
-                    replace_string = ", 'CISCO_FABRIC_EXAMPLE')"
+                    cisco_list = _retrieve_name(aline)
+                    replace_string = ", group='CISCO_FABRIC_EXAMPLE')"
                     cisco_list = cisco_list.replace(replace_string, '')
-                    cisco_list.strip()
+                    cisco_list = cisco_list.strip()
                     line = key + "." + cisco_list
                     registered_opts_dict['CISCO_FABRIC_EXAMPLE'].append(line)
                 elif aline.find("profiler") != -1:
-                    profiler_list = aline.replace("CONF.register_opts(", '')
+                    profiler_list = _retrieve_name(aline)
                     replace_string = ', group="profiler")'
                     profiler_list = profiler_list.replace(replace_string, '')
-                    profiler_list.strip()
+                    profiler_list = profiler_list.strip()
                     line = key + "." + profiler_list
                     registered_opts_dict['profiler'].append(line)
+                elif aline.find("backend") != -1:
+                    backend_list = _retrieve_name(aline)
+                    replace_string = ', group=backend)'
+                    backend_list = backend_list.replace(replace_string, '')
+                    backend_list = backend_list.strip()
+                    line = key + "." + backend_list
+                    registered_opts_dict['backend'].append(line)
                 else:
-                    default_list = aline.replace("CONF.register_opts(", '')
+                    default_list = _retrieve_name(aline)
                     default_list = default_list.replace(')', '').strip()
                     line = key + "." + default_list
                     registered_opts_dict['DEFAULT'].append(line)
         opt_dict[key] = registered_opts_dict
 
-    list_str = ("def list_opts():\n"
+    list_str = ("\n\n"
+                "def list_opts():\n"
                 "    return [\n"
                 "        ('DEFAULT',\n"
-                "        itertools.chain(\n")
+                "            itertools.chain(\n")
     opt_file.write(list_str)
 
     for item in registered_opts_dict["DEFAULT"]:
         _write_item(item)
 
-    profiler_str = ("    )),\n"
-                    "    ('profiler',\n"
-                    "    itertools.chain(\n")
+    profiler_str = ("            )),\n"
+                    "        ('profiler',\n"
+                    "            itertools.chain(\n")
     opt_file.write(profiler_str)
 
     for item in registered_opts_dict["profiler"]:
         _write_item(item)
 
-    cisco_str = ("    )),\n"
-                 "    ('CISCO_FABRIC_EXAMPLE',\n"
-                 "    itertools.chain(\n")
+    backend_str = ("            )),\n"
+                   "        ('backend',\n"
+                   "            itertools.chain(\n")
+    opt_file.write(backend_str)
+
+    for item in registered_opts_dict["backend"]:
+        _write_item(item)
+
+    cisco_str = ("            )),\n"
+                 "        ('CISCO_FABRIC_EXAMPLE',\n"
+                 "            itertools.chain(\n")
     opt_file.write(cisco_str)
 
     for item in registered_opts_dict["CISCO_FABRIC_EXAMPLE"]:
         _write_item(item)
 
-    brcd_str = ("    )),\n"
-                "    ('BRCD_FABRIC_EXAMPLE',\n"
-                "    itertools.chain(\n")
+    brcd_str = ("            )),\n"
+                "        ('BRCD_FABRIC_EXAMPLE',\n"
+                "            itertools.chain(\n")
     opt_file.write(brcd_str)
 
     for item in registered_opts_dict["BRCD_FABRIC_EXAMPLE"]:
         _write_item(item)
 
-    keymgr_str = ("    )),\n"
-                  "    ('keymgr',\n"
-                  "    itertools.chain(\n")
+    keymgr_str = ("            )),\n"
+                  "        ('keymgr',\n"
+                  "            itertools.chain(\n")
     opt_file.write(keymgr_str)
 
     for item in registered_opts_dict["keymgr"]:
         _write_item(item)
 
-    fczm_str = ("    )),\n"
-                "    ('fc-zone-manager',\n"
-                "    itertools.chain(\n")
+    fczm_str = ("            )),\n"
+                "        ('fc-zone-manager',\n"
+                "            itertools.chain(\n")
     opt_file.write(fczm_str)
 
     for item in registered_opts_dict["fc-zone-manager"]:
         _write_item(item)
 
-    closing_str = ("    )),\n"
-                   "]\n\n\n")
+    closing_str = ("            )),\n"
+                   "    ]\n")
     opt_file.write(closing_str)
     opt_file.close()

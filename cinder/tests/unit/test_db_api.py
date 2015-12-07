@@ -17,6 +17,7 @@
 import datetime
 
 import enum
+import mock
 from oslo_config import cfg
 from oslo_utils import uuidutils
 import six
@@ -225,6 +226,48 @@ class DBAPIServiceTestCase(BaseTest):
         self.assertRaises(exception.HostBinaryNotFound,
                           db.service_get_by_args,
                           self.ctxt, 'non-exists-host', 'a')
+
+    @mock.patch('cinder.db.sqlalchemy.api.model_query')
+    def test_service_get_by_args_with_case_insensitive(self, model_query):
+        class case_insensitive_filter(object):
+            def __init__(self, records):
+                self.records = records
+
+            def filter_by(self, **kwargs):
+                ret = mock.Mock()
+                ret.all = mock.Mock()
+
+                results = []
+                for record in self.records:
+                    for key, value in kwargs.items():
+                        if record[key].lower() != value.lower():
+                            break
+                    else:
+                        results.append(record)
+
+                ret.filter_by = case_insensitive_filter(results).filter_by
+                ret.all.return_value = results
+                return ret
+
+        values = [
+            {'host': 'host', 'binary': 'a'},
+            {'host': 'HOST', 'binary': 'a'}
+        ]
+        services = [self._create_service(vals) for vals in values]
+
+        query = mock.Mock()
+        query.filter_by = case_insensitive_filter(services).filter_by
+        model_query.return_value = query
+
+        service1 = db.service_get_by_args(self.ctxt, 'host', 'a')
+        self._assertEqualObjects(services[0], service1)
+
+        service2 = db.service_get_by_args(self.ctxt, 'HOST', 'a')
+        self._assertEqualObjects(services[1], service2)
+
+        self.assertRaises(exception.HostBinaryNotFound,
+                          db.service_get_by_args,
+                          self.ctxt, 'Host', 'a')
 
 
 class DBAPIVolumeTestCase(BaseTest):
@@ -894,7 +937,12 @@ class DBAPIVolumeTestCase(BaseTest):
                                   'metadata': {'m1': 'v1'}})
         volume = db.volume_get(self.ctxt, volume['id'])
         self.assertEqual('h2', volume['host'])
-        self.assertEqual(dict(ref_a), dict(volume))
+        expected = dict(ref_a)
+        expected['volume_metadata'] = list(map(dict,
+                                               expected['volume_metadata']))
+        result = dict(volume)
+        result['volume_metadata'] = list(map(dict, result['volume_metadata']))
+        self.assertEqual(expected, result)
 
     def test_volume_update_nonexistent(self):
         self.assertRaises(exception.VolumeNotFound, db.volume_update,
@@ -1031,6 +1079,37 @@ class DBAPIVolumeTestCase(BaseTest):
                 image_name = meta_entry.value
         self.assertEqual(u'\xe4\xbd\xa0\xe5\xa5\xbd', image_name)
 
+    def test_volume_glance_metadata_list_get(self):
+        """Test volume_glance_metadata_list_get in DB API."""
+        db.volume_create(self.ctxt, {'id': 'fake1', 'status': 'available',
+                                     'host': 'test', 'provider_location': '',
+                                     'size': 1})
+        db.volume_glance_metadata_create(self.ctxt, 'fake1', 'key1', 'value1')
+        db.volume_glance_metadata_create(self.ctxt, 'fake1', 'key2', 'value2')
+
+        db.volume_create(self.ctxt, {'id': 'fake2', 'status': 'available',
+                                     'host': 'test', 'provider_location': '',
+                                     'size': 1})
+        db.volume_glance_metadata_create(self.ctxt, 'fake2', 'key3', 'value3')
+        db.volume_glance_metadata_create(self.ctxt, 'fake2', 'key4', 'value4')
+
+        expect_result = [{'volume_id': 'fake1', 'key': 'key1',
+                          'value': 'value1'},
+                         {'volume_id': 'fake1', 'key': 'key2',
+                          'value': 'value2'},
+                         {'volume_id': 'fake2', 'key': 'key3',
+                          'value': 'value3'},
+                         {'volume_id': 'fake2', 'key': 'key4',
+                          'value': 'value4'}]
+        self._assertEqualListsOfObjects(expect_result,
+                                        db.volume_glance_metadata_list_get(
+                                            self.ctxt, ['fake1', 'fake2']),
+                                        ignored_keys=['id',
+                                                      'snapshot_id',
+                                                      'created_at',
+                                                      'deleted', 'deleted_at',
+                                                      'updated_at'])
+
 
 class DBAPISnapshotTestCase(BaseTest):
 
@@ -1148,6 +1227,9 @@ class DBAPISnapshotTestCase(BaseTest):
                                             self.ctxt,
                                             'host2', {'fake_key': 'fake'}),
                                         ignored_keys='volume')
+        # If host is None or empty string, empty list should be returned.
+        self.assertEqual([], db.snapshot_get_by_host(self.ctxt, None))
+        self.assertEqual([], db.snapshot_get_by_host(self.ctxt, ''))
 
     def test_snapshot_get_by_host_with_pools(self):
         db.volume_create(self.ctxt, {'id': 1, 'host': 'host1#pool1'})

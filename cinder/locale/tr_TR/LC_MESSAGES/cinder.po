@@ -7,14 +7,13 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 7.0.0.0rc2.dev11\n"
+"Project-Id-Version: cinder 8.0.0.dev364\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-10-03 06:22+0000\n"
+"POT-Creation-Date: 2015-12-01 06:53+0000\n"
 "PO-Revision-Date: 2015-09-16 08:16+0000\n"
 "Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
 "Language: tr_TR\n"
-"Language-Team: Turkish (Turkey) (http://www.transifex.com/openstack/cinder/"
-"language/tr_TR/)\n"
+"Language-Team: Turkish (Turkey)\n"
 "Plural-Forms: nplurals=1; plural=0\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
@@ -613,10 +612,6 @@ msgstr ""
 " stdout: %(out)s\n"
 " stderr: %(err)s."
 
-#, python-format
-msgid "CLIQ %(proxy_ver)s"
-msgstr "CLIQ %(proxy_ver)s"
-
 msgid ""
 "CMMVC6071E The VDisk-to-host mapping was not created because the VDisk is "
 "already mapped to a host.\n"
@@ -884,10 +879,6 @@ msgstr ""
 "%(vhd_path)s imajı küçük bir boyuta yeniden boyutlandırılamıyor. İmaj "
 "boyutu: %(old_size)s, İstenen boyut: %(new_size)s"
 
-#, python-format
-msgid "Cannot retype from HP3PARDriver to %s."
-msgstr "HP3PARDriver'den %s'e retype yapılamaz."
-
 msgid "Cannot retype from one 3PAR array to another."
 msgstr "Bir 3PAR dizisinden diğerine retype yapılamaz."
 
@@ -1109,10 +1100,6 @@ msgid "Copying metadata from %(src_type)s %(src_id)s to %(vol_id)s."
 msgstr "Metadata %(src_type)s %(src_id)s den %(vol_id)s e kopyalanıyor."
 
 #, python-format
-msgid "Could not attach volume %(vol)s as %(dev)s on system."
-msgstr "%(vol)s mantıksal sürücüsü sistemde %(dev)s olarak eklenemedi."
-
-#, python-format
 msgid "Could not bind to %(host)s:%(port)s after trying for 30 seconds"
 msgstr "30 saniyelik denemeden sonra %(host)s:%(port)s bağlanamadı"
 
@@ -1135,32 +1122,6 @@ msgstr ""
 #, python-format
 msgid "Could not create symbolic link. Link: %(link)s Target %(target)s"
 msgstr "Sembolik bağlantı oluşturulamıyor. Bağlantı: %(link)s Hedef %(target)s"
-
-msgid "Could not create volume on any configured REST server."
-msgstr ""
-"Yapılandırılan herhangi bir REST sunucuda mantıksal sürücü oluşturulamıyor."
-
-msgid "Could not destroy volume on any configured REST server."
-msgstr "Mantıksal sürücü yapılandırılan hiçbir REST sunucuda silinemiyor."
-
-#, python-format
-msgid "Could not detach volume %(vol)s from device %(dev)s."
-msgstr " %(vol)s mantıksal sürücüsü %(dev)s aygıtından ayrılamadı."
-
-msgid ""
-"Could not determine which Swift endpoint to use. This can  either be set in "
-"the service catalog or with the  cinder.conf config option "
-"'backup_swift_url'."
-msgstr ""
-"Kullanılacak Swift uç noktası belirlenemedi. Bu  ya servis kataloğunda ya "
-"da   cinder.conf yapılandırma seçeneği 'backup_swift_url' ile ayarlanabilir."
-
-msgid "Could not extend volume on any configured REST server."
-msgstr "Mantıksal sürücü yapılandırılan hiçbir REST sunucuda büyütülemiyor."
-
-#, python-format
-msgid "Could not find ACL %(acl)s in target %(target)s"
-msgstr "Hedefte %(target)s ACL %(acl)s bulunamadı"
 
 #, python-format
 msgid "Could not find GPFS cluster id: %s."
@@ -1209,13 +1170,6 @@ msgstr "%(param)s parametresi bulunamadı"
 msgid "Could not find target %s"
 msgstr "%s hedefi bulunamadı"
 
-msgid ""
-"Could not get FC connection information for the host-volume connection. Is "
-"the host configured properly for FC connections?"
-msgstr ""
-"İstemci-mantıksal sürücü bağlantısı için FC bağlantı bilgisi alınamadı. "
-"İstemci FC bağlantıları için düzgün yapılandırılmış mı?"
-
 msgid "Could not get system name."
 msgstr "Sistem ismi alınamadı."
 
@@ -1230,9 +1184,6 @@ msgstr "%s okunamadı. sudo ile yeniden çalıştırılıyor"
 #, python-format
 msgid "Could not save configuration to %(file_path)s: %(exc)s"
 msgstr "Yapılandırma %(file_path)s yoluna kaydedilemedi: %(exc)s"
-
-msgid "Could not setup urls properly"
-msgstr "Url'ler uygun bir şekilde ayarlanamadı"
 
 #, python-format
 msgid ""
@@ -1984,10 +1935,6 @@ msgid "Error removing volume %(vol)s. %(error)s."
 msgstr "%(vol)s mantıksal sürücüsü kaldırılırken hata. %(error)s."
 
 #, python-format
-msgid "Error running CLIQ command %(verb)s %(cliq_args)s.  Result=%(out)s"
-msgstr "CLIQ komutunu çalıştırmada hata %(verb)s %(cliq_args)s.  Sonuç=%(out)s"
-
-#, python-format
 msgid "Error unbinding volume %(vol)s from pool. %(error)s."
 msgstr ""
 "%(vol)s mantıksal sürücüsünün havuz bağlantısını ayırmada hata. %(error)s."
@@ -2105,9 +2052,6 @@ msgstr ""
 
 msgid "FAST is not supported on this array."
 msgstr "FAST bu dizi üzerinde desteklenmiyor."
-
-msgid "FC is the protocol but wwpns are not supplied by Openstack."
-msgstr "İletişim kuralı FC ama wwpn'ler OpenStack tarafından sağlanmamış."
 
 #, python-format
 msgid "Faield to unassign %(volume)s"
@@ -2257,10 +2201,6 @@ msgstr "Mantıksal sürücü api'si oluşturulamadı."
 #, python-format
 msgid "Failed to create cg snapshot %(id)s due to %(reason)s."
 msgstr "%(reason)s sebebiyle cg anlık görüntüsü %(id)s oluşturulamadı."
-
-#, python-format
-msgid "Failed to create cloned volume %s."
-msgstr "Kopyalanmış %s mantıksal sürücüsü oluşturulamadı."
 
 #, python-format
 msgid "Failed to create consistency group %(id)s due to %(reason)s."
@@ -2888,14 +2828,6 @@ msgid "Failure in clear_volume_key_value_pair: %s"
 msgstr "clear_volume_key_value_pair başarısız: %s"
 
 #, python-format
-msgid ""
-"Failure in communication between web service and array. Waited %s seconds. "
-"Verify array configuration parameters."
-msgstr ""
-"Web servis ve dizi arasında iletişim başarısız. %s saniye beklendi. Dizi "
-"yapılandırma parametrelerini doğrulayın."
-
-#, python-format
 msgid "Failure in update_volume_key_value_pair:%s"
 msgstr "update_volume_key_value_pair başarısız: %s"
 
@@ -3204,9 +3136,6 @@ msgstr "DRBDmanage'den kötü yol bilgisi alındı! (%s)"
 msgid "HBSD error occurs."
 msgstr "HBSD hatası oluşur."
 
-msgid "HPLeftHand url not found"
-msgstr "HPLefHand url bulunamadı"
-
 #, python-format
 msgid ""
 "Hash block size has changed since the last backup. New hash block size: "
@@ -3374,12 +3303,6 @@ msgstr "%(uuid)s örneği bulunamadı."
 msgid "Insufficient privileges"
 msgstr "Yetersiz ayrıcalıklar"
 
-#, python-format
-msgid "Internal error in srb driver: Trying to detach detached volume %s."
-msgstr ""
-"Srb sürücüsünde dahili hata: %s ayrı mantıksal sürücüsü ayrılmaya "
-"çalışılıyor."
-
 msgid "Interval value (in seconds) between connection retries to ceph cluster."
 msgstr "Ceph kümesi için bağlantılar arasındaki dahili değer (saniye cinsinde)"
 
@@ -3415,14 +3338,6 @@ msgstr ""
 
 msgid "Invalid ConsistencyGroup: No host to create consistency group"
 msgstr "Geçersiz TutarlılıkGrubu: Tutarlılık grubu oluşturmak için istemci yok"
-
-#, python-format
-msgid ""
-"Invalid HPLeftHand API version found: %(found)s. Version %(minimum)s or "
-"greater required for manage/unmanage support."
-msgstr ""
-"Geçersiz HPLeftHand API sürümü bulundu: %(found)s. Yönet/yönetmeyi bırak "
-"desteği için sürüm %(minimum)s veya yükseği gerekli."
 
 #, python-format
 msgid "Invalid IP address format: '%s'"
@@ -3519,22 +3434,6 @@ msgid "Invalid host: %(reason)s"
 msgstr "Geçersiz istemci: %(reason)s"
 
 #, python-format
-msgid ""
-"Invalid hp3parclient version found (%(found)s). Version %(minimum)s or "
-"greater required."
-msgstr ""
-"Geçersiz hp3parclient sürümü bulundu (%(found)s). Sürüm %(minimum)s veya "
-"daha yükseği gerekli."
-
-#, python-format
-msgid ""
-"Invalid hplefthandclient version found (%(found)s). Version %(minimum)s or "
-"greater required."
-msgstr ""
-"Geçersiz hplefthandclient sürümü bulundu (%(found)s). Sürüm %(minimum)s veya "
-"büyüğü gerekli."
-
-#, python-format
 msgid "Invalid image href %(image_href)s."
 msgstr "Geçersiz %(image_href)s imaj kaynak dosyası."
 
@@ -3607,10 +3506,6 @@ msgstr "Geçersiz koşul sonu %(expire)s."
 
 msgid "Invalid service catalog json."
 msgstr "Geçersiz servis katalogu json."
-
-#, python-format
-msgid "Invalid size parameter '%s': Cannot be interpreted as an integer value."
-msgstr "Geçersiz boyutta parametre '%s': Tam sayı değer olarak yorumlanamaz."
 
 #, python-format
 msgid "Invalid snapshot: %(reason)s"
@@ -3812,6 +3707,10 @@ msgid "Linked clone of source volume not supported in state: %s."
 msgstr ""
 "Kaynak mantıksal sürücüsünün bağlantılı klonu bu durumda desteklenmiyor: %s."
 
+#, python-format
+msgid "Login error, reason is: %s."
+msgstr "Giriş hatası, sebep: %s."
+
 msgid ""
 "Lookup service not configured. Config option for fc_san_lookup_service needs "
 "to specify a concrete implementation of the lookup service."
@@ -3836,11 +3735,6 @@ msgstr "Kusurlu istek gövdesi"
 
 msgid "Malformed request url"
 msgstr "Bozuk istel adresi"
-
-#, python-format
-msgid ""
-"Malformed response to CLIQ command %(verb)s %(cliq_args)s. Result=%(out)s"
-msgstr "CLIQ komutuna bozuk yanıt %(verb)s %(cliq_args)s. Sonuç=%(out)s"
 
 #, python-format
 msgid "Malformed response to command %(cmd)s: %(reason)s"
@@ -3919,16 +3813,6 @@ msgstr ""
 #, python-format
 msgid "May specify only one of %s"
 msgstr "%s'nin sadece biri belirtilebilir"
-
-msgid "Message objects do not support addition."
-msgstr "İleti nesneleri eklemeyi desteklemez."
-
-msgid ""
-"Message objects do not support str() because they may contain non-ascii "
-"characters. Please use unicode() or translate() instead."
-msgstr ""
-"İleti nesneleri str() desteklemez çünkü ascii olmayan karakterler "
-"içermeyebilirler. Lütfen bunun yerine unicode() ya da translate() kullanın."
 
 msgid "Metadata backup already exists for this volume"
 msgstr "Bu mantıksal sürücü için metadata yedeği zaten var"
@@ -4340,9 +4224,6 @@ msgstr ""
 "İstemci üzerinde kullanılabilir LUN ID'si yok; çoklu ekleme etkin ki bu tüm "
 "LUN ID'lerinin tüm istemci grupları arasında benzersiz olmasını gerektirir."
 
-msgid "No url configured"
-msgstr "Url yapılandırılamıyor"
-
 #, python-format
 msgid "No valid host was found. %(reason)s"
 msgstr "Geçerli bir sunucu bulunamadı: %(reason)s"
@@ -4364,9 +4245,6 @@ msgstr ""
 
 msgid "No volume was found at CloudByte storage."
 msgstr "CloudByte depolamada hiçbir mantıksal sürücü bulunamadı."
-
-msgid "No volume_id provided to populate a request_spec from"
-msgstr "request_spec doldurmak için bir volume_id sağlanmadı"
 
 msgid "No volume_type should be provided when creating test replica."
 msgstr "Test kopyası oluşturulurken volume_type verilmesi gerekmez."
@@ -4633,10 +4511,6 @@ msgstr "%(project_id)s projesi için kota kullanımı bulunamadı."
 #, python-format
 msgid "RBD diff op failed - (ret=%(ret)s stderr=%(stderr)s)"
 msgstr "RBD diff işlemi başarısız oldu - (ret=%(ret)s stderr=%(stderr)s)"
-
-#, python-format
-msgid "REST %(proxy_ver)s hplefthandclient %(rest_ver)s"
-msgstr "REST %(proxy_ver)s hplefthandclient %(rest_ver)s"
 
 msgid "REST server IP must by specified."
 msgstr "REST sunucu IP'si belirtilmelidir."
@@ -5086,9 +4960,6 @@ msgstr "Belirtilen %s etiketine sahip anlık görüntü grubu bulunamadı."
 
 msgid "Specify a password or private_key"
 msgstr "Bir parola ya da private_key belirtin"
-
-msgid "Specify either volume type name and/or description."
-msgstr "Ya mantıksal sürücü tür adı ve/ya da tanımlaması belirtin."
 
 msgid "Specify san_password or san_private_key"
 msgstr "san_password veya san_private_key belirtin"
@@ -5912,13 +5783,6 @@ msgstr ""
 "%(id)s eşleştirmesi için beklenmeyen eşleştirme durumu %(status)s. "
 "Öznitelikler: %(attr)s."
 
-#, python-format
-msgid ""
-"Unexpected number of virtual ips for cluster  %(cluster_name)s. Result="
-"%(_xml)s"
-msgstr ""
-"%(cluster_name)s kümesi için beklenmeyen sayıda sanal ip.  Sonuç=%(_xml)s"
-
 msgid "Unexpected response from Nimble API"
 msgstr "Nimble API'sinden beklenmeyen yanıt"
 
@@ -5963,6 +5827,9 @@ msgstr "Bilinmeyen sıralama yönü, 'desc' ya da 'asc'"
 
 msgid "Unknown sort direction, must be 'desc' or 'asc'."
 msgstr "Bilinmeyen sıralama yönü, 'desc' ya da 'asc' olmalıdır."
+
+msgid "Unmanage volume not implemented."
+msgstr "Mantıksal sürücünün yönetimini bırakma uygulanmadı."
 
 #, python-format
 msgid "Unrecognized QOS keyword: \"%s\""
@@ -6027,9 +5894,6 @@ msgstr "Güncelleme saati"
 
 msgid "Upload to glance of attached volume is not supported."
 msgstr "Eklenti mantıksal sürücüsü glance'ine yükleme desteklenmiyor."
-
-msgid "Use of empty request context is deprecated"
-msgstr "Boş istek içeriği kullanımı önerilmiyor"
 
 msgid "User ID"
 msgstr "Kullanıcı ID"
@@ -6098,12 +5962,6 @@ msgstr "%s hedefi için mantıksal sürücü kopyalama işi başarısız."
 #, python-format
 msgid "Volume %(deviceID)s not found."
 msgstr "%(deviceID)s mantıksal sürücüsü bulunamadı."
-
-#, python-format
-msgid "Volume %(lun_name)s was created in VNX, but in %(lun_state)s state."
-msgstr ""
-"Mantıksal sürücü %(lun_name)s VNX'de oluşturulmuş, ama %(lun_state)s "
-"durumunda."
 
 #, python-format
 msgid ""
@@ -6576,9 +6434,6 @@ msgstr "XtremIO düzgün ilklendirilmemiş, küme bulunamadı"
 
 msgid "You must implement __call__"
 msgstr "__call__ fonksiyonunu uygulamalısınız."
-
-msgid "You must install hp3parclient before using 3PAR drivers."
-msgstr "3PAR sürücülerini kullanmadan hp3parclient kurmalısınız."
 
 msgid "You must supply an array in your EMC configuration file."
 msgstr "EMC yapılandırma dosyasında bir dizi sağlamalısınız."
@@ -7148,9 +7003,6 @@ msgstr "Sınır parametresi tam sayı olmak zorunda"
 
 msgid "limit param must be positive"
 msgstr "Sınır parametresi pozitif olmak zorunda"
-
-msgid "local_path not supported"
-msgstr "local_path desteklenmiyor"
 
 msgid "manage_existing requires a 'name' key to identify an existing volume."
 msgstr ""

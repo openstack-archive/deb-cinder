@@ -471,6 +471,7 @@ VOLUME = VOLUMES[0]
 
 STORAGE_POOL = {
     'label': 'DDP',
+    'id': 'fakevolgroupref',
     'volumeGroupRef': 'fakevolgroupref',
     'raidLevel': 'raidDiskPool',
     'usedSpace': '16413217521664',
@@ -600,6 +601,7 @@ STORAGE_SYSTEM = {
     '1fa6efb5-f07b-4de4-9f0e-52e5f7ff5d1b',
     'hotSpareSizeAsString': '0', 'wwn':
     '60080E500023C73400000000515AF323',
+    'passwordStatus': 'valid',
     'parameters': {
         'minVolSize': 1048576, 'maxSnapshotsPerBase': 16,
         'maxDrives': 192,
@@ -788,6 +790,22 @@ HARDWARE_INVENTORY = {
         },
     ]
 }
+
+FAKE_POOL_ACTION_PROGRESS = [
+    {
+        "volumeRef": "0200000060080E50002998A00000945355C37C19",
+        "progressPercentage": 55,
+        "estimatedTimeToCompletion": 1,
+        "currentAction": "initializing"
+    },
+    {
+        "volumeRef": "0200000060080E50002998A00000945355C37C18",
+        "progressPercentage": 0,
+        "estimatedTimeToCompletion": 0,
+        "currentAction": "progressDve"
+    },
+]
+
 
 FAKE_RESOURCE_URL = '/devmgr/v2/devmgr/utils/about'
 FAKE_APP_VERSION = '2015.2|2015.2.dev59|vendor|Linux-3.13.0-24-generic'
@@ -1071,3 +1089,6 @@ class FakeEseriesClient(object):
 
     def list_target_wwpns(self, *args, **kwargs):
         return [WWPN_2]
+
+    def update_stored_system_password(self, *args, **kwargs):
+        pass

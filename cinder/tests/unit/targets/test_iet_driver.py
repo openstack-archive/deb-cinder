@@ -38,7 +38,7 @@ class TestIetAdmDriver(tf.TargetDriverFixture):
             '        sid:844427031282176 initiator:iqn.1994-05.com.redhat:5a6894679665\n'  # noqa
             '               cid:0 ip:10.9.8.7 state:active hd:none dd:none')
         tmp_file.seek(0)
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value = contextlib.closing(tmp_file)
             self.assertEqual('1',
                              self.target._get_target(
@@ -46,47 +46,22 @@ class TestIetAdmDriver(tf.TargetDriverFixture):
                                                     ))
 
             # Test the failure case: Failed to handle the config file
-            mock_open.side_effect = StandardError()
-            self.assertRaises(StandardError,
+            mock_open.side_effect = MemoryError()
+            self.assertRaises(MemoryError,
                               self.target._get_target,
                               '')
-
-    @mock.patch('os.path.exists', return_value=True)
-    @mock.patch('cinder.utils.temporary_chown')
-    def test_get_target_chap_auth(self, mock_chown, mock_exists):
-        tmp_file = six.StringIO()
-        tmp_file.write(
-            'Target iqn.2010-10.org.openstack:volume-83c2e877-feed-46be-8435-77884fe55b45\n'  # noqa
-            '    IncomingUser otzLy2UYbYfnP4zXLG5z 234Zweo38VGBBvrpK9nt\n'
-            '    Lun 0 Path=/dev/stack-volumes-lvmdriver-1/volume-83c2e877-feed-46be-8435-77884fe55b45,Type=fileio\n'  # noqa
-        )
-        tmp_file.seek(0)
-        expected = ('otzLy2UYbYfnP4zXLG5z', '234Zweo38VGBBvrpK9nt')
-        with mock.patch('__builtin__.open') as mock_open:
-            ictx = context.get_admin_context()
-            mock_open.return_value = contextlib.closing(tmp_file)
-            self.assertEqual(expected,
-                             self.target._get_target_chap_auth(ictx,
-                                                               self.test_vol))
-            self.assertTrue(mock_open.called)
-
-            # Test the failure case: Failed to handle the config file
-            mock_open.side_effect = StandardError()
-            self.assertRaises(StandardError,
-                              self.target._get_target_chap_auth,
-                              ictx,
-                              self.test_vol)
 
     @mock.patch('cinder.volume.targets.iet.IetAdm._get_target',
                 return_value=0)
     @mock.patch('cinder.utils.execute')
     @mock.patch('os.path.exists', return_value=True)
     @mock.patch('cinder.utils.temporary_chown')
-    def test_create_iscsi_target(self, mock_chown, mock_exists,
+    @mock.patch.object(iet, 'LOG')
+    def test_create_iscsi_target(self, mock_log, mock_chown, mock_exists,
                                  mock_execute, mock_get_targ):
         mock_execute.return_value = ('', '')
         tmp_file = six.StringIO()
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value = contextlib.closing(tmp_file)
             self.assertEqual(
                 0,
@@ -179,7 +154,7 @@ class TestIetAdmDriver(tf.TargetDriverFixture):
             '        sid:844427031282176 initiator:iqn.1994-05.com.redhat:5a6894679665\n'  # noqa
             '               cid:0 ip:10.9.8.7 state:active hd:none dd:none')
         tmp_file.seek(0)
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value = contextlib.closing(tmp_file)
             self.assertEqual(('844427031282176', '0'),
                              self.target._find_sid_cid_for_target(

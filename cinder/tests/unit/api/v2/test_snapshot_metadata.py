@@ -30,6 +30,7 @@ from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit import fake_snapshot
 from cinder.tests.unit import fake_volume
+from cinder import volume
 
 
 CONF = cfg.CONF
@@ -87,17 +88,19 @@ def return_snapshot(context, snapshot_id):
             'metadata': {}}
 
 
-def return_volume(context, volume_id):
-    return {'id': 'fake-vol-id',
-            'size': 100,
-            'name': 'fake',
-            'host': 'fake-host',
-            'status': 'available',
-            'encryption_key_id': None,
-            'volume_type_id': None,
-            'migration_status': None,
-            'metadata': {},
-            'project_id': context.project_id}
+def stub_get(context, *args, **kwargs):
+    vol = {'id': 'fake-vol-id',
+           'size': 100,
+           'name': 'fake',
+           'host': 'fake-host',
+           'status': 'available',
+           'encryption_key_id': None,
+           'volume_type_id': None,
+           'migration_status': None,
+           'availability_zone': 'fake-zone',
+           'attach_status': 'detached',
+           'metadata': {}}
+    return fake_volume.fake_volume_obj(context, **vol)
 
 
 def return_snapshot_nonexistent(context, snapshot_id):
@@ -113,7 +116,7 @@ class SnapshotMetaDataTest(test.TestCase):
     def setUp(self):
         super(SnapshotMetaDataTest, self).setUp()
         self.volume_api = cinder.volume.api.API()
-        self.stubs.Set(cinder.db, 'volume_get', return_volume)
+        self.stubs.Set(volume.API, 'get', stub_get)
         self.stubs.Set(cinder.db, 'snapshot_get', return_snapshot)
 
         self.stubs.Set(self.volume_api, 'update_snapshot_metadata',
@@ -552,9 +555,10 @@ class SnapshotMetaDataTest(test.TestCase):
                           self.controller.update, req, self.req_id, 'key1',
                           None)
 
-    def test_update_item_empty_key(self):
-        self.stubs.Set(cinder.db, 'snapshot_metadata_update',
-                       return_create_snapshot_metadata)
+    @mock.patch('cinder.db.sqlalchemy.api._snapshot_get')
+    @mock.patch('cinder.db.snapshot_metadata_update', autospec=True)
+    def test_update_item_empty_key(self, metadata_update, snapshot_get):
+        snapshot_get.return_value = stub_get
         req = fakes.HTTPRequest.blank(self.url + '/key1')
         req.method = 'PUT'
         body = {"meta": {"": "value1"}}

@@ -21,14 +21,14 @@ import os
 import tempfile
 
 import mock
-from oslo_utils import timeutils
 from oslo_utils import units
 
-from cinder import db
 from cinder import exception
 from cinder.i18n import _
 from cinder.image import image_utils
+from cinder import objects
 from cinder import test
+from cinder.tests.unit import fake_volume
 from cinder.tests.unit.image import fake as fake_image
 from cinder.tests.unit import test_volume
 from cinder.tests.unit import utils
@@ -366,6 +366,19 @@ class RBDTestCase(test.TestCase):
     def test_delete_snapshot(self):
         proxy = self.mock_proxy.return_value
         proxy.__enter__.return_value = proxy
+
+        self.driver.delete_snapshot(self.snapshot)
+
+        proxy.remove_snap.assert_called_with(self.snapshot_name)
+        proxy.unprotect_snap.assert_called_with(self.snapshot_name)
+
+    @common_mocks
+    def test_delete_notfound_snapshot(self):
+        proxy = self.mock_proxy.return_value
+        proxy.__enter__.return_value = proxy
+
+        proxy.unprotect_snap.side_effect = (
+            self.mock_rbd.ImageNotFound)
 
         self.driver.delete_snapshot(self.snapshot)
 
@@ -722,7 +735,8 @@ class RBDTestCase(test.TestCase):
             storage_protocol='ceph',
             total_capacity_gb=27,
             free_capacity_gb=26,
-            reserved_percentage=0)
+            reserved_percentage=0,
+            multiattach=True)
 
         actual = self.driver.get_volume_stats(True)
         client.cluster.mon_command.assert_called_once_with(
@@ -747,7 +761,8 @@ class RBDTestCase(test.TestCase):
                         storage_protocol='ceph',
                         total_capacity_gb='unknown',
                         free_capacity_gb='unknown',
-                        reserved_percentage=0)
+                        reserved_percentage=0,
+                        multiattach=True)
 
         actual = self.driver.get_volume_stats(True)
         client.cluster.mon_command.assert_called_once_with(
@@ -839,29 +854,32 @@ class RBDTestCase(test.TestCase):
         context = {}
         diff = {'encryption': {},
                 'extra_specs': {}}
-        fake_volume = {'name': 'testvolume',
-                       'host': 'currenthost'}
+        updates = {'name': 'testvolume',
+                   'host': 'currenthost',
+                   'id': 'fakeid'}
         fake_type = 'high-IOPS'
+        volume = fake_volume.fake_volume_obj(context, **updates)
 
-        # no support for migration
-        host = {'host': 'anotherhost'}
-        self.assertFalse(self.driver.retype(context, fake_volume,
-                                            fake_type, diff, host))
+        # The hosts have been checked same before rbd.retype
+        # is called.
+        # RBD doesn't support multiple pools in a driver.
         host = {'host': 'currenthost'}
+        self.assertTrue(self.driver.retype(context, volume,
+                                           fake_type, diff, host))
 
-        # no support for changing encryption
-        diff['encryption'] = {'non-empty': 'non-empty'}
-        self.assertFalse(self.driver.retype(context, fake_volume,
-                                            fake_type, diff, host))
+        # The encryptions have been checked as same before rbd.retype
+        # is called.
         diff['encryption'] = {}
+        self.assertTrue(self.driver.retype(context, volume,
+                                           fake_type, diff, host))
 
-        # no support for changing extra_specs
+        # extra_specs changes are supported.
         diff['extra_specs'] = {'non-empty': 'non-empty'}
-        self.assertFalse(self.driver.retype(context, fake_volume,
-                                            fake_type, diff, host))
+        self.assertTrue(self.driver.retype(context, volume,
+                                           fake_type, diff, host))
         diff['extra_specs'] = {}
 
-        self.assertTrue(self.driver.retype(context, fake_volume,
+        self.assertTrue(self.driver.retype(context, volume,
                                            fake_type, diff, host))
 
     @common_mocks
@@ -966,7 +984,7 @@ class RBDImageIOWrapperTestCase(test.TestCase):
         self.meta.image.size = mock.Mock()
         self.mock_rbd_wrapper = driver.RBDImageIOWrapper(self.meta)
         self.data_length = 1024
-        self.full_data = 'abcd' * 256
+        self.full_data = b'abcd' * 256
 
     def test_init(self):
         self.assertEqual(self.mock_rbd_wrapper._rbd_meta, self.meta)
@@ -1001,7 +1019,7 @@ class RBDImageIOWrapperTestCase(test.TestCase):
         self.assertEqual(self.full_data, data)
 
         data = self.mock_rbd_wrapper.read()
-        self.assertEqual('', data)
+        self.assertEqual(b'', data)
 
         self.mock_rbd_wrapper.seek(0)
         data = self.mock_rbd_wrapper.read()
@@ -1090,7 +1108,6 @@ class ManagedRBDTestCase(test_volume.DriverTestCase):
         NOTE: if clone_error is True we force the image type to raw otherwise
               clone_image is not called
         """
-        volume_id = 1
 
         # See tests.image.fake for image types.
         if raw:
@@ -1099,32 +1116,34 @@ class ManagedRBDTestCase(test_volume.DriverTestCase):
             image_id = 'c905cedb-7281-47e4-8a62-f26bc5fc4c77'
 
         # creating volume testdata
-        db.volume_create(self.context,
-                         {'id': volume_id,
-                          'updated_at': timeutils.utcnow(),
-                          'display_description': 'Test Desc',
-                          'size': 20,
-                          'status': 'creating',
-                          'instance_uuid': None,
-                          'host': 'dummy'})
+        db_volume = {'display_description': 'Test Desc',
+                     'size': 20,
+                     'status': 'creating',
+                     'availability_zone': 'fake_zone',
+                     'attach_status': 'detached',
+                     'host': 'dummy'}
+        volume = objects.Volume(context=self.context, **db_volume)
+        volume.create()
 
         try:
             if not clone_error:
                 self.volume.create_volume(self.context,
-                                          volume_id,
-                                          request_spec={'image_id': image_id})
+                                          volume.id,
+                                          request_spec={'image_id': image_id},
+                                          volume=volume)
             else:
                 self.assertRaises(exception.CinderException,
                                   self.volume.create_volume,
                                   self.context,
-                                  volume_id,
-                                  request_spec={'image_id': image_id})
+                                  volume.id,
+                                  request_spec={'image_id': image_id},
+                                  volume=volume)
 
-            volume = db.volume_get(self.context, volume_id)
-            self.assertEqual(expected_status, volume['status'])
+            volume = objects.Volume.get_by_id(self.context, volume.id)
+            self.assertEqual(expected_status, volume.status)
         finally:
             # cleanup
-            db.volume_destroy(self.context, volume_id)
+            volume.destroy()
 
     def test_create_vol_from_image_status_available(self):
         """Clone raw image then verify volume is in available state."""
@@ -1236,27 +1255,27 @@ class ManagedRBDTestCase(test_volume.DriverTestCase):
             mock.patch.object(self.volume.driver, '_clone') as mock_clone, \
             mock.patch.object(self.volume.driver, '_resize') \
                 as mock_resize:
-                mock_is_cloneable.side_effect = cloneable_side_effect
-                image_loc = ('rbd://bee/bi/bo/bum',
-                             [{'url': 'rbd://bee/bi/bo/bum'},
-                              {'url': 'rbd://fee/fi/fo/fum'}])
-                volume = {'name': 'vol1'}
-                image_meta = mock.sentinel.image_meta
-                image_service = mock.sentinel.image_service
+            mock_is_cloneable.side_effect = cloneable_side_effect
+            image_loc = ('rbd://bee/bi/bo/bum',
+                         [{'url': 'rbd://bee/bi/bo/bum'},
+                          {'url': 'rbd://fee/fi/fo/fum'}])
+            volume = {'name': 'vol1'}
+            image_meta = mock.sentinel.image_meta
+            image_service = mock.sentinel.image_service
 
-                actual = driver.clone_image(self.context,
-                                            volume,
-                                            image_loc,
-                                            image_meta,
-                                            image_service)
+            actual = driver.clone_image(self.context,
+                                        volume,
+                                        image_loc,
+                                        image_meta,
+                                        image_service)
 
-                self.assertEqual(expected, actual)
-                self.assertEqual(2, mock_is_cloneable.call_count)
-                mock_clone.assert_called_once_with(volume,
-                                                   'fi', 'fo', 'fum')
-                mock_is_cloneable.assert_called_with('rbd://fee/fi/fo/fum',
-                                                     image_meta)
-                mock_resize.assert_called_once_with(volume)
+            self.assertEqual(expected, actual)
+            self.assertEqual(2, mock_is_cloneable.call_count)
+            mock_clone.assert_called_once_with(volume,
+                                               'fi', 'fo', 'fum')
+            mock_is_cloneable.assert_called_with('rbd://fee/fi/fo/fum',
+                                                 image_meta)
+            mock_resize.assert_called_once_with(volume)
 
     def test_clone_multilocation_failure(self):
         expected = ({}, False)
@@ -1267,24 +1286,24 @@ class ManagedRBDTestCase(test_volume.DriverTestCase):
             mock.patch.object(self.volume.driver, '_clone') as mock_clone, \
             mock.patch.object(self.volume.driver, '_resize') \
                 as mock_resize:
-                image_loc = ('rbd://bee/bi/bo/bum',
-                             [{'url': 'rbd://bee/bi/bo/bum'},
-                              {'url': 'rbd://fee/fi/fo/fum'}])
+            image_loc = ('rbd://bee/bi/bo/bum',
+                         [{'url': 'rbd://bee/bi/bo/bum'},
+                          {'url': 'rbd://fee/fi/fo/fum'}])
 
-                volume = {'name': 'vol1'}
-                image_meta = mock.sentinel.image_meta
-                image_service = mock.sentinel.image_service
-                actual = driver.clone_image(self.context,
-                                            volume,
-                                            image_loc,
-                                            image_meta,
-                                            image_service)
+            volume = {'name': 'vol1'}
+            image_meta = mock.sentinel.image_meta
+            image_service = mock.sentinel.image_service
+            actual = driver.clone_image(self.context,
+                                        volume,
+                                        image_loc,
+                                        image_meta,
+                                        image_service)
 
-                self.assertEqual(expected, actual)
-                self.assertEqual(2, mock_is_cloneable.call_count)
-                mock_is_cloneable.assert_any_call('rbd://bee/bi/bo/bum',
-                                                  image_meta)
-                mock_is_cloneable.assert_any_call('rbd://fee/fi/fo/fum',
-                                                  image_meta)
-                self.assertFalse(mock_clone.called)
-                self.assertFalse(mock_resize.called)
+            self.assertEqual(expected, actual)
+            self.assertEqual(2, mock_is_cloneable.call_count)
+            mock_is_cloneable.assert_any_call('rbd://bee/bi/bo/bum',
+                                              image_meta)
+            mock_is_cloneable.assert_any_call('rbd://fee/fi/fo/fum',
+                                              image_meta)
+            self.assertFalse(mock_clone.called)
+            self.assertFalse(mock_resize.called)

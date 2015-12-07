@@ -35,7 +35,6 @@ LOG = logging.getLogger(__name__)
 
 d_opts = [
     cfg.StrOpt('datera_api_token',
-               default=None,
                help='DEPRECATED: This will be removed in the Liberty release. '
                     'Use san_login and san_password instead. This directly '
                     'sets the Datera API token.'),
@@ -59,25 +58,25 @@ CONF.register_opts(d_opts)
 
 
 def _authenticated(func):
-        """Ensure the driver is authenticated to make a request.
+    """Ensure the driver is authenticated to make a request.
 
-        In do_setup() we fetch an auth token and store it. If that expires when
-        we do API request, we'll fetch a new one.
-        """
-        def func_wrapper(self, *args, **kwargs):
-            try:
-                return func(self, *args, **kwargs)
-            except exception.NotAuthorized:
-                # Prevent recursion loop. After the self arg is the
-                # resource_type arg from _issue_api_request(). If attempt to
-                # login failed, we should just give up.
-                if args[0] == 'login':
-                    raise
+    In do_setup() we fetch an auth token and store it. If that expires when
+    we do API request, we'll fetch a new one.
+    """
+    def func_wrapper(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except exception.NotAuthorized:
+            # Prevent recursion loop. After the self arg is the
+            # resource_type arg from _issue_api_request(). If attempt to
+            # login failed, we should just give up.
+            if args[0] == 'login':
+                raise
 
-                # Token might've expired, get a new one, try again.
-                self._login()
-                return func(self, *args, **kwargs)
-        return func_wrapper
+            # Token might've expired, get a new one, try again.
+            self._login()
+            return func(self, *args, **kwargs)
+    return func_wrapper
 
 
 class DateraDriver(san.SanISCSIDriver):

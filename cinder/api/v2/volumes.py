@@ -16,8 +16,6 @@
 """The volumes api."""
 
 
-import ast
-
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import uuidutils
@@ -243,12 +241,7 @@ class VolumeController(wsgi.Controller):
             filters['display_name'] = filters['name']
             del filters['name']
 
-        for k, v in filters.items():
-            try:
-                filters[k] = ast.literal_eval(v)
-            except (ValueError, SyntaxError):
-                LOG.debug('Could not evaluate value %s, assuming string', v)
-
+        self.volume_api.check_volume_filters(filters)
         volumes = self.volume_api.get_all(context, marker, limit,
                                           sort_keys=sort_keys,
                                           sort_dirs=sort_dirs,
@@ -256,12 +249,10 @@ class VolumeController(wsgi.Controller):
                                           viewable_admin_meta=True,
                                           offset=offset)
 
-        volumes = [dict(vol) for vol in volumes]
-
         for volume in volumes:
             utils.add_visible_admin_metadata(volume)
 
-        req.cache_db_volumes(volumes)
+        req.cache_db_volumes(volumes.objects)
 
         if is_detail:
             volumes = self._view_builder.detail_list(req, volumes)
@@ -425,10 +416,6 @@ class VolumeController(wsgi.Controller):
                                             volume.get('display_description'),
                                             **kwargs)
 
-        # TODO(vish): Instance should be None at db layer instead of
-        #             trying to lazy load, but for now we turn it into
-        #             a dict to avoid an error.
-        new_volume = dict(new_volume)
         retval = self._view_builder.detail(req, new_volume)
 
         return retval

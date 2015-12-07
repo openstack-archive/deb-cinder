@@ -239,15 +239,15 @@ def notify_about_consistencygroup_usage(context, group, event_suffix,
         usage_info)
 
 
-def _usage_from_cgsnapshot(cgsnapshot_ref, **kw):
+def _usage_from_cgsnapshot(cgsnapshot, **kw):
     usage_info = dict(
-        tenant_id=cgsnapshot_ref['project_id'],
-        user_id=cgsnapshot_ref['user_id'],
-        cgsnapshot_id=cgsnapshot_ref['id'],
-        name=cgsnapshot_ref['name'],
-        consistencygroup_id=cgsnapshot_ref['consistencygroup_id'],
-        created_at=cgsnapshot_ref['created_at'].isoformat(),
-        status=cgsnapshot_ref['status'])
+        tenant_id=cgsnapshot.project_id,
+        user_id=cgsnapshot.user_id,
+        cgsnapshot_id=cgsnapshot.id,
+        name=cgsnapshot.name,
+        consistencygroup_id=cgsnapshot.consistencygroup_id,
+        created_at=cgsnapshot.created_at.isoformat(),
+        status=cgsnapshot.status)
 
     usage_info.update(kw)
     return usage_info
@@ -377,13 +377,13 @@ def _transfer_data(src, dest, length, chunk_size):
     LOG.debug("%(chunks)s chunks of %(bytes)s bytes to be transferred.",
               {'chunks': chunks, 'bytes': chunk_size})
 
-    for chunk in xrange(0, chunks):
+    for chunk in range(0, chunks):
         before = time.time()
         data = tpool.execute(src.read, min(chunk_size, remaining_length))
 
         # If we have reached end of source, discard any extraneous bytes from
         # destination volume if trim is enabled and stop writing.
-        if data == '':
+        if data == b'':
             break
 
         tpool.execute(dest.write, data)

@@ -17,7 +17,9 @@ import mock
 
 from cinder import exception
 from cinder import test
+from cinder.tests.unit import fake_consistencygroup as fake_cg
 from cinder.tests.unit import fake_snapshot
+from cinder.tests.unit import fake_volume
 from cinder.volume.drivers.emc import xtremio
 
 
@@ -392,6 +394,7 @@ class EMCXIODriverISCSITestCase(test.TestCase):
         self.driver.create_volume(self.data.test_volume)
         map_data = self.driver.initialize_connection(self.data.test_volume,
                                                      self.data.connector)
+        self.assertIsNone(map_data['data'].get('access_mode'))
         c1 = xms_data['clusters'][1]
         c1['chap-authentication-mode'] = 'initiator'
         c1['chap-discovery-mode'] = 'initiator'
@@ -464,16 +467,53 @@ class EMCXIODriverISCSITestCase(test.TestCase):
         self.driver.db = mock.Mock()
         (self.driver.db.
          volume_get_all_by_group.return_value) = [mock.MagicMock()]
-        self.driver.create_cgsnapshot(d.context, d.cgsnapshot)
-        snaps_name = self.driver._get_cgsnap_name(d.cgsnapshot)
-        snaps = xms_data['volumes'][1]
-        snaps['index'] = 1
-        xms_data['snapshot-sets'] = {snaps_name: snaps, 1: snaps}
+        self.driver.create_cgsnapshot(d.context, d.cgsnapshot, [])
+        snapset_name = self.driver._get_cgsnap_name(d.cgsnapshot)
+        self.assertEqual(snapset_name,
+                         '192eb39b6c2f420cbae33cfd117f0345192eb39b6c2f420cbae'
+                         '33cfd117f9876')
+        snapset1 = {'ancestor-vol-id': ['', d.test_volume['id'], 2],
+                    'consistencygroup_id': d.group['id'],
+                    'name': snapset_name,
+                    'index': 1}
+        xms_data['snapshot-sets'] = {snapset_name: snapset1, 1: snapset1}
+        self.driver.delete_cgsnapshot(d.context, d.cgsnapshot, [])
+        self.driver.delete_consistencygroup(d.context, d.group, [])
+        xms_data['snapshot-sets'] = {}
+
+    @mock.patch('cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
+    def test_cg_from_src(self, get_all_for_cgsnapshot, req):
+        req.side_effect = xms_request
+        d = self.data
+
         self.assertRaises(exception.InvalidInput,
                           self.driver.create_consistencygroup_from_src,
                           d.context, d.group, [], None, None, None, None)
-        self.driver.delete_cgsnapshot(d.context, d.cgsnapshot)
-        self.driver.delete_consistencygroup(d.context, d.group)
+
+        snapshot_obj = fake_snapshot.fake_snapshot_obj(d.context)
+        snapshot_obj.consistencygroup_id = d.group['id']
+        snapshot_obj.volume_id = d.test_volume['id']
+        get_all_for_cgsnapshot.return_value = [snapshot_obj]
+
+        self.driver.create_consistencygroup(d.context, d.group)
+        self.driver.create_volume(d.test_volume)
+        self.driver.create_cgsnapshot(d.context, d.cgsnapshot, [])
+        xms_data['volumes'][2]['ancestor-vol-id'] = (xms_data['volumes'][1]
+                                                     ['vol-id'])
+        snapset_name = self.driver._get_cgsnap_name(d.cgsnapshot)
+
+        snapset1 = {'vol-list': [xms_data['volumes'][2]['vol-id']],
+                    'name': snapset_name,
+                    'index': 1}
+        xms_data['snapshot-sets'] = {snapset_name: snapset1, 1: snapset1}
+        cg_obj = fake_cg.fake_consistencyobject_obj(d.context)
+        new_vol1 = fake_volume.fake_volume_obj(d.context)
+        snapshot1 = (fake_snapshot
+                     .fake_snapshot_obj
+                     (d.context, volume_id=d.test_volume['id']))
+        self.driver.create_consistencygroup_from_src(d.context, cg_obj,
+                                                     [new_vol1],
+                                                     d.cgsnapshot, [snapshot1])
 
 
 @mock.patch('requests.request')
@@ -523,26 +563,64 @@ class EMCXIODriverFibreChannelTestCase(test.TestCase):
         super(EMCXIODriverFibreChannelTestCase, self).setUp()
         clean_xms_data()
 
-        config = mock.Mock()
-        config.san_login = ''
-        config.san_password = ''
-        config.san_ip = ''
-        config.xtremio_cluster_name = ''
-        config.xtremio_provisioning_factor = 20.0
+        self.config = mock.Mock(san_login='',
+                                san_password='',
+                                san_ip='',
+                                xtremio_cluster_name='',
+                                xtremio_provisioning_factor=20.0)
         self.driver = xtremio.XtremIOFibreChannelDriver(
-            configuration=config)
-        self.driver.client = xtremio.XtremIOClient4(config,
-                                                    config.
-                                                    xtremio_cluster_name)
-
+            configuration=self.config)
         self.data = CommonData()
 
     def test_initialize_terminate_connection(self, req):
         req.side_effect = xms_request
+        self.driver.client = xtremio.XtremIOClient4(
+            self.config, self.config.xtremio_cluster_name)
+
         self.driver.create_volume(self.data.test_volume)
         map_data = self.driver.initialize_connection(self.data.test_volume,
                                                      self.data.connector)
         self.assertEqual(1, map_data['data']['target_lun'])
         self.driver.terminate_connection(self.data.test_volume,
                                          self.data.connector)
+        self.driver.delete_volume(self.data.test_volume)
+
+    def test_race_on_terminate_connection(self, req):
+        """Test for race conditions on num_of_mapped_volumes.
+
+        This test confirms that num_of_mapped_volumes won't break even if we
+        receive a NotFound exception when retrieving info on a specific
+        mapping, as that specific mapping could have been deleted between
+        the request to get the list of exiting mappings and the request to get
+        the info on one of them.
+        """
+        req.side_effect = xms_request
+        self.driver.client = xtremio.XtremIOClient3(
+            self.config, self.config.xtremio_cluster_name)
+        # We'll wrap num_of_mapped_volumes, we'll store here original method
+        original_method = self.driver.client.num_of_mapped_volumes
+
+        def fake_num_of_mapped_volumes(*args, **kwargs):
+            # Add a nonexistent mapping
+            mappings = [{'href': 'volumes/1'}, {'href': 'volumes/12'}]
+
+            # Side effects will be: 1st call returns the list, then we return
+            # data for existing mappings, and on the nonexistent one we added
+            # we return NotFound
+            side_effect = [{'lun-maps': mappings},
+                           {'content': xms_data['lun-maps'][1]},
+                           exception.NotFound]
+
+            with mock.patch.object(self.driver.client, 'req',
+                                   side_effect=side_effect):
+                return original_method(*args, **kwargs)
+
+        self.driver.create_volume(self.data.test_volume)
+        map_data = self.driver.initialize_connection(self.data.test_volume,
+                                                     self.data.connector)
+        self.assertEqual(1, map_data['data']['target_lun'])
+        with mock.patch.object(self.driver.client, 'num_of_mapped_volumes',
+                               side_effect=fake_num_of_mapped_volumes):
+            self.driver.terminate_connection(self.data.test_volume,
+                                             self.data.connector)
         self.driver.delete_volume(self.data.test_volume)

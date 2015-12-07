@@ -375,6 +375,8 @@ class EMCVMAXCommon(object):
                  {'volume': volumeName})
         self.conn = self._get_ecom_connection()
         deviceInfoDict = self.find_device_number(volume, connector['host'])
+        maskingViewDict = self._populate_masking_dict(
+            volume, connector, extraSpecs)
 
         if ('hostlunid' in deviceInfoDict and
                 deviceInfoDict['hostlunid'] is not None):
@@ -390,15 +392,20 @@ class EMCVMAXCommon(object):
                           'deviceNumber': deviceNumber})
             else:
                 deviceInfoDict = self._attach_volume(
-                    volume, connector, extraSpecs, True)
+                    volume, connector, extraSpecs, maskingViewDict, True)
         else:
-            deviceInfoDict = self._attach_volume(volume, connector,
-                                                 extraSpecs)
+            deviceInfoDict = self._attach_volume(
+                volume, connector, extraSpecs, maskingViewDict)
 
-        return deviceInfoDict
+        if self.protocol.lower() == 'iscsi':
+            return self._find_ip_protocol_endpoints(
+                self.conn, deviceInfoDict['storagesystem'],
+                maskingViewDict['pgGroupName'])
+        else:
+            return deviceInfoDict
 
     def _attach_volume(self, volume, connector, extraSpecs,
-                       isLiveMigration=None):
+                       maskingViewDict, isLiveMigration=None):
         """Attach a volume to a host.
 
         If live migration is being undertaken then the volume
@@ -407,6 +414,7 @@ class EMCVMAXCommon(object):
         :params volume: the volume object
         :params connector: the connector object
         :param extraSpecs: extra specifications
+        :param maskingViewDict: masking view information
         :param isLiveMigration: boolean, can be None
         :returns: dict -- deviceInfoDict
         :raises: VolumeBackendAPIException
@@ -1726,7 +1734,7 @@ class EMCVMAXCommon(object):
         """
         maskingViewDict = {}
         hostName = connector['host']
-        poolName = extraSpecs[POOL]
+        uniqueName = self.utils.generate_unique_trunc_pool(extraSpecs[POOL])
         isV3 = extraSpecs[ISV3]
         maskingViewDict['isV3'] = isV3
         protocol = self.utils.get_short_protocol_type(self.protocol)
@@ -1736,20 +1744,23 @@ class EMCVMAXCommon(object):
             workload = extraSpecs[WORKLOAD]
             maskingViewDict['slo'] = slo
             maskingViewDict['workload'] = workload
-            maskingViewDict['pool'] = poolName
+            maskingViewDict['pool'] = uniqueName
             prefix = (
                 ("OS-%(shortHostName)s-%(poolName)s-%(slo)s-%(workload)s"
                  % {'shortHostName': shortHostName,
-                    'poolName': poolName,
+                    'poolName': uniqueName,
                     'slo': slo,
                     'workload': workload}))
         else:
+            maskingViewDict['fastPolicy'] = extraSpecs[FASTPOLICY]
+            if maskingViewDict['fastPolicy']:
+                uniqueName = self.utils.generate_unique_trunc_fastpolicy(
+                    maskingViewDict['fastPolicy']) + '-FP'
             prefix = (
                 ("OS-%(shortHostName)s-%(poolName)s-%(protocol)s"
                  % {'shortHostName': shortHostName,
-                    'poolName': poolName,
+                    'poolName': uniqueName,
                     'protocol': protocol}))
-            maskingViewDict['fastPolicy'] = extraSpecs[FASTPOLICY]
 
         maskingViewDict['sgGroupName'] = ("%(prefix)s-SG"
                                           % {'prefix': prefix})
@@ -3843,7 +3854,7 @@ class EMCVMAXCommon(object):
                         self.conn, storageConfigservice,
                         memberInstanceNames, None, extraSpecs)
                     for volumeRef in volumes:
-                            volumeRef['status'] = 'deleted'
+                        volumeRef['status'] = 'deleted'
             except Exception:
                 for volumeRef in volumes:
                     volumeRef['status'] = 'error_deleting'
@@ -4303,3 +4314,36 @@ class EMCVMAXCommon(object):
             context, db, group['id'], modelUpdate['status'])
 
         return modelUpdate, volumes_model_update
+
+    def _find_ip_protocol_endpoints(self, conn, storageSystemName,
+                                    portgroupname):
+        """Find the IP protocol endpoint for ISCSI
+
+        :param storageSystemName: the system name
+        :param portgroupname: the portgroup name
+        :returns: foundIpAddresses
+        """
+        foundipaddresses = []
+        configservice = (
+            self.utils.find_controller_configuration_service(
+                conn, storageSystemName))
+        portgroupinstancename = (
+            self.masking.find_port_group(conn, configservice, portgroupname))
+        iscsiendpointinstancenames = (
+            self.utils.get_iscsi_protocol_endpoints(
+                conn, portgroupinstancename))
+
+        for iscsiendpointinstancename in iscsiendpointinstancenames:
+            tcpendpointinstancenames = (
+                self.utils.get_tcp_protocol_endpoints(
+                    conn, iscsiendpointinstancename))
+            for tcpendpointinstancename in tcpendpointinstancenames:
+                ipendpointinstancenames = (
+                    self.utils.get_ip_protocol_endpoints(
+                        conn, tcpendpointinstancename))
+                for ipendpointinstancename in ipendpointinstancenames:
+                    ipaddress = (
+                        self.utils.get_iscsi_ip_address(
+                            conn, ipendpointinstancename))
+                    foundipaddresses.append(ipaddress)
+        return foundipaddresses

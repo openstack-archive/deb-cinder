@@ -17,6 +17,7 @@ import mock
 
 from oslo_log import log as logging
 
+from cinder.db.sqlalchemy import models
 from cinder import exception
 from cinder import objects
 from cinder.tests.unit import fake_snapshot
@@ -27,7 +28,8 @@ from cinder.tests.unit import objects as test_objects
 LOG = logging.getLogger(__name__)
 
 
-fake_db_snapshot = fake_snapshot.fake_db_snapshot()
+fake_db_snapshot = fake_snapshot.fake_db_snapshot(
+    cgsnapshot_id='fake_cgsnap_id')
 del fake_db_snapshot['metadata']
 del fake_db_snapshot['volume']
 
@@ -46,16 +48,19 @@ fake_snapshot_obj = {
 
 
 class TestSnapshot(test_objects.BaseObjectsTestCase):
-    @staticmethod
-    def _compare(test, expected, actual):
-        for field, value in expected.items():
-            test.assertEqual(expected[field], actual[field],
-                             "Field '%s' is not equal" % field)
 
-    @mock.patch('cinder.db.snapshot_get', return_value=fake_db_snapshot)
+    @mock.patch('cinder.db.get_by_id', return_value=fake_db_snapshot)
     def test_get_by_id(self, snapshot_get):
         snapshot = objects.Snapshot.get_by_id(self.context, 1)
         self._compare(self, fake_snapshot_obj, snapshot)
+        snapshot_get.assert_called_once_with(self.context, models.Snapshot, 1)
+
+    @mock.patch('cinder.db.sqlalchemy.api.model_query')
+    def test_get_by_id_no_existing_id(self, model_query):
+        query = model_query().options().options().filter_by().first
+        query.return_value = None
+        self.assertRaises(exception.SnapshotNotFound,
+                          objects.Snapshot.get_by_id, self.context, 123)
 
     def test_reset_changes(self):
         snapshot = objects.Snapshot()
@@ -133,14 +138,22 @@ class TestSnapshot(test_objects.BaseObjectsTestCase):
         self.assertEqual('volume-2', snapshot.volume_name)
 
     @mock.patch('cinder.objects.volume.Volume.get_by_id')
-    def test_obj_load_attr(self, volume_get_by_id):
+    @mock.patch('cinder.objects.cgsnapshot.CGSnapshot.get_by_id')
+    def test_obj_load_attr(self, cgsnapshot_get_by_id, volume_get_by_id):
         snapshot = objects.Snapshot._from_db_object(
             self.context, objects.Snapshot(), fake_db_snapshot)
+        # Test volume lazy-loaded field
         volume = objects.Volume(context=self.context, id=2)
         volume_get_by_id.return_value = volume
         self.assertEqual(volume, snapshot.volume)
         volume_get_by_id.assert_called_once_with(self.context,
                                                  snapshot.volume_id)
+        # Test cgsnapshot lazy-loaded field
+        cgsnapshot = objects.CGSnapshot(context=self.context, id=2)
+        cgsnapshot_get_by_id.return_value = cgsnapshot
+        self.assertEqual(cgsnapshot, snapshot.cgsnapshot)
+        cgsnapshot_get_by_id.assert_called_once_with(self.context,
+                                                     snapshot.cgsnapshot_id)
 
     @mock.patch('cinder.db.snapshot_data_get_for_project')
     def test_snapshot_data_get_for_project(self, snapshot_data_get):

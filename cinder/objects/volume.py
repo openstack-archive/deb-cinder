@@ -24,8 +24,6 @@ from cinder import objects
 from cinder.objects import base
 
 CONF = cfg.CONF
-OPTIONAL_FIELDS = ['metadata', 'admin_metadata',
-                   'volume_type', 'volume_attachment']
 LOG = logging.getLogger(__name__)
 
 
@@ -35,7 +33,14 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
     # Version 1.0: Initial version
     # Version 1.1: Added metadata, admin_metadata, volume_attachment, and
     #              volume_type
-    VERSION = '1.1'
+    # Version 1.2: Added glance_metadata, consistencygroup and snapshots
+    VERSION = '1.2'
+
+    OPTIONAL_FIELDS = ('metadata', 'admin_metadata', 'glance_metadata',
+                       'volume_type', 'volume_attachment', 'consistencygroup',
+                       'snapshots')
+
+    DEFAULT_EXPECTED_ATTR = ('admin_metadata', 'metadata')
 
     fields = {
         'id': fields.UUIDField(),
@@ -83,9 +88,13 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
 
         'metadata': fields.DictOfStringsField(nullable=True),
         'admin_metadata': fields.DictOfStringsField(nullable=True),
+        'glance_metadata': fields.DictOfStringsField(nullable=True),
         'volume_type': fields.ObjectField('VolumeType', nullable=True),
-        'volume_attachment': fields.ListOfObjectsField('VolumeAttachment',
-                                                       nullable=True),
+        'volume_attachment': fields.ObjectField('VolumeAttachmentList',
+                                                nullable=True),
+        'consistencygroup': fields.ObjectField('ConsistencyGroup',
+                                               nullable=True),
+        'snapshots': fields.ObjectField('SnapshotList', nullable=True),
     }
 
     # NOTE(thangp): obj_extra_fields is used to hold properties that are not
@@ -108,6 +117,7 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         super(Volume, self).__init__(*args, **kwargs)
         self._orig_metadata = {}
         self._orig_admin_metadata = {}
+        self._orig_glance_metadata = {}
 
         self._reset_metadata_tracking()
 
@@ -123,6 +133,10 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
             self._orig_admin_metadata = (dict(self.admin_metadata)
                                          if 'admin_metadata' in self
                                          else {})
+        if fields is None or 'glance_metadata' in fields:
+            self._orig_glance_metadata = (dict(self.glance_metadata)
+                                          if 'glance_metadata' in self
+                                          else {})
 
     def obj_what_changed(self):
         changes = super(Volume, self).obj_what_changed()
@@ -131,6 +145,9 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         if ('admin_metadata' in self and
                 self.admin_metadata != self._orig_admin_metadata):
             changes.add('admin_metadata')
+        if ('glance_metadata' in self and
+                self.glance_metadata != self._orig_glance_metadata):
+            changes.add('glance_metadata')
 
         return changes
 
@@ -144,7 +161,7 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         if expected_attrs is None:
             expected_attrs = []
         for name, field in volume.fields.items():
-            if name in OPTIONAL_FIELDS:
+            if name in Volume.OPTIONAL_FIELDS:
                 continue
             value = db_volume.get(name)
             if isinstance(field, fields.IntegerField):
@@ -165,6 +182,12 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
             if metadata:
                 volume.admin_metadata = {item['key']: item['value']
                                          for item in metadata}
+        if 'glance_metadata' in expected_attrs:
+            volume.glance_metadata = {}
+            metadata = db_volume.get('volume_glance_metadata', [])
+            if metadata:
+                volume.glance_metadata = {item['key']: item['value']
+                                          for item in metadata}
         if 'volume_type' in expected_attrs:
             db_volume_type = db_volume.get('volume_type')
             if db_volume_type:
@@ -176,18 +199,23 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
                 context, objects.VolumeAttachmentList(context),
                 objects.VolumeAttachment,
                 db_volume.get('volume_attachment'))
-            volume.volume_attachment = attachments.objects
+            volume.volume_attachment = attachments
+        if 'consistencygroup' in expected_attrs:
+            consistencygroup = objects.ConsistencyGroup(context)
+            consistencygroup._from_db_object(context,
+                                             consistencygroup,
+                                             db_volume['consistencygroup'])
+            volume.consistencygroup = consistencygroup
+        if 'snapshots' in expected_attrs:
+            snapshots = base.obj_make_list(
+                context, objects.SnapshotList(context),
+                objects.Snapshot,
+                db_volume['snapshots'])
+            volume.snapshots = snapshots
 
         volume._context = context
         volume.obj_reset_changes()
         return volume
-
-    @base.remotable_classmethod
-    def get_by_id(cls, context, id):
-        db_volume = db.volume_get(context, id)
-        expected_attrs = ['admin_metadata', 'metadata']
-        return cls._from_db_object(context, cls(context), db_volume,
-                                   expected_attrs=expected_attrs)
 
     @base.remotable
     def create(self):
@@ -195,6 +223,17 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
             raise exception.ObjectActionError(action='create',
                                               reason=_('already created'))
         updates = self.cinder_obj_get_changes()
+
+        if 'consistencygroup' in updates:
+            raise exception.ObjectActionError(
+                action='create', reason=_('consistencygroup assigned'))
+        if 'glance_metadata' in updates:
+                raise exception.ObjectActionError(
+                    action='create', reason=_('glance_metadata assigned'))
+        if 'snapshots' in updates:
+            raise exception.ObjectActionError(
+                action='create', reason=_('snapshots assigned'))
+
         db_volume = db.volume_create(self._context, updates)
         self._from_db_object(self._context, self, db_volume)
 
@@ -202,6 +241,15 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
     def save(self):
         updates = self.cinder_obj_get_changes()
         if updates:
+            if 'consistencygroup' in updates:
+                raise exception.ObjectActionError(
+                    action='save', reason=_('consistencygroup changed'))
+            if 'glance_metadata' in updates:
+                raise exception.ObjectActionError(
+                    action='save', reason=_('glance_metadata changed'))
+            if 'snapshots' in updates:
+                raise exception.ObjectActionError(
+                    action='save', reason=_('snapshots changed'))
             if 'metadata' in updates:
                 # Metadata items that are not specified in the
                 # self.metadata will be deleted
@@ -223,7 +271,7 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
             db.volume_destroy(self._context, self.id)
 
     def obj_load_attr(self, attrname):
-        if attrname not in OPTIONAL_FIELDS:
+        if attrname not in self.OPTIONAL_FIELDS:
             raise exception.ObjectActionError(
                 action='obj_load_attr',
                 reason=_('attribute %s not lazy-loadable') % attrname)
@@ -238,14 +286,23 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
             if self._context.is_admin:
                 self.admin_metadata = db.volume_admin_metadata_get(
                     self._context, self.id)
+        elif attrname == 'glance_metadata':
+            self.glance_metadata = db.volume_glance_metadata_get(
+                self._context, self.id)
         elif attrname == 'volume_type':
             self.volume_type = objects.VolumeType.get_by_id(
                 self._context, self.volume_type_id)
         elif attrname == 'volume_attachment':
-            attachments = (
-                objects.VolumeAttachmentList.get_all_by_volume_id(
-                    self._context, self.id))
-            self.volume_attachment = attachments.objects
+            attachments = objects.VolumeAttachmentList.get_all_by_volume_id(
+                self._context, self.id)
+            self.volume_attachment = attachments
+        elif attrname == 'consistencygroup':
+            consistencygroup = objects.ConsistencyGroup.get_by_id(
+                self._context, self.consistencygroup_id)
+            self.consistencygroup = consistencygroup
+        elif attrname == 'snapshots':
+            self.snapshots = objects.SnapshotList.get_all_for_volume(
+                self._context, self.id)
 
         self.obj_reset_changes(fields=[attrname])
 

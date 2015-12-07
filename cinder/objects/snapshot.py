@@ -24,9 +24,6 @@ from cinder import objects
 from cinder.objects import base
 
 CONF = cfg.CONF
-# NOTE(thangp): OPTIONAL_FIELDS are fields that would be lazy-loaded. They are
-# typically the relationship in the sqlalchemy object.
-OPTIONAL_FIELDS = ['volume', 'metadata']
 LOG = logging.getLogger(__name__)
 
 
@@ -35,6 +32,12 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
                base.CinderObjectDictCompat):
     # Version 1.0: Initial version
     VERSION = '1.0'
+
+    # NOTE(thangp): OPTIONAL_FIELDS are fields that would be lazy-loaded. They
+    # are typically the relationship in the sqlalchemy object.
+    OPTIONAL_FIELDS = ('volume', 'metadata', 'cgsnapshot')
+
+    DEFAULT_EXPECTED_ATTR = ('metadata',)
 
     fields = {
         'id': fields.UUIDField(),
@@ -60,6 +63,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         'provider_auth': fields.StringField(nullable=True),
 
         'volume': fields.ObjectField('Volume', nullable=True),
+        'cgsnapshot': fields.ObjectField('CGSnapshot', nullable=True),
     }
 
     # NOTE(thangp): obj_extra_fields is used to hold properties that are not
@@ -106,7 +110,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         if expected_attrs is None:
             expected_attrs = []
         for name, field in snapshot.fields.items():
-            if name in OPTIONAL_FIELDS:
+            if name in Snapshot.OPTIONAL_FIELDS:
                 continue
             value = db_snapshot.get(name)
             if isinstance(field, fields.IntegerField):
@@ -117,6 +121,11 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
             volume = objects.Volume(context)
             volume._from_db_object(context, volume, db_snapshot['volume'])
             snapshot.volume = volume
+        if 'cgsnapshot' in expected_attrs:
+            cgsnapshot = objects.CGSnapshot(context)
+            cgsnapshot._from_db_object(context, cgsnapshot,
+                                       db_snapshot['cgsnapshot'])
+            snapshot.cgsnapshot = cgsnapshot
         if 'metadata' in expected_attrs:
             metadata = db_snapshot.get('snapshot_metadata')
             if metadata is None:
@@ -126,12 +135,6 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         snapshot._context = context
         snapshot.obj_reset_changes()
         return snapshot
-
-    @base.remotable_classmethod
-    def get_by_id(cls, context, id):
-        db_snapshot = db.snapshot_get(context, id)
-        return cls._from_db_object(context, cls(context), db_snapshot,
-                                   expected_attrs=['metadata'])
 
     @base.remotable
     def create(self):
@@ -143,6 +146,9 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         if 'volume' in updates:
             raise exception.ObjectActionError(action='create',
                                               reason=_('volume assigned'))
+        if 'cgsnapshot' in updates:
+            raise exception.ObjectActionError(action='create',
+                                              reason=_('cgsnapshot assigned'))
 
         db_snapshot = db.snapshot_create(self._context, updates)
         self._from_db_object(self._context, self, db_snapshot)
@@ -154,6 +160,9 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
             if 'volume' in updates:
                 raise exception.ObjectActionError(action='save',
                                                   reason=_('volume changed'))
+            if 'cgsnapshot' in updates:
+                raise exception.ObjectActionError(
+                    action='save', reason=_('cgsnapshot changed'))
 
             if 'metadata' in updates:
                 # Metadata items that are not specified in the
@@ -172,7 +181,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         db.snapshot_destroy(self._context, self.id)
 
     def obj_load_attr(self, attrname):
-        if attrname not in OPTIONAL_FIELDS:
+        if attrname not in self.OPTIONAL_FIELDS:
             raise exception.ObjectActionError(
                 action='obj_load_attr',
                 reason=_('attribute %s not lazy-loadable') % attrname)
@@ -183,6 +192,10 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         if attrname == 'volume':
             self.volume = objects.Volume.get_by_id(self._context,
                                                    self.volume_id)
+
+        if attrname == 'cgsnapshot':
+            self.cgsnapshot = objects.CGSnapshot.get_by_id(self._context,
+                                                           self.cgsnapshot_id)
 
         self.obj_reset_changes(fields=[attrname])
 

@@ -39,7 +39,6 @@ import time
 
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_log import versionutils
 from oslo_service import loopingcall
 from oslo_utils import excutils
 from oslo_utils import units
@@ -49,8 +48,10 @@ from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import utils
 from cinder.volume import driver
-from cinder.volume.drivers.ibm.storwize_svc import helpers as storwize_helpers
-from cinder.volume.drivers.ibm.storwize_svc import replication as storwize_rep
+from cinder.volume.drivers.ibm.storwize_svc import (
+    replication as storwize_rep)
+from cinder.volume.drivers.ibm.storwize_svc import (
+    storwize_svc_common as storwize_helpers)
 from cinder.volume.drivers.san import san
 from cinder.volume import volume_types
 from cinder.zonemanager import utils as fczm_utils
@@ -102,28 +103,23 @@ storwize_svc_opts = [
                      '(Default: Enabled)'),
     cfg.BoolOpt('storwize_svc_multipath_enabled',
                 default=False,
-                help='Connect with multipath (FC only; iSCSI multipath is '
-                     'controlled by Nova)'),
+                help='This option no longer has any affect. It is deprecated '
+                     'and will be removed in the next release.',
+                deprecated_for_removal=True),
     cfg.BoolOpt('storwize_svc_multihostmap_enabled',
                 default=True,
                 help='Allows vdisk to multi host mapping'),
-    # TODO(xqli): storwize_svc_npiv_compatibility_mode should always be set
-    # to True. It will be deprecated and removed in M release.
-    cfg.BoolOpt('storwize_svc_npiv_compatibility_mode',
-                default=True,
-                help='Indicate whether svc driver is compatible for NPIV '
-                     'setup. If it is compatible, it will allow no wwpns '
-                     'being returned on get_conn_fc_wwpns during '
-                     'initialize_connection. It should always be set to '
-                     'True. It will be deprecated and removed in M release.'),
     cfg.BoolOpt('storwize_svc_allow_tenant_qos',
                 default=False,
                 help='Allow tenants to specify QOS on create'),
     cfg.StrOpt('storwize_svc_stretched_cluster_partner',
-               default=None,
                help='If operating in stretched cluster mode, specify the '
                     'name of the pool in which mirrored copies are stored.'
                     'Example: "pool2"'),
+    cfg.BoolOpt('storwize_svc_vol_nofmtdisk',
+                default=False,
+                help='Specifies that the volume not be formatted during '
+                     'creation.'),
 ]
 
 CONF = cfg.CONF
@@ -135,8 +131,7 @@ class StorwizeSVCDriver(san.SanDriver,
                         driver.ExtendVD, driver.SnapshotVD,
                         driver.MigrateVD, driver.ReplicaVD,
                         driver.ConsistencyGroupVD,
-                        driver.CloneableVD, driver.CloneableImageVD,
-                        driver.TransferVD):
+                        driver.CloneableImageVD, driver.TransferVD):
     """IBM Storwize V7000 and SVC iSCSI/FC volume driver.
 
     Version history:
@@ -182,15 +177,6 @@ class StorwizeSVCDriver(san.SanDriver,
     def do_setup(self, ctxt):
         """Check that we have all configuration details from the storage."""
         LOG.debug('enter: do_setup')
-
-        # storwize_svc_npiv_compatibility_mode should always be set to True.
-        # It will be deprecated and removed in M release. If the options is
-        # set to False, we'll warn the operator.
-        msg = _LW("The option storwize_svc_npiv_compatibility_mode will be "
-                  "deprecated and not used. It will be removed in the "
-                  "M release.")
-        if not self.configuration.storwize_svc_npiv_compatibility_mode:
-            versionutils.report_deprecated_feature(LOG, msg)
 
         # Get storage system name, id, and code level
         self._state.update(self._helpers.get_system_info())
@@ -423,7 +409,7 @@ class StorwizeSVCDriver(san.SanDriver,
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
 
-            if not preferred_node_entry and not vol_opts['multipath']:
+            if not preferred_node_entry:
                 # Get 1st node in I/O group
                 preferred_node_entry = io_group_nodes[0]
                 LOG.warning(_LW('initialize_connection: Did not find a '
@@ -454,44 +440,13 @@ class StorwizeSVCDriver(san.SanDriver,
                 conn_wwpns = self._helpers.get_conn_fc_wwpns(host_name)
 
                 # If conn_wwpns is empty, then that means that there were
-                # no target ports with visibility to any of the initiators.
-                # We will either fail the attach, or return all target
-                # ports, depending on the value of the
-                # storwize_svc_npiv_compatibity_mode flag.
+                # no target ports with visibility to any of the initiators
+                # so we return all target ports.
                 if len(conn_wwpns) == 0:
-                    # TODO(xqli): Remove storwize_svc_npiv_compatibility_mode
-                    # in M release.
-                    npiv_compat = (self.configuration.
-                                   storwize_svc_npiv_compatibility_mode)
-                    if not npiv_compat:
-                        msg = (_('Could not get FC connection information for '
-                                 'the host-volume connection. Is the host '
-                                 'configured properly for FC connections?'))
-                        LOG.error(msg)
-                        raise exception.VolumeBackendAPIException(data=msg)
-                    else:
-                        for node in self._state['storage_nodes'].values():
-                            conn_wwpns.extend(node['WWPN'])
+                    for node in self._state['storage_nodes'].values():
+                        conn_wwpns.extend(node['WWPN'])
 
-                if not vol_opts['multipath']:
-                    # preferred_node_entry can have a list of WWPNs while only
-                    # one WWPN may be available on the storage host.  Here we
-                    # walk through the nodes until we find one that works,
-                    # default to the first WWPN otherwise.
-                    for WWPN in preferred_node_entry['WWPN']:
-                        if WWPN in conn_wwpns:
-                            properties['target_wwn'] = WWPN
-                            break
-                    else:
-                        LOG.warning(_LW('Unable to find a preferred node match'
-                                        ' for node %(node)s in the list of '
-                                        'available WWPNs on %(host)s. '
-                                        'Using first available.'),
-                                    {'node': preferred_node,
-                                     'host': host_name})
-                        properties['target_wwn'] = conn_wwpns[0]
-                else:
-                    properties['target_wwn'] = conn_wwpns
+                properties['target_wwn'] = conn_wwpns
 
                 i_t_map = self._make_initiator_target_map(connector['wwpns'],
                                                           conn_wwpns)
@@ -794,7 +749,7 @@ class StorwizeSVCDriver(san.SanDriver,
     def _check_volume_copy_ops(self):
         LOG.debug("Enter: update volume copy status.")
         ctxt = context.get_admin_context()
-        copy_items = self._vdiskcopyops.items()
+        copy_items = list(self._vdiskcopyops.items())
         for vol_id, copy_ops in copy_items:
             try:
                 volume = self.db.volume_get(ctxt, vol_id)
@@ -882,7 +837,7 @@ class StorwizeSVCDriver(san.SanDriver,
                                                    'diff': diff,
                                                    'host': host})
 
-        ignore_keys = ['protocol', 'multipath']
+        ignore_keys = ['protocol']
         no_copy_keys = ['warning', 'autoexpand', 'easytier']
         copy_keys = ['rsize', 'grainsize', 'compression']
         all_keys = ignore_keys + no_copy_keys + copy_keys
@@ -1081,7 +1036,7 @@ class StorwizeSVCDriver(san.SanDriver,
         model_update = {'status': 'available'}
         return model_update
 
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         """Deletes a consistency group.
 
         IBM Storwize will delete the volumes of the CG.
@@ -1104,7 +1059,7 @@ class StorwizeSVCDriver(san.SanDriver,
                           {'vol': volume['name'], 'exception': err})
         return model_update, volumes
 
-    def create_cgsnapshot(self, ctxt, cgsnapshot):
+    def create_cgsnapshot(self, ctxt, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
         # Use cgsnapshot id as cg name
         cg_name = 'cg_snap-' + cgsnapshot['id']
@@ -1124,7 +1079,7 @@ class StorwizeSVCDriver(san.SanDriver,
 
         return model_update, snapshots_model
 
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
         cgsnapshot_id = cgsnapshot['id']
         cg_name = 'cg_snap-' + cgsnapshot_id

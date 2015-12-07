@@ -89,6 +89,10 @@ class EMC_StorageHardwareID(dict):
     pass
 
 
+class CIM_IPProtocolEndpoint(dict):
+    pass
+
+
 class SE_ReplicationSettingData(dict):
     def __init__(self, *args, **kwargs):
         self['DefaultInstance'] = self.createInstance()
@@ -142,6 +146,12 @@ class Fake_CIMProperty(object):
     def fake_getSupportedReplicationTypes(self):
         cimproperty = Fake_CIMProperty()
         cimproperty.value = [2, 10]
+        return cimproperty
+
+    def fake_getipv4address(self):
+        cimproperty = Fake_CIMProperty()
+        cimproperty.key = 'IPv4Address'
+        cimproperty.value = '10.10.10.10'
         return cimproperty
 
 
@@ -764,6 +774,10 @@ class FakeEcomConnection(object):
             result = self._enum_maskingView()
         elif ResultClass == 'EMC_Meta':
             result = self._enum_metavolume()
+        elif AssocClass == 'CIM_BindsTo':
+            result = self._assocnames_bindsto()
+        elif AssocClass == 'CIM_MemberOfCollection':
+            result = self._assocnames_memberofcollection()
         else:
             result = self._default_assocnames(objectpath)
         return result
@@ -989,6 +1003,12 @@ class FakeEcomConnection(object):
     def _assocnames_portgroup(self):
         return self._enum_portgroup()
 
+    def _assocnames_memberofcollection(self):
+        return self._enum_hostedservice()
+
+    def _assocnames_bindsto(self):
+        return self._enum_ipprotocolendpoint()
+
     def _default_assocnames(self, objectpath):
         return objectpath
 
@@ -1142,6 +1162,9 @@ class FakeEcomConnection(object):
         properties = {u'SupportedReplicationTypes': repTypesCimproperty}
         repServCpblInstance.properties = properties
         return repServCpblInstance
+
+    def _getinstance_ipprotocolendpoint(self, objectpath):
+        return self._enum_ipprotocolendpoint()[0]
 
     def _default_getinstance(self, objectpath):
         return objectpath
@@ -1589,6 +1612,20 @@ class FakeEcomConnection(object):
         swIdentities.append(swIdentity)
         return swIdentities
 
+    def _enum_ipprotocolendpoint(self):
+        ipprotocolendpoints = []
+        ipprotocolendpoint = CIM_IPProtocolEndpoint()
+        ipprotocolendpoint['CreationClassName'] = 'CIM_IPProtocolEndpoint'
+        ipprotocolendpoint['SystemName'] = self.data.storage_system
+        classcimproperty = Fake_CIMProperty()
+        ipv4addresscimproperty = (
+            classcimproperty.fake_getipv4address())
+        properties = {u'IPv4Address': ipv4addresscimproperty}
+        ipprotocolendpoint.properties = properties
+        ipprotocolendpoint.path = ipprotocolendpoint
+        ipprotocolendpoints.append(ipprotocolendpoint)
+        return ipprotocolendpoints
+
     def _default_enum(self):
         names = []
         name = {}
@@ -1803,6 +1840,100 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
     def fake_is_v3(self, conn, serialNumber):
         return False
 
+    def populate_masking_dict_setup(self):
+        extraSpecs = {'storagetype:pool': u'gold_pool',
+                      'volume_backend_name': 'GOLD_POOL_BE',
+                      'storagetype:array': u'1234567891011',
+                      'isV3': False,
+                      'portgroupname': u'OS-portgroup-PG',
+                      'storagetype:fastpolicy': u'GOLD'}
+        vol = {'SystemName': self.data.storage_system}
+        self.driver.common._find_lun = mock.Mock(
+            return_value=vol)
+        self.driver.common.utils.find_controller_configuration_service = (
+            mock.Mock(return_value=None))
+        return extraSpecs
+
+    def test_populate_masking_dict_fast(self):
+        extraSpecs = self.populate_masking_dict_setup()
+        # If fast is enabled it will uniquely determine the SG and MV
+        # on the host along with the protocol(iSCSI) e.g. I
+        maskingViewDict = self.driver.common._populate_masking_dict(
+            self.data.test_volume, self.data.connector, extraSpecs)
+        self.assertEqual(
+            'OS-fakehost-GOLD-FP-I-SG', maskingViewDict['sgGroupName'])
+        self.assertEqual(
+            'OS-fakehost-GOLD-FP-I-MV', maskingViewDict['maskingViewName'])
+
+    def test_populate_masking_dict_fast_more_than_14chars(self):
+        # If the length of the FAST policy name is greater than 14 chars
+        extraSpecs = self.populate_masking_dict_setup()
+        extraSpecs['storagetype:fastpolicy'] = 'GOLD_MORE_THAN_FOURTEEN_CHARS'
+        maskingViewDict = self.driver.common._populate_masking_dict(
+            self.data.test_volume, self.data.connector, extraSpecs)
+        self.assertEqual(
+            'OS-fakehost-GOLD_MO__CHARS-FP-I-SG',
+            maskingViewDict['sgGroupName'])
+        self.assertEqual(
+            'OS-fakehost-GOLD_MO__CHARS-FP-I-MV',
+            maskingViewDict['maskingViewName'])
+
+    def test_populate_masking_dict_no_fast(self):
+        # If fast isn't enabled the pool will uniquely determine the SG and MV
+        # on the host along with the protocol(iSCSI) e.g. I
+        extraSpecs = self.populate_masking_dict_setup()
+        extraSpecs['storagetype:fastpolicy'] = None
+        maskingViewDict = self.driver.common._populate_masking_dict(
+            self.data.test_volume, self.data.connector, extraSpecs)
+        self.assertEqual(
+            'OS-fakehost-gold_pool-I-SG', maskingViewDict['sgGroupName'])
+        self.assertEqual(
+            'OS-fakehost-gold_pool-I-MV', maskingViewDict['maskingViewName'])
+
+        # If the length of the FAST policy name is greater than 14 chars and
+        # the length of the short host is more than 38 characters
+        connector = {'host': 'SHORT_HOST_MORE_THEN THIRTY_EIGHT_CHARACTERS'}
+        extraSpecs['storagetype:fastpolicy'] = (
+            'GOLD_MORE_THAN_FOURTEEN_CHARACTERS')
+        maskingViewDict = self.driver.common._populate_masking_dict(
+            self.data.test_volume, connector, extraSpecs)
+        self.assertLessEqual(64, len(maskingViewDict['sgGroupName']))
+
+    def test_generate_unique_trunc_pool(self):
+        pool_under_16_chars = 'pool_under_16'
+        pool1 = self.driver.utils.generate_unique_trunc_pool(
+            pool_under_16_chars)
+        self.assertEqual(pool_under_16_chars, pool1)
+
+        pool_over_16_chars = (
+            'pool_over_16_pool_over_16')
+        # Should generate truncated string first 8 chars and
+        # last 7 chars
+        pool2 = self.driver.utils.generate_unique_trunc_pool(
+            pool_over_16_chars)
+        self.assertEqual('pool_ove_over_16', pool2)
+
+    def test_generate_unique_trunc_host(self):
+        host_under_38_chars = 'host_under_38_chars'
+        host1 = self.driver.utils.generate_unique_trunc_host(
+            host_under_38_chars)
+        self.assertEqual(host_under_38_chars, host1)
+
+        host_over_38_chars = (
+            'host_over_38_chars_host_over_38_chars_host_over_38_chars')
+        # Check that the same md5 value is retrieved from multiple calls
+        host2 = self.driver.utils.generate_unique_trunc_host(
+            host_over_38_chars)
+        host3 = self.driver.utils.generate_unique_trunc_host(
+            host_over_38_chars)
+        self.assertEqual(host2, host3)
+
+    def test_find_ip_protocol_endpoints(self):
+        conn = self.fake_ecom_connection()
+        foundIpAddresses = self.driver.common._find_ip_protocol_endpoints(
+            conn, self.data.storage_system, self.data.port_group)
+        self.assertEqual('10.10.10.10', foundIpAddresses[0])
+
     def test_find_device_number(self):
         host = 'myhost'
         data = (
@@ -1999,9 +2130,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         self.assertIsNone(rc)
         self.driver.utils._is_job_finished.assert_called_once_with(
             conn, myjob)
-        self.assertEqual(
-            True,
-            self.driver.utils._is_job_finished.return_value)
+        self.assertTrue(self.driver.utils._is_job_finished.return_value)
         self.driver.utils._is_job_finished.reset_mock()
 
         # Save the original state and restore it after this test
@@ -2024,9 +2153,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         self.assertIsNone(rc)
         self.driver.utils._is_sync_complete.assert_called_once_with(
             conn, mysync)
-        self.assertEqual(
-            True,
-            self.driver.utils._is_sync_complete.return_value)
+        self.assertTrue(self.driver.utils._is_sync_complete.return_value)
         self.driver.utils._is_sync_complete.reset_mock()
 
         # Save the original state and restore it after this test
@@ -2058,9 +2185,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         self.assertIsNone(rc)
         self.driver.utils._is_sync_complete.assert_called_once_with(
             conn, mysync)
-        self.assertEqual(
-            True,
-            self.driver.utils._is_sync_complete.return_value)
+        self.assertTrue(self.driver.utils._is_sync_complete.return_value)
         self.assertEqual(40,
                          self.driver.utils._get_max_job_retries(extraSpecs))
         self.assertEqual(5,
@@ -2245,7 +2370,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
                 conn, self.data.storage_system))
 
         foundPortGroupInstanceName = (
-            self.driver.common.masking._find_port_group(
+            self.driver.common.masking.find_port_group(
                 conn, controllerConfigService, self.data.port_group))
         # The port group has been found.
         self.assertEqual(
@@ -2255,7 +2380,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
         self.driver.common.masking.utils.get_existing_instance = mock.Mock(
             return_value=None)
         foundPortGroupInstanceName2 = (
-            self.driver.common.masking._find_port_group(
+            self.driver.common.masking.find_port_group(
                 conn, controllerConfigService, self.data.port_group))
         # The port group has not been found as it has been deleted
         # externally or by another thread.
@@ -3052,7 +3177,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -3065,7 +3190,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
     def test_delete_CG_with_volumes_no_fast_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_utils.EMCVMAXUtils,
@@ -3091,7 +3216,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage, _mock_cg, _mock_members,
             _mock_rg):
         self.driver.create_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -3104,7 +3229,7 @@ class EMCVMAXISCSIDriverNoFastTestCase(test.TestCase):
     def test_delete_snapshot_for_CG_no_fast_success(
             self, _mock_volume_type, _mock_storage):
         self.driver.delete_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -3919,7 +4044,7 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -3932,7 +4057,7 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
     def test_delete_CG_with_volumes_fast_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_utils.EMCVMAXUtils,
@@ -3958,7 +4083,7 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage, _mock_cg, _mock_members,
             _mock_rg):
         self.driver.create_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -3971,7 +4096,7 @@ class EMCVMAXISCSIDriverFastTestCase(test.TestCase):
     def test_delete_snapshot_for_CG_no_fast_success(
             self, _mock_volume_type, _mock_storage):
         self.driver.delete_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -4392,7 +4517,7 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -4405,7 +4530,7 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
     def test_delete_CG_with_volumes_no_fast_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_utils.EMCVMAXUtils,
@@ -4431,7 +4556,7 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage, _mock_cg, _mock_members,
             _mock_rg):
         self.driver.create_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -4444,7 +4569,7 @@ class EMCVMAXFCDriverNoFastTestCase(test.TestCase):
     def test_delete_snapshot_for_CG_no_fast_success(
             self, _mock_volume_type, _mock_storage):
         self.driver.delete_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     def test_manage_existing_get_size(self):
         volume = {}
@@ -5143,7 +5268,7 @@ class EMCVMAXFCDriverFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -5156,7 +5281,7 @@ class EMCVMAXFCDriverFastTestCase(test.TestCase):
     def test_delete_CG_with_volumes_fast_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_utils.EMCVMAXUtils,
@@ -5182,7 +5307,7 @@ class EMCVMAXFCDriverFastTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage, _mock_cg, _mock_members,
             _mock_rg):
         self.driver.create_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -5195,7 +5320,7 @@ class EMCVMAXFCDriverFastTestCase(test.TestCase):
     def test_delete_snapshot_for_CG_no_fast_success(
             self, _mock_volume_type, _mock_storage):
         self.driver.delete_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     # Bug 1385450
     def test_create_clone_without_license(self):
@@ -5549,7 +5674,7 @@ class EMCV3DriverTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -5562,7 +5687,7 @@ class EMCV3DriverTestCase(test.TestCase):
     def test_delete_CG_with_volumes_v3_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         volume_types,
@@ -5641,7 +5766,7 @@ class EMCV3DriverTestCase(test.TestCase):
         provisionv3 = self.driver.common.provisionv3
         provisionv3.create_group_replica = mock.Mock(return_value=(0, None))
         self.driver.create_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
         repServ = self.conn.EnumerateInstanceNames("EMC_ReplicationService")[0]
         provisionv3.create_group_replica.assert_called_once_with(
             self.conn, repServ,
@@ -5660,7 +5785,7 @@ class EMCV3DriverTestCase(test.TestCase):
     def test_delete_cgsnapshot_v3_success(
             self, _mock_volume_type, _mock_storage):
         self.driver.delete_cgsnapshot(
-            self.data.test_ctxt, self.data.test_CG_snapshot)
+            self.data.test_ctxt, self.data.test_CG_snapshot, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -6134,7 +6259,7 @@ class EMCV2MultiPoolDriverTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -6147,7 +6272,7 @@ class EMCV2MultiPoolDriverTestCase(test.TestCase):
     def test_delete_CG_with_volumes_multi_pool_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     def _cleanup(self):
         bExists = os.path.exists(self.config_file_path)
@@ -6439,7 +6564,7 @@ class EMCV3MultiSloDriverTestCase(test.TestCase):
             self, _mock_volume_type, _mock_storage_system,
             _mock_db_volumes, _mock_members):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,
@@ -6452,7 +6577,7 @@ class EMCV3MultiSloDriverTestCase(test.TestCase):
     def test_delete_CG_with_volumes_multi_slo_success(
             self, _mock_volume_type, _mock_storage_system):
         self.driver.delete_consistencygroup(
-            self.data.test_ctxt, self.data.test_CG)
+            self.data.test_ctxt, self.data.test_CG, [])
 
     def _cleanup(self):
         bExists = os.path.exists(self.config_file_path)
@@ -6661,7 +6786,7 @@ class EMCV2MultiPoolDriverMultipleEcomsTestCase(test.TestCase):
         self.assertEqual(self.data.poolname, poolRec['PoolName'])
         self.assertEqual('user', poolRec['EcomUserName'])
         self.assertEqual('pass', poolRec['EcomPassword'])
-        self.assertEqual(None, poolRec['FastPolicy'])
+        self.assertIsNone(poolRec['FastPolicy'])
         self.assertFalse(poolRec['EcomUseSSL'])
 
     def test_array_info_multi_ecom_fast(self):
@@ -6732,7 +6857,8 @@ class EMCV2MultiPoolDriverMultipleEcomsTestCase(test.TestCase):
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.delete_consistencygroup,
                           self.data.test_ctxt,
-                          self.data.test_CG)
+                          self.data.test_CG,
+                          [])
 
     @mock.patch.object(
         emc_vmax_common.EMCVMAXCommon,

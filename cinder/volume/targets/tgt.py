@@ -11,7 +11,6 @@
 #    under the License.
 
 import os
-import re
 import textwrap
 import time
 
@@ -115,40 +114,12 @@ class TgtAdm(iscsi.ISCSITarget):
         iscsi_target = 0  # NOTE(jdg): Not used by tgtadm
         return iscsi_target, lun
 
-    def _get_target_chap_auth(self, context, iscsi_name):
-        """Get the current chap auth username and password."""
-        volumes_dir = self.volumes_dir
-        vol_id = iscsi_name.split(':')[1]
-        volume_path = os.path.join(volumes_dir, vol_id)
-
-        try:
-            with open(volume_path, 'r') as f:
-                volume_conf = f.read()
-        except IOError as e_fnf:
-            LOG.debug('Failed to open config for Volume %(vol_id)s: %(e)s',
-                      {'vol_id': vol_id, 'e': e_fnf})
-            # tgt is linux specific
-            if e_fnf.errno == 2:
-                return None
-            else:
-                raise
-        except Exception as e_vol:
-            LOG.error(_LE('Failed to open config for %(vol_id)s: %(e)s'),
-                      {'vol_id': vol_id, 'e': e_vol})
-            raise
-
-        m = re.search('incominguser (\w+) (\w+)', volume_conf)
-        if m:
-            return (m.group(1), m.group(2))
-        LOG.debug('Failed to find CHAP auth from config for %s', vol_id)
-        return None
-
     @utils.retry(putils.ProcessExecutionError)
     def _do_tgt_update(self, name):
-            (out, err) = utils.execute('tgt-admin', '--update', name,
-                                       run_as_root=True)
-            LOG.debug("StdOut from tgt-admin --update: %s", out)
-            LOG.debug("StdErr from tgt-admin --update: %s", err)
+        (out, err) = utils.execute('tgt-admin', '--update', name,
+                                   run_as_root=True)
+        LOG.debug("StdOut from tgt-admin --update: %s", out)
+        LOG.debug("StdErr from tgt-admin --update: %s", err)
 
     def create_iscsi_target(self, name, tid, lun, path,
                             chap_auth=None, **kwargs):
@@ -194,9 +165,8 @@ class TgtAdm(iscsi.ISCSITarget):
         if os.path.exists(volume_path):
             LOG.warning(_LW('Persistence file already exists for volume, '
                             'found file at: %s'), volume_path)
-        f = open(volume_path, 'w+')
-        f.write(volume_conf)
-        f.close()
+        with open(volume_path, 'w+') as f:
+            f.write(volume_conf)
         LOG.debug(('Created volume path %(vp)s,\n'
                    'content: %(vc)s'),
                   {'vp': volume_path, 'vc': volume_conf})

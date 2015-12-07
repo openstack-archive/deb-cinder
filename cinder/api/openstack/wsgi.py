@@ -22,6 +22,7 @@ from xml.parsers import expat
 
 from lxml import etree
 from oslo_log import log as logging
+from oslo_log import versionutils
 from oslo_serialization import jsonutils
 from oslo_utils import excutils
 import six
@@ -37,6 +38,7 @@ from cinder.wsgi import common as wsgi
 XML_NS_V1 = 'http://docs.openstack.org/api/openstack-block-storage/1.0/content'
 XML_NS_V2 = 'http://docs.openstack.org/api/openstack-block-storage/2.0/content'
 XML_NS_ATOM = 'http://www.w3.org/2005/Atom'
+XML_WARNING = False
 
 LOG = logging.getLogger(__name__)
 
@@ -425,7 +427,7 @@ class XMLDictSerializer(DictSerializer):
 
     def default(self, data):
         # We expect data to contain a single key which is the XML root.
-        root_key = data.keys()[0]
+        root_key = list(data.keys())[0]
         doc = minidom.Document()
         node = self._to_xml_node(doc, self.metadata, root_key, data[root_key])
 
@@ -678,7 +680,10 @@ class ResponseObject(object):
             response.headers[hdr] = value
         response.headers['Content-Type'] = content_type
         if self.obj is not None:
-            response.body = serializer.serialize(self.obj)
+            body = serializer.serialize(self.obj)
+            if isinstance(body, six.text_type):
+                body = body.encode('utf-8')
+            response.body = body
 
         return response
 
@@ -710,7 +715,7 @@ def action_peek_json(body):
         raise exception.MalformedRequestBody(reason=msg)
 
     # Return the action and the decoded body...
-    return decoded.keys()[0]
+    return list(decoded.keys())[0]
 
 
 def action_peek_xml(body):
@@ -1336,7 +1341,18 @@ class Fault(webob.exc.HTTPException):
             'application/json': JSONDictSerializer(),
         }[content_type]
 
-        self.wrapped_exc.body = serializer.serialize(fault_data)
+        if content_type == 'application/xml':
+            global XML_WARNING
+            if not XML_WARNING:
+                msg = _('XML support has been deprecated and will be removed '
+                        'in the N release.')
+                versionutils.report_deprecated_feature(LOG, msg)
+            XML_WARNING = True
+
+        body = serializer.serialize(fault_data)
+        if isinstance(body, six.text_type):
+            body = body.encode('utf-8')
+        self.wrapped_exc.body = body
         self.wrapped_exc.content_type = content_type
         _set_request_id_header(req, self.wrapped_exc.headers)
 

@@ -14,7 +14,7 @@
 #    under the License.
 
 """
-Violin Memory 6000 Series All-Flash Array Common Driver for Openstack Cinder
+Violin Memory 6000 Series All-Flash Array Common Driver for OpenStack Cinder
 
 Provides common (ie., non-protocol specific) management functions for
 V6000 series flash arrays.
@@ -52,10 +52,8 @@ VMOS_SUPPORTED_VERSION_PATTERNS = ['V6.3.0.[4-9]', 'V6.3.[1-9].?[0-9]?']
 
 violin_opts = [
     cfg.StrOpt('gateway_mga',
-               default=None,
                help='IP address or hostname of mg-a'),
     cfg.StrOpt('gateway_mgb',
-               default=None,
                help='IP address or hostname of mg-b'),
     cfg.BoolOpt('use_igroups',
                 default=False,
@@ -115,7 +113,7 @@ class V6000Common(object):
         ret_dict = self.vip.basic.get_node_values(
             "/vshare/state/local/container/*")
         if ret_dict:
-            self.container = ret_dict.items()[0][1]
+            self.container = list(ret_dict.items())[0][1]
 
     def check_for_setup_error(self):
         """Returns an error if prerequisites aren't met."""

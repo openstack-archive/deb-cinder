@@ -48,11 +48,6 @@ from cinder.zonemanager import utils as fczm_utils
 LOG = logging.getLogger(__name__)
 
 CONF = cfg.CONF
-CONF.register_opts(na_opts.netapp_basicauth_opts)
-CONF.register_opts(na_opts.netapp_connection_opts)
-CONF.register_opts(na_opts.netapp_eseries_opts)
-CONF.register_opts(na_opts.netapp_transport_opts)
-CONF.register_opts(na_opts.netapp_san_opts)
 
 
 @six.add_metaclass(cinder_utils.TraceWrapperMetaclass)
@@ -114,6 +109,7 @@ class NetAppESeriesLibrary(object):
     RAID_UQ_SPEC = 'netapp_raid_type'
     THIN_UQ_SPEC = 'netapp_thin_provisioned'
     SSC_UPDATE_INTERVAL = 60  # seconds
+    SA_COMM_TIMEOUT = 30
     WORLDWIDENAME = 'worldWideName'
 
     DEFAULT_HOST_TYPE = 'linux_dm_mp'
@@ -247,48 +243,104 @@ class NetAppESeriesLibrary(object):
         self._client.set_system_id(system.get('id'))
         self._client._init_features()
 
+    def _check_password_status(self, system):
+        """Determine if the storage system's password status is valid.
+
+        The password status has the following possible states: unknown, valid,
+        invalid.
+
+        If the password state cannot be retrieved from the storage system,
+        an empty string will be returned as the status, and the password
+        status will be assumed to be valid. This is done to ensure that
+        access to a storage system will not be blocked in the event of a
+        problem with the API.
+
+        This method returns a tuple consisting of the storage system's
+        password status and whether or not the status is valid.
+
+        Example: (invalid, True)
+
+        :returns (str, bool)
+        """
+
+        status = system.get('passwordStatus')
+        status = status.lower() if status else ''
+        return status, status not in ['invalid', 'unknown']
+
+    def _check_storage_system_status(self, system):
+        """Determine if the storage system's status is valid.
+
+        The storage system status has the following possible states:
+        neverContacted, offline, optimal, needsAttn.
+
+        If the storage system state cannot be retrieved, an empty string will
+        be returned as the status, and the storage system's status will be
+        assumed to be valid. This is done to ensure that access to a storage
+        system will not be blocked in the event of a problem with the API.
+
+        This method returns a tuple consisting of the storage system's
+        password status and whether or not the status is valid.
+
+        Example: (needsAttn, True)
+
+        :returns (str, bool)
+        """
+        status = system.get('status')
+        status = status.lower() if status else ''
+        return status, status not in ['nevercontacted', 'offline']
+
     def _check_storage_system(self):
         """Checks whether system is registered and has good status."""
         try:
-            system = self._client.list_storage_system()
+            self._client.list_storage_system()
         except exception.NetAppDriverException:
             with excutils.save_and_reraise_exception():
                 LOG.info(_LI("System with controller addresses [%s] is not "
                              "registered with web service."),
                          self.configuration.netapp_controller_ips)
-        password_not_in_sync = False
-        if system.get('status', '').lower() == 'passwordoutofsync':
-            password_not_in_sync = True
-            new_pwd = self.configuration.netapp_sa_password
-            self._client.update_stored_system_password(new_pwd)
-            time.sleep(self.SLEEP_SECS)
-        sa_comm_timeout = 60
-        comm_time = 0
-        while True:
+
+        # Update the stored password
+        # We do this to trigger the webservices password validation routine
+        new_pwd = self.configuration.netapp_sa_password
+        self._client.update_stored_system_password(new_pwd)
+
+        start_time = int(time.time())
+
+        def check_system_status():
             system = self._client.list_storage_system()
-            status = system.get('status', '').lower()
+            pass_status, pass_status_valid = (
+                self._check_password_status(system))
+            status, status_valid = self._check_storage_system_status(system)
+            msg_dict = {'id': system.get('id'), 'status': status,
+                        'pass_status': pass_status}
             # wait if array not contacted or
             # password was not in sync previously.
-            if ((status == 'nevercontacted') or
-                    (password_not_in_sync and status == 'passwordoutofsync')):
-                LOG.info(_LI('Waiting for web service array communication.'))
-                time.sleep(self.SLEEP_SECS)
-                comm_time = comm_time + self.SLEEP_SECS
-                if comm_time >= sa_comm_timeout:
-                    msg = _("Failure in communication between web service and"
-                            " array. Waited %s seconds. Verify array"
-                            " configuration parameters.")
-                    raise exception.NetAppDriverException(msg %
-                                                          sa_comm_timeout)
+            if not (pass_status_valid and status_valid):
+                if not pass_status_valid:
+                    LOG.info(_LI('Waiting for web service to validate the '
+                                 'configured password.'))
+                else:
+                    LOG.info(_LI('Waiting for web service array '
+                                 'communication.'))
+                if int(time.time() - start_time) >= self.SA_COMM_TIMEOUT:
+                    if not status_valid:
+                        raise exception.NetAppDriverException(
+                            _("System %(id)s found with bad status - "
+                              "%(status)s.") % msg_dict)
+                    else:
+                        raise exception.NetAppDriverException(
+                            _("System %(id)s found with bad password status - "
+                              "%(pass_status)s.") % msg_dict)
+
+            # The system was found to have a good status
             else:
-                break
-        msg_dict = {'id': system.get('id'), 'status': status}
-        if (status == 'passwordoutofsync' or status == 'notsupported' or
-                status == 'offline'):
-            raise exception.NetAppDriverException(
-                _("System %(id)s found with bad status - "
-                  "%(status)s.") % msg_dict)
-        LOG.info(_LI("System %(id)s has %(status)s status."), msg_dict)
+                LOG.info(_LI("System %(id)s has %(status)s status."), msg_dict)
+                raise loopingcall.LoopingCallDone()
+
+        checker = loopingcall.FixedIntervalLoopingCall(f=check_system_status)
+        checker.start(interval = self.SLEEP_SECS,
+                      initial_delay=self.SLEEP_SECS).wait()
+
         return True
 
     def _get_volume(self, uid):
@@ -428,6 +480,26 @@ class NetAppESeriesLibrary(object):
         except exception.NetAppDriverException as e:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("Error creating volume. Msg - %s."), e)
+                # There was some kind failure creating the volume, make sure no
+                # partial flawed work exists
+                try:
+                    bad_vol = self._get_volume(eseries_volume_label)
+                except Exception:
+                    # Swallowing the exception intentionally because this is
+                    # emergency cleanup to make sure no intermediate volumes
+                    # were left. In this whole error situation, the more
+                    # common route would be for no volume to have been created.
+                    pass
+                else:
+                    # Some sort of partial volume was created despite the
+                    # error.  Lets clean it out so no partial state volumes or
+                    # orphans are left.
+                    try:
+                        self._client.delete_volume(bad_vol["id"])
+                    except exception.NetAppDriverException as e2:
+                        LOG.error(_LE(
+                            "Error cleaning up failed volume creation.  "
+                            "Msg - %s."), e2)
 
         return vol
 
@@ -536,7 +608,7 @@ class NetAppESeriesLibrary(object):
         try:
             vol = self._get_volume(volume['name_id'])
             self._client.delete_volume(vol['volumeRef'])
-        except (exception.NetAppDriverException, KeyError):
+        except (exception.NetAppDriverException, exception.VolumeNotFound):
             LOG.warning(_LW("Volume %s already deleted."), volume['id'])
             return
 
@@ -1175,32 +1247,67 @@ class NetAppESeriesLibrary(object):
         return volume.get('objectType') == 'thinVolume' or volume.get(
             'thinProvisioned', False)
 
+    def _get_pool_operation_progress(self, pool_id, action=None):
+        """Retrieve the progress of a long running operation on a pool
+
+        The return will be a tuple containing: a bool representing whether
+        or not the operation is complete, a set of actions that are
+        currently running on the storage pool, and the estimated time
+        remaining in minutes.
+
+        An action type may be passed in such that once no actions of that type
+        remain active on the pool, the operation will be considered
+        completed. If no action str is passed in, it is assumed that
+        multiple actions compose the operation, and none are terminal,
+        so the operation will not be considered completed until there are no
+        actions remaining to be completed on any volume on the pool.
+
+        :param pool_id: The id of a storage pool
+        :param action: The anticipated action
+        :return: A tuple (bool, set(str), int)
+        """
+        actions = set()
+        eta = 0
+        for progress in self._client.get_pool_operation_progress(pool_id):
+            actions.add(progress.get('currentAction'))
+            eta += progress.get('estimatedTimeToCompletion', 0)
+        if action is not None:
+            complete = action not in actions
+        else:
+            complete = not actions
+        return complete, actions, eta
+
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""
         src_vol = self._get_volume(volume['name_id'])
-        if self._is_thin_provisioned(src_vol):
-            self._client.expand_volume(src_vol['id'], new_size)
-        else:
-            stage_1, stage_2 = 0, 0
-            src_label = src_vol['label']
-            stage_label = 'tmp-%s' % utils.convert_uuid_to_es_fmt(uuid.uuid4())
-            extend_vol = {'id': uuid.uuid4(), 'size': new_size}
-            self.create_cloned_volume(extend_vol, volume)
-            new_vol = self._get_volume(extend_vol['id'])
-            try:
-                stage_1 = self._client.update_volume(src_vol['id'],
-                                                     stage_label)
-                stage_2 = self._client.update_volume(new_vol['id'], src_label)
-                new_vol = stage_2
-                LOG.info(_LI('Extended volume with label %s.'), src_label)
-            except exception.NetAppDriverException:
-                if stage_1 == 0:
-                    with excutils.save_and_reraise_exception():
-                        self._client.delete_volume(new_vol['id'])
-                elif stage_2 == 0:
-                    with excutils.save_and_reraise_exception():
-                        self._client.update_volume(src_vol['id'], src_label)
-                        self._client.delete_volume(new_vol['id'])
+        thin_provisioned = self._is_thin_provisioned(src_vol)
+        self._client.expand_volume(src_vol['id'], new_size, thin_provisioned)
+
+        # If the volume is thin or defined on a disk pool, there is no need
+        # to block.
+        if not (thin_provisioned or src_vol.get('diskPool')):
+            # Wait for the expansion to start
+
+            def check_progress():
+                complete, actions, eta = (
+                    self._get_pool_operation_progress(src_vol[
+                                                      'volumeGroupRef'],
+                                                      'remappingDve'))
+                if complete:
+                    raise loopingcall.LoopingCallDone()
+                else:
+                    msg = _LI("Waiting for volume expansion of %(vol)s to "
+                              "complete, current remaining actions are "
+                              "%(action)s. ETA: %(eta)s mins.")
+                    LOG.info(msg, {'vol': volume['name_id'],
+                                   'action': ', '.join(actions), 'eta': eta})
+
+            checker = loopingcall.FixedIntervalLoopingCall(
+                check_progress)
+
+            checker.start(interval=self.SLEEP_SECS,
+                          initial_delay=self.SLEEP_SECS,
+                          stop_on_exception=True).wait()
 
     def _garbage_collect_tmp_vols(self):
         """Removes tmp vols with no snapshots."""
@@ -1255,7 +1362,7 @@ class NetAppESeriesLibrary(object):
                        ' or source-id element.')
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref, reason=reason)
-        except KeyError:
+        except exception.VolumeNotFound:
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref,
                 reason=_('Volume not found on configured storage pools.'))

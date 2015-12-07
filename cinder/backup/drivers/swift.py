@@ -22,8 +22,12 @@
 **Related Flags**
 
 :backup_swift_url: The URL of the Swift endpoint (default: None, use catalog).
+:backup_swift_auth_url: The URL of the Keystone endpoint for authentication
+                                    (default: None, use catalog).
 :swift_catalog_info: Info to match when looking for swift in the service '
                      catalog.
+:keystone_catalog_info: Info to match when looking for keystone in the service
+                        catalog.
 :backup_swift_object_size: The size in bytes of the Swift objects used
                                     for volume backups (default: 52428800).
 :backup_swift_retry_attempts: The number of retries to make for Swift
@@ -35,6 +39,8 @@
                                None (to disable), zlib and bz2 (default: zlib)
 :backup_swift_ca_cert_file: The location of the CA certificate file to use
                             for swift client requests (default: None)
+:backup_swift_auth_insecure: If true, bypass verification of server's
+                             certificate for SSL connections (default: False)
 """
 
 import hashlib
@@ -55,14 +61,21 @@ LOG = logging.getLogger(__name__)
 
 swiftbackup_service_opts = [
     cfg.StrOpt('backup_swift_url',
-               default=None,
                help='The URL of the Swift endpoint'),
+    cfg.StrOpt('backup_swift_auth_url',
+               help='The URL of the Keystone endpoint'),
     cfg.StrOpt('swift_catalog_info',
                default='object-store:swift:publicURL',
                help='Info to match when looking for swift in the service '
                'catalog. Format is: separated values of the form: '
                '<service_type>:<service_name>:<endpoint_type> - '
                'Only used if backup_swift_url is unset'),
+    cfg.StrOpt('keystone_catalog_info',
+               default='identity:Identity Service:publicURL',
+               help='Info to match when looking for keystone in the service '
+               'catalog. Format is: separated values of the form: '
+               '<service_type>:<service_name>:<endpoint_type> - '
+               'Only used if backup_swift_auth_url is unset'),
     cfg.StrOpt('backup_swift_auth',
                default='per_user',
                help='Swift authentication mechanism'),
@@ -71,14 +84,11 @@ swiftbackup_service_opts = [
                help='Swift authentication version. Specify "1" for auth 1.0'
                     ', or "2" for auth 2.0'),
     cfg.StrOpt('backup_swift_tenant',
-               default=None,
                help='Swift tenant/account name. Required when connecting'
                     ' to an auth 2.0 system'),
     cfg.StrOpt('backup_swift_user',
-               default=None,
                help='Swift user name'),
     cfg.StrOpt('backup_swift_key',
-               default=None,
                help='Swift key for authentication'),
     cfg.StrOpt('backup_swift_container',
                default='volumebackups',
@@ -104,9 +114,12 @@ swiftbackup_service_opts = [
                      'up the volume to the Swift backend storage. The '
                      'default value is True to enable the timer.'),
     cfg.StrOpt('backup_swift_ca_cert_file',
-               default=None,
                help='Location of the CA certificate file to use for swift '
                     'client requests.'),
+    cfg.BoolOpt('backup_swift_auth_insecure',
+                default=False,
+                help='Bypass verification of server certificate when '
+                     'making SSL connection to Swift.'),
 ]
 
 CONF = cfg.CONF
@@ -138,21 +151,53 @@ class SwiftBackupDriver(chunkeddriver.ChunkedBackupDriver):
                     "<service_type>:<service_name>:<endpoint_type>"))
             for entry in context.service_catalog:
                 if entry.get('type') == service_type:
+                    # It is assumed that service_types are unique within
+                    # the service catalog, so once the correct one is found
+                    # it is safe to break out of the loop
                     self.swift_url = entry.get(
                         'endpoints')[0].get(endpoint_type)
+                    break
         else:
             self.swift_url = '%s%s' % (CONF.backup_swift_url,
                                        context.project_id)
         if self.swift_url is None:
             raise exception.BackupDriverException(_(
                 "Could not determine which Swift endpoint to use. This can "
-                " either be set in the service catalog or with the "
-                " cinder.conf config option 'backup_swift_url'."))
+                "either be set in the service catalog or with the "
+                "cinder.conf config option 'backup_swift_url'."))
+        if CONF.backup_swift_auth_url is None:
+            self.auth_url = None
+            info = CONF.keystone_catalog_info
+            try:
+                service_type, service_name, endpoint_type = info.split(':')
+            except ValueError:
+                raise exception.BackupDriverException(_(
+                    "Failed to parse the configuration option "
+                    "'keystone_catalog_info', must be in the form "
+                    "<service_type>:<service_name>:<endpoint_type>"))
+            for entry in context.service_catalog:
+                if entry.get('type') == service_type:
+                    # It is assumed that service_types are unique within
+                    # the service catalog, so once the correct one is found
+                    # it is safe to break out of the loop
+                    self.auth_url = entry.get(
+                        'endpoints')[0].get(endpoint_type)
+                    break
+        else:
+            self.auth_url = '%s%s' % (CONF.backup_swift_auth_url,
+                                      context.project_id)
+        if self.auth_url is None:
+            raise exception.BackupDriverException(_(
+                "Could not determine which Keystone endpoint to use. This can "
+                "either be set in the service catalog or with the "
+                "cinder.conf config option 'backup_swift_auth_url'."))
         LOG.debug("Using swift URL %s", self.swift_url)
+        LOG.debug("Using auth URL %s", self.auth_url)
         self.swift_attempts = CONF.backup_swift_retry_attempts
         self.swift_backoff = CONF.backup_swift_retry_backoff
         LOG.debug('Connect to %s in "%s" mode', CONF.backup_swift_url,
                   CONF.backup_swift_auth)
+        self.backup_swift_auth_insecure = CONF.backup_swift_auth_insecure
         if CONF.backup_swift_auth == 'single_user':
             if CONF.backup_swift_user is None:
                 LOG.error(_LE("single_user auth mode enabled, "
@@ -160,19 +205,22 @@ class SwiftBackupDriver(chunkeddriver.ChunkedBackupDriver):
                           {'param': 'backup_swift_user'})
                 raise exception.ParameterNotFound(param='backup_swift_user')
             self.conn = swift.Connection(
-                authurl=CONF.backup_swift_url,
+                authurl=self.auth_url,
                 auth_version=CONF.backup_swift_auth_version,
                 tenant_name=CONF.backup_swift_tenant,
                 user=CONF.backup_swift_user,
                 key=CONF.backup_swift_key,
                 retries=self.swift_attempts,
                 starting_backoff=self.swift_backoff,
+                insecure=self.backup_swift_auth_insecure,
                 cacert=CONF.backup_swift_ca_cert_file)
         else:
             self.conn = swift.Connection(retries=self.swift_attempts,
                                          preauthurl=self.swift_url,
                                          preauthtoken=self.context.auth_token,
                                          starting_backoff=self.swift_backoff,
+                                         insecure= (
+                                             self.backup_swift_auth_insecure),
                                          cacert=CONF.backup_swift_ca_cert_file)
 
     class SwiftObjectWriter(object):

@@ -80,7 +80,7 @@ class QuotaSetsController(wsgi.Controller):
             free_quota = (parent_project_quotas[key]['limit'] -
                           parent_project_quotas[key]['in_use'] -
                           parent_project_quotas[key]['reserved'] -
-                          parent_project_quotas[key]['allocated'])
+                          parent_project_quotas[key].get('allocated', 0))
 
             current = 0
             if project_quotas.get(key):
@@ -295,7 +295,7 @@ class QuotaSetsController(wsgi.Controller):
                                              target_project.id,
                                              parent_id)
             parent_project_quotas = QUOTAS.get_project_quotas(
-                context, parent_id, parent_project_id=parent_id)
+                context, parent_id)
 
         # NOTE(ankit): Pass #2 - In this loop for body['quota_set'].keys(),
         # we validate the quota limits to ensure that we can bail out if
@@ -318,7 +318,7 @@ class QuotaSetsController(wsgi.Controller):
                                                    quota_values,
                                                    parent_project_quotas)
                 allocated_quotas[key] = (
-                    parent_project_quotas[key]['allocated'] + value)
+                    parent_project_quotas[key].get('allocated', 0) + value)
             else:
                 value = self._validate_quota_limit(body['quota_set'], key)
             valid_quotas[key] = value
@@ -339,8 +339,13 @@ class QuotaSetsController(wsgi.Controller):
             # atomic operation.
             if parent_id:
                 if key in allocated_quotas.keys():
-                    db.quota_allocated_update(context, parent_id, key,
-                                              allocated_quotas[key])
+                    try:
+                        db.quota_allocated_update(context, parent_id, key,
+                                                  allocated_quotas[key])
+                    except exception.ProjectQuotaNotFound:
+                        parent_limit = parent_project_quotas[key]['limit']
+                        db.quota_create(context, parent_id, key, parent_limit,
+                                        allocated=allocated_quotas[key])
 
         return {'quota_set': self._get_quotas(context, target_project_id,
                                               parent_project_id=parent_id)}
@@ -383,18 +388,18 @@ class QuotaSetsController(wsgi.Controller):
         try:
             project_quotas = QUOTAS.get_project_quotas(
                 context, target_project.id, usages=True,
-                parent_project_id=parent_id)
+                parent_project_id=parent_id, defaults=False)
         except exception.NotAuthorized:
             raise webob.exc.HTTPForbidden()
 
         # If the project which is being deleted has allocated part of its quota
         # to its subprojects, then subprojects' quotas should be deleted first.
         for key, value in project_quotas.items():
-                if 'allocated' in project_quotas[key].keys():
-                    if project_quotas[key]['allocated'] != 0:
-                        msg = _("About to delete child projects having "
-                                "non-zero quota. This should not be performed")
-                        raise webob.exc.HTTPBadRequest(explanation=msg)
+            if 'allocated' in project_quotas[key].keys():
+                if project_quotas[key]['allocated'] != 0:
+                    msg = _("About to delete child projects having "
+                            "non-zero quota. This should not be performed")
+                    raise webob.exc.HTTPBadRequest(explanation=msg)
 
         if parent_id:
             # Get the children of the project which the token is scoped to in

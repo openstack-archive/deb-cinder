@@ -385,9 +385,9 @@ class V7000FCPDriverTestCase(test.TestCase):
 
         result = self.driver._get_active_fc_targets()
 
-        self.assertEqual(['2100001b9745e230', '2100001b9745e25f',
-                          '2100001b9745e231', '2100001b9745e25e'],
-                         result)
+        self.assertEqual({'2100001b9745e230', '2100001b9745e25f',
+                          '2100001b9745e231', '2100001b9745e25e'},
+                         set(result))
 
     def test_initialize_connection(self):
         lun_id = 1
@@ -410,7 +410,7 @@ class V7000FCPDriverTestCase(test.TestCase):
         self.driver._build_initiator_target_map.assert_called_with(
             CONNECTOR)
         self.assertEqual("fibre_channel", props['driver_volume_type'])
-        self.assertEqual(True, props['data']['target_discovered'])
+        self.assertTrue(props['data']['target_discovered'])
         self.assertEqual(self.driver.gateway_fc_wwns,
                          props['data']['target_wwn'])
         self.assertEqual(lun_id, props['data']['target_lun'])

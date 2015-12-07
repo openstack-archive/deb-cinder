@@ -14,7 +14,6 @@
 
 import mock
 
-from cinder import context
 from cinder import exception
 from cinder import objects
 from cinder.tests.unit import objects as test_objects
@@ -35,34 +34,17 @@ fake_consistencygroup = {
 
 
 class TestConsistencyGroup(test_objects.BaseObjectsTestCase):
-    def setUp(self):
-        super(TestConsistencyGroup, self).setUp()
-        # NOTE (e0ne): base tests contains original RequestContext from
-        # oslo_context. We change it to our RequestContext implementation
-        # to have 'elevated' method
-        self.user_id = 123
-        self.project_id = 456
-        self.context = context.RequestContext(self.user_id, self.project_id,
-                                              is_admin=False)
 
-    @staticmethod
-    def _compare(test, db, obj):
-        for field, value in db.items():
-            test.assertEqual(db[field], getattr(obj, field))
-
-    @mock.patch('cinder.db.consistencygroup_get',
+    @mock.patch('cinder.db.sqlalchemy.api.consistencygroup_get',
                 return_value=fake_consistencygroup)
     def test_get_by_id(self, consistencygroup_get):
         consistencygroup = objects.ConsistencyGroup.get_by_id(self.context, 1)
         self._compare(self, fake_consistencygroup, consistencygroup)
+        consistencygroup_get.assert_called_once_with(self.context, 1)
 
     @mock.patch('cinder.db.sqlalchemy.api.model_query')
     def test_get_by_id_no_existing_id(self, model_query):
-        query = mock.Mock()
-        filter_by = mock.Mock()
-        filter_by.first.return_value = None
-        query.filter_by.return_value = filter_by
-        model_query.return_value = query
+        model_query().filter_by().first.return_value = None
         self.assertRaises(exception.ConsistencyGroupNotFound,
                           objects.ConsistencyGroup.get_by_id, self.context,
                           123)

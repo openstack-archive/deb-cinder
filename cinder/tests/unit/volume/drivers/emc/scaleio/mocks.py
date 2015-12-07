@@ -29,7 +29,7 @@ class ScaleIODriver(scaleio.ScaleIODriver):
     def __init__(self, *args, **kwargs):
         configuration = conf.Configuration(
             [
-                cfg.StrOpt('fake', default=None),
+                cfg.StrOpt('fake'),
             ],
             None
         )
@@ -65,7 +65,7 @@ class ScaleIODriver(scaleio.ScaleIODriver):
     def promote_replica(self, context, volume):
         pass
 
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         pass
 
     def create_consistencygroup_from_src(self, context, group, volumes,
@@ -84,10 +84,10 @@ class ScaleIODriver(scaleio.ScaleIODriver):
     def unmanage(self, volume):
         pass
 
-    def create_cgsnapshot(self, context, cgsnapshot):
+    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         pass
 
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         pass
 
 
@@ -99,18 +99,20 @@ class MockHTTPSResponse(requests.Response):
     def __init__(self, content, status_code=200):
         super(MockHTTPSResponse, self).__init__()
 
+        if isinstance(content, six.text_type):
+            content = content.encode('utf-8')
         self._content = content
         self.status_code = status_code
 
     def json(self, **kwargs):
-        if isinstance(self._content, six.string_types):
+        if isinstance(self._content, (bytes, six.text_type)):
             return super(MockHTTPSResponse, self).json(**kwargs)
 
         return self._content
 
     @property
     def text(self):
-        if not isinstance(self._content, six.string_types):
+        if not isinstance(self._content, (bytes, six.text_type)):
             return json.dumps(self._content)
 
         return super(MockHTTPSResponse, self).text

@@ -25,9 +25,12 @@ import mock
 import testtools
 from testtools import matchers
 
+from cinder import context
 from cinder import exception
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.cloudbyte import cloudbyte
+from cinder.volume import qos_specs
+from cinder.volume import volume_types
 
 # A fake list account response of cloudbyte's elasticenter
 FAKE_LIST_ACCOUNT_RESPONSE = """{ "listAccountResponse" : {
@@ -650,6 +653,7 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
     def setUp(self):
         super(CloudByteISCSIDriverTestCase, self).setUp()
         self._configure_driver()
+        self.ctxt = context.get_admin_context()
 
     def _configure_driver(self):
 
@@ -753,6 +757,14 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
 
         return MAP_COMMAND_TO_FAKE_RESPONSE[cmd]
 
+    def _fake_api_req_to_list_filesystem(
+            self, cmd, params, version='1.0'):
+        """This is a side effect function."""
+        if cmd == 'listFileSystem':
+            return {"listFilesystemResponse": {"filesystem": [{}]}}
+
+        return MAP_COMMAND_TO_FAKE_RESPONSE[cmd]
+
     def _side_effect_api_req_to_list_vol_iscsi_service(
             self, cmd, params, version='1.0'):
         """This is a side effect function."""
@@ -824,6 +836,20 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
 
         return volume_id
 
+    def _fake_get_volume_type(self, ctxt, type_id):
+        fake_type = {'qos_specs_id': 'fake-id',
+                     'extra_specs': {'qos:iops': '100000'},
+                     'id': 'fake-volume-type-id'}
+
+        return fake_type
+
+    def _fake_get_qos_spec(self, ctxt, spec_id):
+        fake_qos_spec = {'id': 'fake-qos-spec-id',
+                         'specs': {'iops': '1000',
+                                   'graceallowed': 'true',
+                                   'readonly': 'true'}}
+        return fake_qos_spec
+
     @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
                        '_execute_and_get_response_details')
     def test_api_request_for_cloudbyte(self, mock_conn):
@@ -879,8 +905,8 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
         # run the test
         self.driver.delete_volume(volume)
 
-        # assert that 3 api calls were invoked
-        self.assertEqual(3, mock_api_req.call_count)
+        # assert that 7 api calls were invoked
+        self.assertEqual(7, mock_api_req.call_count)
 
         # Test-II
 
@@ -912,8 +938,8 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
                           self.driver.delete_volume,
                           volume)
 
-        # assert that 2 api calls were invoked
-        self.assertEqual(2, mock_api_req.call_count)
+        # assert that 6 api calls were invoked
+        self.assertEqual(6, mock_api_req.call_count)
 
         # Test - IV
 
@@ -929,8 +955,8 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
                           self.driver.delete_volume,
                           volume)
 
-        # assert that 3 api calls were invoked
-        self.assertEqual(3, mock_api_req.call_count)
+        # assert that 7 api calls were invoked
+        self.assertEqual(7, mock_api_req.call_count)
 
     @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
                        '_api_request_for_cloudbyte')
@@ -1030,7 +1056,8 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
 
         volume = {
             'id': fake_volume_id,
-            'size': 22
+            'size': 22,
+            'volume_type_id': None
         }
 
         # Test - I
@@ -1084,9 +1111,7 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
             'CustomerA', self.driver.configuration.cb_account_name)
 
         # assert the result
-        self.assertEqual(
-            None,
-            provider_details['provider_auth'])
+        self.assertIsNone(provider_details['provider_auth'])
         self.assertThat(
             provider_details['provider_location'],
             matchers.Contains('172.16.50.35:3260'))
@@ -1316,9 +1341,7 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
             self.driver.create_volume_from_snapshot(cloned_volume, snapshot))
 
         # assert the result
-        self.assertEqual(
-            None,
-            provider_details['provider_auth'])
+        self.assertIsNone(provider_details['provider_auth'])
         self.assertEqual(
             '20.10.22.56:3260 '
             'iqn.2014-06.acc1.openstacktsm:acc1DS1Snap1clone1 0',
@@ -1386,8 +1409,7 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
         model_update = self.driver.create_export({}, {}, {})
 
         # assert the result
-        self.assertEqual(None,
-                         model_update['provider_auth'])
+        self.assertIsNone(model_update['provider_auth'])
 
     @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
                        '_api_request_for_cloudbyte')
@@ -1423,8 +1445,7 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
         model_update = self.driver.create_export({}, {}, {})
 
         # assert the result
-        self.assertEqual(None,
-                         model_update['provider_auth'])
+        self.assertIsNone(model_update['provider_auth'])
 
     @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
                        '_api_request_for_cloudbyte')
@@ -1469,3 +1490,84 @@ class CloudByteISCSIDriverTestCase(testtools.TestCase):
                 "backend API: No response was received from CloudByte "
                 "storage list tsm API call."):
             self.driver.get_volume_stats(refresh=True)
+
+    @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
+                       '_api_request_for_cloudbyte')
+    @mock.patch.object(volume_types,
+                       'get_volume_type')
+    @mock.patch.object(qos_specs,
+                       'get_qos_specs')
+    def test_retype(self, get_qos_spec, get_volume_type, mock_api_req):
+
+        # prepare the input test data
+        fake_new_type = {'id': 'fake-new-type-id'}
+        fake_volume_id = self._get_fake_volume_id()
+
+        volume = {
+            'id': 'SomeID',
+            'provider_id': fake_volume_id
+        }
+
+        # configure the mocks with respective side-effects
+        mock_api_req.side_effect = self._side_effect_api_req
+        get_qos_spec.side_effect = self._fake_get_qos_spec
+        get_volume_type.side_effect = self._fake_get_volume_type
+
+        self.assertTrue(self.driver.retype(self.ctxt,
+                                           volume,
+                                           fake_new_type, None, None))
+
+        # assert the invoked api calls
+        self.assertEqual(3, mock_api_req.call_count)
+
+    @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
+                       '_api_request_for_cloudbyte')
+    @mock.patch.object(volume_types,
+                       'get_volume_type')
+    @mock.patch.object(qos_specs,
+                       'get_qos_specs')
+    def test_retype_without_provider_id(self, get_qos_spec, get_volume_type,
+                                        mock_api_req):
+
+        # prepare the input test data
+        fake_new_type = {'id': 'fake-new-type-id'}
+        volume = {'id': 'SomeID'}
+
+        # configure the mocks with respective side-effects
+        mock_api_req.side_effect = self._side_effect_api_req
+        get_qos_spec.side_effect = self._fake_get_qos_spec
+        get_volume_type.side_effect = self._fake_get_volume_type
+
+        # Now run the test & assert the exception
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.retype,
+                          self.ctxt, volume, fake_new_type, None, None)
+
+    @mock.patch.object(cloudbyte.CloudByteISCSIDriver,
+                       '_api_request_for_cloudbyte')
+    @mock.patch.object(volume_types,
+                       'get_volume_type')
+    @mock.patch.object(qos_specs,
+                       'get_qos_specs')
+    def test_retype_without_filesystem(self, get_qos_spec, get_volume_type,
+                                       mock_api_req):
+
+        # prepare the input test data
+        fake_new_type = {'id': 'fake-new-type-id'}
+        fake_volume_id = self._get_fake_volume_id()
+
+        volume = {
+            'id': 'SomeID',
+            'provider_id': fake_volume_id
+        }
+
+        # configure the mocks with respective side-effects
+        mock_api_req.side_effect = self._side_effect_api_req
+        get_qos_spec.side_effect = self._fake_get_qos_spec
+        get_volume_type.side_effect = self._fake_get_volume_type
+        mock_api_req.side_effect = self._fake_api_req_to_list_filesystem
+
+        # Now run the test & assert the exception
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.retype,
+                          self.ctxt, volume, fake_new_type, None, None)

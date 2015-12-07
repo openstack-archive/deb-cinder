@@ -7,20 +7,19 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 7.0.0.0b4.dev130\n"
+"Project-Id-Version: cinder 8.0.0.dev364\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-09-17 06:19+0000\n"
+"POT-Creation-Date: 2015-12-01 06:53+0000\n"
 "PO-Revision-Date: 2015-08-26 03:31+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
-"Language-Team: Turkish (Turkey) (http://www.transifex.com/openstack/cinder/"
-"language/tr_TR/)\n"
+"Language-Team: Turkish (Turkey)\n"
 "Language: tr-TR\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.0\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-"X-Generator: Zanata 3.7.1\n"
+"Generated-By: Babel 2.0\n"
+"X-Generator: Zanata 3.7.3\n"
 
 #, python-format
 msgid "%(path)s is being set with open permissions: %(perm)s"
@@ -29,24 +28,6 @@ msgstr "%(path)s açık izinlerle ayarlanıyor: %(perm)s"
 #, python-format
 msgid "%s"
 msgstr "%s"
-
-#, python-format
-msgid "%s is not an accepted REST server IP address"
-msgstr "%s kabul edilen REST sunucusu IP adresi değil"
-
-msgid ""
-"'hp3par:cpg' is not supported as an extra spec in a volume type.  CPG's are "
-"chosen by the cinder scheduler, as a pool, from the cinder.conf entry "
-"'hp3par_cpg', which can be a list of CPGs."
-msgstr ""
-"'hp3par:cpg' mantıksal sürücü türü içinde ek özellik olarak desteklenmiyor.  "
-"CPG'ler cinder zamanlayıcı tarafından, havuz olarak, CPG listesi olabilen "
-"cinder.conf 'hp3par_cpg' girdisinden seçilir."
-
-#, python-format
-msgid "All attempts to recover failed detach of %(volume)s failed."
-msgstr ""
-"%(volume)s başarısız ayırma işlemini tüm kurtarma çabaları başarısız oldu."
 
 #, python-format
 msgid "AttachSnapTask.revert: detach mount point %s"
@@ -170,9 +151,6 @@ msgstr ""
 "eqlx_chap_password artık kullanılmıyor. Aynıları için sırayla chap_auth, "
 "chap_username ve chap_password kullanın."
 
-msgid "Configuration variable srb_base_urls not set or empty."
-msgstr "Yapılandırma değişkeni srb_base_urls ayarlanmamış veya boş."
-
 #, python-format
 msgid "Consistency group %(name)s already exists. Message: %(msg)s"
 msgstr "Tutarlılık grubu %(name)s zaten mevcut. İleti: %(msg)s"
@@ -233,16 +211,6 @@ msgid "Delete temp LUN after migration start failed. LUN: %s"
 msgstr "Göç başladıktan sonra geçici LUN silme başarısız. LUN: %s"
 
 #, python-format
-msgid ""
-"Delete the temporary cgsnapshot %(name)s failed. This temporary cgsnapshot "
-"can be deleted manually. Consistency group %(cg)s is created successfully "
-"from cgsnapshot %(cgsnapshot)s. Message: %(msg)s"
-msgstr ""
-"Geçici cgsnapshot %(name)s silinmesi başarısız. Geçici cgsnapshot elle "
-"silinebilir. Tutarlılık grubu %(cg)s %(cgsnapshot)s cgsnapshot'ından "
-"başarıyla oluşturuldu. İleti: %(msg)s"
-
-#, python-format
 msgid "Delete volume id not found. Removing from cinder: %(id)s Ex: %(msg)s"
 msgstr ""
 "Mantıksal sürücü kimliği sil bulunamadı. Cinder'den kaldırılıyor: %(id)s "
@@ -266,12 +234,6 @@ msgstr ""
 msgid "Detected snapshot stuck in creating status, setting to ERROR."
 msgstr ""
 "Oluşturma durumunda kalmış anlık görüntü algılandı, HATA olarak ayarlanıyor."
-
-#, python-format
-msgid "Detected volume stuck in %s(curr_status)s status, setting to ERROR."
-msgstr ""
-"%s(curr_status)s durumunda sıkışıp kalmış mantıksal sürücü algılandı, HATA "
-"olarak ayarlanıyor."
 
 msgid "Discover file retries exhausted."
 msgstr "Dosya keşfi yeniden denemeleri tükendi."
@@ -335,10 +297,6 @@ msgstr "Mantıksal sürücü bilgisi tazelenirken hata. İleti: %s"
 #, python-format
 msgid "Error unmapping LUN. Code :%(code)s, Message: %(message)s"
 msgstr "LUN eşleştirmesi kaldırmada hata. Kod :%(code)s, İleti: %(message)s"
-
-#, python-format
-msgid "Error while removing export: %r"
-msgstr "Dışa aktarma kaldırılırken hata: %r"
 
 #, python-format
 msgid "Exception during cache cleaning %(share)s. Message - %(ex)s"
@@ -466,14 +424,6 @@ msgstr ""
 "%s ilklendiricilerinin çıkarılması başarısız, kayıt silme işlemini göz ardı "
 "et."
 
-#, python-format
-msgid ""
-"Failed to find CHAP auth from config for %(vol_id)s. Config file %(conf)s "
-"does not exist."
-msgstr ""
-"%(vol_id)s için yapılandırmadan CHAP yetkilendirme bulma başarısız. %(conf)s "
-"yapılandırma dosyası mevcut değil."
-
 msgid "Failed to get Raid Snapshot ID and did not store in snapshot."
 msgstr ""
 "Raid Anlık Görüntü Kimliği alınamadı ve anlık görüntü içine kaydedilmedi."
@@ -599,14 +549,6 @@ msgstr ""
 msgid "Flexvisor failed to delete volume %(id)s from the group %(vgid)s."
 msgstr "Flexvisor %(id)s mantıksal sürücüsünü %(vgid)s grubundan silemedi."
 
-#, python-format
-msgid ""
-"Found invalid iSCSI IP address(s) in configuration option(s) "
-"hp3par_iscsi_ips or iscsi_ip_address '%s.'"
-msgstr ""
-"Yapılandırma seçenek(ler)i içinde geçersiz iSCSI IP adres(ler)i bulundu "
-"hp3par_iscsi_ips veya iscsi_ip_address '%s.'"
-
 msgid "Goodness function not set :: defaulting to minimal goodness rating of 0"
 msgstr ""
 "İyilik fonksiyonu ayarlanmamış :: asgari iyilik değeri olan 0 varsayılıyor"
@@ -625,14 +567,6 @@ msgstr ""
 #, python-format
 msgid "HLU %(hlu)s has already been removed from %(sgname)s. Message: %(msg)s"
 msgstr "HLU %(hlu)s zaten %(sgname)s'den ayrılmış. İleti: %(msg)s"
-
-#, python-format
-msgid ""
-"HPLeftHand API is version %(current)s. A minimum version of %(min)s is "
-"needed for manage/unmanage support."
-msgstr ""
-"HPLeftHand API'si sürüm %(current)s. Yönetme/yönetmeyi bırakma desteği için "
-"en az %(min)s sürümü gereklidir."
 
 #, python-format
 msgid ""
@@ -1054,10 +988,6 @@ msgstr ""
 "bulunamadı. Metadata yedeği siliniyor."
 
 #, python-format
-msgid "Removed volume group %s still appears in vgs."
-msgstr "Silinmiş mantıksal sürücü grubu %s hala vgs'de görünüyor."
-
-#, python-format
 msgid "Rename failure in cleanup of cDOT QOS policy group %(name)s: %(ex)s"
 msgstr ""
 "cDOT QOS ilke grubu %(name)s temizliğinde yeniden adlandırma hatası: %(ex)s"
@@ -1076,10 +1006,6 @@ msgstr ""
 
 msgid "Requested image is not accessible by current Tenant."
 msgstr "İstenen imaj mevcut Kiracı tarafından erişilebilir değil."
-
-#, python-format
-msgid "Retrying failed call to %(func)s, attempt %(attempt)i."
-msgstr "%(func)s başarısız çağrısı tekrarlanıyor, deneme %(attempt)i."
 
 msgid "Returning as clean tmp vol job already running."
 msgstr "Geçici mantıksal sürücü temizleme işi hala çalıştığından dönülüyor."
@@ -1175,15 +1101,6 @@ msgstr ""
 msgid "Storage-assisted migration failed during retype."
 msgstr "Depolama-destekli göç retype sırasında başarısız oldu."
 
-msgid ""
-"The HPLeftHandISCSIDriver CLIQ driver has been DEPRECATED as of the 2015.2 "
-"release. This driver will be removed in the 2016.1 release. Please use the "
-"HPLeftHandISCSIDriver REST based driver instead."
-msgstr ""
-"HPLeftHandISCSIDriver CLIQ sürücüsü 2015.2 sürümünde sonra "
-"kullanılmamaktadır. Bu sürücü 2016.1 sürümünde kaldırılacak. Lütfen bunu "
-"yerine HPLeftHandISCSIDriver REST tabanlı sürücüyü kullanın."
-
 msgid "The MCS Channel is grouped."
 msgstr "MCS Kanalı gruplandırılmış."
 
@@ -1215,14 +1132,6 @@ msgstr ""
 "VMAX eklentisi yalnızca Retype destekler. Eğer havuz tabanlı göç gerekliyse "
 "bu komut satırından bir Retype üzerinde gerçekleşir: cinder --os-volume-api-"
 "version 2 retype <volumeId> <volumeType> --migration-policy on-demand"
-
-msgid ""
-"The VMware ESX VMDK driver is now deprecated and will be removed in the Juno "
-"release. The VMware vCenter VMDK driver will remain and continue to be "
-"supported."
-msgstr ""
-"VMware ESX VMDK sürücüsü artık kullanılmıyor ve Juno sürümüyle kaldırılacak. "
-"VMware vCenter VMDK sürücüsü kalacak ve desteklenmeye devam edilecek."
 
 #, python-format
 msgid ""
@@ -1320,15 +1229,6 @@ msgid "Unable to find Masking view: %(view)s."
 msgstr "Maskeleme görünümü bulunamadı: %(view)s."
 
 #, python-format
-msgid ""
-"Unable to find a preferred node match for node %(node)s in the list of "
-"available WWPNs on %(host)s. Using first available."
-msgstr ""
-"%(node)s istemcisi için %(host)s üzerindeki kullanılabilir WWPN listesinde "
-"tercih edilen bir düğün eşleşmesi bulunamadı. İlk kullanılabilen "
-"kullanılıyor."
-
-#, python-format
 msgid "Unable to find snapshot %s"
 msgstr "%s anlık görüntüsü bulunamadı"
 
@@ -1407,10 +1307,6 @@ msgid "Volume %(volume_id)s cannot be retyped during attachment."
 msgstr "Mantıksal sürücü %(volume_id)s ekleme sırasında retype edilemez."
 
 #, python-format
-msgid "Volume %r not found while trying to remove."
-msgstr "Mantıksal sürücü %r silinmeye çalışılırken bulunamadı."
-
-#, python-format
 msgid "Volume %s does not exist."
 msgstr "Mantıksal sürücü %s mevcut değil."
 
@@ -1480,13 +1376,6 @@ msgid ""
 msgstr ""
 "Mantıksal sürücü: %(volumeName)s %(defaultSgGroupName)s depolama grubuna ait "
 "değil."
-
-#, python-format
-msgid ""
-"Volume: %(volumeName)s is already part of storage group %(sgGroupName)s."
-msgstr ""
-"Mantıksal sürücü: %(volumeName)s zaten %(sgGroupName)s depolama grubunun "
-"parçası."
 
 #, python-format
 msgid "Volume: %(volumeName)s is not currently belonging to any storage group."
@@ -1609,9 +1498,6 @@ msgstr "anlık görüntü: %s bulunamadı, silme işlemleri atlanıyor"
 
 msgid "ssc job in progress. Returning... "
 msgstr "ssc işi sürüyor. Dönülüyor... "
-
-msgid "swift error while listing objects, continuing with delete."
-msgstr "nesneler listelenirken swift hatası, silme ile devam ediliyor."
 
 msgid "terminate_conn: provider location empty."
 msgstr "terminate_conn: sağlayıcı konumu boş."

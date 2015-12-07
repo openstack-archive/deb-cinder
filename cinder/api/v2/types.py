@@ -19,18 +19,22 @@ from oslo_utils import strutils
 from webob import exc
 
 from cinder.api.openstack import wsgi
-from cinder.api.views import types as views_types
+from cinder.api.v2.views import types as views_types
 from cinder.api import xmlutil
+from cinder import context as ctx
 from cinder import exception
 from cinder.i18n import _
 from cinder import utils
 from cinder.volume import volume_types
+
+import cinder.policy
 
 
 def make_voltype(elem):
     elem.set('id')
     elem.set('name')
     elem.set('description')
+    elem.set('qos_specs_id')
     extra_specs = xmlutil.make_flat_dict('extra_specs', selector='extra_specs')
     elem.append(extra_specs)
 
@@ -56,6 +60,18 @@ class VolumeTypesController(wsgi.Controller):
 
     _view_builder_class = views_types.ViewBuilder
 
+    def _validate_policy(self, context):
+        target = {
+            'project_id': context.project_id,
+            'user_id': context.user_id,
+        }
+        try:
+            action = 'volume_extension:access_types_extra_specs'
+            cinder.policy.enforce(context, action, target)
+            return True
+        except Exception:
+            return False
+
     @wsgi.serializers(xml=VolumeTypesTemplate)
     def index(self, req):
         """Returns the list of volume types."""
@@ -67,6 +83,9 @@ class VolumeTypesController(wsgi.Controller):
     def show(self, req, id):
         """Return a single volume type item."""
         context = req.environ['cinder.context']
+
+        if not context.is_admin and self._validate_policy(context):
+            context = ctx.get_admin_context()
 
         # get default volume type
         if id is not None and id == 'default':
@@ -108,6 +127,8 @@ class VolumeTypesController(wsgi.Controller):
         """Helper function that returns a list of type dicts."""
         filters = {}
         context = req.environ['cinder.context']
+        if not context.is_admin and self._validate_policy(context):
+            context = ctx.get_admin_context()
         if context.is_admin:
             # Only admin has query access to all volume types
             filters['is_public'] = self._parse_is_public(

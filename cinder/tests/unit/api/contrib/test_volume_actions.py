@@ -13,6 +13,7 @@
 #   under the License.
 
 import datetime
+import iso8601
 import json
 import uuid
 
@@ -23,11 +24,13 @@ from oslo_serialization import jsonutils
 import webob
 
 from cinder.api.contrib import volume_actions
+from cinder import context
 from cinder import exception
 from cinder.image import glance
 from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.api.v2 import stubs
+from cinder.tests.unit import fake_volume
 from cinder import volume
 from cinder.volume import api as volume_api
 from cinder.volume import rpcapi as volume_rpcapi
@@ -43,6 +46,7 @@ class VolumeActionsTest(test.TestCase):
 
     def setUp(self):
         super(VolumeActionsTest, self).setUp()
+        self.context = context.RequestContext('fake', 'fake', is_admin=False)
         self.UUID = uuid.uuid4()
         self.controller = volume_actions.VolumeActionsController()
         self.api_patchers = {}
@@ -52,8 +56,10 @@ class VolumeActionsTest(test.TestCase):
             self.addCleanup(self.api_patchers[_meth].stop)
             self.api_patchers[_meth].return_value = True
 
-        vol = {'id': 'fake', 'host': 'fake', 'status': 'available', 'size': 1,
-               'migration_status': None, 'volume_type_id': 'fake'}
+        db_vol = {'id': 'fake', 'host': 'fake', 'status': 'available',
+                  'size': 1, 'migration_status': None,
+                  'volume_type_id': 'fake', 'project_id': 'project_id'}
+        vol = fake_volume.fake_volume_obj(self.context, **db_vol)
         self.get_patcher = mock.patch('cinder.volume.API.get')
         self.mock_volume_get = self.get_patcher.start()
         self.addCleanup(self.get_patcher.stop)
@@ -342,6 +348,22 @@ class VolumeActionsTest(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(202, res.status_int)
 
+    def test_extend_volume_invalid_status(self):
+        def fake_extend_volume(*args, **kwargs):
+            msg = "Volume status must be available"
+            raise exception.InvalidVolume(reason=msg)
+        self.stubs.Set(volume.API, 'extend',
+                       fake_extend_volume)
+
+        body = {'os-extend': {'new_size': 5}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.body = jsonutils.dumps(body)
+        req.headers["content-type"] = "application/json"
+
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(400, res.status_int)
+
     def test_update_readonly_flag(self):
         def fake_update_readonly_flag(*args, **kwargs):
             return {}
@@ -599,7 +621,7 @@ class VolumeImageActionsTest(test.TestCase):
                      'container_format': 'bare',
                      'disk_format': 'raw',
                      'image_name': 'image_name'}}
-        self.assertDictMatch(res_dict, expected)
+        self.assertDictMatch(expected, res_dict)
 
     def test_copy_volume_to_image_volumenotfound(self):
         def stub_volume_get_raise_exc(self, context, volume_id):
@@ -772,8 +794,9 @@ class VolumeImageActionsTest(test.TestCase):
                         expected_res = {
                             'os-volume_upload_image': {
                                 'id': id,
-                                'updated_at': datetime.datetime(1900, 1, 1,
-                                                                1, 1, 1),
+                                'updated_at': datetime.datetime(
+                                    1900, 1, 1, 1, 1, 1,
+                                    tzinfo=iso8601.iso8601.Utc()),
                                 'status': 'uploading',
                                 'display_description': 'displaydesc',
                                 'size': 1,
@@ -785,7 +808,7 @@ class VolumeImageActionsTest(test.TestCase):
                             }
                         }
 
-                        self.assertDictMatch(res_dict, expected_res)
+                        self.assertDictMatch(expected_res, res_dict)
 
     def test_copy_volume_to_image_without_glance_metadata(self):
         """Test create image from volume if volume is created without image.
@@ -828,8 +851,9 @@ class VolumeImageActionsTest(test.TestCase):
                         expected_res = {
                             'os-volume_upload_image': {
                                 'id': id,
-                                'updated_at': datetime.datetime(1900, 1, 1,
-                                                                1, 1, 1),
+                                'updated_at': datetime.datetime(
+                                    1900, 1, 1, 1, 1, 1,
+                                    tzinfo=iso8601.iso8601.Utc()),
                                 'status': 'uploading',
                                 'display_description': 'displaydesc',
                                 'size': 1,
@@ -841,7 +865,7 @@ class VolumeImageActionsTest(test.TestCase):
                             }
                         }
 
-                        self.assertDictMatch(res_dict, expected_res)
+                        self.assertDictMatch(expected_res, res_dict)
 
     def test_copy_volume_to_image_without_protected_prop(self):
         """Test protected property is not defined with the root image."""
@@ -881,8 +905,9 @@ class VolumeImageActionsTest(test.TestCase):
                         expected_res = {
                             'os-volume_upload_image': {
                                 'id': id,
-                                'updated_at': datetime.datetime(1900, 1, 1,
-                                                                1, 1, 1),
+                                'updated_at': datetime.datetime(
+                                    1900, 1, 1, 1, 1, 1,
+                                    tzinfo=iso8601.iso8601.Utc()),
                                 'status': 'uploading',
                                 'display_description': 'displaydesc',
                                 'size': 1,
@@ -894,7 +919,7 @@ class VolumeImageActionsTest(test.TestCase):
                             }
                         }
 
-                        self.assertDictMatch(res_dict, expected_res)
+                        self.assertDictMatch(expected_res, res_dict)
 
     def test_copy_volume_to_image_without_core_prop(self):
         """Test glance_core_properties defined in cinder.conf is empty."""
@@ -927,8 +952,9 @@ class VolumeImageActionsTest(test.TestCase):
                     expected_res = {
                         'os-volume_upload_image': {
                             'id': id,
-                            'updated_at': datetime.datetime(1900, 1, 1,
-                                                            1, 1, 1),
+                            'updated_at': datetime.datetime(
+                                1900, 1, 1, 1, 1, 1,
+                                tzinfo=iso8601.iso8601.Utc()),
                             'status': 'uploading',
                             'display_description': 'displaydesc',
                             'size': 1,
@@ -940,4 +966,4 @@ class VolumeImageActionsTest(test.TestCase):
                         }
                     }
 
-                    self.assertDictMatch(res_dict, expected_res)
+                    self.assertDictMatch(expected_res, res_dict)

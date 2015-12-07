@@ -51,7 +51,6 @@ rbd_opts = [
                default='rbd',
                help='The RADOS pool where rbd volumes are stored'),
     cfg.StrOpt('rbd_user',
-               default=None,
                help='The RADOS client name for accessing rbd volumes '
                     '- only set when using cephx authentication'),
     cfg.StrOpt('rbd_ceph_conf',
@@ -62,11 +61,9 @@ rbd_opts = [
                 help='Flatten volumes created from snapshots to remove '
                      'dependency from volume to snapshot'),
     cfg.StrOpt('rbd_secret_uuid',
-               default=None,
                help='The libvirt uuid of the secret for the rbd_user '
                     'volumes'),
     cfg.StrOpt('volume_tmp_dir',
-               default=None,
                help='Directory where temporary image files are stored '
                     'when the volume driver does not write them directly '
                     'to the volume.  Warning: this option is now deprecated, '
@@ -142,7 +139,7 @@ class RBDImageIOWrapper(io.RawIOBase):
         # length (they just return nothing) but rbd images do so we need to
         # return empty string if we have reached the end of the image.
         if (offset >= total):
-            return ''
+            return b''
 
         if length is None:
             length = total
@@ -265,7 +262,7 @@ class RADOSClient(object):
 
 
 class RBDDriver(driver.TransferVD, driver.ExtendVD,
-                driver.CloneableVD, driver.CloneableImageVD, driver.SnapshotVD,
+                driver.CloneableImageVD, driver.SnapshotVD,
                 driver.MigrateVD, driver.BaseVD):
     """Implements RADOS block device (RBD) volume commands."""
 
@@ -386,6 +383,7 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
             'total_capacity_gb': 'unknown',
             'free_capacity_gb': 'unknown',
             'reserved_percentage': 0,
+            'multiattach': True,
         }
         backend_name = self.configuration.safe_get('volume_backend_name')
         stats['volume_backend_name'] = backend_name or 'RBD'
@@ -751,6 +749,9 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
         with RBDVolumeProxy(self, volume_name) as volume:
             try:
                 volume.unprotect_snap(snap_name)
+            except self.rbd.ImageNotFound:
+                LOG.info(_LI("Snapshot %s does not exist in backend."),
+                         snap_name)
             except self.rbd.ImageBusy:
                 children_list = self._get_children_info(volume, snap_name)
 
@@ -766,28 +767,14 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
             volume.remove_snap(snap_name)
 
     def retype(self, context, volume, new_type, diff, host):
-        """Retypes a volume, allows QoS change only."""
-        LOG.debug('Retype volume request %(vol)s to be %(type)s '
-                  '(host: %(host)s), diff %(diff)s.',
-                  {
-                      'vol': volume['name'],
-                      'type': new_type,
-                      'host': host,
-                      'diff': diff
-                  })
+        """Retypes a volume, allow Qos and extra_specs change."""
 
-        if volume['host'] != host['host']:
-            LOG.error(_LE('Retype with host migration not supported.'))
-            return False
-
-        if diff['encryption']:
-            LOG.error(_LE('Retype of encryption type not supported.'))
-            return False
-
-        if diff['extra_specs']:
-            LOG.error(_LE('Retype of extra_specs not supported.'))
-            return False
-
+        # No need to check encryption, extra_specs and Qos here as:
+        # encryptions have been checked as same.
+        # extra_specs are not used in the driver.
+        # Qos settings are not used in the driver.
+        LOG.debug('RBD retype called for volume %s. No action '
+                  'required for RBD volumes.', volume.id)
         return True
 
     def ensure_export(self, context, volume):
@@ -857,8 +844,8 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
         if image_meta['disk_format'] != 'raw':
             LOG.debug("rbd image clone requires image format to be "
                       "'raw' but image %(image)s is '%(format)s'",
-                      {"image", image_location,
-                       "format", image_meta['disk_format']})
+                      {"image": image_location,
+                       "format": image_meta['disk_format']})
             return False
 
         # check that we can read the image

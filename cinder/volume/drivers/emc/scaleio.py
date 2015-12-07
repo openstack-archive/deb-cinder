@@ -17,6 +17,7 @@ Driver for EMC ScaleIO based on ScaleIO remote CLI.
 """
 
 import base64
+import binascii
 import json
 
 from os_brick.initiator import connector
@@ -25,7 +26,7 @@ from oslo_log import log as logging
 from oslo_utils import units
 import requests
 import six
-import urllib
+from six.moves import urllib
 
 from cinder import context
 from cinder import exception
@@ -48,7 +49,6 @@ scaleio_opts = [
                 default=False,
                 help='Whether to verify server certificate.'),
     cfg.StrOpt('sio_server_certificate_path',
-               default=None,
                help='Server certificate path.'),
     cfg.BoolOpt('sio_round_volume_capacity',
                 default=True,
@@ -60,19 +60,14 @@ scaleio_opts = [
                 default=False,
                 help='Whether to unmap volume before deletion.'),
     cfg.StrOpt('sio_protection_domain_id',
-               default=None,
                help='Protection domain id.'),
     cfg.StrOpt('sio_protection_domain_name',
-               default=None,
                help='Protection domain name.'),
     cfg.StrOpt('sio_storage_pools',
-               default=None,
                help='Storage pools.'),
     cfg.StrOpt('sio_storage_pool_name',
-               default=None,
                help='Storage pool name.'),
     cfg.StrOpt('sio_storage_pool_id',
-               default=None,
                help='Storage pool id.')
 ]
 
@@ -82,7 +77,7 @@ STORAGE_POOL_NAME = 'sio:sp_name'
 STORAGE_POOL_ID = 'sio:sp_id'
 PROTECTION_DOMAIN_NAME = 'sio:pd_name'
 PROTECTION_DOMAIN_ID = 'sio:pd_id'
-PROVISIONING_KEY = 'sio:provisioning'
+PROVISIONING_KEY = 'sio:provisioning_type'
 IOPS_LIMIT_KEY = 'sio:iops_limit'
 BANDWIDTH_LIMIT = 'sio:bandwidth_limit'
 
@@ -122,8 +117,13 @@ class ScaleIODriver(driver.VolumeDriver):
              'user': self.server_username,
              'verify_cert': self.verify_server_certificate})
 
-        self.storage_pools = [e.strip() for e in
-                              self.configuration.sio_storage_pools.split(',')]
+        self.storage_pools = None
+        if self.configuration.sio_storage_pools:
+            self.storage_pools = [
+                e.strip() for e in
+                self.configuration.sio_storage_pools.split(',')
+            ]
+
         self.storage_pool_name = self.configuration.sio_storage_pool_name
         self.storage_pool_id = self.configuration.sio_storage_pool_id
         if self.storage_pool_name is None and self.storage_pool_id is None:
@@ -143,13 +143,11 @@ class ScaleIODriver(driver.VolumeDriver):
             {'domain_name': self.protection_domain_name})
         self.protection_domain_id = self.configuration.sio_protection_domain_id
         LOG.info(_LI(
-            "Protection domain name: %(domain_id)s."),
+            "Protection domain id: %(domain_id)s."),
             {'domain_id': self.protection_domain_id})
 
         self.connector = connector.InitiatorConnector.factory(
-            # TODO(xyang): Change 'SCALEIO' to connector.SCALEIO after
-            # os-brick 0.4.0 is released.
-            'SCALEIO', utils.get_root_helper(),
+            connector.SCALEIO, utils.get_root_helper(),
             device_scan_attempts=
             self.configuration.num_volume_device_scan_tries
         )
@@ -205,6 +203,12 @@ class ScaleIODriver(driver.VolumeDriver):
             msg = _("Must specify storage pool name or id.")
             raise exception.InvalidInput(reason=msg)
 
+        if not self.storage_pools:
+            msg = _(
+                "Must specify storage pools. Option: sio_storage_pools."
+            )
+            raise exception.InvalidInput(reason=msg)
+
     def _find_storage_pool_id_from_storage_type(self, storage_type):
         # Default to what was configured in configuration file if not defined.
         return storage_type.get(STORAGE_POOL_ID,
@@ -239,9 +243,14 @@ class ScaleIODriver(driver.VolumeDriver):
         name = six.text_type(id).replace("-", "")
         try:
             name = base64.b16decode(name.upper())
-        except TypeError:
+        except (TypeError, binascii.Error):
             pass
-        encoded_name = base64.b64encode(name)
+        encoded_name = name
+        if isinstance(encoded_name, six.text_type):
+            encoded_name = encoded_name.encode('utf-8')
+        encoded_name = base64.b64encode(encoded_name)
+        if six.PY3:
+            encoded_name = encoded_name.decode('ascii')
         LOG.debug(
             "Converted id %(id)s to scaleio name %(name)s.",
             {'id': id, 'name': encoded_name})
@@ -296,7 +305,8 @@ class ScaleIODriver(driver.VolumeDriver):
                         " protection domain id.")
                 raise exception.VolumeBackendAPIException(data=msg)
 
-            encoded_domain_name = urllib.quote(self.protection_domain_name, '')
+            domain_name = self.protection_domain_name
+            encoded_domain_name = urllib.parse.quote(domain_name, '')
             req_vars = {'server_ip': self.server_ip,
                         'server_port': self.server_port,
                         'encoded_domain_name': encoded_domain_name}
@@ -330,7 +340,7 @@ class ScaleIODriver(driver.VolumeDriver):
         pool_name = self.storage_pool_name
         pool_id = self.storage_pool_id
         if pool_name:
-            encoded_domain_name = urllib.quote(pool_name, '')
+            encoded_domain_name = urllib.parse.quote(pool_name, '')
             req_vars = {'server_ip': self.server_ip,
                         'server_port': self.server_port,
                         'domain_id': domain_id,
@@ -512,10 +522,11 @@ class ScaleIODriver(driver.VolumeDriver):
         return verify_cert
 
     def extend_volume(self, volume, new_size):
-        """Extends the size of an existing available ScaleIO volume."""
+        """Extends the size of an existing available ScaleIO volume.
 
-        self._check_volume_size(new_size)
-
+        This action will round up the volume to the nearest size that is
+        a granularity of 8 GBs.
+        """
         vol_id = volume['provider_id']
         LOG.info(_LI(
             "ScaleIO extend volume: volume %(volname)s to size %(new_size)s."),
@@ -529,7 +540,20 @@ class ScaleIODriver(driver.VolumeDriver):
                    "/api/instances/Volume::%(vol_id)s"
                    "/action/setVolumeSize") % req_vars
         LOG.info(_LI("Change volume capacity request: %s."), request)
-        volume_new_size = new_size
+
+        # Round up the volume size so that it is a granularity of 8 GBs
+        # because ScaleIO only supports volumes with a granularity of 8 GBs.
+        if new_size % 8 == 0:
+            volume_new_size = new_size
+        else:
+            volume_new_size = new_size + 8 - (new_size % 8)
+
+        round_volume_capacity = self.configuration.sio_round_volume_capacity
+        if (not round_volume_capacity and not new_size % 8 == 0):
+            LOG.warning(_LW("ScaleIO only supports volumes with a granularity "
+                            "of 8 GBs. The new volume size is: %d."),
+                        volume_new_size)
+
         params = {'sizeInGB': six.text_type(volume_new_size)}
         r = requests.post(
             request,
@@ -691,7 +715,7 @@ class ScaleIODriver(driver.VolumeDriver):
                       {'domain': domain_name,
                        'pool': pool_name})
             # Get domain id from name.
-            encoded_domain_name = urllib.quote(domain_name, '')
+            encoded_domain_name = urllib.parse.quote(domain_name, '')
             req_vars = {'server_ip': self.server_ip,
                         'server_port': self.server_port,
                         'encoded_domain_name': encoded_domain_name}
@@ -727,7 +751,7 @@ class ScaleIODriver(driver.VolumeDriver):
             LOG.info(_LI("Domain id is %s."), domain_id)
 
             # Get pool id from name.
-            encoded_pool_name = urllib.quote(pool_name, '')
+            encoded_pool_name = urllib.parse.quote(pool_name, '')
             req_vars = {'server_ip': self.server_ip,
                         'server_port': self.server_port,
                         'domain_id': domain_id,
@@ -895,6 +919,75 @@ class ScaleIODriver(driver.VolumeDriver):
                                       self._sio_attach_volume(volume))
         finally:
             self._sio_detach_volume(volume)
+
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status):
+        """Return the update from ScaleIO migrated volume.
+
+        This method updates the volume name of the new ScaleIO volume to
+        match the updated volume ID.
+        The original volume is renamed first since ScaleIO does not allow
+        multiple volumes to have the same name.
+        """
+        name_id = None
+        location = None
+        if original_volume_status == 'available':
+            # During migration, a new volume is created and will replace
+            # the original volume at the end of the migration. We need to
+            # rename the new volume. The current_name of the new volume,
+            # which is the id of the new volume, will be changed to the
+            # new_name, which is the id of the original volume.
+            current_name = new_volume['id']
+            new_name = volume['id']
+            vol_id = new_volume['provider_id']
+            LOG.info(_LI("Renaming %(id)s from %(current_name)s to "
+                         "%(new_name)s."),
+                     {'id': vol_id, 'current_name': current_name,
+                      'new_name': new_name})
+
+            # Original volume needs to be renamed first
+            self._rename_volume(volume, "ff" + new_name)
+            self._rename_volume(new_volume, new_name)
+        else:
+            # The back-end will not be renamed.
+            name_id = new_volume['_name_id'] or new_volume['id']
+            location = new_volume['provider_location']
+
+        return {'_name_id': name_id, 'provider_location': location}
+
+    def _rename_volume(self, volume, new_id):
+        new_name = self._id_to_base64(new_id)
+        vol_id = volume['provider_id']
+
+        req_vars = {'server_ip': self.server_ip,
+                    'server_port': self.server_port,
+                    'id': vol_id}
+        request = ("https://%(server_ip)s:%(server_port)s"
+                   "/api/instances/Volume::%(id)s/action/setVolumeName" %
+                   req_vars)
+        LOG.info(_LI("ScaleIO rename volume request: %s."), request)
+
+        params = {'newName': new_name}
+        r = requests.post(
+            request,
+            data=json.dumps(params),
+            headers=self._get_headers(),
+            auth=(self.server_username,
+                  self.server_token),
+            verify=self._get_verify_cert()
+        )
+        r = self._check_response(r, request, False, params)
+
+        if r.status_code != OK_STATUS_CODE:
+            response = r.json()
+            msg = (_("Error renaming volume %(vol)s: %(err)s.") %
+                   {'vol': vol_id, 'err': response['message']})
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+        else:
+            LOG.info(_LI("ScaleIO volume %(vol)s was renamed to "
+                         "%(new_name)s."),
+                     {'vol': vol_id, 'new_name': new_name})
 
     def ensure_export(self, context, volume):
         """Driver entry point to get the export info for an existing volume."""

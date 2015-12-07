@@ -14,6 +14,7 @@
 #    under the License.
 
 import json
+import six
 import socket
 import time
 
@@ -38,6 +39,7 @@ class RestClient(object):
         self.configuration = configuration
         self.xml_file_path = configuration.cinder_huawei_conf_file
         self.productversion = None
+        self.init_http_head()
 
     def init_http_head(self):
         self.cookie = http_cookiejar.CookieJar()
@@ -149,7 +151,46 @@ class RestClient(object):
                       {'old_url': old_url,
                        'new_url': self.url})
             result = self.do_call(url, data, method)
+            if result['error']['code'] in constants.RELOGIN_ERROR_PASS:
+                result['error']['code'] = 0
         return result
+
+    def login_with_ip(self, login_info):
+        """Login 18000 array with the specific URL."""
+        urlstr = login_info['RestURL']
+        url_list = urlstr.split(";")
+        for item_url in url_list:
+            url = item_url + "xx/sessions"
+            data = json.dumps({"username": login_info['UserName'],
+                               "password": login_info['UserPassword'],
+                               "scope": '0'})
+            result = self.call(url, data)
+
+            if result['error']['code'] == constants.ERROR_CONNECT_TO_SERVER:
+                continue
+
+            if (result['error']['code'] != 0) or ('data' not in result):
+                msg = (_("Login error, reason is: %s.") % result)
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
+
+            device_id = result['data']['deviceid']
+            self.device_id = device_id
+            self.url = item_url + device_id
+            self.headers['iBaseToken'] = result['data']['iBaseToken']
+
+            return device_id
+
+        msg = _("Login error: Can not connect to server.")
+        LOG.error(msg)
+        raise exception.VolumeBackendAPIException(data=msg)
+
+    def logout(self):
+        """Logout the session."""
+        url = "/sessions"
+        if self.url:
+            result = self.call(url, None, "DELETE")
+            self._assert_rest_result(result, _('Logout session error.'))
 
     def _assert_rest_result(self, result, err_str):
         if result['error']['code'] != 0:
@@ -168,6 +209,10 @@ class RestClient(object):
         url = "/lun"
         data = json.dumps(lun_param)
         result = self.call(url, data)
+        if result['error']['code'] == constants.ERROR_VOLUME_ALREADY_EXIST:
+            lun_id = self.get_volume_by_name(lun_param["NAME"])
+            if lun_id:
+                return self.get_lun_info(lun_id)
 
         msg = _('Create volume error.')
         self._assert_rest_result(result, msg)
@@ -225,7 +270,7 @@ class RestClient(object):
     def _get_id_from_result(self, result, name, key):
         if 'data' in result:
             for item in result['data']:
-                if name == item[key]:
+                if name == item.get(key):
                     return item['ID']
 
     def get_volume_by_name(self, name):
@@ -369,10 +414,8 @@ class RestClient(object):
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Check portgroup associate error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if view_id == item['ID']:
-                    return True
+        if self._get_id_from_result(result, view_id, 'ID'):
+            return True
         return False
 
     def do_mapping(self, lun_id, hostgroup_id, host_id, tgtportgroup_id=None):
@@ -381,6 +424,7 @@ class RestClient(object):
         mapping_view_name = constants.MAPPING_VIEW_PREFIX + host_id
         lungroup_id = self._find_lungroup(lungroup_name)
         view_id = self.find_mapping_view(mapping_view_name)
+        map_info = {}
 
         LOG.info(_LI(
             'do_mapping, lun_group: %(lun_group)s, '
@@ -416,12 +460,21 @@ class RestClient(object):
                         self._associate_portgroup_to_view(view_id,
                                                           tgtportgroup_id)
 
+            version = self.find_array_version()
+            if version >= constants.ARRAY_VERSION:
+                aval_luns = self.find_view_by_id(view_id)
+                map_info["lun_id"] = lun_id
+                map_info["view_id"] = view_id
+                map_info["aval_luns"] = aval_luns
+
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE(
                     'Error occurred when adding hostgroup and lungroup to '
                     'view. Remove lun from lungroup now.'))
                 self.remove_lun_from_lungroup(lungroup_id, lun_id)
+
+        return map_info
 
     def ensure_initiator_added(self, xml_file_path, initiator_name, host_id):
         added = self._initiator_is_added_to_array(initiator_name)
@@ -532,10 +585,8 @@ class RestClient(object):
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Check lungroup associate error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if view_id == item['ID']:
-                    return True
+        if self._get_id_from_result(result, view_id, 'ID'):
+            return True
         return False
 
     def hostgroup_associated(self, view_id, hostgroup_id):
@@ -545,10 +596,8 @@ class RestClient(object):
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Check hostgroup associate error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if view_id == item['ID']:
-                    return True
+        if self._get_id_from_result(result, view_id, 'ID'):
+            return True
         return False
 
     def find_host_lun_id(self, host_id, lun_id):
@@ -637,10 +686,8 @@ class RestClient(object):
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Check hostgroup associate error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if host_id == item['ID']:
-                    return True
+        if self._get_id_from_result(result, host_id, 'ID'):
+            return True
 
         return False
 
@@ -694,10 +741,8 @@ class RestClient(object):
         self._assert_rest_result(result,
                                  _('Check initiator added to array error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if item['ID'] == ininame:
-                    return True
+        if self._get_id_from_result(result, ininame, 'ID'):
+            return True
         return False
 
     def is_initiator_associated_to_host(self, ininame):
@@ -1120,6 +1165,7 @@ class RestClient(object):
                 smarttier=True,
                 smartcache=True,
                 smartpartition=True,
+                hypermetro=True,
             ))
             data['pools'].append(pool)
         return data
@@ -1206,6 +1252,9 @@ class RestClient(object):
                 LOG.error(msg)
                 raise exception.InvalidInput(reason=msg)
 
+        # Deal with the remote tgt ip.
+        if 'remote_target_ip' in connector:
+            target_ips.append(connector['remote_target_ip'])
         LOG.info(_LI('Get the default ip: %s.'), target_ips)
         for ip in target_ips:
             target_iqn = self._get_tgt_iqn_from_rest(ip)
@@ -1420,10 +1469,7 @@ class RestClient(object):
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Get partition by name error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if name == item['NAME']:
-                    return item['ID']
+        return self._get_id_from_result(result, name, 'NAME')
 
     def get_partition_info_by_id(self, partition_id):
 
@@ -1454,10 +1500,7 @@ class RestClient(object):
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Get cache by name error.'))
 
-        if 'data' in result:
-            for item in result['data']:
-                if name == item['NAME']:
-                    return item['ID']
+        return self._get_id_from_result(result, name, 'NAME')
 
     def get_cache_info_by_id(self, cacheid):
         url = "/SMARTCACHEPARTITION/" + cacheid
@@ -1690,3 +1733,112 @@ class RestClient(object):
                                               constants.FC_PORT_CONNECTED):
                 port_list_from_contr.append(item['WWN'])
         return port_list_from_contr
+
+    def get_hyper_domain_id(self, domain_name):
+        url = "/HyperMetroDomain?range=[0-100]"
+        result = self.call(url, None, "GET")
+        domain_id = None
+        if "data" in result:
+            for item in result['data']:
+                if domain_name == item['NAME']:
+                    domain_id = item['ID']
+                    break
+
+        msg = _('get_hyper_domain_id error.')
+        self._assert_rest_result(result, msg)
+        return domain_id
+
+    def create_hypermetro(self, hcp_param):
+        url = "/HyperMetroPair"
+        data = json.dumps(hcp_param)
+        result = self.call(url, data, "POST")
+
+        msg = _('create_hypermetro_pair error.')
+        self._assert_rest_result(result, msg)
+        self._assert_data_in_result(result, msg)
+        return result['data']
+
+    def delete_hypermetro(self, metro_id):
+        url = "/HyperMetroPair/" + metro_id
+        result = self.call(url, None, "DELETE")
+
+        msg = _('delete_hypermetro error.')
+        self._assert_rest_result(result, msg)
+
+    def sync_hypermetro(self, metro_id):
+        url = "/HyperMetroPair/synchronize_hcpair"
+
+        data = json.dumps({"ID": metro_id,
+                           "TYPE": "15361"})
+        result = self.call(url, data, "PUT")
+
+        msg = _('sync_hypermetro error.')
+        self._assert_rest_result(result, msg)
+
+    def stop_hypermetro(self, metro_id):
+        url = '/HyperMetroPair/disable_hcpair'
+
+        data = json.dumps({"ID": metro_id,
+                           "TYPE": "15361"})
+        result = self.call(url, data, "PUT")
+
+        msg = _('stop_hypermetro error.')
+        self._assert_rest_result(result, msg)
+
+    def get_hypermetro_by_id(self, metro_id):
+        url = "/HyperMetroPair/" + metro_id
+        result = self.call(url, None, "GET")
+
+        msg = _('get_hypermetro_by_id error.')
+        self._assert_rest_result(result, msg)
+        return result
+
+    def check_hypermetro_exist(self, metro_id):
+        url = "/HyperMetroPair/" + metro_id
+        result = self.call(url, None, "GET")
+        error_code = result['error']['code']
+
+        if (error_code == constants.ERROR_CONNECT_TO_SERVER
+                or error_code == constants.ERROR_UNAUTHORIZED_TO_SERVER):
+            LOG.error(_LE("Can not open the recent url, login again."))
+            self.login()
+            result = self.call(url, None, "GET")
+
+        error_code = result['error']['code']
+        if (error_code == constants.ERROR_CONNECT_TO_SERVER
+                or error_code == constants.ERROR_UNAUTHORIZED_TO_SERVER):
+            msg = _("check_hypermetro_exist error.")
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+
+        if error_code != 0:
+            return False
+
+        return True
+
+    def change_hostlun_id(self, map_info, hostlun_id):
+        url = "/mappingview"
+        view_id = six.text_type(map_info['view_id'])
+        lun_id = six.text_type(map_info['lun_id'])
+        hostlun_id = six.text_type(hostlun_id)
+        data = json.dumps({"TYPE": 245,
+                           "ID": view_id,
+                           "ASSOCIATEOBJTYPE": 11,
+                           "ASSOCIATEOBJID": lun_id,
+                           "ASSOCIATEMETADATA": [{"LUNID": lun_id,
+                                                  "hostLUNId": hostlun_id}]
+                           })
+
+        result = self.call(url, data, "PUT")
+
+        msg = 'change hostlun id error.'
+        self._assert_rest_result(result, msg)
+
+    def find_view_by_id(self, view_id):
+        url = "/MAPPINGVIEW/" + view_id
+        result = self.call(url, None, "GET")
+
+        msg = _('Change hostlun id error.')
+        self._assert_rest_result(result, msg)
+        if 'data' in result:
+            return result["data"]["AVAILABLEHOSTLUNIDLIST"]

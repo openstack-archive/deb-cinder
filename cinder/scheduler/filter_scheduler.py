@@ -272,6 +272,10 @@ class FilterScheduler(driver.Scheduler):
             filter_properties = {}
         self._populate_retry(filter_properties, resource_properties)
 
+        if resource_type is None:
+            msg = _("volume_type cannot be None")
+            raise exception.InvalidVolumeType(reason=msg)
+
         filter_properties.update({'context': context,
                                   'request_spec': request_spec,
                                   'config_options': config_options,
@@ -393,7 +397,10 @@ class FilterScheduler(driver.Scheduler):
                 new_weighed_hosts = []
                 for host1 in weighed_hosts:
                     for host2 in temp_weighed_hosts:
-                        if host1.obj.host == host2.obj.host:
+                        # Should schedule creation of CG on backend level,
+                        # not pool level.
+                        if (utils.extract_host(host1.obj.host) ==
+                                utils.extract_host(host2.obj.host)):
                             new_weighed_hosts.append(host1)
                 weighed_hosts = new_weighed_hosts
                 if not weighed_hosts:
@@ -406,6 +413,16 @@ class FilterScheduler(driver.Scheduler):
     def _schedule(self, context, request_spec, filter_properties=None):
         weighed_hosts = self._get_weighted_candidates(context, request_spec,
                                                       filter_properties)
+        # When we get the weighed_hosts, we clear those hosts whose backend
+        # is not same as consistencygroup's backend.
+        CG_backend = request_spec.get('CG_backend')
+        if weighed_hosts and CG_backend:
+            # Get host name including host@backend#pool info from
+            # weighed_hosts.
+            for host in weighed_hosts[::-1]:
+                backend = utils.extract_host(host.obj.host)
+                if backend != CG_backend:
+                    weighed_hosts.remove(host)
         if not weighed_hosts:
             LOG.warning(_LW('No weighed hosts found for volume '
                             'with properties: %s'),

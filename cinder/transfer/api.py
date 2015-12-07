@@ -25,6 +25,7 @@ import os
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+import six
 
 from cinder.db import base
 from cinder import exception
@@ -98,9 +99,15 @@ class API(base.Base):
 
     def _get_crypt_hash(self, salt, auth_key):
         """Generate a random hash based on the salt and the auth key."""
-        return hmac.new(str(salt),
-                        str(auth_key),
-                        hashlib.sha1).hexdigest()
+        if not isinstance(salt, (six.binary_type, six.text_type)):
+            salt = str(salt)
+        if isinstance(salt, six.text_type):
+            salt = salt.encode('utf-8')
+        if not isinstance(auth_key, (six.binary_type, six.text_type)):
+            auth_key = str(auth_key)
+        if isinstance(auth_key, six.text_type):
+            auth_key = auth_key.encode('utf-8')
+        return hmac.new(salt, auth_key, hashlib.sha1).hexdigest()
 
     def create(self, context, volume_id, display_name):
         """Creates an entry in the transfers table."""
@@ -158,8 +165,11 @@ class API(base.Base):
                                                "transfer.accept.start")
 
         try:
-            reservations = QUOTAS.reserve(context, volumes=1,
-                                          gigabytes=vol_ref['size'])
+            reserve_opts = {'volumes': 1, 'gigabytes': vol_ref.size}
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
+                                        vol_ref.volume_type_id)
+            reservations = QUOTAS.reserve(context, **reserve_opts)
         except exception.OverQuota as e:
             overs = e.kwargs['overs']
             usages = e.kwargs['usages']
@@ -189,10 +199,13 @@ class API(base.Base):
                 raise exception.VolumeLimitExceeded(allowed=quotas['volumes'])
         try:
             donor_id = vol_ref['project_id']
+            reserve_opts = {'volumes': -1, 'gigabytes': -vol_ref.size}
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
+                                        vol_ref.volume_type_id)
             donor_reservations = QUOTAS.reserve(context.elevated(),
                                                 project_id=donor_id,
-                                                volumes=-1,
-                                                gigabytes=-vol_ref['size'])
+                                                **reserve_opts)
         except Exception:
             donor_reservations = None
             LOG.exception(_LE("Failed to update quota donating volume"

@@ -17,15 +17,12 @@ from oslo_config import cfg
 
 cloudbyte_connection_opts = [
     cfg.StrOpt("cb_apikey",
-               default=None,
                help="Driver will use this API key to authenticate "
                     "against the CloudByte storage's management interface."),
     cfg.StrOpt("cb_account_name",
-               default=None,
                help="CloudByte storage specific account name. "
                     "This maps to a project name in OpenStack."),
     cfg.StrOpt("cb_tsm_name",
-               default=None,
                help="This corresponds to the name of "
                     "Tenant Storage Machine (TSM) in CloudByte storage. "
                     "A volume will be created in this TSM."),
@@ -50,7 +47,6 @@ cloudbyte_connection_opts = [
                     "deletion in CloudByte storage by making "
                     "this many number of attempts."),
     cfg.StrOpt("cb_auth_group",
-               default="None",
                help="This corresponds to the discovery authentication "
                     "group in CloudByte storage. "
                     "Chap users are added to this group. "
@@ -85,7 +81,18 @@ cloudbyte_create_volume_opts = [
                 help="These values will be used for CloudByte storage's "
                      "createVolume API call."), ]
 
+cloudbyte_update_volume_opts = [
+    cfg.ListOpt('cb_update_qos_group',
+                default=["iops", "latency", "graceallowed"],
+                help="These values will be used for CloudByte storage's "
+                     "updateQosGroup API call."),
+    cfg.ListOpt('cb_update_file_system',
+                default=["compression", "sync", "noofcopies", "readonly"],
+                help="These values will be used for CloudByte storage's "
+                     "updateFileSystem API call."), ]
+
 CONF = cfg.CONF
 CONF.register_opts(cloudbyte_add_qosgroup_opts)
 CONF.register_opts(cloudbyte_create_volume_opts)
 CONF.register_opts(cloudbyte_connection_opts)
+CONF.register_opts(cloudbyte_update_volume_opts)

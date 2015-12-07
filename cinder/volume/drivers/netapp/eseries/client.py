@@ -105,6 +105,13 @@ class RestClient(WebserviceClient):
     RESOURCE_PATHS = {
         'volumes': '/storage-systems/{system-id}/volumes',
         'volume': '/storage-systems/{system-id}/volumes/{object-id}',
+        'pool_operation_progress':
+            '/storage-systems/{system-id}/storage-pools/{object-id}'
+            '/action-progress',
+        'volume_expand':
+            '/storage-systems/{system-id}/volumes/{object-id}/expand',
+        'thin_volume_expand':
+            '/storage-systems/{system-id}/thin-volumes/{object-id}/expand',
         'ssc_volumes': '/storage-systems/{system-id}/ssc/volumes',
         'ssc_volume': '/storage-systems/{system-id}/ssc/volumes/{object-id}'
     }
@@ -267,6 +274,13 @@ class RestClient(WebserviceClient):
             # Response code 422 returns error code and message
             if status_code == 422:
                 msg = _("Response error - %s.") % response.text
+                json_response = response.json()
+                if json_response is not None:
+                    ret_code = json_response.get('retcode', '')
+                    if ret_code == '30' or ret_code == 'authFailPassword':
+                        msg = _("The storage array password for %s is "
+                                "incorrect, please update the configured "
+                                "password.") % self._system_id
             else:
                 msg = _("Response error code - %s.") % status_code
             raise es_exception.WebServiceException(msg,
@@ -396,20 +410,38 @@ class RestClient(WebserviceClient):
         data = {'name': label}
         return self._invoke('POST', path, data, **{'object-id': object_id})
 
-    def expand_volume(self, object_id, new_capacity, capacity_unit='gb'):
-        """Increase the capacity of a volume"""
-        if not self.features.SSC_API_V2:
-            msg = _("E-series proxy API version %(current_version)s does "
-                    "not support this expansion API. The proxy"
-                    " version must be at at least %(min_version)s")
-            min_version = self.features.SSC_API_V2.minimum_version
-            msg_args = {'current_version': self.api_version,
-                        'min_version': min_version}
-            raise exception.NetAppDriverException(msg % msg_args)
+    def get_pool_operation_progress(self, object_id):
+        """Retrieve the progress long-running operations on a storage pool
 
-        path = self.RESOURCE_PATHS.get('ssc_volume')
-        data = {'newSize': new_capacity, 'sizeUnit': capacity_unit}
-        return self._invoke('POST', path, data, **{'object-id': object_id})
+        Example:
+        [
+            {
+                "volumeRef": "3232....", # Volume being referenced
+                "progressPercentage": 0, # Approxmate percent complete
+                "estimatedTimeToCompletion": 0, # ETA in minutes
+                "currentAction": "none" # Current volume action
+            }
+            ...
+        ]
+
+        :param object_id: A pool id
+        :returns: A dict representing the action progress
+        """
+        path = self.RESOURCE_PATHS.get('pool_operation_progress')
+        return self._invoke('GET', path, **{'object-id': object_id})
+
+    def expand_volume(self, object_id, new_capacity, thin_provisioned,
+                      capacity_unit='gb'):
+        """Increase the capacity of a volume"""
+        if thin_provisioned:
+            path = self.RESOURCE_PATHS.get('thin_volume_expand')
+            data = {'newVirtualSize': new_capacity, 'sizeUnit': capacity_unit,
+                    'newRepositorySize': new_capacity}
+            return self._invoke('POST', path, data, **{'object-id': object_id})
+        else:
+            path = self.RESOURCE_PATHS.get('volume_expand')
+            data = {'expansionSize': new_capacity, 'sizeUnit': capacity_unit}
+            return self._invoke('POST', path, data, **{'object-id': object_id})
 
     def get_volume_mappings(self):
         """Creates volume mapping on array."""

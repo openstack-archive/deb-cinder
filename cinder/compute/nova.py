@@ -39,17 +39,13 @@ nova_opts = [
                default='compute:Compute Service:adminURL',
                help='Same as nova_catalog_info, but for admin endpoint.'),
     cfg.StrOpt('nova_endpoint_template',
-               default=None,
                help='Override service catalog lookup with template for nova '
                     'endpoint e.g. http://localhost:8774/v2/%(project_id)s'),
     cfg.StrOpt('nova_endpoint_admin_template',
-               default=None,
                help='Same as nova_endpoint_template, but for admin endpoint.'),
     cfg.StrOpt('os_region_name',
-               default=None,
                help='Region name of this node'),
     cfg.StrOpt('nova_ca_certificates_file',
-               default=None,
                help='Location of ca certificates file to use for nova client '
                     'requests.'),
     cfg.BoolOpt('nova_api_insecure',
@@ -66,7 +62,8 @@ LOG = logging.getLogger(__name__)
 NOVA_API_VERSION = 2
 
 nova_extensions = [ext for ext in nova_client.discover_extensions(2)
-                   if ext.name == "assisted_volume_snapshots"]
+                   if ext.name in ("assisted_volume_snapshots",
+                                   "list_extensions")]
 
 
 def novaclient(context, admin_endpoint=False, privileged_user=False,
@@ -162,7 +159,7 @@ class API(base.Base):
 
     def has_extension(self, context, extension, timeout=None):
         try:
-            nova_exts = nova_client.discover_extensions(NOVA_API_VERSION)
+            nova_exts = novaclient(context).list_extensions.show_all()
         except request_exceptions.Timeout:
             raise exception.APITimeout(service='Nova')
         return extension in [e.name for e in nova_exts]

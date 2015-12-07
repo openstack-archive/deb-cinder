@@ -16,7 +16,7 @@
 
 """Handles all requests relating to volumes."""
 
-
+import ast
 import collections
 import datetime
 import functools
@@ -52,12 +52,13 @@ from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
 
 
-allow_force_upload = cfg.BoolOpt('enable_force_upload',
-                                 default=False,
-                                 help='Enables the Force option on '
-                                      'upload_to_image. This enables '
-                                      'running upload_volume on in-use '
-                                      'volumes for backends that support it.')
+allow_force_upload_opt = cfg.BoolOpt('enable_force_upload',
+                                     default=False,
+                                     help='Enables the Force option on '
+                                          'upload_to_image. This enables '
+                                          'running upload_volume on in-use '
+                                          'volumes for backends that '
+                                          'support it.')
 volume_host_opt = cfg.BoolOpt('snapshot_same_host',
                               default=True,
                               help='Create volume from snapshot at the host '
@@ -73,7 +74,7 @@ az_cache_time_opt = cfg.IntOpt('az_cache_duration',
                                     'seconds')
 
 CONF = cfg.CONF
-CONF.register_opt(allow_force_upload)
+CONF.register_opt(allow_force_upload_opt)
 CONF.register_opt(volume_host_opt)
 CONF.register_opt(volume_same_az_opt)
 CONF.register_opt(az_cache_time_opt)
@@ -106,12 +107,36 @@ def check_policy(context, action, target_obj=None):
 
     if isinstance(target_obj, objects_base.CinderObject):
         # Turn object into dict so target.update can work
-        target.update(target_obj.obj_to_primitive() or {})
+        target.update(
+            target_obj.obj_to_primitive()['versioned_object.data'] or {})
     else:
         target.update(target_obj or {})
 
     _action = 'volume:%s' % action
     cinder.policy.enforce(context, _action, target)
+
+
+def valid_replication_volume(func):
+    """Check that the volume is capable of replication.
+
+    This decorator requires the first 3 args of the wrapped function
+    to be (self, context, volume)
+    """
+    @functools.wraps(func)
+    def wrapped(self, context, volume, *args, **kwargs):
+        rep_capable = False
+        if volume.get('volume_type_id', None):
+            extra_specs = volume_types.get_volume_type_extra_specs(
+                volume.get('volume_type_id'))
+            rep_capable = extra_specs.get('replication_enabled',
+                                          False) == "<is> True"
+        if not rep_capable:
+            msg = _("Volume is not a replication enabled volume, "
+                    "replication operations can only be performed "
+                    "on volumes that are of type replication_enabled.")
+            raise exception.InvalidVolume(reason=msg)
+        return func(self, context, volume, *args, **kwargs)
+    return wrapped
 
 
 class API(base.Base):
@@ -286,7 +311,7 @@ class API(base.Base):
             'snapshot': snapshot,
             'image_id': image_id,
             'raw_volume_type': volume_type,
-            'metadata': metadata,
+            'metadata': metadata or {},
             'raw_availability_zone': availability_zone,
             'source_volume': source_volume,
             'scheduler_hints': scheduler_hints,
@@ -347,7 +372,7 @@ class API(base.Base):
                 reservations = None
                 LOG.exception(_LE("Failed to update quota while "
                                   "deleting volume."))
-            self.db.volume_destroy(context.elevated(), volume_id)
+            volume.destroy()
 
             if reservations:
                 QUOTAS.commit(context, reservations, project_id=project_id)
@@ -409,17 +434,19 @@ class API(base.Base):
         # because the volume cannot be decrypted without its key.
         encryption_key_id = volume.get('encryption_key_id', None)
         if encryption_key_id is not None:
-            self.key_manager.delete_key(context, encryption_key_id)
+            try:
+                self.key_manager.delete_key(context, encryption_key_id)
+            except Exception as e:
+                msg = _("Unable to delete encrypted volume: %s.") % e.msg
+                raise exception.InvalidVolume(reason=msg)
 
-        now = timeutils.utcnow()
-        vref = self.db.volume_update(context,
-                                     volume_id,
-                                     {'status': 'deleting',
-                                      'terminated_at': now})
+        volume.status = 'deleting'
+        volume.terminated_at = timeutils.utcnow()
+        volume.save()
 
         self.volume_rpcapi.delete_volume(context, volume, unmanage_only)
         LOG.info(_LI("Delete volume request issued successfully."),
-                 resource=vref)
+                 resource=volume)
 
     @wrap_check_policy
     def update(self, context, volume, fields):
@@ -429,19 +456,26 @@ class API(base.Base):
             msg = _("The volume cannot be updated during maintenance.")
             raise exception.InvalidVolume(reason=msg)
 
-        vref = self.db.volume_update(context, volume['id'], fields)
-        LOG.info(_LI("Volume updated successfully."), resource=vref)
+        # NOTE(thangp): Update is called by various APIs, some of which are
+        # not yet using oslo_versionedobjects.  We need to handle the case
+        # where volume is either a dict or a oslo_versionedobject.
+        if isinstance(volume, objects_base.CinderObject):
+            volume.update(fields)
+            volume.save()
+            LOG.info(_LI("Volume updated successfully."), resource=volume)
+        else:
+            vref = self.db.volume_update(context, volume['id'], fields)
+            LOG.info(_LI("Volume updated successfully."), resource=vref)
 
     def get(self, context, volume_id, viewable_admin_meta=False):
-        rv = self.db.volume_get(context, volume_id)
-
-        volume = dict(rv)
+        volume = objects.Volume.get_by_id(context, volume_id)
 
         if viewable_admin_meta:
             ctxt = context.elevated()
             admin_metadata = self.db.volume_admin_metadata_get(ctxt,
                                                                volume_id)
-            volume['volume_admin_metadata'] = admin_metadata
+            volume.admin_metadata = admin_metadata
+            volume.obj_reset_changes()
 
         try:
             check_policy(context, 'get', volume)
@@ -449,7 +483,7 @@ class API(base.Base):
             # raise VolumeNotFound instead to make sure Cinder behaves
             # as it used to
             raise exception.VolumeNotFound(volume_id=volume_id)
-        LOG.info(_LI("Volume info retrieved successfully."), resource=rv)
+        LOG.info(_LI("Volume info retrieved successfully."), resource=volume)
         return volume
 
     def get_all(self, context, marker=None, limit=None, sort_keys=None,
@@ -485,21 +519,18 @@ class API(base.Base):
         if context.is_admin and allTenants:
             # Need to remove all_tenants to pass the filtering below.
             del filters['all_tenants']
-            volumes = self.db.volume_get_all(context, marker, limit,
-                                             sort_keys=sort_keys,
-                                             sort_dirs=sort_dirs,
-                                             filters=filters,
-                                             offset=offset)
+            volumes = objects.VolumeList.get_all(context, marker, limit,
+                                                 sort_keys=sort_keys,
+                                                 sort_dirs=sort_dirs,
+                                                 filters=filters,
+                                                 offset=offset)
         else:
             if viewable_admin_meta:
                 context = context.elevated()
-            volumes = self.db.volume_get_all_by_project(context,
-                                                        context.project_id,
-                                                        marker, limit,
-                                                        sort_keys=sort_keys,
-                                                        sort_dirs=sort_dirs,
-                                                        filters=filters,
-                                                        offset=offset)
+            volumes = objects.VolumeList.get_all_by_project(
+                context, context.project_id, marker, limit,
+                sort_keys=sort_keys, sort_dirs=sort_dirs, filters=filters,
+                offset=offset)
 
         LOG.info(_LI("Get all volumes completed successfully."))
         return volumes
@@ -516,9 +547,9 @@ class API(base.Base):
 
     def get_volume(self, context, volume_id):
         check_policy(context, 'get_volume')
-        vref = self.db.volume_get(context, volume_id)
-        LOG.info(_LI("Volume retrieved successfully."), resource=vref)
-        return dict(vref)
+        volume = objects.Volume.get_by_id(context, volume_id)
+        LOG.info(_LI("Volume retrieved successfully."), resource=volume)
+        return volume
 
     def get_all_snapshots(self, context, search_opts=None, marker=None,
                           limit=None, sort_keys=None, sort_dirs=None,
@@ -538,7 +569,7 @@ class API(base.Base):
                 context, context.project_id, search_opts, marker, limit,
                 sort_keys, sort_dirs, offset)
 
-        LOG.info(_LI("Get all snaphsots completed successfully."))
+        LOG.info(_LI("Get all snapshots completed successfully."))
         return snapshots
 
     @wrap_check_policy
@@ -797,7 +828,7 @@ class API(base.Base):
         except Exception:
             with excutils.save_and_reraise_exception():
                 try:
-                    if hasattr(snapshot, 'id'):
+                    if snapshot.obj_attr_is_set('id'):
                         snapshot.destroy()
                 finally:
                     QUOTAS.rollback(context, reservations)
@@ -1016,26 +1047,9 @@ class API(base.Base):
             msg = _("The volume metadata cannot be updated when the volume "
                     "is in maintenance mode.")
             raise exception.InvalidVolume(reason=msg)
-        if delete:
-            _metadata = metadata
-        else:
-            if meta_type == common.METADATA_TYPES.user:
-                orig_meta = self.get_volume_metadata(context, volume)
-            elif meta_type == common.METADATA_TYPES.image:
-                try:
-                    orig_meta = self.get_volume_image_metadata(context,
-                                                               volume)
-                except exception.GlanceMetadataNotFound:
-                    orig_meta = {}
-            else:
-                raise exception.InvalidMetadataType(metadata_type=meta_type,
-                                                    id=volume['id'])
-            _metadata = orig_meta.copy()
-            _metadata.update(metadata)
-
-        self._check_metadata_properties(_metadata)
+        self._check_metadata_properties(metadata)
         db_meta = self.db.volume_metadata_update(context, volume['id'],
-                                                 _metadata,
+                                                 metadata,
                                                  delete,
                                                  meta_type)
 
@@ -1044,17 +1058,6 @@ class API(base.Base):
         LOG.info(_LI("Update volume metadata completed successfully."),
                  resource=volume)
         return db_meta
-
-    def get_volume_metadata_value(self, volume, key):
-        """Get value of particular metadata key."""
-        metadata = volume.get('volume_metadata')
-        if metadata:
-            for i in volume['volume_metadata']:
-                if i['key'] == key:
-                    return i['value']
-        LOG.info(_LI("Get volume metadata key completed successfully."),
-                 resource=volume)
-        return None
 
     @wrap_check_policy
     def get_volume_admin_metadata(self, context, volume):
@@ -1073,23 +1076,15 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
-        if delete:
-            _metadata = metadata
-        else:
-            orig_meta = self.get_volume_admin_metadata(context, volume)
-            _metadata = orig_meta.copy()
-            _metadata.update(metadata)
-
-        self._check_metadata_properties(_metadata)
-
-        self.db.volume_admin_metadata_update(context, volume['id'],
-                                             _metadata, delete)
+        self._check_metadata_properties(metadata)
+        db_meta = self.db.volume_admin_metadata_update(context, volume['id'],
+                                                       metadata, delete)
 
         # TODO(jdg): Implement an RPC call for drivers that may use this info
 
         LOG.info(_LI("Update volume admin metadata completed successfully."),
                  resource=volume)
-        return _metadata
+        return db_meta
 
     def get_snapshot_metadata(self, context, snapshot):
         """Get all metadata associated with a snapshot."""
@@ -1153,6 +1148,15 @@ class API(base.Base):
         LOG.info(_LI("Get volume image-metadata completed successfully."),
                  resource=volume)
         return {meta_entry.key: meta_entry.value for meta_entry in db_data}
+
+    def get_list_volumes_image_metadata(self, context, volume_id_list):
+        db_data = self.db.volume_glance_metadata_list_get(context,
+                                                          volume_id_list)
+        results = collections.defaultdict(dict)
+        for meta_entry in db_data:
+            results[meta_entry['volume_id']].update({meta_entry['key']:
+                                                     meta_entry['value']})
+        return results
 
     def _check_volume_availability(self, volume, force):
         """Check if the volume can be used."""
@@ -1219,27 +1223,27 @@ class API(base.Base):
 
     @wrap_check_policy
     def extend(self, context, volume, new_size):
-        if volume['status'] != 'available':
+        if volume.status != 'available':
             msg = _('Volume %(vol_id)s status must be available '
                     'to extend, but current status is: '
-                    '%(vol_status)s.') % {'vol_id': volume['id'],
-                                          'vol_status': volume['status']}
+                    '%(vol_status)s.') % {'vol_id': volume.id,
+                                          'vol_status': volume.status}
             raise exception.InvalidVolume(reason=msg)
 
-        size_increase = (int(new_size)) - volume['size']
+        size_increase = (int(new_size)) - volume.size
         if size_increase <= 0:
             msg = (_("New size for extend must be greater "
                      "than current size. (current: %(size)s, "
                      "extended: %(new_size)s).") % {'new_size': new_size,
-                                                    'size': volume['size']})
+                                                    'size': volume.size})
             raise exception.InvalidInput(reason=msg)
 
         try:
             reserve_opts = {'gigabytes': size_increase}
             QUOTAS.add_volume_type_opts(context, reserve_opts,
-                                        volume.get('volume_type_id'))
+                                        volume.volume_type_id)
             reservations = QUOTAS.reserve(context,
-                                          project_id=volume['project_id'],
+                                          project_id=volume.project_id,
                                           **reserve_opts)
         except exception.OverQuota as exc:
             usages = exc.kwargs['usages']
@@ -1365,6 +1369,19 @@ class API(base.Base):
         # This is a volume swap initiated by Nova, not Cinder. Nova expects
         # us to return the new_volume_id.
         if not (volume['migration_status'] or new_volume['migration_status']):
+            # Don't need to do migration, but still need to finish the
+            # volume attach and detach so volumes don't end in 'attaching'
+            # and 'detaching' state
+            attachments = volume['volume_attachment']
+            for attachment in attachments:
+                self.detach(context, volume, attachment['id'])
+
+                self.attach(context, new_volume,
+                            attachment['instance_uuid'],
+                            attachment['attached_host'],
+                            attachment['mountpoint'],
+                            'rw')
+
             return new_volume['id']
 
         if not volume['migration_status']:
@@ -1404,18 +1421,18 @@ class API(base.Base):
     @wrap_check_policy
     def retype(self, context, volume, new_type, migration_policy=None):
         """Attempt to modify the type associated with an existing volume."""
-        if volume['status'] not in ['available', 'in-use']:
+        if volume.status not in ['available', 'in-use']:
             msg = _('Unable to update type due to incorrect status: '
                     '%(vol_status)s on volume: %(vol_id)s. Volume status '
                     'must be available or '
-                    'in-use.') % {'vol_status': volume['status'],
-                                  'vol_id': volume['id']}
+                    'in-use.') % {'vol_status': volume.status,
+                                  'vol_id': volume.id}
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
         if self._is_volume_migrating(volume):
             msg = (_("Volume %s is already part of an active migration.")
-                   % volume['id'])
+                   % volume.id)
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
@@ -1425,8 +1442,7 @@ class API(base.Base):
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
 
-        cg_id = volume.get('consistencygroup_id', None)
-        if cg_id:
+        if volume.consistencygroup_id:
             msg = _("Volume must not be part of a consistency group.")
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
@@ -1448,16 +1464,16 @@ class API(base.Base):
         vol_type_qos_id = vol_type['qos_specs_id']
 
         old_vol_type = None
-        old_vol_type_id = volume['volume_type_id']
+        old_vol_type_id = volume.volume_type_id
         old_vol_type_qos_id = None
 
         # Error if the original and new type are the same
-        if volume['volume_type_id'] == vol_type_id:
+        if volume.volume_type_id == vol_type_id:
             msg = _('New volume_type same as original: %s.') % new_type
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
 
-        if volume['volume_type_id']:
+        if volume.volume_type_id:
             old_vol_type = volume_types.get_volume_type(
                 context, old_vol_type_id)
             old_vol_type_qos_id = old_vol_type['qos_specs_id']
@@ -1474,14 +1490,14 @@ class API(base.Base):
         # We don't support changing QoS at the front-end yet for in-use volumes
         # TODO(avishay): Call Nova to change QoS setting (libvirt has support
         # - virDomainSetBlockIoTune() - Nova does not have support yet).
-        if (volume['status'] != 'available' and
+        if (volume.status != 'available' and
                 old_vol_type_qos_id != vol_type_qos_id):
             for qos_id in [old_vol_type_qos_id, vol_type_qos_id]:
                 if qos_id:
                     specs = qos_specs.get_qos_specs(context.elevated(), qos_id)
                     if specs['consumer'] != 'back-end':
                         msg = _('Retype cannot change front-end qos specs for '
-                                'in-use volume: %s.') % volume['id']
+                                'in-use volume: %s.') % volume.id
                         raise exception.InvalidInput(reason=msg)
 
         # We're checking here in so that we can report any quota issues as
@@ -1491,17 +1507,17 @@ class API(base.Base):
                                                                vol_type_id)
 
         self.update(context, volume, {'status': 'retyping',
-                                      'previous_status': volume['status']})
+                                      'previous_status': volume.status})
 
         request_spec = {'volume_properties': volume,
-                        'volume_id': volume['id'],
+                        'volume_id': volume.id,
                         'volume_type': vol_type,
                         'migration_policy': migration_policy,
                         'quota_reservations': reservations}
 
-        self.scheduler_rpcapi.retype(context, CONF.volume_topic, volume['id'],
+        self.scheduler_rpcapi.retype(context, CONF.volume_topic, volume.id,
                                      request_spec=request_spec,
-                                     filter_properties={})
+                                     filter_properties={}, volume=volume)
         LOG.info(_LI("Retype volume request issued successfully."),
                  resource=volume)
 
@@ -1561,8 +1577,8 @@ class API(base.Base):
                                  metadata=None):
         host = volume_utils.extract_host(volume['host'])
         try:
-            self.db.service_get_by_host_and_topic(
-                context.elevated(), host, CONF.volume_topic)
+            objects.Service.get_by_host_and_topic(context.elevated(), host,
+                                                  CONF.volume_topic)
         except exception.ServiceNotFound:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Unable to find service: %(service)s for '
@@ -1589,8 +1605,8 @@ class API(base.Base):
     # now they're a special resource, so no.
 
     @wrap_check_policy
+    @valid_replication_volume
     def enable_replication(self, ctxt, volume):
-
         # NOTE(jdg): details like sync vs async
         # and replica count are to be set via the
         # volume-type and config files.
@@ -1614,7 +1630,7 @@ class API(base.Base):
         if rep_status not in valid_rep_status:
             msg = (_("Invalid status to enable replication. "
                      "valid states are: %(valid_states)s, "
-                     "current replication-state is: %(curr_state)s."),
+                     "current replication-state is: %(curr_state)s.") %
                    {'valid_states': valid_rep_status,
                     'curr_state': rep_status})
 
@@ -1626,6 +1642,7 @@ class API(base.Base):
         self.volume_rpcapi.enable_replication(ctxt, vref)
 
     @wrap_check_policy
+    @valid_replication_volume
     def disable_replication(self, ctxt, volume):
 
         valid_disable_status = ['disabled', 'enabled']
@@ -1638,7 +1655,7 @@ class API(base.Base):
         if rep_status not in valid_disable_status:
             msg = (_("Invalid status to disable replication. "
                      "valid states are: %(valid_states)s, "
-                     "current replication-state is: %(curr_state)s."),
+                     "current replication-state is: %(curr_state)s.") %
                    {'valid_states': valid_disable_status,
                     'curr_state': rep_status})
 
@@ -1651,6 +1668,7 @@ class API(base.Base):
         self.volume_rpcapi.disable_replication(ctxt, vref)
 
     @wrap_check_policy
+    @valid_replication_volume
     def failover_replication(self,
                              ctxt,
                              volume,
@@ -1667,7 +1685,7 @@ class API(base.Base):
         if rep_status not in valid_failover_status:
             msg = (_("Invalid status to failover replication. "
                      "valid states are: %(valid_states)s, "
-                     "current replication-state is: %(curr_state)s."),
+                     "current replication-state is: %(curr_state)s.") %
                    {'valid_states': valid_failover_status,
                     'curr_state': rep_status})
 
@@ -1683,6 +1701,7 @@ class API(base.Base):
                                                 secondary)
 
     @wrap_check_policy
+    @valid_replication_volume
     def list_replication_targets(self, ctxt, volume):
 
         # NOTE(jdg): This collects info for the specified volume
@@ -1690,6 +1709,17 @@ class API(base.Base):
         # also, would be worth having something at a backend/host
         # level to show an admin how a backend is configured.
         return self.volume_rpcapi.list_replication_targets(ctxt, volume)
+
+    def check_volume_filters(self, filters):
+        booleans = self.db.get_booleans_for_table('volume')
+        for k, v in filters.iteritems():
+            try:
+                if k in booleans:
+                    filters[k] = bool(v)
+                else:
+                    filters[k] = ast.literal_eval(v)
+            except (ValueError, SyntaxError):
+                LOG.debug('Could not evaluate value %s, assuming string', v)
 
 
 class HostAPI(base.Base):

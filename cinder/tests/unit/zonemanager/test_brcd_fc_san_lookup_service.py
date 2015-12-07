@@ -93,8 +93,8 @@ class TestBrcdFCSanLookupService(brcd_lookup.BrcdFCSanLookupService,
         fc_fabric_opts.append(cfg.StrOpt('fc_fabric_password',
                                          default='password', help='',
                                          secret=True))
-        fc_fabric_opts.append(cfg.IntOpt('fc_fabric_port',
-                                         default=22, help=''))
+        fc_fabric_opts.append(cfg.PortOpt('fc_fabric_port',
+                                          default=22, help=''))
         fc_fabric_opts.append(cfg.StrOpt('principal_switch_wwn',
                                          default='100000051e55a100', help=''))
         config = conf.Configuration(fc_fabric_opts, 'BRCD_FAB_2')
@@ -111,7 +111,7 @@ class TestBrcdFCSanLookupService(brcd_lookup.BrcdFCSanLookupService,
         get_nameserver_info_mock.return_value = parsed_switch_port_wwns
         device_map = self.get_device_mapping_from_network(
             initiator_list, target_list)
-        self.assertDictMatch(device_map, _device_map_to_verify)
+        self.assertDictMatch(_device_map_to_verify, device_map)
 
     @mock.patch.object(brcd_lookup.BrcdFCSanLookupService, '_get_switch_data')
     def test_get_nameserver_info(self, get_switch_data_mock):

@@ -116,7 +116,6 @@ class FlashSystemISCSIDriverTestCase(test.TestCase):
                            'san_login': 'username',
                            'san_password': 'password',
                            'flashsystem_connection_protocol': 'iSCSI',
-                           'flashsystem_multipath_enabled': False,
                            'flashsystem_multihostmap_enabled': True,
                            'iscsi_ip_address': '192.168.1.10',
                            'flashsystem_iscsi_portid': 1}
@@ -261,6 +260,4 @@ class FlashSystemISCSIDriverTestCase(test.TestCase):
         self.driver.delete_volume(vol2)
 
         # case 4: If there is no vdisk mapped to host, host should be removed
-        self.assertEqual(
-            None,
-            self.driver._get_host_from_connector(self.connector))
+        self.assertIsNone(self.driver._get_host_from_connector(self.connector))

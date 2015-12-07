@@ -32,8 +32,8 @@ Programming HowTos and Tutorials
     drivers
     gmr
     replication
+    migration
     api.apache
-
 
 Background Concepts for Cinder
 ------------------------------
@@ -53,6 +53,7 @@ Other Resources
    launchpad
    gerrit
    jenkins
+   releasenotes
 
 API Reference
 -------------
@@ -74,7 +75,6 @@ Module Reference
    scheduler
    fakes
    cinder
-
 
 Indices and tables
 ------------------

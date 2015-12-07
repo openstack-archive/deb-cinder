@@ -282,7 +282,8 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
                          'online': True, 'pool-name': 'default',
                          'size': 1073741824, 'quota': 1073741824,
                          'perfpol-name': 'default', 'description': '',
-                         'agent-type': 5, 'encryptionAttr': {'cipher': 3}},
+                         'agent-type': 5, 'encryptionAttr': {'cipher': 3},
+                         'multi-initiator': 'false'},
                 'sid': 'a9b9aba7'})
 
     @mock.patch(NIMBLE_URLLIB2)
@@ -291,8 +292,9 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
                        mock.Mock(return_value=[]))
     @mock.patch.object(volume_types, 'get_volume_type_extra_specs',
                        mock.Mock(type_id=FAKE_TYPE_ID, return_value={
-                                 'nimble:perfpol-name': 'default',
-                                 'nimble:encryption': 'yes'}))
+                           'nimble:perfpol-name': 'default',
+                           'nimble:encryption': 'yes',
+                           'nimble:multi-initiator': 'false'}))
     @NimbleDriverBaseTestCase.client_mock_decorator(create_configuration(
         'nimble', 'nimble_pass', '10.18.108.55', 'default', '*'))
     def test_create_volume_encryption_positive(self):
@@ -323,7 +325,8 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
                          'online': True, 'pool-name': 'default',
                          'size': 1073741824, 'quota': 1073741824,
                          'perfpol-name': 'default', 'description': '',
-                         'agent-type': 5, 'encryptionAttr': {'cipher': 2}},
+                         'agent-type': 5, 'encryptionAttr': {'cipher': 2},
+                         'multi-initiator': 'false'},
                 'sid': 'a9b9aba7'})
 
     @mock.patch(NIMBLE_URLLIB2)
@@ -332,8 +335,9 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
                        mock.Mock(return_value=[]))
     @mock.patch.object(volume_types, 'get_volume_type_extra_specs',
                        mock.Mock(type_id=FAKE_TYPE_ID, return_value={
-                                 'nimble:perfpol-name': 'VMware ESX',
-                                 'nimble:encryption': 'no'}))
+                           'nimble:perfpol-name': 'VMware ESX',
+                           'nimble:encryption': 'no',
+                           'nimble:multi-initiator': 'false'}))
     @NimbleDriverBaseTestCase.client_mock_decorator(create_configuration(
         'nimble', 'nimble_pass', '10.18.108.55', 'default', '*'))
     def test_create_volume_perfpolicy_positive(self):
@@ -364,7 +368,51 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
                          'online': True, 'pool-name': 'default',
                          'size': 1073741824, 'quota': 1073741824,
                          'perfpol-name': 'VMware ESX', 'description': '',
-                         'agent-type': 5, 'encryptionAttr': {'cipher': 3}},
+                         'agent-type': 5, 'encryptionAttr': {'cipher': 3},
+                         'multi-initiator': 'false'},
+                'sid': 'a9b9aba7'})
+
+    @mock.patch(NIMBLE_URLLIB2)
+    @mock.patch(NIMBLE_CLIENT)
+    @mock.patch.object(obj_volume.VolumeList, 'get_all',
+                       mock.Mock(return_value=[]))
+    @mock.patch.object(volume_types, 'get_volume_type_extra_specs',
+                       mock.Mock(type_id=FAKE_TYPE_ID, return_value={
+                           'nimble:perfpol-name': 'default',
+                           'nimble:encryption': 'no',
+                           'nimble:multi-initiator': 'true'}))
+    @NimbleDriverBaseTestCase.client_mock_decorator(create_configuration(
+        'nimble', 'nimble_pass', '10.18.108.55', 'default', '*'))
+    def test_create_volume_multi_initiator_positive(self):
+        self.mock_client_service.service.createVol.return_value = \
+            FAKE_CREATE_VOLUME_POSITIVE_RESPONSE_PERFPOLICY
+        self.mock_client_service.service.getVolInfo.return_value = \
+            FAKE_GET_VOL_INFO_RESPONSE
+        self.mock_client_service.service.getNetConfig.return_value = \
+            FAKE_POSITIVE_NETCONFIG_RESPONSE
+
+        self.assertEqual(
+            {'provider_location': '172.18.108.21:3260 iqn.test 0',
+             'provider_auth': None},
+            self.driver.create_volume({'name': 'testvolume-perfpolicy',
+                                       'size': 1,
+                                       'volume_type_id': FAKE_TYPE_ID,
+                                       'display_name': '',
+                                       'display_description': ''}))
+
+        mock_volume_type = volume_types.get_volume_type_extra_specs
+        mock_volume_type.assert_called_once_with(FAKE_TYPE_ID)
+
+        self.mock_client_service.service.createVol.assert_called_once_with(
+            request={
+                'attr': {'snap-quota': sys.maxsize,
+                         'warn-level': 858993459,
+                         'name': 'testvolume-perfpolicy', 'reserve': 0,
+                         'online': True, 'pool-name': 'default',
+                         'size': 1073741824, 'quota': 1073741824,
+                         'perfpol-name': 'default', 'description': '',
+                         'agent-type': 5, 'encryptionAttr': {'cipher': 3},
+                         'multi-initiator': 'true'},
                 'sid': 'a9b9aba7'})
 
     @mock.patch(NIMBLE_URLLIB2)
@@ -468,6 +516,11 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
     @mock.patch(NIMBLE_CLIENT)
     @mock.patch.object(obj_volume.VolumeList, 'get_all',
                        mock.Mock(return_value=[]))
+    @mock.patch.object(volume_types, 'get_volume_type_extra_specs',
+                       mock.Mock(type_id=FAKE_TYPE_ID, return_value={
+                                 'nimble:perfpol-name': 'default',
+                                 'nimble:encryption': 'yes',
+                                 'nimble:multi-initiator': 'false'}))
     @NimbleDriverBaseTestCase.client_mock_decorator(create_configuration(
         'nimble', 'nimble_pass', '10.18.108.55', 'default', '*', False))
     @mock.patch(NIMBLE_RANDOM)
@@ -485,7 +538,8 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
             'provider_location': '172.18.108.21:3260 iqn.test 0',
             'provider_auth': None},
             self.driver.create_cloned_volume({'name': 'volume',
-                                              'size': 5},
+                                              'size': 5,
+                                              'volume_type_id': FAKE_TYPE_ID},
                                              {'name': 'testvolume',
                                               'size': 5}))
         expected_calls = [mock.call.service.snapVol(
@@ -503,6 +557,8 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
                              'reserve': 5368709120,
                              'online': True,
                              'warn-level': 4294967296,
+                             'encryptionAttr': {'cipher': 2},
+                             'multi-initiator': 'false',
                              'perfpol-name': 'default',
                              'agent-type': 5},
                     'name': 'testvolume',
@@ -670,7 +726,7 @@ class NimbleDriverVolumeTestCase(NimbleDriverBaseTestCase):
     def test_get_volume_stats(self):
         self.mock_client_service.service.getGroupConfig.return_value = \
             FAKE_POSITIVE_GROUP_CONFIG_RESPONSE
-        expected_res = {'driver_version': '2.0.0',
+        expected_res = {'driver_version': '2.0.2',
                         'vendor_name': 'Nimble',
                         'volume_backend_name': 'NIMBLE',
                         'storage_protocol': 'iSCSI',
@@ -739,6 +795,11 @@ class NimbleDriverSnapshotTestCase(NimbleDriverBaseTestCase):
     @mock.patch(NIMBLE_CLIENT)
     @mock.patch.object(obj_volume.VolumeList, 'get_all',
                        mock.Mock(return_value=[]))
+    @mock.patch.object(volume_types, 'get_volume_type_extra_specs',
+                       mock.Mock(type_id=FAKE_TYPE_ID, return_value={
+                                 'nimble:perfpol-name': 'default',
+                                 'nimble:encryption': 'yes',
+                                 'nimble:multi-initiator': 'false'}))
     @NimbleDriverBaseTestCase.client_mock_decorator(create_configuration(
         'nimble', 'nimble_pass', '10.18.108.55', 'default', '*'))
     def test_create_volume_from_snapshot(self):
@@ -753,7 +814,8 @@ class NimbleDriverSnapshotTestCase(NimbleDriverBaseTestCase):
             'provider_auth': None},
             self.driver.create_volume_from_snapshot(
                 {'name': 'clone-testvolume',
-                 'size': 2},
+                 'size': 2,
+                 'volume_type_id': FAKE_TYPE_ID},
                 {'volume_name': 'testvolume',
                  'name': 'testvolume-snap1',
                  'volume_size': 1}))
@@ -767,6 +829,8 @@ class NimbleDriverSnapshotTestCase(NimbleDriverBaseTestCase):
                                   'reserve': 0,
                                   'warn-level': 858993459,
                                   'perfpol-name': 'default',
+                                  'encryptionAttr': {'cipher': 2},
+                                  'multi-initiator': 'false',
                                   'agent-type': 5},
                          'name': 'testvolume',
                          'sid': 'a9b9aba7'}),

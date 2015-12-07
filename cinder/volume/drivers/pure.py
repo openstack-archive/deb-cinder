@@ -46,7 +46,6 @@ LOG = logging.getLogger(__name__)
 
 PURE_OPTS = [
     cfg.StrOpt("pure_api_token",
-               default=None,
                help="REST API authorization token."),
 ]
 
@@ -71,7 +70,7 @@ def log_debug_trace(f):
     def wrapper(*args, **kwargs):
         cls_name = args[0].__class__.__name__
         method_name = "%(cls_name)s.%(method)s" % {"cls_name": cls_name,
-                                                   "method": f.func_name}
+                                                   "method": f.__name__}
         LOG.debug("Enter " + method_name)
         result = f(*args, **kwargs)
         LOG.debug("Leave " + method_name)
@@ -400,7 +399,7 @@ class PureBaseVolumeDriver(san.SanDriver):
         return None, None
 
     @log_debug_trace
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         """Deletes a consistency group."""
 
         try:
@@ -447,7 +446,7 @@ class PureBaseVolumeDriver(san.SanDriver):
         return None, None, None
 
     @log_debug_trace
-    def create_cgsnapshot(self, context, cgsnapshot):
+    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
 
         cg_id = cgsnapshot.consistencygroup_id
@@ -482,7 +481,7 @@ class PureBaseVolumeDriver(san.SanDriver):
                                     "Snapshot: %s"), err.text)
 
     @log_debug_trace
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
 
         pgsnap_name = self._get_pgroup_snap_name(cgsnapshot)

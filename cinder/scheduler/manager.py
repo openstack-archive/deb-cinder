@@ -33,6 +33,7 @@ from cinder import exception
 from cinder import flow_utils
 from cinder.i18n import _, _LE
 from cinder import manager
+from cinder import objects
 from cinder import quota
 from cinder import rpc
 from cinder.scheduler.flows import create_volume
@@ -55,7 +56,7 @@ LOG = logging.getLogger(__name__)
 class SchedulerManager(manager.Manager):
     """Chooses a host to create volumes."""
 
-    RPC_API_VERSION = '1.8'
+    RPC_API_VERSION = '1.10'
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -116,15 +117,22 @@ class SchedulerManager(manager.Manager):
 
     def create_volume(self, context, topic, volume_id, snapshot_id=None,
                       image_id=None, request_spec=None,
-                      filter_properties=None):
+                      filter_properties=None, volume=None):
 
         self._wait_for_scheduler()
+
+        # FIXME(thangp): Remove this in v2.0 of RPC API.
+        if volume is None:
+            # For older clients, mimic the old behavior and look up the
+            # volume by its volume_id.
+            volume = objects.Volume.get_by_id(context, volume_id)
+
         try:
             flow_engine = create_volume.get_flow(context,
                                                  db, self.driver,
                                                  request_spec,
                                                  filter_properties,
-                                                 volume_id,
+                                                 volume,
                                                  snapshot_id,
                                                  image_id)
         except Exception:
@@ -174,7 +182,7 @@ class SchedulerManager(manager.Manager):
                                                      force_host_copy)
 
     def retype(self, context, topic, volume_id,
-               request_spec, filter_properties=None):
+               request_spec, filter_properties=None, volume=None):
         """Schedule the modification of a volume's type.
 
         :param context: the request context
@@ -182,9 +190,16 @@ class SchedulerManager(manager.Manager):
         :param volume_id: the ID of the volume to retype
         :param request_spec: parameters for this retype request
         :param filter_properties: parameters to filter by
+        :param volume: the volume object to retype
         """
 
         self._wait_for_scheduler()
+
+        # FIXME(thangp): Remove this in v2.0 of RPC API.
+        if volume is None:
+            # For older clients, mimic the old behavior and look up the
+            # volume by its volume_id.
+            volume = objects.Volume.get_by_id(context, volume_id)
 
         def _retype_volume_set_error(self, context, ex, request_spec,
                                      volume_ref, msg, reservations):
@@ -196,14 +211,13 @@ class SchedulerManager(manager.Manager):
             self._set_volume_state_and_notify('retype', volume_state,
                                               context, ex, request_spec, msg)
 
-        volume_ref = db.volume_get(context, volume_id)
         reservations = request_spec.get('quota_reservations')
         new_type = request_spec.get('volume_type')
         if new_type is None:
             msg = _('New volume type not specified in request_spec.')
             ex = exception.ParameterNotFound(param='volume_type')
             _retype_volume_set_error(self, context, ex, request_spec,
-                                     volume_ref, msg, reservations)
+                                     volume, msg, reservations)
 
         # Default migration policy is 'never'
         migration_policy = request_spec.get('migration_policy')
@@ -217,15 +231,15 @@ class SchedulerManager(manager.Manager):
         except exception.NoValidHost as ex:
             msg = (_("Could not find a host for volume %(volume_id)s with "
                      "type %(type_id)s.") %
-                   {'type_id': new_type['id'], 'volume_id': volume_id})
+                   {'type_id': new_type['id'], 'volume_id': volume.id})
             _retype_volume_set_error(self, context, ex, request_spec,
-                                     volume_ref, msg, reservations)
+                                     volume, msg, reservations)
         except Exception as ex:
             with excutils.save_and_reraise_exception():
                 _retype_volume_set_error(self, context, ex, request_spec,
-                                         volume_ref, None, reservations)
+                                         volume, None, reservations)
         else:
-            volume_rpcapi.VolumeAPI().retype(context, volume_ref,
+            volume_rpcapi.VolumeAPI().retype(context, volume,
                                              new_type['id'], tgt_host,
                                              migration_policy, reservations)
 

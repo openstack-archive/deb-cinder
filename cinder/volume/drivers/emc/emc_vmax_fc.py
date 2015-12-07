@@ -42,9 +42,10 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
         2.2.2 - Update Consistency Group
         2.2.3 - Pool aware scheduler(multi-pool) support
         2.2.4 - Create CG from CG snapshot
+        2.3   - Name change for MV and SG for FAST (bug #1515181)
     """
 
-    VERSION = "2.2.4"
+    VERSION = "2.3"
 
     def __init__(self, *args, **kwargs):
 
@@ -313,17 +314,16 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
         """Creates a consistencygroup."""
         self.common.create_consistencygroup(context, group)
 
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         """Deletes a consistency group."""
-        volumes = self.db.volume_get_all_by_group(context, group['id'])
         return self.common.delete_consistencygroup(
             context, group, volumes)
 
-    def create_cgsnapshot(self, context, cgsnapshot):
+    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
         return self.common.create_cgsnapshot(context, cgsnapshot, self.db)
 
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
         return self.common.delete_cgsnapshot(context, cgsnapshot, self.db)
 

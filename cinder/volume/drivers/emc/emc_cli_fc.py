@@ -58,6 +58,7 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
                 White list target ports support
                 Snap copy support
                 Support efficient non-disruptive backup
+        7.0.0 - Clone consistency group support
     """
 
     def __init__(self, *args, **kwargs):
@@ -219,7 +220,7 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
             'source-name':<lun name in VNX>
         }
         """
-        self.cli.manage_existing(volume, existing_ref)
+        return self.cli.manage_existing(volume, existing_ref)
 
     def manage_existing_get_size(self, volume, existing_ref):
         """Return size of volume to be managed by manage_existing."""
@@ -229,19 +230,20 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
         """Creates a consistencygroup."""
         return self.cli.create_consistencygroup(context, group)
 
-    def delete_consistencygroup(self, context, group):
+    def delete_consistencygroup(self, context, group, volumes):
         """Deletes a consistency group."""
         return self.cli.delete_consistencygroup(
-            self, context, group)
+            context, group, volumes)
 
-    def create_cgsnapshot(self, context, cgsnapshot):
+    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
         return self.cli.create_cgsnapshot(
-            self, context, cgsnapshot)
+            context, cgsnapshot, snapshots)
 
-    def delete_cgsnapshot(self, context, cgsnapshot):
+    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
-        return self.cli.delete_cgsnapshot(self, context, cgsnapshot)
+        return self.cli.delete_cgsnapshot(
+            context, cgsnapshot, snapshots)
 
     def get_pool(self, volume):
         """Returns the pool name of a volume."""
@@ -267,7 +269,9 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
                                                          group,
                                                          volumes,
                                                          cgsnapshot,
-                                                         snapshots)
+                                                         snapshots,
+                                                         source_cg,
+                                                         source_vols)
 
     def update_migrated_volume(self, context, volume, new_volume,
                                original_volume_status=None):

@@ -50,7 +50,7 @@ cisco_opts = [
 ]
 
 CONF = cfg.CONF
-CONF.register_opts(cisco_opts, 'fc-zone-manager')
+CONF.register_opts(cisco_opts, group='fc-zone-manager')
 
 
 class CiscoFCZoneDriver(fc_zone_driver.FCZoneDriver):
@@ -79,7 +79,7 @@ class CiscoFCZoneDriver(fc_zone_driver.FCZoneDriver):
             base_san_opts = []
             if not fabric_names:
                 base_san_opts.append(
-                    cfg.StrOpt('fc_fabric_names', default=None,
+                    cfg.StrOpt('fc_fabric_names',
                                help='Comma separated list of fibre channel '
                                'fabric names. This list of names is used to'
                                ' retrieve other SAN credentials for connecting'

@@ -18,6 +18,7 @@ Tests for Backup swift code.
 """
 
 import bz2
+import ddt
 import filecmp
 import hashlib
 import os
@@ -42,6 +43,8 @@ from cinder.tests.unit.backup import fake_swift_client2
 
 CONF = cfg.CONF
 
+ANY = mock.ANY
+
 
 def fake_md5(arg):
     class result(object):
@@ -52,22 +55,33 @@ def fake_md5(arg):
     return ret
 
 
+@ddt.ddt
 class BackupSwiftTestCase(test.TestCase):
     """Test Case for swift."""
 
-    def _create_volume_db_entry(self):
-        vol = {'id': '1234-5678-1234-8888',
+    _DEFAULT_VOLUME_ID = 'c7eb81f4-bec6-4730-a60f-8888885874df'
+
+    def _create_volume_db_entry(self, volume_id=_DEFAULT_VOLUME_ID):
+        vol = {'id': volume_id,
                'size': 1,
                'status': 'available'}
         return db.volume_create(self.ctxt, vol)['id']
 
-    def _create_backup_db_entry(self, container='test-container',
+    def _create_backup_db_entry(self,
+                                volume_id=_DEFAULT_VOLUME_ID,
+                                container='test-container',
                                 backup_id=123, parent_id=None,
                                 service_metadata=None):
+
+        try:
+            db.volume_get(self.ctxt, volume_id)
+        except exception.NotFound:
+            self._create_volume_db_entry(volume_id=volume_id)
+
         backup = {'id': backup_id,
                   'size': 1,
                   'container': container,
-                  'volume_id': '1234-5678-1234-8888',
+                  'volume_id': volume_id,
                   'parent_id': parent_id,
                   'user_id': 'user-id',
                   'project_id': 'project-id',
@@ -79,6 +93,9 @@ class BackupSwiftTestCase(test.TestCase):
         super(BackupSwiftTestCase, self).setUp()
         service_catalog = [{u'type': u'object-store', u'name': u'swift',
                             u'endpoints': [{
+                                u'publicURL': u'http://example.com'}]},
+                           {u'type': u'identity', u'name': u'keystone',
+                            u'endpoints': [{
                                 u'publicURL': u'http://example.com'}]}]
         self.ctxt = context.get_admin_context()
         self.ctxt.service_catalog = service_catalog
@@ -87,7 +104,6 @@ class BackupSwiftTestCase(test.TestCase):
                        fake_swift_client.FakeSwiftClient.Connection)
         self.stubs.Set(hashlib, 'md5', fake_md5)
 
-        self._create_volume_db_entry()
         self.volume_file = tempfile.NamedTemporaryFile()
         self.temp_dir = tempfile.mkdtemp()
         self.addCleanup(self.volume_file.close)
@@ -96,12 +112,37 @@ class BackupSwiftTestCase(test.TestCase):
         for _i in range(0, 64):
             self.volume_file.write(os.urandom(1024))
 
+        notify_patcher = mock.patch(
+            'cinder.volume.utils.notify_about_backup_usage')
+        notify_patcher.start()
+        self.addCleanup(notify_patcher.stop)
+
     def test_backup_swift_url(self):
         self.ctxt.service_catalog = [{u'type': u'object-store',
                                       u'name': u'swift',
                                       u'endpoints': [{
-                                          u'adminURL': u'http://example.com'}]
-                                      }]
+                                          u'adminURL':
+                                              u'http://example.com'}]},
+                                     {u'type': u'identity',
+                                      u'name': u'keystone',
+                                      u'endpoints': [{
+                                          u'publicURL':
+                                              u'http://example.com'}]}]
+        self.assertRaises(exception.BackupDriverException,
+                          swift_dr.SwiftBackupDriver,
+                          self.ctxt)
+
+    def test_backup_swift_auth_url(self):
+        self.ctxt.service_catalog = [{u'type': u'object-store',
+                                      u'name': u'swift',
+                                      u'endpoints': [{
+                                          u'publicURL':
+                                              u'http://example.com'}]},
+                                     {u'type': u'identity',
+                                      u'name': u'keystone',
+                                      u'endpoints': [{
+                                          u'adminURL':
+                                              u'http://example.com'}]}]
         self.assertRaises(exception.BackupDriverException,
                           swift_dr.SwiftBackupDriver,
                           self.ctxt)
@@ -110,14 +151,39 @@ class BackupSwiftTestCase(test.TestCase):
         self.ctxt.service_catalog = [{u'type': u'object-store',
                                       u'name': u'swift',
                                       u'endpoints': [{
-                                          u'adminURL': u'http://example.com'}]
-                                      }]
+                                          u'adminURL':
+                                              u'http://example.com'}]},
+                                     {u'type': u'identity',
+                                     u'name': u'keystone',
+                                      u'endpoints': [{
+                                          u'publicURL':
+                                              u'http://example.com'}]}]
         self.ctxt.project_id = "12345678"
-        self.override_config("backup_swift_url", "http://public.example.com/")
+        self.override_config("backup_swift_url",
+                             "http://public.example.com/")
         backup = swift_dr.SwiftBackupDriver(self.ctxt)
         self.assertEqual("%s%s" % (CONF.backup_swift_url,
                                    self.ctxt.project_id),
                          backup.swift_url)
+
+    def test_backup_swift_auth_url_conf(self):
+        self.ctxt.service_catalog = [{u'type': u'object-store',
+                                      u'name': u'swift',
+                                      u'endpoints': [{
+                                          u'publicURL':
+                                              u'http://example.com'}]},
+                                     {u'type': u'identity',
+                                      u'name': u'keystone',
+                                      u'endpoints': [{
+                                          u'adminURL':
+                                              u'http://example.com'}]}]
+        self.ctxt.project_id = "12345678"
+        self.override_config("backup_swift_auth_url",
+                             "http://public.example.com/")
+        backup = swift_dr.SwiftBackupDriver(self.ctxt)
+        self.assertEqual("%s%s" % (CONF.backup_swift_auth_url,
+                                   self.ctxt.project_id),
+                         backup.auth_url)
 
     def test_backup_swift_info(self):
         self.override_config("swift_catalog_info", "dummy")
@@ -125,8 +191,44 @@ class BackupSwiftTestCase(test.TestCase):
                           swift_dr.SwiftBackupDriver,
                           self.ctxt)
 
+    @ddt.data(
+        {'auth': 'single_user', 'insecure': True},
+        {'auth': 'single_user', 'insecure': False},
+        {'auth': 'per_user', 'insecure': True},
+        {'auth': 'per_user', 'insecure': False},
+    )
+    @ddt.unpack
+    def test_backup_swift_auth_insecure(self, auth, insecure):
+        self.override_config("backup_swift_auth_insecure", insecure)
+        self.override_config('backup_swift_auth', auth)
+        if auth == 'single_user':
+            self.override_config('backup_swift_user', 'swift-user')
+
+        mock_connection = self.mock_object(swift, 'Connection')
+
+        swift_dr.SwiftBackupDriver(self.ctxt)
+
+        if auth == 'single_user':
+            mock_connection.assert_called_once_with(insecure=insecure,
+                                                    authurl=ANY,
+                                                    auth_version=ANY,
+                                                    tenant_name=ANY,
+                                                    user=ANY,
+                                                    key=ANY,
+                                                    retries=ANY,
+                                                    starting_backoff=ANY,
+                                                    cacert=ANY)
+        else:
+            mock_connection.assert_called_once_with(insecure=insecure,
+                                                    retries=ANY,
+                                                    preauthurl=ANY,
+                                                    preauthtoken=ANY,
+                                                    starting_backoff=ANY,
+                                                    cacert=ANY)
+
     def test_backup_uncompressed(self):
-        self._create_backup_db_entry()
+        volume_id = '2b9f10a3-42b4-4fdf-b316-000000ceb039'
+        self._create_backup_db_entry(volume_id=volume_id)
         self.flags(backup_compression_algorithm='none')
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
@@ -134,7 +236,8 @@ class BackupSwiftTestCase(test.TestCase):
         service.backup(backup, self.volume_file)
 
     def test_backup_bz2(self):
-        self._create_backup_db_entry()
+        volume_id = 'dc0fee35-b44e-4f13-80d6-000000e1b50c'
+        self._create_backup_db_entry(volume_id=volume_id)
         self.flags(backup_compression_algorithm='bz2')
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
@@ -142,7 +245,8 @@ class BackupSwiftTestCase(test.TestCase):
         service.backup(backup, self.volume_file)
 
     def test_backup_zlib(self):
-        self._create_backup_db_entry()
+        volume_id = '5cea0535-b6fb-4531-9a38-000000bea094'
+        self._create_backup_db_entry(volume_id=volume_id)
         self.flags(backup_compression_algorithm='zlib')
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
@@ -150,7 +254,9 @@ class BackupSwiftTestCase(test.TestCase):
         service.backup(backup, self.volume_file)
 
     def test_backup_default_container(self):
-        self._create_backup_db_entry(container=None)
+        volume_id = '9552017f-c8b9-4e4e-a876-00000053349c'
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=None)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, 123)
@@ -164,7 +270,9 @@ class BackupSwiftTestCase(test.TestCase):
                 '_send_progress_notification')
     def test_backup_default_container_notify(self, _send_progress,
                                              _send_progress_end):
-        self._create_backup_db_entry(container=None)
+        volume_id = '87dd0eed-2598-4ebd-8ebb-000000ac578a'
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=None)
         # If the backup_object_number_per_notification is set to 1,
         # the _send_progress method will be called for sure.
         CONF.set_override("backup_object_number_per_notification", 1)
@@ -202,8 +310,10 @@ class BackupSwiftTestCase(test.TestCase):
         self.assertTrue(_send_progress_end.called)
 
     def test_backup_custom_container(self):
+        volume_id = '1da9859e-77e5-4731-bd58-000000ca119e'
         container_name = 'fake99'
-        self._create_backup_db_entry(container=container_name)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, 123)
@@ -212,6 +322,7 @@ class BackupSwiftTestCase(test.TestCase):
         self.assertEqual(container_name, backup['container'])
 
     def test_backup_shafile(self):
+        volume_id = '6465dad4-22af-48f7-8a1a-000000218907'
 
         def _fake_generate_object_name_prefix(self, backup):
             az = 'az_fake'
@@ -227,7 +338,8 @@ class BackupSwiftTestCase(test.TestCase):
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
-        self._create_backup_db_entry(container=container_name)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
@@ -243,6 +355,7 @@ class BackupSwiftTestCase(test.TestCase):
                          len(content1['sha256s']))
 
     def test_backup_cmp_shafiles(self):
+        volume_id = '1a99ac67-c534-4fe3-b472-0000001785e2'
 
         def _fake_generate_object_name_prefix(self, backup):
             az = 'az_fake'
@@ -258,7 +371,9 @@ class BackupSwiftTestCase(test.TestCase):
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
-        self._create_backup_db_entry(container=container_name, backup_id=123)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
@@ -269,7 +384,9 @@ class BackupSwiftTestCase(test.TestCase):
         self.assertEqual(container_name, backup['container'])
 
         # Create incremental backup with no change to contents
-        self._create_backup_db_entry(container=container_name, backup_id=124,
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=124,
                                      parent_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
@@ -288,6 +405,7 @@ class BackupSwiftTestCase(test.TestCase):
         self.assertEqual(set(content1['sha256s']), set(content2['sha256s']))
 
     def test_backup_delta_two_objects_change(self):
+        volume_id = '30dab288-265a-4583-9abe-000000d42c67'
 
         def _fake_generate_object_name_prefix(self, backup):
             az = 'az_fake'
@@ -306,7 +424,9 @@ class BackupSwiftTestCase(test.TestCase):
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
-        self._create_backup_db_entry(container=container_name, backup_id=123)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
@@ -322,7 +442,9 @@ class BackupSwiftTestCase(test.TestCase):
         self.volume_file.seek(4 * 8 * 1024)
         self.volume_file.write(os.urandom(1024))
 
-        self._create_backup_db_entry(container=container_name, backup_id=124,
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=124,
                                      parent_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
@@ -341,6 +463,7 @@ class BackupSwiftTestCase(test.TestCase):
         self.assertNotEqual(content1['sha256s'][32], content2['sha256s'][32])
 
     def test_backup_delta_two_blocks_in_object_change(self):
+        volume_id = 'b943e84f-aa67-4331-9ab2-000000cf19ba'
 
         def _fake_generate_object_name_prefix(self, backup):
             az = 'az_fake'
@@ -359,7 +482,9 @@ class BackupSwiftTestCase(test.TestCase):
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
-        self._create_backup_db_entry(container=container_name, backup_id=123)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
@@ -375,7 +500,9 @@ class BackupSwiftTestCase(test.TestCase):
         self.volume_file.seek(20 * 1024)
         self.volume_file.write(os.urandom(1024))
 
-        self._create_backup_db_entry(container=container_name, backup_id=124,
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=124,
                                      parent_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
@@ -393,8 +520,10 @@ class BackupSwiftTestCase(test.TestCase):
         self.assertNotEqual(content1['sha256s'][20], content2['sha256s'][20])
 
     def test_create_backup_put_object_wraps_socket_error(self):
+        volume_id = 'b09b1ad4-5f0e-4d3f-8b9e-0000004f5ec2'
         container_name = 'socket_error_on_put'
-        self._create_backup_db_entry(container=container_name)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, 123)
@@ -409,7 +538,9 @@ class BackupSwiftTestCase(test.TestCase):
         self._backup_metadata(), we want to check the process of an
         exception handler.
         """
-        self._create_backup_db_entry()
+        volume_id = '020d9142-339c-4876-a445-000000f1520c'
+
+        self._create_backup_db_entry(volume_id=volume_id)
         self.flags(backup_compression_algorithm='none')
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
@@ -434,7 +565,9 @@ class BackupSwiftTestCase(test.TestCase):
         self._backup_metadata(), we want to check the process when the
         second exception occurs in self.delete().
         """
-        self._create_backup_db_entry()
+        volume_id = '2164421d-f181-4db7-b9bd-000000eeb628'
+
+        self._create_backup_db_entry(volume_id=volume_id)
         self.flags(backup_compression_algorithm='none')
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
@@ -459,14 +592,16 @@ class BackupSwiftTestCase(test.TestCase):
                           backup, self.volume_file)
 
     def test_restore(self):
-        self._create_backup_db_entry()
+        volume_id = 'c2a81f09-f480-4325-8424-00000071685b'
+        self._create_backup_db_entry(volume_id=volume_id)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
 
         with tempfile.NamedTemporaryFile() as volume_file:
             backup = objects.Backup.get_by_id(self.ctxt, 123)
-            service.restore(backup, '1234-5678-1234-8888', volume_file)
+            service.restore(backup, volume_id, volume_file)
 
     def test_restore_delta(self):
+        volume_id = '04d83506-bcf7-4ff5-9c65-00000051bd2e'
 
         def _fake_generate_object_name_prefix(self, backup):
             az = 'az_fake'
@@ -485,7 +620,9 @@ class BackupSwiftTestCase(test.TestCase):
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
-        self._create_backup_db_entry(container=container_name, backup_id=123)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=123)
         self.stubs.Set(swift, 'Connection',
                        fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
@@ -499,7 +636,9 @@ class BackupSwiftTestCase(test.TestCase):
         self.volume_file.seek(20 * 1024)
         self.volume_file.write(os.urandom(1024))
 
-        self._create_backup_db_entry(container=container_name, backup_id=124,
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
+                                     backup_id=124,
                                      parent_id=123)
         self.volume_file.seek(0)
         deltabackup = objects.Backup.get_by_id(self.ctxt, 124)
@@ -508,44 +647,52 @@ class BackupSwiftTestCase(test.TestCase):
 
         with tempfile.NamedTemporaryFile() as restored_file:
             backup = objects.Backup.get_by_id(self.ctxt, 124)
-            service.restore(backup, '1234-5678-1234-8888',
+            service.restore(backup, volume_id,
                             restored_file)
             self.assertTrue(filecmp.cmp(self.volume_file.name,
                             restored_file.name))
 
     def test_restore_wraps_socket_error(self):
+        volume_id = 'c1160de7-2774-4f20-bf14-0000001ac139'
         container_name = 'socket_error_on_get'
-        self._create_backup_db_entry(container=container_name)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
 
         with tempfile.NamedTemporaryFile() as volume_file:
             backup = objects.Backup.get_by_id(self.ctxt, 123)
             self.assertRaises(exception.SwiftConnectionFailed,
                               service.restore,
-                              backup, '1234-5678-1234-8888', volume_file)
+                              backup, volume_id, volume_file)
 
     def test_restore_unsupported_version(self):
+        volume_id = '390db8c1-32d3-42ca-82c9-00000010c703'
         container_name = 'unsupported_version'
-        self._create_backup_db_entry(container=container_name)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
 
         with tempfile.NamedTemporaryFile() as volume_file:
             backup = objects.Backup.get_by_id(self.ctxt, 123)
             self.assertRaises(exception.InvalidBackup,
                               service.restore,
-                              backup, '1234-5678-1234-8888', volume_file)
+                              backup, volume_id, volume_file)
 
     def test_delete(self):
+        volume_id = '9ab256c8-3175-4ad8-baa1-0000007f9d31'
         object_prefix = 'test_prefix'
-        self._create_backup_db_entry(service_metadata=object_prefix)
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     service_metadata=object_prefix)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         backup = objects.Backup.get_by_id(self.ctxt, 123)
         service.delete(backup)
 
     def test_delete_wraps_socket_error(self):
+        volume_id = 'f74cb6fa-2900-40df-87ac-0000000f72ea'
         container_name = 'socket_error_on_delete'
         object_prefix = 'test_prefix'
-        self._create_backup_db_entry(container=container_name,
+        self._create_backup_db_entry(volume_id=volume_id,
+                                     container=container_name,
                                      service_metadata=object_prefix)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         backup = objects.Backup.get_by_id(self.ctxt, 123)
@@ -554,6 +701,7 @@ class BackupSwiftTestCase(test.TestCase):
                           backup)
 
     def test_delete_without_object_prefix(self):
+        volume_id = 'ee30d649-72a6-49a5-b78d-000000edb6b1'
 
         def _fake_delete_object(self, container, object_name):
             raise AssertionError('delete_object method should not be called.')
@@ -562,7 +710,7 @@ class BackupSwiftTestCase(test.TestCase):
                        'delete_object',
                        _fake_delete_object)
 
-        self._create_backup_db_entry()
+        self._create_backup_db_entry(volume_id=volume_id)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         backup = objects.Backup.get_by_id(self.ctxt, 123)
         service.delete(backup)
