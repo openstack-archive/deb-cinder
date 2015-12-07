@@ -2,6 +2,8 @@ cinder (2:8.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
   * Fixed (build-)depends for this release.
+  * Removed disable-zfs-tests.patch.
+  * Removed Downstream_Fix_for_Genconfig.patch.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 07 Dec 2015 14:05:41 +0100
 
