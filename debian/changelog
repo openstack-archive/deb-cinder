@@ -1,6 +1,7 @@
 cinder (2:8.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
+  * Fixed (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 07 Dec 2015 14:05:41 +0100
 
