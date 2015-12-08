@@ -59,6 +59,14 @@ override_dh_install:
 #	./debian/gen-fixed-config
 	cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
+	# Set LVM as default backend
+	sed -i 's/^[ \t#]*enabled_backends[ \t]*=.*/enabled_backends = lvm/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	echo "[lvm]" 				>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	echo "volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver" >> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	echo "volume_group = pkgosvg0" 		>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	echo "iscsi_protocol = iscsi" 		>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	echo "iscsi_helper = tgtadm" 		>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+
 	# Set a default value for lock_path
 	sed -i 's|^[ \t#]*lock_path[ \t]*=.*|lock_path = /var/lock/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
