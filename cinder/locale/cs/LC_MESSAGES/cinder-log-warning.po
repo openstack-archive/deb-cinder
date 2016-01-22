@@ -7,19 +7,19 @@
 # Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.dev388\n"
+"Project-Id-Version: cinder 8.0.0.0b2.dev281\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-12-02 06:25+0000\n"
-"PO-Revision-Date: 2015-12-01 08:24+0000\n"
-"Last-Translator: Zbyněk Schwarz <zbynek.schwarz@gmail.com>\n"
-"Language-Team: Czech\n"
-"Language: cs\n"
+"POT-Creation-Date: 2016-01-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"PO-Revision-Date: 2015-12-22 01:37+0000\n"
+"Last-Translator: Zbyněk Schwarz <zbynek.schwarz@gmail.com>\n"
+"Language: cs\n"
 "Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
 "Generated-By: Babel 2.0\n"
 "X-Generator: Zanata 3.7.3\n"
+"Language-Team: Czech\n"
 
 #, python-format
 msgid "%(path)s is being set with open permissions: %(perm)s"
@@ -36,6 +36,19 @@ msgstr "%s již je připojeno"
 #, python-format
 msgid "%s not found!"
 msgstr "%s nenalezeno!"
+
+#, python-format
+msgid ""
+"'%s' is not a valid replication array. In order to be valid, "
+"target_device_id, replication_mode, hpe3par_api_url, hpe3par_username, "
+"hpe3par_password, cpg_map, san_ip, san_login, and san_password must be "
+"specified. If the target is managed, managed_backend_name must be set as "
+"well."
+msgstr ""
+"'%s' není platné pole replikace. Aby bylo platné, je třeba zadat "
+"target_device_id, replication_mode, hpe3par_api_url, hpe3par_username, "
+"hpe3par_password, cpg_map, san_ip, san_login, a san_password. Pokud cíl je "
+"spravován, musí být také zadáno managed_backend_name."
 
 msgid ""
 "'hpe3par:cpg' is not supported as an extra spec in a volume type.  CPG's are "
@@ -575,12 +588,6 @@ msgstr ""
 msgid "Failed to query pool %(id)s status %(ret)d."
 msgstr "Dotaz na stav %(ret)d zásoby %(id)s selhal."
 
-msgid "Failed to receive update for free_gb stat!"
-msgstr "Nelze získat aktualizaci pro statistiku počtu volných GB!"
-
-msgid "Failed to receive update for total_gb stat!"
-msgstr "Nelze získat aktualizaci pro statistiku celkového počtu GB!"
-
 #, python-format
 msgid "Failed to refresh mounts, reason=%s"
 msgstr "Nelze obnovit připojení, důvod=%s"
@@ -598,6 +605,10 @@ msgstr "Nelze restartovat horcm: %s"
 #, python-format
 msgid "Failed to run command: %s."
 msgstr "Nelze provést příkaz: %s."
+
+#, python-format
+msgid "Failed to run lsguicapability. Exception: %s."
+msgstr "Nelze spustit lsguicapability. Výjimka: %s."
 
 #, python-format
 msgid ""
@@ -876,37 +887,9 @@ msgstr ""
 "LUN s id %(remove_id)s není přítomna ve skupině jednotnosti %(cg_name)s, je "
 "přeskočena."
 
-msgid ""
-"LVMISCSIDriver is deprecated, you should now just use LVMVolumeDriver and "
-"specify iscsi_helper for the target driver you wish to use."
-msgstr ""
-"LVMISCSIDriver je zastaralý, nyní byste měli používat LVMVolumeDriver a "
-"zadat pomocníka iscsi pro cílový ovladač, který chcete použít."
-
-msgid ""
-"LVMISERDriver is deprecated, you should now just use LVMVolumeDriver and "
-"specify iscsi_helper for the target driver you wish to use. In order to "
-"enable iser, please set iscsi_protocol with the value iser."
-msgstr ""
-"LVMISERDriver je zastaralý, nyní byste měli používat LVMVolumeDriver a zadat "
-"pomocníka iscsi pro cílový ovladač, který chcete použít. Abyste mohli použít "
-"iser, prosím nastavte protokol iscsi s hodnotou iser."
-
 msgid "Least busy iSCSI port not found, using first iSCSI port in list."
 msgstr ""
 "Nejméně zaneprázdněný port iSCSI nenalezen, použit první port v seznamu."
-
-#, python-format
-msgid "Logout error: %(code)d %(reason)s"
-msgstr "Chyba odhlášení: %(code)d %(reason)s"
-
-#, python-format
-msgid "Lun %s has dependent snapshots, skipping."
-msgstr "Lun %s má závislé snímky, přeskakování."
-
-#, python-format
-msgid "Lun create for %s failed!"
-msgstr "Vytvoření LUN pro %s selhalo!"
 
 #, python-format
 msgid ""
@@ -1025,27 +1008,6 @@ msgstr "Zjištěn VLUN  mimo iSCSI."
 msgid "Not deleting key %s"
 msgstr "Klíč %s nebude smazán"
 
-msgid ""
-"OSProfiler is enabled.\n"
-"It means that person who knows any of hmac_keys that are specified in /etc/"
-"cinder/api-paste.ini can trace his requests. \n"
-"In real life only operator can read this file so there is no security issue. "
-"Note that even if person can trigger profiler, only admin user can retrieve "
-"trace information.\n"
-"To disable OSprofiler set in cinder.conf:\n"
-"[profiler]\n"
-"enabled=false"
-msgstr ""
-"OSProfiler je povolen.\n"
-"To znamená, že osoby znající jakýkoli z klíčů hmac zadaných v /etc/cinder/"
-"api-paste.ini mohou sledovat své žádosti. \n"
-"V ostrém provozu tento soubor mohou číst pouze operátoři, čímž nevznikají "
-"obavy o bezpečnost. Nezapomeňte, že i když osoba může profilovač spustit, "
-"pouze správce může získat informace o sledování.\n"
-"Pro zakázání OSprofiler nastavte v cinder.conf:\n"
-"[profiler]\n"
-"enabled=false"
-
 #, python-format
 msgid ""
 "Only one volume remains in storage group %(sgname)s. Driver will attempt "
@@ -1157,6 +1119,11 @@ msgstr ""
 "dat zálohy."
 
 #, python-format
+msgid "Reconnect attempt %(attempt)s failed. Next try in %(backoff).2fs."
+msgstr ""
+"Pokus o znovu připojení %(attempt)s selhal. Další pokus za %(backoff).2fs."
+
+#, python-format
 msgid "Registration of image volume URI %(uri)s to image %(image_id)s failed."
 msgstr "Registrace URI svazku obrazu %(uri)s k obrazu %(image_id)s selhala."
 
@@ -1190,12 +1157,6 @@ msgstr "Požadovaný obraz není dostupný současnému nájemníku."
 
 msgid "Returning as clean tmp vol job already running."
 msgstr "Probíhá vrácení protože úkol čištění dočasného svazku již probíhá."
-
-#, python-format
-msgid "ScServerOperatingSystem GetList return: %(code)d %(reason)s"
-msgstr ""
-"Získání seznamu od operačního systému serveru centra úložiště vrátilo: "
-"%(code)d %(reason)s"
 
 #, python-format
 msgid ""
@@ -1363,6 +1324,10 @@ msgstr ""
 "prodejce je %(name)s\"."
 
 #, python-format
+msgid "The device %s won't be cleared."
+msgstr "Zařízení %s nebude vyčištěno."
+
+#, python-format
 msgid ""
 "The following specified storage pools do not exist: %(unexist)s. This host "
 "will only manage the storage pools: %(exist)s"
@@ -1401,6 +1366,24 @@ msgid ""
 msgstr ""
 "Volba 'nfs_used_ratio' je zastaralá a bude odstraněna ve verzi Mitaka. Místo "
 "toho prosím nastavte 'reserved_percentage = %d'."
+
+msgid ""
+"The primary array is currently unreachable. All targets returned from "
+"list_replication_targets are pulled directly from cinder.conf and are not "
+"guarenteed to be available because they could not be verified with the "
+"primary array."
+msgstr ""
+"Hlavní pole je nyní nedostupné. Všechny cíle vrácené ze seznamu replikací "
+"jsou získávány přímo z cinder.conf a neexistuje záruka, že budou dostupné, "
+"protože nemohly být v hlavním poli ověřeny."
+
+msgid ""
+"The primary array is not reachable at this time. Since replication is "
+"enabled, listing replication targets and failing over a volume can still be "
+"performed."
+msgstr ""
+"Hlavní pole není v současnosti dostupné. Protože je replikace povolená může "
+"být stále proveden výpis cílů replikace a zavedení záložního systému."
 
 #, python-format
 msgid "The provisioning: %(provisioning)s is not valid."
@@ -1517,10 +1500,6 @@ msgstr "Nelze najít maskování: %(view)s."
 msgid "Unable to find snapshot %s"
 msgstr "Nelze najít snímek %s"
 
-msgid "Unable to get Cinder internal context, will not use image-volume cache."
-msgstr ""
-"Nelze získat vnitřní kontext Cinder, mezipaměť obrazu-svazku nebude použita."
-
 msgid ""
 "Unable to get internal tenant context: Missing required config parameters."
 msgstr ""
@@ -1546,14 +1525,6 @@ msgstr "Nelze se dotázat na prostor bez clusteru."
 #, python-format
 msgid "Unable to rename %(old_name)s, error message: %(error)s"
 msgstr "Nelze přejmenovat %(old_name)s, chybová zpráva: %(error)s"
-
-#, python-format
-msgid ""
-"Unable to retype Storage Profile, expected to receive current and requested "
-"storagetype:storageprofile values. Value received: %s"
-msgstr ""
-"Nezle přetypovat profil úložiště, očekáváno předání současných a "
-"požadovaných hodnot typu a profilu úložiště. Předané hodnoty: %s"
 
 #, python-format
 msgid "Unable to update host type for host with label %(l)s. %(e)s"
@@ -1842,6 +1813,9 @@ msgstr "Úkol obnovy starého ssc probíhá. Vrácení..."
 
 msgid "san_secondary_ip is configured as the same value as san_ip."
 msgstr "san_secondary_ip je nastaven na stejnou hodnotu jako san_ip."
+
+msgid "snapcopy metadata is ignored when creating volume."
+msgstr "popisná data kopie snímku jsou při vytváření snímku ignorována."
 
 #, python-format
 msgid "snapshot: %s not found, skipping delete operation"

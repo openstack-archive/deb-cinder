@@ -16,6 +16,7 @@
 from copy import deepcopy
 import sys
 
+import ddt
 import mock
 from oslo_utils import units
 
@@ -152,6 +153,18 @@ SPACE_INFO_EMPTY = {
     "total": 0,
 }
 
+PERF_INFO = {
+    'writes_per_sec': 318,
+    'usec_per_write_op': 255,
+    'output_per_sec': 234240,
+    'reads_per_sec': 15,
+    'input_per_sec': 2827943,
+    'time': '2015-12-17T21:50:55Z',
+    'usec_per_read_op': 192,
+    'queue_depth': 4,
+}
+PERF_INFO_RAW = [PERF_INFO]
+
 ISCSI_CONNECTION_INFO = {
     "driver_volume_type": "iscsi",
     "data": {
@@ -183,6 +196,14 @@ PURE_SNAPSHOT = {
     "serial": "8343DFDE2DAFBE40000115E4",
     "size": 3221225472,
     "source": "vol1"
+}
+PURE_PGROUP = {
+    "hgroups": None,
+    "hosts": None,
+    "name": "pg1",
+    "source": "pure01",
+    "targets": None,
+    "volumes": ["v1"]
 }
 
 
@@ -225,18 +246,17 @@ class PureDriverTestCase(test.TestCase):
             mock_func.side_effect = original_side_effect
 
 
-class PureBaseVolumeDriverTestCase(PureDriverTestCase):
-
-    class fake_pure_base_volume_driver(pure.PureBaseVolumeDriver):
-        def initialize_connection():
-            pass
-
+class PureBaseSharedDriverTestCase(PureDriverTestCase):
     def setUp(self):
-        super(PureBaseVolumeDriverTestCase, self).setUp()
-        self.driver = self.fake_pure_base_volume_driver(
-            configuration=self.mock_config)
+        super(PureBaseSharedDriverTestCase, self).setUp()
+        self.driver = pure.PureBaseVolumeDriver(configuration=self.mock_config)
         self.driver._array = self.array
         self.array.get_rest_version.return_value = '1.4'
+
+
+class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
+    def setUp(self):
+        super(PureBaseVolumeDriverTestCase, self).setUp()
 
     def test_generate_purity_host_name(self):
         result = self.driver._generate_purity_host_name(
@@ -396,9 +416,10 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         self.driver.delete_volume(VOLUME)
         expected = [mock.call.destroy_volume(vol_name)]
         self.array.assert_has_calls(expected)
-        self.array.destroy_volume.side_effect = \
-            self.purestorage_module.PureHTTPError(code=400, text="reason")
-        self.driver.delete_snapshot(SNAPSHOT)
+        self.array.destroy_volume.side_effect = (
+            self.purestorage_module.PureHTTPError(code=400, text="does not "
+                                                                 "exist"))
+        self.driver.delete_volume(VOLUME)
         self.array.destroy_volume.side_effect = None
         self.assert_error_propagates([self.array.destroy_volume],
                                      self.driver.delete_volume, VOLUME)
@@ -441,8 +462,9 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         self.driver.delete_snapshot(SNAPSHOT)
         expected = [mock.call.destroy_volume(snap_name)]
         self.array.assert_has_calls(expected)
-        self.array.destroy_volume.side_effect = \
-            self.purestorage_module.PureHTTPError(code=400, text="reason")
+        self.array.destroy_volume.side_effect = (
+            self.purestorage_module.PureHTTPError(code=400, text="does not "
+                                                                 "exist"))
         self.driver.delete_snapshot(SNAPSHOT)
         self.array.destroy_volume.side_effect = None
         self.assert_error_propagates([self.array.destroy_volume],
@@ -522,92 +544,6 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         self.array.list_host_connections.assert_called_with(PURE_HOST_NAME,
                                                             private=True)
         self.array.delete_host.assert_called_once_with(PURE_HOST_NAME)
-
-    @mock.patch(BASE_DRIVER_OBJ + ".get_filter_function", autospec=True)
-    @mock.patch(BASE_DRIVER_OBJ + "._get_provisioned_space", autospec=True)
-    def test_get_volume_stats(self, mock_space, mock_filter):
-        filter_function = "capabilities.total_volumes < 10"
-        mock_space.return_value = (PROVISIONED_CAPACITY * units.Gi, 100)
-        mock_filter.return_value = filter_function
-        self.assertEqual({}, self.driver.get_volume_stats())
-        self.array.get.return_value = SPACE_INFO
-        result = {
-            "volume_backend_name": VOLUME_BACKEND_NAME,
-            "vendor_name": "Pure Storage",
-            "driver_version": self.driver.VERSION,
-            "storage_protocol": None,
-            "total_capacity_gb": TOTAL_CAPACITY,
-            "free_capacity_gb": TOTAL_CAPACITY - USED_SPACE,
-            "reserved_percentage": 0,
-            "consistencygroup_support": True,
-            "thin_provisioning_support": True,
-            "provisioned_capacity": PROVISIONED_CAPACITY,
-            "max_over_subscription_ratio": (PROVISIONED_CAPACITY /
-                                            USED_SPACE),
-            "total_volumes": 100,
-            "filter_function": filter_function,
-            "multiattach": True,
-        }
-        real_result = self.driver.get_volume_stats(refresh=True)
-        self.assertDictMatch(result, real_result)
-        self.assertDictMatch(result, self.driver._stats)
-
-    @mock.patch(BASE_DRIVER_OBJ + ".get_filter_function", autospec=True)
-    @mock.patch(BASE_DRIVER_OBJ + "._get_provisioned_space", autospec=True)
-    def test_get_volume_stats_empty_array(self, mock_space, mock_filter):
-        filter_function = "capabilities.total_volumes < 10"
-        mock_space.return_value = (PROVISIONED_CAPACITY * units.Gi, 100)
-        mock_filter.return_value = filter_function
-        self.assertEqual({}, self.driver.get_volume_stats())
-        self.array.get.return_value = SPACE_INFO_EMPTY
-        result = {
-            "volume_backend_name": VOLUME_BACKEND_NAME,
-            "vendor_name": "Pure Storage",
-            "driver_version": self.driver.VERSION,
-            "storage_protocol": None,
-            "total_capacity_gb": TOTAL_CAPACITY,
-            "free_capacity_gb": TOTAL_CAPACITY,
-            "reserved_percentage": 0,
-            "consistencygroup_support": True,
-            "thin_provisioning_support": True,
-            "provisioned_capacity": PROVISIONED_CAPACITY,
-            "max_over_subscription_ratio": DEFAULT_OVER_SUBSCRIPTION,
-            "total_volumes": 100,
-            "filter_function": filter_function,
-            "multiattach": True,
-        }
-        real_result = self.driver.get_volume_stats(refresh=True)
-        self.assertDictMatch(result, real_result)
-        self.assertDictMatch(result, self.driver._stats)
-
-    @mock.patch(BASE_DRIVER_OBJ + ".get_filter_function", autospec=True)
-    @mock.patch(BASE_DRIVER_OBJ + "._get_provisioned_space", autospec=True)
-    def test_get_volume_stats_nothing_provisioned(self, mock_space,
-                                                  mock_filter):
-        filter_function = "capabilities.total_volumes < 10"
-        mock_space.return_value = (0, 0)
-        mock_filter.return_value = filter_function
-        self.assertEqual({}, self.driver.get_volume_stats())
-        self.array.get.return_value = SPACE_INFO
-        result = {
-            "volume_backend_name": VOLUME_BACKEND_NAME,
-            "vendor_name": "Pure Storage",
-            "driver_version": self.driver.VERSION,
-            "storage_protocol": None,
-            "total_capacity_gb": TOTAL_CAPACITY,
-            "free_capacity_gb": TOTAL_CAPACITY - USED_SPACE,
-            "reserved_percentage": 0,
-            "consistencygroup_support": True,
-            "thin_provisioning_support": True,
-            "provisioned_capacity": 0,
-            "max_over_subscription_ratio": DEFAULT_OVER_SUBSCRIPTION,
-            "total_volumes": 0,
-            "filter_function": filter_function,
-            "multiattach": True,
-        }
-        real_result = self.driver.get_volume_stats(refresh=True)
-        self.assertDictMatch(result, real_result)
-        self.assertDictMatch(result, self.driver._stats)
 
     def test_extend_volume(self):
         vol_name = VOLUME["name"] + "-cinder"
@@ -770,17 +706,19 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         mock_cgroup.id = "4a2f7e3a-312a-40c5-96a8-536b8a0fe074"
         mock_cgroup['status'] = "deleted"
         mock_context = mock.Mock()
-        self.driver.db = mock.Mock()
         mock_volume = mock.MagicMock()
-        expected_volumes = [mock_volume]
-        self.driver.db.volume_get_all_by_group.return_value = expected_volumes
 
-        model_update, volumes = \
-            self.driver.delete_consistencygroup(mock_context, mock_cgroup, [])
+        model_update, volumes = self.driver.delete_consistencygroup(
+            mock_context, mock_cgroup, [mock_volume])
 
         expected_name = self.driver._get_pgroup_name_from_id(mock_cgroup.id)
         self.array.destroy_pgroup.assert_called_with(expected_name)
-        self.assertEqual(expected_volumes, volumes)
+
+        expected_volume_updates = [{
+            'id': mock_volume.id,
+            'status': 'deleted'
+        }]
+        self.assertEqual(expected_volume_updates, volumes)
         self.assertEqual(mock_cgroup['status'], model_update['status'])
         mock_delete_volume.assert_called_with(self.driver, mock_volume)
 
@@ -789,7 +727,9 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                 code=400,
                 text="Protection group has been destroyed."
             )
-        self.driver.delete_consistencygroup(mock_context, mock_cgroup, [])
+        self.driver.delete_consistencygroup(mock_context,
+                                            mock_cgroup,
+                                            [mock_volume])
         self.array.destroy_pgroup.assert_called_with(expected_name)
         mock_delete_volume.assert_called_with(self.driver, mock_volume)
 
@@ -798,7 +738,9 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                 code=400,
                 text="Protection group does not exist"
             )
-        self.driver.delete_consistencygroup(mock_context, mock_cgroup, [])
+        self.driver.delete_consistencygroup(mock_context,
+                                            mock_cgroup,
+                                            [mock_volume])
         self.array.destroy_pgroup.assert_called_with(expected_name)
         mock_delete_volume.assert_called_with(self.driver, mock_volume)
 
@@ -811,7 +753,7 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                           self.driver.delete_consistencygroup,
                           mock_context,
                           mock_volume,
-                          [])
+                          [mock_volume])
 
         self.array.destroy_pgroup.side_effect = \
             self.purestorage_module.PureHTTPError(
@@ -822,12 +764,16 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                           self.driver.delete_consistencygroup,
                           mock_context,
                           mock_volume,
-                          [])
+                          [mock_volume])
 
         self.array.destroy_pgroup.side_effect = None
         self.assert_error_propagates(
             [self.array.destroy_pgroup],
-            self.driver.delete_consistencygroup, mock_context, mock_cgroup, [])
+            self.driver.delete_consistencygroup,
+            mock_context,
+            mock_cgroup,
+            [mock_volume]
+        )
 
     def _create_mock_cg(self):
         mock_group = mock.MagicMock()
@@ -900,20 +846,17 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
             remvollist=[]
         )
 
-    @mock.patch('cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
-    def test_create_cgsnapshot(self, mock_snap_list):
+    def test_create_cgsnapshot(self):
         mock_cgsnap = mock.Mock()
         mock_cgsnap.id = "4a2f7e3a-312a-40c5-96a8-536b8a0fe074"
         mock_cgsnap.consistencygroup_id = \
             "4a2f7e3a-312a-40c5-96a8-536b8a0fe075"
         mock_context = mock.Mock()
         mock_snap = mock.MagicMock()
-        expected_snaps = [mock_snap]
-        mock_snap_list.return_value = expected_snaps
 
-        model_update, snapshots = \
-            self.driver.create_cgsnapshot(mock_context, mock_cgsnap, [])
-
+        model_update, snapshots = self.driver.create_cgsnapshot(mock_context,
+                                                                mock_cgsnap,
+                                                                [mock_snap])
         cg_id = mock_cgsnap.consistencygroup_id
         expected_pgroup_name = self.driver._get_pgroup_name_from_id(cg_id)
         expected_snap_suffix = self.driver._get_pgroup_snap_suffix(mock_cgsnap)
@@ -921,8 +864,12 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
             .assert_called_with(expected_pgroup_name,
                                 suffix=expected_snap_suffix)
         self.assertEqual({'status': 'available'}, model_update)
-        self.assertEqual(expected_snaps, snapshots)
-        self.assertEqual('available', mock_snap.status)
+
+        expected_snapshot_update = [{
+            'id': mock_snap.id,
+            'status': 'available'
+        }]
+        self.assertEqual(expected_snapshot_update, snapshots)
 
         self.assert_error_propagates(
             [self.array.create_pgroup_snapshot],
@@ -930,8 +877,7 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
 
     @mock.patch(BASE_DRIVER_OBJ + "._get_pgroup_snap_name",
                 spec=pure.PureBaseVolumeDriver._get_pgroup_snap_name)
-    @mock.patch('cinder.objects.snapshot.SnapshotList.get_all_for_cgsnapshot')
-    def test_delete_cgsnapshot(self, mock_snap_list, mock_get_snap_name):
+    def test_delete_cgsnapshot(self, mock_get_snap_name):
         snap_name = "consisgroup-4a2f7e3a-312a-40c5-96a8-536b8a0f" \
                     "e074-cinder.4a2f7e3a-312a-40c5-96a8-536b8a0fe075"
         mock_get_snap_name.return_value = snap_name
@@ -939,23 +885,26 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
         mock_cgsnap.status = 'deleted'
         mock_context = mock.Mock()
         mock_snap = mock.Mock()
-        expected_snaps = [mock_snap]
-        mock_snap_list.return_value = expected_snaps
 
-        model_update, snapshots = \
-            self.driver.delete_cgsnapshot(mock_context, mock_cgsnap, [])
+        model_update, snapshots = self.driver.delete_cgsnapshot(mock_context,
+                                                                mock_cgsnap,
+                                                                [mock_snap])
 
         self.array.destroy_pgroup.assert_called_with(snap_name)
         self.assertEqual({'status': mock_cgsnap.status}, model_update)
-        self.assertEqual(expected_snaps, snapshots)
-        self.assertEqual('deleted', mock_snap.status)
+
+        expected_snapshot_update = [{
+            'id': mock_snap.id,
+            'status': 'deleted'
+        }]
+        self.assertEqual(expected_snapshot_update, snapshots)
 
         self.array.destroy_pgroup.side_effect = \
             self.purestorage_module.PureHTTPError(
                 code=400,
                 text="Protection group snapshot has been destroyed."
             )
-        self.driver.delete_cgsnapshot(mock_context, mock_cgsnap, [])
+        self.driver.delete_cgsnapshot(mock_context, mock_cgsnap, [mock_snap])
         self.array.destroy_pgroup.assert_called_with(snap_name)
 
         self.array.destroy_pgroup.side_effect = \
@@ -963,7 +912,7 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                 code=400,
                 text="Protection group snapshot does not exist"
             )
-        self.driver.delete_cgsnapshot(mock_context, mock_cgsnap, [])
+        self.driver.delete_cgsnapshot(mock_context, mock_cgsnap, [mock_snap])
         self.array.destroy_pgroup.assert_called_with(snap_name)
 
         self.array.destroy_pgroup.side_effect = \
@@ -975,7 +924,7 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                           self.driver.delete_cgsnapshot,
                           mock_context,
                           mock_cgsnap,
-                          [])
+                          [mock_snap])
 
         self.array.destroy_pgroup.side_effect = \
             self.purestorage_module.PureHTTPError(
@@ -986,13 +935,17 @@ class PureBaseVolumeDriverTestCase(PureDriverTestCase):
                           self.driver.delete_cgsnapshot,
                           mock_context,
                           mock_cgsnap,
-                          [])
+                          [mock_snap])
 
         self.array.destroy_pgroup.side_effect = None
 
         self.assert_error_propagates(
             [self.array.destroy_pgroup],
-            self.driver.delete_cgsnapshot, mock_context, mock_cgsnap, [])
+            self.driver.delete_cgsnapshot,
+            mock_context,
+            mock_cgsnap,
+            [mock_snap]
+        )
 
     def test_manage_existing(self):
         ref_name = 'vol1'
@@ -1643,3 +1596,114 @@ class PureFCDriverTestCase(PureDriverTestCase):
                           self.driver._connect, VOLUME, FC_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
+
+
+@ddt.ddt
+class PureVolumeUpdateStatsTestCase(PureBaseSharedDriverTestCase):
+    def setUp(self):
+        super(PureVolumeUpdateStatsTestCase, self).setUp()
+        self.array.get.side_effect = self.fake_get_array
+
+    def fake_get_array(*args, **kwargs):
+        if 'action' in kwargs and kwargs['action'] is 'monitor':
+            return PERF_INFO_RAW
+
+        if 'space' in kwargs and kwargs['space'] is True:
+            return SPACE_INFO
+
+    @ddt.data(dict(used=10,
+                   provisioned=100,
+                   config_ratio=5,
+                   expected_ratio=5,
+                   auto=False),
+              dict(used=10,
+                   provisioned=100,
+                   config_ratio=5,
+                   expected_ratio=10,
+                   auto=True),
+              dict(used=0,
+                   provisioned=100,
+                   config_ratio=5,
+                   expected_ratio=5,
+                   auto=True),
+              dict(used=10,
+                   provisioned=0,
+                   config_ratio=5,
+                   expected_ratio=5,
+                   auto=True))
+    @ddt.unpack
+    def test_get_thin_provisioning(self,
+                                   used,
+                                   provisioned,
+                                   config_ratio,
+                                   expected_ratio,
+                                   auto):
+        self.mock_config.pure_automatic_max_oversubscription_ratio = auto
+        self.mock_config.max_over_subscription_ratio = config_ratio
+        actual_ratio = self.driver._get_thin_provisioning(provisioned, used)
+        self.assertEqual(expected_ratio, actual_ratio)
+
+    @mock.patch(BASE_DRIVER_OBJ + '.get_goodness_function')
+    @mock.patch(BASE_DRIVER_OBJ + '.get_filter_function')
+    @mock.patch(BASE_DRIVER_OBJ + '._get_provisioned_space')
+    @mock.patch(BASE_DRIVER_OBJ + '._get_thin_provisioning')
+    def test_get_volume_stats(self, mock_get_thin_provisioning, mock_get_space,
+                              mock_get_filter, mock_get_goodness):
+        filter_function = 'capabilities.total_volumes < 10'
+        goodness_function = '90'
+        num_hosts = 20
+        num_snaps = 175
+        num_pgroups = 15
+        reserved_percentage = 12
+
+        self.array.list_hosts.return_value = [PURE_HOST] * num_hosts
+        self.array.list_volumes.return_value = [PURE_SNAPSHOT] * num_snaps
+        self.array.list_pgroups.return_value = [PURE_PGROUP] * num_pgroups
+        self.mock_config.reserved_percentage = reserved_percentage
+        mock_get_space.return_value = (PROVISIONED_CAPACITY * units.Gi, 100)
+        mock_get_filter.return_value = filter_function
+        mock_get_goodness.return_value = goodness_function
+        mock_get_thin_provisioning.return_value = (PROVISIONED_CAPACITY /
+                                                   USED_SPACE)
+
+        expected_result = {
+            'volume_backend_name': VOLUME_BACKEND_NAME,
+            'vendor_name': 'Pure Storage',
+            'driver_version': self.driver.VERSION,
+            'storage_protocol': None,
+            'consistencygroup_support': True,
+            'thin_provisioning_support': True,
+            'multiattach': True,
+            'total_capacity_gb': TOTAL_CAPACITY,
+            'free_capacity_gb': TOTAL_CAPACITY - USED_SPACE,
+            'reserved_percentage': reserved_percentage,
+            'provisioned_capacity': PROVISIONED_CAPACITY,
+            'max_over_subscription_ratio': (PROVISIONED_CAPACITY /
+                                            USED_SPACE),
+            'filter_function': filter_function,
+            'goodness_function': goodness_function,
+            'total_volumes': 100,
+            'total_snapshots': num_snaps,
+            'total_hosts': num_hosts,
+            'total_pgroups': num_pgroups,
+            'writes_per_sec': PERF_INFO['writes_per_sec'],
+            'reads_per_sec': PERF_INFO['reads_per_sec'],
+            'input_per_sec': PERF_INFO['input_per_sec'],
+            'output_per_sec': PERF_INFO['output_per_sec'],
+            'usec_per_read_op': PERF_INFO['usec_per_read_op'],
+            'usec_per_write_op': PERF_INFO['usec_per_write_op'],
+            'queue_depth': PERF_INFO['queue_depth'],
+        }
+
+        real_result = self.driver.get_volume_stats(refresh=True)
+        self.assertDictMatch(expected_result, real_result)
+
+        # Make sure when refresh=False we are using cached values and not
+        # sending additional requests to the array.
+        self.array.reset_mock()
+        real_result = self.driver.get_volume_stats(refresh=False)
+        self.assertDictMatch(expected_result, real_result)
+        self.assertFalse(self.array.get.called)
+        self.assertFalse(self.array.list_volumes.called)
+        self.assertFalse(self.array.list_hosts.called)
+        self.assertFalse(self.array.list_pgroups.called)

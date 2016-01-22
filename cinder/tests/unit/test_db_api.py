@@ -921,15 +921,6 @@ class DBAPIVolumeTestCase(BaseTest):
             self.assertRaises(exception.InvalidInput, db.volume_get_all,
                               self.ctxt, None, None, sort_keys=keys)
 
-    def test_volume_get_iscsi_target_num(self):
-        db.iscsi_target_create_safe(self.ctxt, {'volume_id': 42,
-                                                'target_num': 43})
-        self.assertEqual(43, db.volume_get_iscsi_target_num(self.ctxt, 42))
-
-    def test_volume_get_iscsi_target_num_nonexistent(self):
-        self.assertRaises(exception.ISCSITargetNotFoundForVolume,
-                          db.volume_get_iscsi_target_num, self.ctxt, 42)
-
     def test_volume_update(self):
         volume = db.volume_create(self.ctxt, {'host': 'h1'})
         ref_a = db.volume_update(self.ctxt, volume['id'],
@@ -1868,40 +1859,12 @@ class DBAPIQuotaTestCase(BaseTest):
                          self.ctxt, 'p1'))
 
 
-class DBAPIIscsiTargetTestCase(BaseTest):
-
-    """Unit tests for cinder.db.api.iscsi_target_*."""
-
-    def _get_base_values(self):
-        return {'target_num': 10, 'host': 'fake_host'}
-
-    def test_iscsi_target_create_safe(self):
-        target = db.iscsi_target_create_safe(self.ctxt,
-                                             self._get_base_values())
-        self.assertTrue(target['id'])
-        self.assertEqual('fake_host', target['host'])
-        self.assertEqual(10, target['target_num'])
-
-    def test_iscsi_target_count_by_host(self):
-        for i in range(3):
-            values = self._get_base_values()
-            values['target_num'] += i
-            db.iscsi_target_create_safe(self.ctxt, values)
-        self.assertEqual(3,
-                         db.iscsi_target_count_by_host(self.ctxt, 'fake_host'))
-
-    def test_integrity_error(self):
-        values = self._get_base_values()
-        values['id'] = 1
-        db.iscsi_target_create_safe(self.ctxt, values)
-        self.assertFalse(db.iscsi_target_create_safe(self.ctxt, values))
-
-
 class DBAPIBackupTestCase(BaseTest):
 
     """Tests for db.api.backup_* methods."""
 
-    _ignored_keys = ['id', 'deleted', 'deleted_at', 'created_at', 'updated_at']
+    _ignored_keys = ['id', 'deleted', 'deleted_at', 'created_at',
+                     'updated_at', 'data_timestamp']
 
     def setUp(self):
         super(DBAPIBackupTestCase, self).setUp()
@@ -1927,7 +1890,8 @@ class DBAPIBackupTestCase(BaseTest):
             'object_count': 100,
             'temp_volume_id': 'temp_volume_id',
             'temp_snapshot_id': 'temp_snapshot_id',
-            'num_dependent_backups': 0, }
+            'num_dependent_backups': 0,
+            'snapshot_id': 'snapshot_id', }
         if one:
             return base_values
 

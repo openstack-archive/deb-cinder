@@ -32,7 +32,10 @@ from cinder import db
 from cinder import test
 from cinder.tests.unit import test_db_api
 
+from keystoneclient import exceptions
+from keystonemiddleware import auth_token
 from oslo_config import cfg
+from oslo_config import fixture as config_fixture
 
 
 CONF = cfg.CONF
@@ -85,14 +88,15 @@ class QuotaSetsControllerTest(test.TestCase):
         super(QuotaSetsControllerTest, self).setUp()
         self.controller = quotas.QuotaSetsController()
 
-        self.req = self.mox.CreateMockAnything()
+        self.req = mock.Mock()
         self.req.environ = {'cinder.context': context.get_admin_context()}
         self.req.environ['cinder.context'].is_admin = True
-        self.req.environ['cinder.context'].auth_token = uuid.uuid4().hex
-        self.req.environ['cinder.context'].project_id = 'foo'
 
         self._create_project_hierarchy()
-        self.auth_url = CONF.keymgr.encryption_auth_url
+
+        self.auth_url = 'http://localhost:5000'
+        self.fixture = self.useFixture(config_fixture.Config(auth_token.CONF))
+        self.fixture.config(auth_uri=self.auth_url, group='keystone_authtoken')
 
     def _create_project_hierarchy(self):
         """Sets an environment used for nested quotas tests.
@@ -123,21 +127,54 @@ class QuotaSetsControllerTest(test.TestCase):
     def _get_project(self, context, id, subtree_as_ids=False):
         return self.project_by_id.get(id, self.FakeProject())
 
-    @mock.patch('keystoneclient.v3.client.Client')
-    def test_keystone_client_instantiation(self, ksclient_class):
+    @mock.patch('keystoneclient.client.Client')
+    @mock.patch('keystoneclient.session.Session')
+    def test_keystone_client_instantiation(self, ksclient_session,
+                                           ksclient_class):
         context = self.req.environ['cinder.context']
-        self.controller._get_project(context, context.project_id)
+        self.controller._keystone_client(context)
         ksclient_class.assert_called_once_with(auth_url=self.auth_url,
-                                               token=context.auth_token,
-                                               project_id=context.project_id)
+                                               session=ksclient_session())
 
-    @mock.patch('keystoneclient.v3.client.Client')
-    def test_get_project(self, ksclient_class):
+    @mock.patch('keystoneclient.client.Client')
+    def test_get_project_keystoneclient_v2(self, ksclient_class):
         context = self.req.environ['cinder.context']
         keystoneclient = ksclient_class.return_value
-        self.controller._get_project(context, context.project_id)
+        keystoneclient.version = 'v2.0'
+        expected_project = self.controller.GenericProjectInfo(
+            context.project_id, 'v2.0')
+        project = self.controller._get_project(context, context.project_id)
+        self.assertEqual(expected_project.__dict__, project.__dict__)
+
+    @mock.patch('keystoneclient.client.Client')
+    def test_get_project_keystoneclient_v3(self, ksclient_class):
+        context = self.req.environ['cinder.context']
+        keystoneclient = ksclient_class.return_value
+        keystoneclient.version = 'v3'
+        returned_project = self.FakeProject(context.project_id, 'bar')
+        del returned_project.subtree
+        keystoneclient.projects.get.return_value = returned_project
+        expected_project = self.controller.GenericProjectInfo(
+            context.project_id, 'v3', 'bar')
+        project = self.controller._get_project(context, context.project_id)
+        self.assertEqual(expected_project.__dict__, project.__dict__)
+
+    @mock.patch('keystoneclient.client.Client')
+    def test_get_project_keystoneclient_v3_with_subtree(self, ksclient_class):
+        context = self.req.environ['cinder.context']
+        keystoneclient = ksclient_class.return_value
+        keystoneclient.version = 'v3'
+        returned_project = self.FakeProject(context.project_id, 'bar')
+        subtree_dict = {'baz': {'quux': None}}
+        returned_project.subtree = subtree_dict
+        keystoneclient.projects.get.return_value = returned_project
+        expected_project = self.controller.GenericProjectInfo(
+            context.project_id, 'v3', 'bar', subtree_dict)
+        project = self.controller._get_project(context, context.project_id,
+                                               subtree_as_ids=True)
         keystoneclient.projects.get.assert_called_once_with(
-            context.project_id, subtree_as_ids=False)
+            context.project_id, subtree_as_ids=True)
+        self.assertEqual(expected_project.__dict__, project.__dict__)
 
     def test_defaults(self):
         self.controller._get_project = mock.Mock()
@@ -201,6 +238,17 @@ class QuotaSetsControllerTest(test.TestCase):
         self.assertRaises(webob.exc.HTTPForbidden, self.controller.show,
                           self.req, 'foo')
 
+    def test_show_non_admin_user(self):
+        self.controller._get_project = mock.Mock()
+        self.controller._get_project.side_effect = exceptions.Forbidden
+        self.controller._get_quotas = mock.Mock(side_effect=
+                                                self.controller._get_quotas)
+        result = self.controller.show(self.req, 'foo')
+        self.assertDictMatch(make_body(), result)
+        self.controller._get_quotas.assert_called_with(
+            self.req.environ['cinder.context'], 'foo', False,
+            parent_project_id=None)
+
     def test_subproject_show_not_authorized(self):
         self.controller._get_project = mock.Mock()
         self.controller._get_project.side_effect = self._get_project
@@ -257,6 +305,25 @@ class QuotaSetsControllerTest(test.TestCase):
         body = make_body(gigabytes=1500, snapshots=10,
                          volumes=4, backups=4, tenant_id=None)
         result = self.controller.update(self.req, self.D.id, body)
+
+    def test_update_subproject_repetitive(self):
+        self.controller._get_project = mock.Mock()
+        self.controller._get_project.side_effect = self._get_project
+        # Update the project A volumes quota.
+        self.req.environ['cinder.context'].project_id = self.A.id
+        body = make_body(gigabytes=2000, snapshots=15,
+                         volumes=10, backups=5, tenant_id=None)
+        result = self.controller.update(self.req, self.A.id, body)
+        self.assertDictMatch(body, result)
+        # Update the quota of B to be equal to its parent quota
+        # three times should be successful, the quota will not be
+        # allocated to 'allocated' value of parent project
+        for i in range(0, 3):
+            self.req.environ['cinder.context'].project_id = self.A.id
+            body = make_body(gigabytes=2000, snapshots=15,
+                             volumes=10, backups=5, tenant_id=None)
+            result = self.controller.update(self.req, self.B.id, body)
+            self.assertDictMatch(body, result)
 
     def test_update_subproject_not_in_hierarchy(self):
         self.controller._get_project = mock.Mock()
@@ -535,7 +602,7 @@ class QuotaSerializerTest(test.TestCase):
 
     def setUp(self):
         super(QuotaSerializerTest, self).setUp()
-        self.req = self.mox.CreateMockAnything()
+        self.req = mock.Mock()
         self.req.environ = {'cinder.context': context.get_admin_context()}
 
     def test_update_serializer(self):

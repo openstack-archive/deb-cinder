@@ -19,13 +19,13 @@ import copy
 
 import ddt
 import mock
+from simplejson import scanner
 
 from cinder import exception
 from cinder import test
 from cinder.tests.unit.volume.drivers.netapp.eseries import fakes as \
     eseries_fake
 from cinder.volume.drivers.netapp.eseries import exception as es_exception
-
 
 from cinder.volume.drivers.netapp.eseries import client
 from cinder.volume.drivers.netapp import utils as na_utils
@@ -85,6 +85,18 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
         with self.assertRaisesRegexp(es_exception.WebServiceException,
                                      exc_regex) as exc:
             self.my_client._eval_response(fake_resp)
+            self.assertEqual(status_code, exc.status_code)
+
+    def test_eval_response_424(self):
+        status_code = 424
+        fake_resp = mock.Mock()
+        fake_resp.status_code = status_code
+        fake_resp.text = "Fake Error Message"
+
+        with self.assertRaisesRegex(es_exception.WebServiceException,
+                                    "The storage-system is offline") as exc:
+            self.my_client._eval_response(fake_resp)
+
             self.assertEqual(status_code, exc.status_code)
 
     def test_register_storage_system_does_not_log_password(self):
@@ -147,6 +159,43 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
         actual_wwpns = self.my_client.list_target_wwpns()
 
         self.assertEqual(expected_wwpns, actual_wwpns)
+
+    def test_get_host_group_by_name(self):
+        groups = copy.deepcopy(eseries_fake.HOST_GROUPS)
+        group = groups[0]
+        self.mock_object(self.my_client, 'list_host_groups',
+                         new_attr=mock.Mock(return_value=groups))
+
+        result = self.my_client.get_host_group_by_name(group['label'])
+
+        self.assertEqual(group, result)
+
+    def test_move_volume_mapping_via_symbol(self):
+        invoke = self.mock_object(self.my_client, '_invoke',
+                                  mock.Mock(return_value='ok'))
+        host_ref = 'host'
+        cluster_ref = 'cluster'
+        lun_id = 10
+        expected_data = {'lunMappingRef': host_ref, 'lun': lun_id,
+                         'mapRef': cluster_ref}
+
+        result = self.my_client.move_volume_mapping_via_symbol(host_ref,
+                                                               cluster_ref,
+                                                               lun_id)
+
+        invoke.assert_called_once_with('POST', '/storage-systems/{system-id}/'
+                                               'symbol/moveLUNMapping',
+                                       expected_data)
+
+        self.assertEqual({'lun': lun_id}, result)
+
+    def test_move_volume_mapping_via_symbol_fail(self):
+        self.mock_object(self.my_client, '_invoke',
+                         mock.Mock(return_value='failure'))
+
+        self.assertRaises(
+            exception.NetAppDriverException,
+            self.my_client.move_volume_mapping_via_symbol, '1', '2', 10)
 
     def test_create_host_from_ports_fc(self):
         label = 'fake_host'
@@ -346,16 +395,8 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
                 eseries_fake.FAKE_ASUP_DATA['operating-mode'],
                 eseries_fake.FAKE_ABOUT_RESPONSE['version'])))
         self.mock_object(
-            self.my_client, 'get_firmware_version',
-            mock.Mock(
-                return_value=eseries_fake.FAKE_ABOUT_RESPONSE['version']))
-        self.mock_object(
-            self.my_client, 'get_serial_numbers',
-            mock.Mock(return_value=eseries_fake.FAKE_SERIAL_NUMBERS))
-        self.mock_object(
-            self.my_client, 'get_model_name',
-            mock.Mock(
-                return_value=eseries_fake.FAKE_CONTROLLERS[0]['modelName']))
+            self.my_client, 'get_asup_info',
+            mock.Mock(return_value=eseries_fake.GET_ASUP_RETURN))
         self.mock_object(
             self.my_client, 'set_counter',
             mock.Mock(return_value={'value': 1}))
@@ -372,38 +413,48 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
         mock_invoke.assert_called_with(*eseries_fake.FAKE_POST_INVOKE_DATA)
 
     @ddt.data((eseries_fake.FAKE_SERIAL_NUMBERS,
-               eseries_fake.FAKE_CONTROLLERS),
-              (eseries_fake.FAKE_DEFAULT_SERIAL_NUMBER, []),
+               eseries_fake.HARDWARE_INVENTORY),
+              (eseries_fake.FAKE_DEFAULT_SERIAL_NUMBER, {}),
               (eseries_fake.FAKE_SERIAL_NUMBER,
-              eseries_fake.FAKE_SINGLE_CONTROLLER))
+               eseries_fake.HARDWARE_INVENTORY_SINGLE_CONTROLLER))
     @ddt.unpack
-    def test_get_serial_numbers(self, expected_serial_numbers, controllers):
+    def test_get_asup_info_serial_numbers(self, expected_serial_numbers,
+                                          controllers):
         self.mock_object(
-            client.RestClient, '_get_controllers',
+            client.RestClient, 'list_hardware_inventory',
             mock.Mock(return_value=controllers))
-
-        serial_numbers = client.RestClient.get_serial_numbers(self.my_client)
-
-        self.assertEqual(expected_serial_numbers, serial_numbers)
-
-    def test_get_model_name(self):
         self.mock_object(
-            client.RestClient, '_get_controllers',
-            mock.Mock(return_value=eseries_fake.FAKE_CONTROLLERS))
+            client.RestClient, 'list_storage_system',
+            mock.Mock(return_value={}))
 
-        model = client.RestClient.get_model_name(self.my_client)
+        sn = client.RestClient.get_asup_info(self.my_client)['serial_numbers']
 
-        self.assertEqual(eseries_fake.FAKE_CONTROLLERS[0]['modelName'],
-                         model)
+        self.assertEqual(expected_serial_numbers, sn)
 
-    def test_get_model_name_empty_controllers_list(self):
+    def test_get_asup_info_model_name(self):
         self.mock_object(
-            client.RestClient, '_get_controllers',
-            mock.Mock(return_value=[]))
+            client.RestClient, 'list_hardware_inventory',
+            mock.Mock(return_value=eseries_fake.HARDWARE_INVENTORY))
+        self.mock_object(
+            client.RestClient, 'list_storage_system',
+            mock.Mock(return_value=eseries_fake.STORAGE_SYSTEM))
 
-        model = client.RestClient.get_model_name(self.my_client)
+        model_name = client.RestClient.get_asup_info(self.my_client)['model']
 
-        self.assertEqual(eseries_fake.FAKE_DEFAULT_MODEL, model)
+        self.assertEqual(eseries_fake.HARDWARE_INVENTORY['controllers'][0]
+                         ['modelName'], model_name)
+
+    def test_get_asup_info_model_name_empty_controllers_list(self):
+        self.mock_object(
+            client.RestClient, 'list_hardware_inventory',
+            mock.Mock(return_value={}))
+        self.mock_object(
+            client.RestClient, 'list_storage_system',
+            mock.Mock(return_value={}))
+
+        model_name = client.RestClient.get_asup_info(self.my_client)['model']
+
+        self.assertEqual(eseries_fake.FAKE_DEFAULT_MODEL, model_name)
 
     def test_get_eseries_api_info(self):
         fake_invoke_service = mock.Mock()
@@ -699,8 +750,7 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
 
         self.my_client._invoke.assert_called_once_with('DELETE', url,
                                                        **{'object-id':
-                                                          fake_volume['id']}
-                                                       )
+                                                          fake_volume['id']})
 
     @ddt.data('00.00.00.00', '01.52.9000.2', '01.52.9001.2', '01.51.9000.3',
               '01.51.9001.3', '01.51.9010.5', '0.53.9000.3', '0.53.9001.4')
@@ -752,10 +802,23 @@ class NetAppEseriesClientDriverTestCase(test.TestCase):
 
         self.assertTrue(self.my_client.features.SSC_API_V2.supported)
 
+    def test_invoke_bad_content_type(self):
+        """Tests the invoke behavior with a non-JSON response"""
+        fake_response = mock.Mock()
+        fake_response.json = mock.Mock(side_effect=scanner.JSONDecodeError(
+            '', '{}', 1))
+        fake_response.status_code = 424
+        fake_response.text = "Fake Response"
+        self.mock_object(self.my_client, 'invoke_service',
+                         mock.Mock(return_value=fake_response))
+
+        self.assertRaises(es_exception.WebServiceException,
+                          self.my_client._invoke, 'GET',
+                          eseries_fake.FAKE_ENDPOINT_HTTP)
+
 
 @ddt.ddt
 class TestWebserviceClientTestCase(test.TestCase):
-
     def setUp(self):
         """sets up the mock tests"""
         super(TestWebserviceClientTestCase, self).setUp()

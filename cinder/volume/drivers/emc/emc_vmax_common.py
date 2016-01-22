@@ -23,6 +23,7 @@ import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder.objects import fields
 from cinder.volume.drivers.emc import emc_vmax_fast
 from cinder.volume.drivers.emc import emc_vmax_https
 from cinder.volume.drivers.emc import emc_vmax_masking
@@ -519,10 +520,14 @@ class EMCVMAXCommon(object):
         additionalVolumeSize = self.utils.convert_gb_to_bits(
             additionalVolumeSize)
 
-        # This is V2
-        rc, modifiedVolumeDict = self._extend_composite_volume(
-            volumeInstance, volumeName, newSize, additionalVolumeSize,
-            extraSpecs)
+        if extraSpecs[ISV3]:
+            rc, modifiedVolumeDict = self._extend_v3_volume(
+                volumeInstance, volumeName, newSize, extraSpecs)
+        else:
+            # This is V2.
+            rc, modifiedVolumeDict = self._extend_composite_volume(
+                volumeInstance, volumeName, newSize, additionalVolumeSize,
+                extraSpecs)
 
         # Check the occupied space of the new extended volume.
         extendedVolumeInstance = self.utils.find_volume_instance(
@@ -1472,6 +1477,7 @@ class EMCVMAXCommon(object):
                 {'volumeName': volumeName,
                  'volumeInstance': volumeInstance.path})
         else:
+            host = self.utils.get_host_short_name(host)
             hoststr = ("-%(host)s-"
                        % {'host': host})
 
@@ -2361,7 +2367,7 @@ class EMCVMAXCommon(object):
         LOG.info(_LI("Create Consistency Group: %(group)s."),
                  {'group': group['id']})
 
-        modelUpdate = {'status': 'available'}
+        modelUpdate = {'status': fields.ConsistencyGroupStatus.AVAILABLE}
         volumeTypeId = group['volume_type_id'].replace(",", "")
 
         cgName = self.utils.truncate_string(group['id'], 8)
@@ -2836,6 +2842,19 @@ class EMCVMAXCommon(object):
 
         poolInstanceName, storageSystemName = (
             self._get_pool_and_storage_system(extraSpecs))
+
+        # Check to see if SLO and Workload are configured on the array.
+        storagePoolCapability = self.provisionv3.get_storage_pool_capability(
+            self.conn, poolInstanceName)
+        if storagePoolCapability:
+            self.provisionv3.get_storage_pool_setting(
+                self.conn, storagePoolCapability, extraSpecs[SLO],
+                extraSpecs[WORKLOAD])
+        else:
+            exceptionMessage = (_(
+                "Cannot determine storage pool settings."))
+            LOG.error(exceptionMessage)
+            raise exception.VolumeBackendAPIException(data=exceptionMessage)
 
         LOG.debug("Create Volume: %(volume)s  Pool: %(pool)s "
                   "Storage System: %(storageSystem)s "
@@ -4114,7 +4133,7 @@ class EMCVMAXCommon(object):
                      "This adds and/or removes volumes from a CG."),
                  {'group': group['id']})
 
-        modelUpdate = {'status': 'available'}
+        modelUpdate = {'status': fields.ConsistencyGroupStatus.AVAILABLE}
         volumeTypeId = group['volume_type_id'].replace(",", "")
 
         cg_name = self.utils.truncate_string(group['id'], 8)
@@ -4212,7 +4231,7 @@ class EMCVMAXCommon(object):
             raise exception.VolumeBackendAPIException(
                 data=exceptionMessage)
 
-        modelUpdate = {'status': 'available'}
+        modelUpdate = {'status': fields.ConsistencyGroupStatus.AVAILABLE}
 
         _poolInstanceName, storageSystem = (
             self._get_pool_and_storage_system(extraSpecs))
@@ -4347,3 +4366,23 @@ class EMCVMAXCommon(object):
                             conn, ipendpointinstancename))
                     foundipaddresses.append(ipaddress)
         return foundipaddresses
+
+    def _extend_v3_volume(self, volumeInstance, volumeName, newSize,
+                          extraSpecs):
+        """Extends a VMAX3 volume.
+
+        :param volumeInstance: volume instance
+        :param volumeName: volume name
+        :param newSize: new size the volume will be increased to
+        :param extraSpecs: extra specifications
+        :returns: int -- return code
+        :returns: volumeDict
+        """
+        new_size_in_bits = int(self.utils.convert_gb_to_bits(newSize))
+        storageConfigService = self.utils.find_storage_configuration_service(
+            self.conn, volumeInstance['SystemName'])
+        volumeDict, rc = self.provisionv3.extend_volume_in_SG(
+            self.conn, storageConfigService, volumeInstance.path,
+            volumeName, new_size_in_bits, extraSpecs)
+
+        return rc, volumeDict

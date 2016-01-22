@@ -7,19 +7,19 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.dev364\n"
+"Project-Id-Version: cinder 8.0.0.0b2.dev281\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-12-01 06:53+0000\n"
-"PO-Revision-Date: 2015-09-16 08:22+0000\n"
-"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
-"Language-Team: Turkish (Turkey)\n"
-"Language: tr-TR\n"
+"POT-Creation-Date: 2016-01-17 23:35+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"PO-Revision-Date: 2015-09-16 08:22+0000\n"
+"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
+"Language: tr-TR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
 "X-Generator: Zanata 3.7.3\n"
+"Language-Team: Turkish (Turkey)\n"
 
 #, python-format
 msgid "\t%(name)-35s : %(value)s"
@@ -72,10 +72,6 @@ msgstr "%(element)s: %(val)s"
 #, python-format
 msgid "%(method)s %(url)s"
 msgstr "%(method)s %(url)s"
-
-#, python-format
-msgid "%(name)s listening on %(_host)s:%(_port)s"
-msgstr "%(name)s %(_host)s:%(_port)s üzerinde dinliyor"
 
 #, python-format
 msgid "%(url)s returned a fault: %(e)s"
@@ -415,9 +411,6 @@ msgstr ""
 msgid "Copied image to volume %s using regular download."
 msgstr "Normal indirme kullanılarak imaj %s mantıksal sürücüsüne kopyalandı."
 
-msgid "Copy image to volume completed successfully."
-msgstr "İmajın mantıksal sürücüye kopyalanması başarıyla tamamlandı."
-
 #, python-format
 msgid "Copy job to dest vol %s completed."
 msgstr "%s hedef mantıksal sürücüsüne kopyalama işi tamamlandı."
@@ -464,10 +457,6 @@ msgid ""
 msgstr ""
 "Geçici mantıksal sürücü %(vol)s veri tabanında bulunamadı. Bu mantıksal "
 "sürücüyü temizlemeye gerek yok."
-
-#, python-format
-msgid "Create %(volume)s on %(device)s"
-msgstr "%(device)s üzerinde %(volume)s oluştur"
 
 #, python-format
 msgid "Create Cloned Volume %(volume_id)s completed."
@@ -1141,14 +1130,6 @@ msgstr "Mantıksal sürücü bağlantısını ilklendirme başarıyla tamamland�
 msgid "Initialized driver %(name)s version: %(vers)s"
 msgstr "Sürücü %(name)s sürüm: %(vers)s ilklendirildi"
 
-#, python-format
-msgid "Initialized driver %(name)s version: %(vers)s."
-msgstr "Sürücü %(name)s sürüm: %(vers)s ilklendirildi."
-
-#, python-format
-msgid "Initialized driver for IBMNAS Platform: %s."
-msgstr "IBMNAS Platformu için sürücü ilklendirildi: %s."
-
 msgid "Initializing extension manager."
 msgstr "Genişletme yöneticisi başlatılıyor"
 
@@ -1623,10 +1604,6 @@ msgid "Running with vmemclient version: %s"
 msgstr "vmemclient sürüm: %s ile çalışıyor"
 
 #, python-format
-msgid "Running with vmemclient version: %s."
-msgstr "vmemclient sürüm: %s ile çalışıyor."
-
-#, python-format
 msgid "Save service info for %(svc)s -> %(hdp)s, %(path)s"
 msgstr " %(svc)s -> %(hdp)s, %(path)s için servis bilgisi kaydet"
 
@@ -1790,9 +1767,6 @@ msgstr "Mantıksal sürücü %(driver_name)s (%(version)s) başlatılıyor"
 #, python-format
 msgid "Starting volume driver %(driver_name)s (%(version)s)."
 msgstr "Mantıksal sürücü sürücüsü başlatılıyor %(driver_name)s (%(version)s)."
-
-msgid "Stopping WSGI server."
-msgstr "WSGI sunucusu durduruluyor."
 
 #, python-format
 msgid "Storage Group %s was empty."
@@ -2078,34 +2052,6 @@ msgstr ""
 "Silmeden önce tüm sdc'lerden mantıksal sürücü eşleştirmesini kaldırmaya "
 "çalışılıyor: %s."
 
-#, python-format
-msgid ""
-"Unable to delete volume: %(vol_id)s, volume must be available or error, but "
-"is %(vol_status)s."
-msgstr ""
-"Mantıksal sürücü silinemedi: %(vol_id)s, mantıksal sürücü kullanılabilir ya "
-"da hata olmalı, ama %(vol_status)s."
-
-#, python-format
-msgid "Unable to delete volume: %s, volume currently has snapshots."
-msgstr ""
-"Mantıksal sürücü silinemiyor: %s, mantıksal sürücünün anlık görüntüleri var."
-
-#, python-format
-msgid "Unable to delete volume: %s, volume is attached."
-msgstr "Mantıksal sürücü: %s silinemedi, mantıksal sürücü ekli durumda."
-
-#, python-format
-msgid "Unable to delete volume: %s, volume is currently migrating."
-msgstr "Mantıksal sürücü silinemiyor: %s, mantıksal sürücü şu an göç ediyor."
-
-#, python-format
-msgid ""
-"Unable to delete volume: %s, volume is currently part of a consistency group."
-msgstr ""
-"Mantıksal sürücü silinemiyor: %s, mantıksal sürücü şu an bir tutarlılık "
-"grubu parçası."
-
 msgid "Unable to parse XML input."
 msgstr "XML girdisi ayrıştırılamadı."
 
@@ -2223,10 +2169,6 @@ msgstr "Servis etiketi kullanılıyor: %s"
 #, python-format
 msgid "Value with type=%s is not serializable"
 msgstr "type=%s sahip değer serileştirilemez"
-
-#, python-format
-msgid "Verified VMOS version %s is supported."
-msgstr "Doğrulanmış VMOS sürümü %s destekleniyor."
 
 #, python-format
 msgid "Virtual volume %(disp)s '%(new)s' is being retyped."
@@ -2366,9 +2308,6 @@ msgid ""
 msgstr ""
 "Mantıksal sürücü: %(vol_id)s, boyut: %(vol_size)d yedek: %(backup_id)s, "
 "boyut: %(backup_size)d'den büyük, geri yüklemeyle devam ediliyor."
-
-msgid "WSGI server has stopped."
-msgstr "WSGI sunucusu durduruldu."
 
 #, python-format
 msgid "WWPN on node %(node)s: %(wwpn)s."

@@ -17,6 +17,7 @@ import mock
 from cinder.db.sqlalchemy import models
 from cinder import exception
 from cinder import objects
+from cinder.objects import fields
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import objects as test_objects
 from cinder.tests.unit import utils
@@ -25,7 +26,7 @@ from cinder.tests.unit import utils
 fake_backup = {
     'id': '1',
     'volume_id': 'fake_id',
-    'status': "creating",
+    'status': fields.BackupStatus.CREATING,
     'size': 1,
     'display_name': 'fake_name',
     'display_description': 'fake_description',
@@ -33,6 +34,8 @@ fake_backup = {
     'project_id': 'fake_project',
     'temp_volume_id': None,
     'temp_snapshot_id': None,
+    'snapshot_id': None,
+    'data_timestamp': None,
 }
 
 
@@ -84,6 +87,11 @@ class TestBackup(test_objects.BaseObjectsTestCase):
                                 temp_snapshot_id='3')
         self.assertEqual('2', backup.temp_volume_id)
         self.assertEqual('3', backup.temp_snapshot_id)
+
+    def test_obj_field_snapshot_id(self):
+        backup = objects.Backup(context=self.context,
+                                snapshot_id='2')
+        self.assertEqual('2', backup.snapshot_id)
 
     def test_import_record(self):
         utils.replace_obj_loader(self, objects.Backup)
@@ -139,6 +147,26 @@ class TestBackup(test_objects.BaseObjectsTestCase):
         self.assertRaises(exception.InvalidInput,
                           objects.Backup.decode_record,
                           export_string)
+
+    @mock.patch('cinder.db.sqlalchemy.api.backup_get')
+    def test_refresh(self, backup_get):
+        db_backup1 = fake_backup.copy()
+        db_backup2 = db_backup1.copy()
+        db_backup2['display_name'] = 'foobar'
+
+        # On the second backup_get, return the backup with an updated
+        # display_name
+        backup_get.side_effect = [db_backup1, db_backup2]
+        backup = objects.Backup.get_by_id(self.context, '1')
+        self._compare(self, db_backup1, backup)
+
+        # display_name was updated, so a backup refresh should have a new value
+        # for that field
+        backup.refresh()
+        self._compare(self, db_backup2, backup)
+        backup_get.assert_has_calls([mock.call(self.context, '1'),
+                                     mock.call.__nonzero__(),
+                                     mock.call(self.context, '1')])
 
 
 class TestBackupList(test_objects.BaseObjectsTestCase):

@@ -43,9 +43,10 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
                 Added API 2.2 support.
         2.3.0 - Added Legacy Port Mode Support
         2.3.1 - Updated error handling.
+        2.4.0 - Added Replication V2 support.
     """
 
-    VERSION = '2.3.1'
+    VERSION = '2.4.0'
 
     def __init__(self, *args, **kwargs):
         super(DellStorageCenterISCSIDriver, self).__init__(*args, **kwargs)
@@ -123,6 +124,7 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
                                                                 port))
 
                         # Return our iscsi properties.
+                        iscsiprops['discard'] = True
                         return {'driver_volume_type': 'iscsi',
                                 'data': iscsiprops}
             # Re-raise any backend exception.

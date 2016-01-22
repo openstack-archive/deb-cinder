@@ -701,6 +701,14 @@ class EvaluatorParseException(Exception):
     message = _("Error during evaluator parsing: %(reason)s")
 
 
+class LockCreationFailed(CinderException):
+    message = _('Unable to create lock. Coordination backend not started.')
+
+
+class LockingFailed(CinderException):
+    message = _('Lock acquisition failed.')
+
+
 UnsupportedObjectError = obj_exc.UnsupportedObjectError
 OrphanedObjectError = obj_exc.OrphanedObjectError
 IncompatibleObjectVersion = obj_exc.IncompatibleObjectVersion
@@ -962,6 +970,10 @@ class XtremIOArrayBusy(CinderException):
     message = _("System is busy, retry operation.")
 
 
+class XtremIOSnapshotsLimitExceeded(CinderException):
+    message = _("Exceeded the limit of snapshots per volume")
+
+
 # Infortrend EonStor DS Driver
 class InfortrendCliException(CinderException):
     message = _("Infortrend CLI exception: %(err)s Param: %(param)s "
@@ -1017,3 +1029,31 @@ class NotSupportedOperation(Invalid):
 # Hitachi HNAS drivers
 class HNASConnError(CinderException):
     message = _("%(message)s")
+
+
+# Coho drivers
+class CohoException(VolumeDriverException):
+    message = _("Coho Data Cinder driver failure: %(message)s")
+
+
+# Tegile Storage drivers
+class TegileAPIException(VolumeBackendAPIException):
+    message = _("Unexpected response from Tegile IntelliFlash API")
+
+
+# NexentaStor driver exception
+class NexentaException(VolumeDriverException):
+    message = _("%(message)s")
+
+
+# Google Cloud Storage(GCS) backup driver
+class GCSConnectionFailure(BackupDriverException):
+    message = _("Google Cloud Storage connection failure: %(reason)s")
+
+
+class GCSApiFailure(BackupDriverException):
+    message = _("Google Cloud Storage api failure: %(reason)s")
+
+
+class GCSOAuth2Failure(BackupDriverException):
+    message = _("Google Cloud Storage oauth2 failure: %(reason)s")

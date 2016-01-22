@@ -27,6 +27,27 @@ CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
+class MetadataObject(dict):
+    # This is a wrapper class that simulates SQLAlchemy (.*)Metadata objects to
+    # maintain compatibility with older representations of Volume that some
+    # drivers rely on. This is helpful in transition period while some driver
+    # methods are invoked with volume versioned object and some SQLAlchemy
+    # object or dict.
+    def __init__(self, key=None, value=None):
+        super(MetadataObject, self).__init__()
+        self.key = key
+        self.value = value
+
+    def __getattr__(self, name):
+        if name in self:
+            return self[name]
+        else:
+            raise AttributeError("No such attribute: " + name)
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
 @base.CinderObjectRegistry.register
 class Volume(base.CinderPersistentObject, base.CinderObject,
              base.CinderObjectDictCompat, base.CinderComparableObject):
@@ -34,7 +55,8 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
     # Version 1.1: Added metadata, admin_metadata, volume_attachment, and
     #              volume_type
     # Version 1.2: Added glance_metadata, consistencygroup and snapshots
-    VERSION = '1.2'
+    # Version 1.3: Added finish_volume_migration()
+    VERSION = '1.3'
 
     OPTIONAL_FIELDS = ('metadata', 'admin_metadata', 'glance_metadata',
                        'volume_type', 'volume_attachment', 'consistencygroup',
@@ -99,7 +121,8 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
 
     # NOTE(thangp): obj_extra_fields is used to hold properties that are not
     # usually part of the model
-    obj_extra_fields = ['name', 'name_id']
+    obj_extra_fields = ['name', 'name_id', 'volume_metadata',
+                        'volume_admin_metadata', 'volume_glance_metadata']
 
     @property
     def name_id(self):
@@ -112,6 +135,40 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
     @property
     def name(self):
         return CONF.volume_name_template % self.name_id
+
+    # TODO(dulek): Three properties below are for compatibility with dict
+    # representation of volume. The format there is different (list of
+    # SQLAlchemy models) so we need a conversion. Anyway - these should be
+    # removed when we stop this class from deriving from DictObjectCompat.
+    @property
+    def volume_metadata(self):
+        md = [MetadataObject(k, v) for k, v in self.metadata.items()]
+        return md
+
+    @volume_metadata.setter
+    def volume_metadata(self, value):
+        md = {d['key']: d['value'] for d in value}
+        self.metadata = md
+
+    @property
+    def volume_admin_metadata(self):
+        md = [MetadataObject(k, v) for k, v in self.admin_metadata.items()]
+        return md
+
+    @volume_admin_metadata.setter
+    def volume_admin_metadata(self, value):
+        md = {d['key']: d['value'] for d in value}
+        self.admin_metadata = md
+
+    @property
+    def volume_glance_metadata(self):
+        md = [MetadataObject(k, v) for k, v in self.glance_metadata.items()]
+        return md
+
+    @volume_glance_metadata.setter
+    def volume_glance_metadata(self, value):
+        md = {d['key']: d['value'] for d in value}
+        self.glance_metadata = md
 
     def __init__(self, *args, **kwargs):
         super(Volume, self).__init__(*args, **kwargs)
@@ -171,23 +228,16 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         # Get data from db_volume object that was queried by joined query
         # from DB
         if 'metadata' in expected_attrs:
-            volume.metadata = {}
             metadata = db_volume.get('volume_metadata', [])
-            if metadata:
-                volume.metadata = {item['key']: item['value']
-                                   for item in metadata}
+            volume.metadata = {item['key']: item['value'] for item in metadata}
         if 'admin_metadata' in expected_attrs:
-            volume.admin_metadata = {}
             metadata = db_volume.get('volume_admin_metadata', [])
-            if metadata:
-                volume.admin_metadata = {item['key']: item['value']
-                                         for item in metadata}
+            volume.admin_metadata = {item['key']: item['value']
+                                     for item in metadata}
         if 'glance_metadata' in expected_attrs:
-            volume.glance_metadata = {}
             metadata = db_volume.get('volume_glance_metadata', [])
-            if metadata:
-                volume.glance_metadata = {item['key']: item['value']
-                                          for item in metadata}
+            volume.glance_metadata = {item['key']: item['value']
+                                      for item in metadata}
         if 'volume_type' in expected_attrs:
             db_volume_type = db_volume.get('volume_type')
             if db_volume_type:
@@ -227,9 +277,6 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         if 'consistencygroup' in updates:
             raise exception.ObjectActionError(
                 action='create', reason=_('consistencygroup assigned'))
-        if 'glance_metadata' in updates:
-                raise exception.ObjectActionError(
-                    action='create', reason=_('glance_metadata assigned'))
         if 'snapshots' in updates:
             raise exception.ObjectActionError(
                 action='create', reason=_('snapshots assigned'))
@@ -287,11 +334,22 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
                 self.admin_metadata = db.volume_admin_metadata_get(
                     self._context, self.id)
         elif attrname == 'glance_metadata':
-            self.glance_metadata = db.volume_glance_metadata_get(
-                self._context, self.id)
+            try:
+                # NOTE(dulek): We're using alias here to have conversion from
+                # list to dict done there.
+                self.volume_glance_metadata = db.volume_glance_metadata_get(
+                    self._context, self.id)
+            except exception.GlanceMetadataNotFound:
+                # NOTE(dulek): DB API raises when volume has no
+                # glance_metadata. Silencing this because at this level no
+                # metadata is a completely valid result.
+                self.glance_metadata = {}
         elif attrname == 'volume_type':
-            self.volume_type = objects.VolumeType.get_by_id(
-                self._context, self.volume_type_id)
+            # If the volume doesn't have volume_type, VolumeType.get_by_id
+            # would trigger a db call which raise VolumeTypeNotFound exception.
+            self.volume_type = (objects.VolumeType.get_by_id(
+                self._context, self.volume_type_id) if self.volume_type_id
+                else None)
         elif attrname == 'volume_attachment':
             attachments = objects.VolumeAttachmentList.get_all_by_volume_id(
                 self._context, self.id)
@@ -315,6 +373,41 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
 
         if not md_was_changed:
             self.obj_reset_changes(['metadata'])
+
+    def finish_volume_migration(self, dest_volume):
+        # We swap fields between source (i.e. self) and destination at the
+        # end of migration because we want to keep the original volume id
+        # in the DB but now pointing to the migrated volume.
+        skip = ({'id', 'provider_location', 'glance_metadata'} |
+                set(self.obj_extra_fields))
+        for key in set(dest_volume.fields.keys()) - skip:
+            # Only swap attributes that are already set.  We do not want to
+            # unexpectedly trigger a lazy-load.
+            if not dest_volume.obj_attr_is_set(key):
+                continue
+
+            value = getattr(dest_volume, key)
+            value_to_dst = getattr(self, key)
+
+            # Destination must have a _name_id since the id no longer matches
+            # the volume.  If it doesn't have a _name_id we set one.
+            if key == '_name_id':
+                if not dest_volume._name_id:
+                    setattr(dest_volume, key, self.id)
+                continue
+            elif key == 'migration_status':
+                value = None
+                value_to_dst = 'deleting'
+            elif key == 'display_description':
+                value_to_dst = 'migration src for ' + self.id
+            elif key == 'status':
+                value_to_dst = 'deleting'
+
+            setattr(self, key, value)
+            setattr(dest_volume, key, value_to_dst)
+
+        dest_volume.save()
+        return dest_volume
 
 
 @base.CinderObjectRegistry.register

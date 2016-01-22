@@ -24,6 +24,7 @@ supported XtremIO version 2.4 and up
 1.0.5 - add support for XtremIO 4.0
 1.0.6 - add support for iSCSI multipath, CA validation, consistency groups,
         R/O snapshots, CHAP discovery authentication
+1.0.7 - cache glance images on the array
 """
 
 import json
@@ -37,9 +38,11 @@ from oslo_log import log as logging
 from oslo_utils import units
 import six
 
+from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import objects
+from cinder.objects import fields
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
@@ -59,7 +62,10 @@ XTREMIO_OPTS = [
                help='Number of retries in case array is busy'),
     cfg.IntOpt('xtremio_array_busy_retry_interval',
                default=5,
-               help='Interval between retries in case array is busy')]
+               help='Interval between retries in case array is busy'),
+    cfg.IntOpt('xtremio_volumes_per_glance_cache',
+               default=100,
+               help='Number of volumes created from each cached glance image')]
 
 CONF.register_opts(XTREMIO_OPTS)
 
@@ -69,6 +75,9 @@ VOL_NOT_UNIQUE_ERR = 'vol_obj_name_not_unique'
 VOL_OBJ_NOT_FOUND_ERR = 'vol_obj_not_found'
 ALREADY_MAPPED_ERR = 'already_mapped'
 SYSTEM_BUSY = 'system_is_busy'
+TOO_MANY_OBJECTS = 'too_many_objs'
+TOO_MANY_SNAPSHOTS_PER_VOL = 'too_many_snapshots_per_vol'
+
 
 XTREMIO_OID_NAME = 1
 XTREMIO_OID_INDEX = 2
@@ -157,6 +166,8 @@ class XtremIOClient(object):
                 raise exception.XtremIOAlreadyMappedError()
             elif err_msg == SYSTEM_BUSY:
                 raise exception.XtremIOArrayBusy()
+            elif err_msg in (TOO_MANY_OBJECTS, TOO_MANY_SNAPSHOTS_PER_VOL):
+                raise exception.XtremIOSnapshotsLimitExceeded()
         msg = _('Bad response from XMS, %s') % response.text
         LOG.error(msg)
         raise exception.VolumeBackendAPIException(message=msg)
@@ -336,7 +347,7 @@ class XtremIOClient4(XtremIOClient):
 class XtremIOVolumeDriver(san.SanDriver):
     """Executes commands relating to Volumes."""
 
-    VERSION = '1.0.6'
+    VERSION = '1.0.7'
     driver_name = 'XtremIO'
     MIN_XMS_VERSION = [3, 0, 0]
 
@@ -410,7 +421,18 @@ class XtremIOVolumeDriver(san.SanDriver):
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a clone of the specified volume."""
-        self.client.create_snapshot(src_vref['id'], volume['id'])
+        vol = self.client.req('volumes', name=src_vref['id'])['content']
+        ctxt = context.get_admin_context()
+        cache = self.db.image_volume_cache_get_by_volume_id(ctxt,
+                                                            src_vref['id'])
+        limit = self.configuration.safe_get('xtremio_volumes_per_glance_cache')
+        if cache and limit and limit > 0 and limit <= vol['num-of-dest-snaps']:
+            raise exception.CinderException('Exceeded the configured limit of '
+                                            '%d snapshots per volume' % limit)
+        try:
+            self.client.create_snapshot(src_vref['id'], volume['id'])
+        except exception.XtremIOSnapshotsLimitExceeded as e:
+            raise exception.CinderException(e.message)
 
         if volume.get('consistencygroup_id') and self.client is XtremIOClient4:
             self.client.add_vol_to_cg(volume['id'],
@@ -454,6 +476,7 @@ class XtremIOVolumeDriver(san.SanDriver):
                        'reserved_percentage':
                        self.configuration.reserved_percentage,
                        'QoS_support': False,
+                       'multiattach': True,
                        }
         self._stats.update(self.client.get_extra_capabilities())
 
@@ -577,7 +600,7 @@ class XtremIOVolumeDriver(san.SanDriver):
         create_data = {'consistency-group-name': group['id']}
         self.client.req('consistency-groups', 'POST', data=create_data,
                         ver='v2')
-        return {'status': 'available'}
+        return {'status': fields.ConsistencyGroupStatus.AVAILABLE}
 
     def delete_consistencygroup(self, context, group, volumes):
         """Deletes a consistency group."""
@@ -616,7 +639,7 @@ class XtremIOVolumeDriver(san.SanDriver):
         :param volumes: a list of volume dictionaries in the group.
         :param cgsnapshot: the dictionary of the cgsnapshot as source.
         :param snapshots: a list of snapshot dictionaries in the cgsnapshot.
-        :return model_update, volumes_model_update
+        :returns: model_update, volumes_model_update
         """
         if cgsnapshot and snapshots:
             snap_by_anc = self.get_snapset_ancestors(cgsnapshot)
@@ -642,7 +665,7 @@ class XtremIOVolumeDriver(san.SanDriver):
         :param group: the dictionary of the consistency group to be updated.
         :param add_volumes: a list of volume dictionaries to be added.
         :param remove_volumes: a list of volume dictionaries to be removed.
-        :return model_update, add_volumes_update, remove_volumes_update
+        :returns: model_update, add_volumes_update, remove_volumes_update
         """
         add_volumes = add_volumes if add_volumes else []
         remove_volumes = remove_volumes if remove_volumes else []
@@ -738,9 +761,9 @@ class XtremIOISCSIDriver(XtremIOVolumeDriver, driver.ISCSIDriver):
             login_passwd = self._get_password()
             data['initiator-authentication-password'] = login_passwd
         if discovery_chap:
-            data['chap-discovery-initiator-user-name'] = 'chap_user'
+            data['initiator-discovery-user-name'] = 'chap_user'
             discovery_passwd = self._get_password()
-            data['chap-discovery-initiator-password'] = discovery_passwd
+            data['initiator-discovery-password'] = discovery_passwd
         return login_passwd, discovery_passwd
 
     def _create_initiator(self, connector, login_chap, discovery_chap):

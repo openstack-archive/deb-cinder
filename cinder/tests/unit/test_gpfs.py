@@ -23,6 +23,7 @@ from oslo_utils import units
 
 from cinder import context
 from cinder import exception
+from cinder.objects import fields
 from cinder import test
 from cinder import utils
 from cinder.volume import configuration as conf
@@ -855,6 +856,9 @@ class GPFSDriverTestCase(test.TestCase):
         mock_resize_volume_file.return_value = 5 * units.Gi
         volume = self._fake_volume()
         volume['consistencygroup_id'] = None
+        self.driver.db = mock.Mock()
+        self.driver.db.volume_get = mock.Mock()
+        self.driver.db.volume_get.return_value = volume
         snapshot = self._fake_snapshot()
         mock_snapshot_path.return_value = "/tmp/fakepath"
         self.assertEqual({'size': 5.0},
@@ -885,6 +889,9 @@ class GPFSDriverTestCase(test.TestCase):
         mock_resize_volume_file.return_value = 5 * units.Gi
         volume = self._fake_volume()
         volume['consistencygroup_id'] = None
+        self.driver.db = mock.Mock()
+        self.driver.db.volume_get = mock.Mock()
+        self.driver.db.volume_get.return_value = volume
         snapshot = self._fake_snapshot()
         mock_snapshot_path.return_value = "/tmp/fakepath"
         mock_set_volume_attributes.return_value = True
@@ -1676,7 +1683,7 @@ class GPFSDriverTestCase(test.TestCase):
     def test_delete_consistencygroup(self, mock_exec):
         ctxt = self.context
         group = self._fake_group()
-        group['status'] = 'available'
+        group['status'] = fields.ConsistencyGroupStatus.AVAILABLE
         volume = self._fake_volume()
         volume['status'] = 'available'
         volumes = []
@@ -1697,7 +1704,7 @@ class GPFSDriverTestCase(test.TestCase):
     def test_delete_consistencygroup_fail(self, mock_exec):
         ctxt = self.context
         group = self._fake_group()
-        group['status'] = 'available'
+        group['status'] = fields.ConsistencyGroupStatus.AVAILABLE
         self.driver.db = mock.Mock()
         self.driver.db.volume_get_all_by_group = mock.Mock()
         self.driver.db.volume_get_all_by_group.return_value = []

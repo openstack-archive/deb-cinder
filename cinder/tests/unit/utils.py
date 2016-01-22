@@ -24,6 +24,7 @@ import oslo_versionedobjects
 from cinder import context
 from cinder import db
 from cinder import objects
+from cinder.objects import fields
 
 
 def get_test_admin_context():
@@ -117,7 +118,7 @@ def create_consistencygroup(ctxt,
                             host='test_host@fakedrv#fakepool',
                             name='test_cg',
                             description='this is a test cg',
-                            status='available',
+                            status=fields.ConsistencyGroupStatus.AVAILABLE,
                             availability_zone='fake_az',
                             volume_type_id=None,
                             cgsnapshot_id=None,
@@ -168,10 +169,12 @@ def create_backup(ctxt,
                   volume_id,
                   display_name='test_backup',
                   display_description='This is a test backup',
-                  status='creating',
+                  status=fields.BackupStatus.CREATING,
                   parent_id=None,
                   temp_volume_id=None,
-                  temp_snapshot_id=None):
+                  temp_snapshot_id=None,
+                  snapshot_id=None,
+                  data_timestamp=None):
     backup = {}
     backup['volume_id'] = volume_id
     backup['user_id'] = ctxt.user_id
@@ -189,6 +192,8 @@ def create_backup(ctxt,
     backup['object_count'] = 22
     backup['temp_volume_id'] = temp_volume_id
     backup['temp_snapshot_id'] = temp_snapshot_id
+    backup['snapshot_id'] = snapshot_id
+    backup['data_timestamp'] = data_timestamp
     return db.backup_create(ctxt, backup)
 
 

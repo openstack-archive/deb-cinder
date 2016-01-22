@@ -117,7 +117,7 @@ def service_get_all_by_topic(context, topic, disabled=None):
 
 
 def service_get_by_args(context, host, binary):
-    """Get the state of an service by node name and binary."""
+    """Get the state of a service by node name and binary."""
     return IMPL.service_get_by_args(context, host, binary)
 
 
@@ -133,25 +133,6 @@ def service_update(context, service_id, values):
 
     """
     return IMPL.service_update(context, service_id, values)
-
-
-###################
-
-
-def iscsi_target_count_by_host(context, host):
-    """Return count of export devices."""
-    return IMPL.iscsi_target_count_by_host(context, host)
-
-
-def iscsi_target_create_safe(context, values):
-    """Create an iscsi_target from the values dictionary.
-
-    The device is not returned. If the create violates the unique
-    constraints because the iscsi_target and host already exist,
-    no exception is raised.
-
-    """
-    return IMPL.iscsi_target_create_safe(context, values)
 
 
 ###############
@@ -184,11 +165,6 @@ def volume_data_get_for_host(context, host, count_only=False):
 def volume_data_get_for_project(context, project_id):
     """Get (volume_count, gigabytes) for project."""
     return IMPL.volume_data_get_for_project(context, project_id)
-
-
-def finish_volume_migration(context, src_vol_id, dest_vol_id):
-    """Perform database updates upon completion of volume migration."""
-    return IMPL.finish_volume_migration(context, src_vol_id, dest_vol_id)
 
 
 def volume_destroy(context, volume_id):
@@ -235,13 +211,8 @@ def volume_get_all_by_project(context, project_id, marker, limit,
                                           offset=offset)
 
 
-def volume_get_iscsi_target_num(context, volume_id):
-    """Get the target num (tid) allocated to the volume."""
-    return IMPL.volume_get_iscsi_target_num(context, volume_id)
-
-
 def volume_update(context, volume_id, values):
-    """Set the given properties on an volume and update it.
+    """Set the given properties on a volume and update it.
 
     Raises NotFound if volume does not exist.
 
@@ -273,6 +244,14 @@ def volume_attachment_get_by_instance_uuid(context, volume_id, instance_uuid):
 def volume_update_status_based_on_attachment(context, volume_id):
     """Update volume status according to attached instance id"""
     return IMPL.volume_update_status_based_on_attachment(context, volume_id)
+
+
+def volume_has_snapshots_filter():
+    return IMPL.volume_has_snapshots_filter()
+
+
+def volume_has_attachments_filter():
+    return IMPL.volume_has_attachments_filter()
 
 
 ####################
@@ -406,10 +385,11 @@ def volume_admin_metadata_delete(context, volume_id, key):
     return IMPL.volume_admin_metadata_delete(context, volume_id, key)
 
 
-def volume_admin_metadata_update(context, volume_id, metadata, delete):
+def volume_admin_metadata_update(context, volume_id, metadata, delete,
+                                 add=True, update=True):
     """Update metadata if it exists, otherwise create it."""
     return IMPL.volume_admin_metadata_update(context, volume_id, metadata,
-                                             delete)
+                                             delete, add, update)
 
 
 ##################
@@ -424,12 +404,23 @@ def volume_type_update(context, volume_type_id, values):
     return IMPL.volume_type_update(context, volume_type_id, values)
 
 
-def volume_type_get_all(context, inactive=False, filters=None):
+def volume_type_get_all(context, inactive=False, filters=None, marker=None,
+                        limit=None, sort_keys=None, sort_dirs=None,
+                        offset=None, list_result=False):
     """Get all volume types.
 
     :param context: context to query under
     :param inactive: Include inactive volume types to the result set
     :param filters: Filters for the query in the form of key/value.
+    :param marker: the last item of the previous page, used to determine the
+                   next page of results to return
+    :param limit: maximum number of items to return
+    :param sort_keys: list of attributes by which results should be sorted,
+                      paired with corresponding item in sort_dirs
+    :param sort_dirs: list of directions in which results should be sorted,
+                      paired with corresponding item in sort_keys
+    :param list_result: For compatibility, if list_result = True, return a list
+                        instead of dict.
 
         :is_public: Filter volume types based on visibility:
 
@@ -437,10 +428,13 @@ def volume_type_get_all(context, inactive=False, filters=None):
             * **False**: List private volume types only
             * **None**: List both public and private volume types
 
-    :returns: list of matching volume types
+    :returns: list/dict of matching volume types
     """
 
-    return IMPL.volume_type_get_all(context, inactive, filters)
+    return IMPL.volume_type_get_all(context, inactive, filters, marker=marker,
+                                    limit=limit, sort_keys=sort_keys,
+                                    sort_dirs=sort_dirs, offset=offset,
+                                    list_result=list_result)
 
 
 def volume_type_get(context, id, inactive=False, expected_fields=None):
@@ -591,9 +585,12 @@ def qos_specs_get(context, qos_specs_id):
     return IMPL.qos_specs_get(context, qos_specs_id)
 
 
-def qos_specs_get_all(context, inactive=False, filters=None):
+def qos_specs_get_all(context, filters=None, marker=None, limit=None,
+                      offset=None, sort_keys=None, sort_dirs=None):
     """Get all qos_specs."""
-    return IMPL.qos_specs_get_all(context, inactive, filters)
+    return IMPL.qos_specs_get_all(context, filters=filters, marker=marker,
+                                  limit=limit, offset=offset,
+                                  sort_keys=sort_keys, sort_dirs=sort_dirs)
 
 
 def qos_specs_get_by_name(context, name):

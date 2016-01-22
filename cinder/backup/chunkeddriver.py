@@ -38,6 +38,7 @@ from cinder.backup import driver
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import objects
+from cinder.objects import fields
 from cinder.volume import utils as volume_utils
 
 LOG = logging.getLogger(__name__)
@@ -158,12 +159,24 @@ class ChunkedBackupDriver(driver.BackupDriver):
         return
 
     def _create_container(self, context, backup):
-        backup.container = self.update_container_name(backup, backup.container)
+        # Container's name will be decided by the driver (returned by method
+        # update_container_name), if no change is required by the driver then
+        # we'll use the one the backup object already has, but if it doesn't
+        # have one backup_default_container will be used.
+        new_container = self.update_container_name(backup, backup.container)
+        if new_container:
+            # If the driver is not really changing the name we don't want to
+            # dirty the field in the object and save it to the DB with the same
+            # value.
+            if new_container != backup.container:
+                backup.container = new_container
+        elif backup.container is None:
+            backup.container = self.backup_default_container
+
         LOG.debug('_create_container started, container: %(container)s,'
                   'backup: %(backup_id)s.',
                   {'container': backup.container, 'backup_id': backup.id})
-        if backup.container is None:
-            backup.container = self.backup_default_container
+
         backup.save()
         self.put_container(backup.container)
         return backup.container
@@ -468,7 +481,8 @@ class ChunkedBackupDriver(driver.BackupDriver):
             # has been changed to delete or has been deleted, we cancel the
             # backup process to do forcing delete.
             backup = objects.Backup.get_by_id(self.context, backup.id)
-            if 'deleting' == backup.status or 'deleted' == backup.status:
+            if backup.status in (fields.BackupStatus.DELETING,
+                                 fields.BackupStatus.DELETED):
                 is_backup_canceled = True
                 # To avoid the chunk left when deletion complete, need to
                 # clean up the object of chunk again.

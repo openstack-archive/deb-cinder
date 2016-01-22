@@ -205,6 +205,31 @@ class CinderObject(base.VersionedObject):
             self.obj_reset_changes(values.keys())
         return result
 
+    def refresh(self):
+        # To refresh we need to have a model and for the model to have an id
+        # field
+        if 'id' not in self.fields:
+            msg = (_('VersionedObject %s cannot retrieve object by id.') %
+                   (self.obj_name()))
+            raise NotImplementedError(msg)
+
+        current = self.get_by_id(self._context, self.id)
+
+        for field in self.fields:
+            # Only update attributes that are already set.  We do not want to
+            # unexpectedly trigger a lazy-load.
+            if self.obj_attr_is_set(field):
+                if self[field] != current[field]:
+                    self[field] = current[field]
+        self.obj_reset_changes()
+
+    def __contains__(self, name):
+        # We're using obj_extra_fields to provide aliases for some fields while
+        # in transition period. This override is to make these aliases pass
+        # "'foo' in obj" tests.
+        return name in self.obj_extra_fields or super(CinderObject,
+                                                      self).__contains__(name)
+
 
 class CinderObjectDictCompat(base.VersionedObjectDictCompat):
     """Mix-in to provide dictionary key access compat.
@@ -238,7 +263,13 @@ class CinderObjectDictCompat(base.VersionedObjectDictCompat):
                 not self.obj_attr_is_set(key)):
             return value
         else:
-            return getattr(self, key)
+            try:
+                return getattr(self, key)
+            except (exception.ObjectActionError, NotImplementedError):
+                # Exception when haven't set a value for non-lazy
+                # loadable attribute, but to mimic typical dict 'get'
+                # behavior we should still return None
+                return None
 
 
 class CinderPersistentObject(object):

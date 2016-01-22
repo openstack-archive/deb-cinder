@@ -42,10 +42,16 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
         2.2.2 - Update Consistency Group
         2.2.3 - Pool aware scheduler(multi-pool) support
         2.2.4 - Create CG from CG snapshot
-        2.3   - Name change for MV and SG for FAST (bug #1515181)
+        2.3.0 - Name change for MV and SG for FAST (bug #1515181)
+              - Fix for randomly choosing port group. (bug #1501919)
+              - get_short_host_name needs to be called in find_device_number
+                (bug #1520635)
+              - Proper error handling for invalid SLOs (bug #1512795)
+              - Extend Volume for VMAX3, SE8.1.0.3
+              https://blueprints.launchpad.net/cinder/+spec/vmax3-extend-volume
     """
 
-    VERSION = "2.3"
+    VERSION = "2.3.0"
 
     def __init__(self, *args, **kwargs):
 

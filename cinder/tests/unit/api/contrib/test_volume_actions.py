@@ -27,6 +27,7 @@ from cinder.api.contrib import volume_actions
 from cinder import context
 from cinder import exception
 from cinder.image import glance
+from cinder import objects
 from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.api.v2 import stubs
@@ -68,6 +69,10 @@ class VolumeActionsTest(test.TestCase):
         self.mock_volume_update = self.update_patcher.start()
         self.addCleanup(self.update_patcher.stop)
         self.mock_volume_update.return_value = vol
+        self.db_get_patcher = mock.patch('cinder.db.sqlalchemy.api.volume_get')
+        self.mock_volume_db_get = self.db_get_patcher.start()
+        self.addCleanup(self.db_get_patcher.stop)
+        self.mock_volume_db_get.return_value = vol
 
         self.flags(rpc_backend='cinder.openstack.common.rpc.impl_fake')
 
@@ -174,6 +179,16 @@ class VolumeActionsTest(test.TestCase):
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(202, res.status_int)
 
+        body = {'os-attach': {'instance_uuid': 'fake',
+                              'host_name': 'fake_host',
+                              'mountpoint': '/dev/vdc'}}
+        req = webob.Request.blank('/v2/fake/volumes/1/action')
+        req.method = "POST"
+        req.headers["content-type"] = "application/json"
+        req.body = jsonutils.dumps(body)
+        res = req.get_response(fakes.wsgi_app())
+        self.assertEqual(202, res.status_int)
+
     def test_attach_to_host(self):
         # using 'read-write' mode attach volume by default
         body = {'os-attach': {'host_name': 'fake_host',
@@ -265,17 +280,6 @@ class VolumeActionsTest(test.TestCase):
     def test_attach_with_invalid_arguments(self):
         # Invalid request to attach volume an invalid target
         body = {'os-attach': {'mountpoint': '/dev/vdc'}}
-        req = webob.Request.blank('/v2/fake/volumes/1/action')
-        req.method = "POST"
-        req.headers["content-type"] = "application/json"
-        req.body = jsonutils.dumps(body)
-        res = req.get_response(fakes.wsgi_app())
-        self.assertEqual(400, res.status_int)
-
-        # Invalid request to attach volume to an instance and a host
-        body = {'os-attach': {'instance_uuid': 'fake',
-                              'host_name': 'fake_host',
-                              'mountpoint': '/dev/vdc'}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
         req.headers["content-type"] = "application/json"
@@ -562,6 +566,7 @@ class VolumeImageActionsTest(test.TestCase):
         self.controller = volume_actions.VolumeActionsController()
 
         self.stubs.Set(volume_api.API, 'get', stub_volume_get)
+        self.context = context.RequestContext('fake', 'fake', is_admin=False)
 
     def _get_os_volume_upload_image(self):
         vol = {
@@ -967,3 +972,47 @@ class VolumeImageActionsTest(test.TestCase):
                     }
 
                     self.assertDictMatch(expected_res, res_dict)
+
+    @mock.patch.object(volume_api.API, "get_volume_image_metadata")
+    @mock.patch.object(glance.GlanceImageService, "create")
+    @mock.patch.object(volume_api.API, "get")
+    @mock.patch.object(volume_api.API, "update")
+    @mock.patch.object(volume_rpcapi.VolumeAPI, "copy_volume_to_image")
+    def test_copy_volume_to_image_volume_type_none(
+            self,
+            mock_copy_volume_to_image,
+            mock_update,
+            mock_get,
+            mock_create,
+            mock_get_volume_image_metadata):
+        """Test create image from volume with none type volume."""
+
+        db_volume = fake_volume.fake_db_volume()
+        volume_obj = objects.Volume._from_db_object(self.context,
+                                                    objects.Volume(),
+                                                    db_volume)
+
+        mock_create.side_effect = self.fake_image_service_create
+        mock_get.return_value = volume_obj
+        mock_copy_volume_to_image.side_effect = (
+            self.fake_rpc_copy_volume_to_image)
+
+        req = fakes.HTTPRequest.blank('/v2/tenant1/volumes/%s/action' % id)
+        body = self._get_os_volume_upload_image()
+        res_dict = self.controller._volume_upload_image(req, id, body)
+        expected_res = {
+            'os-volume_upload_image': {
+                'id': '1',
+                'updated_at': None,
+                'status': 'uploading',
+                'display_description': None,
+                'size': 1,
+                'volume_type': None,
+                'image_id': 1,
+                'container_format': u'bare',
+                'disk_format': u'raw',
+                'image_name': u'image_name'
+            }
+        }
+
+        self.assertDictMatch(expected_res, res_dict)

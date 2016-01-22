@@ -27,6 +27,7 @@ import uuid
 
 from oslo_log import log as logging
 import requests
+from simplejson import scanner
 import six
 from six.moves import urllib
 
@@ -174,7 +175,7 @@ class RestClient(WebserviceClient):
 
         :param version: The version to validate
         :param actual_version: The running version of the Webservice
-        :return: True if the actual_version is equal or newer than the
+        :returns: True if the actual_version is equal or newer than the
         current running version, otherwise False
         """
         major_1, major_2, release, minor = version
@@ -219,7 +220,13 @@ class RestClient(WebserviceClient):
             res = self.invoke_service(method, url, data=data,
                                       headers=headers,
                                       timeout=timeout, verify=verify)
-            res_dict = res.json() if res.text else None
+
+            try:
+                res_dict = res.json() if res.text else None
+            # This should only occur if we expected JSON, but were sent
+            # something else
+            except scanner.JSONDecodeError:
+                res_dict = None
 
             if cinder_utils.TRACE_API:
                 self._log_http_response(res.status_code, dict(res.headers),
@@ -281,6 +288,8 @@ class RestClient(WebserviceClient):
                         msg = _("The storage array password for %s is "
                                 "incorrect, please update the configured "
                                 "password.") % self._system_id
+            elif status_code == 424:
+                msg = _("Response error - The storage-system is offline.")
             else:
                 msg = _("Response error code - %s.") % status_code
             raise es_exception.WebServiceException(msg,
@@ -316,7 +325,7 @@ class RestClient(WebserviceClient):
         explicitly disable it.
         :param flash_cache: If true, add the volume to a Flash Cache
         :param data_assurance: If true, enable the Data Assurance capability
-        :return The created volume
+        :returns: The created volume
         """
 
         # Utilize the new API if it is available
@@ -371,8 +380,8 @@ class RestClient(WebserviceClient):
         """Retrieve the given volume from array.
 
         :param object_id: The volume id, label, or wwn
-        :return The volume identified by object_id
-        :raise VolumeNotFound if the volume could not be found
+        :returns: The volume identified by object_id
+        :raise: VolumeNotFound if the volume could not be found
         """
 
         if self.features.SSC_API_V2:
@@ -722,17 +731,44 @@ class RestClient(WebserviceClient):
         path = ('/key-values/%s' % key)
         self._invoke('POST', path, json.dumps(data))
 
-    def get_firmware_version(self):
-        """Get firmware version information from the array."""
-        return self.list_storage_system()['fwVersion']
-
     def set_counter(self, key, value):
         path = ('/counters/%s/setCounter?value=%d' % (key, value))
         self._invoke('POST', path)
 
-    def _get_controllers(self):
-        """Get controller information from the array."""
-        return self.list_hardware_inventory()['controllers']
+    def get_asup_info(self):
+        """Returns a dictionary of relevant autosupport information.
+
+        Currently returned fields are:
+        model -- E-series model name
+        serial_numbers -- Serial number for each controller
+        firmware_version -- Version of active firmware
+        chassis_sn -- Serial number for whole chassis
+        """
+        asup_info = {}
+
+        controllers = self.list_hardware_inventory().get('controllers')
+        if controllers:
+            asup_info['model'] = controllers[0].get('modelName', 'unknown')
+            serial_numbers = [value['serialNumber'].rstrip()
+                              for __, value in enumerate(controllers)]
+            serial_numbers.sort()
+            for index, value in enumerate(serial_numbers):
+                if not value:
+                    serial_numbers[index] = 'unknown'
+            asup_info['serial_numbers'] = serial_numbers
+        else:
+            asup_info['model'] = 'unknown'
+            asup_info['serial_numbers'] = ['unknown', 'unknown']
+
+        system_info = self.list_storage_system()
+        if system_info:
+            asup_info['firmware_version'] = system_info['fwVersion']
+            asup_info['chassis_sn'] = system_info['chassisSerialNumber']
+        else:
+            asup_info['firmware_version'] = 'unknown'
+            asup_info['chassis_sn'] = 'unknown'
+
+        return asup_info
 
     def get_eseries_api_info(self, verify=False):
         """Get E-Series API information from the array."""
@@ -750,23 +786,3 @@ class RestClient(WebserviceClient):
         if mode_is_proxy:
             api_operating_mode = 'proxy'
         return api_operating_mode, about_response_dict['version']
-
-    def get_serial_numbers(self):
-        """Get the list of Serial Numbers from the array."""
-        controllers = self._get_controllers()
-        if not controllers:
-            return ['unknown', 'unknown']
-        serial_numbers = [value['serialNumber'].rstrip()
-                          for _, value in enumerate(controllers)]
-        serial_numbers.sort()
-        for index, value in enumerate(serial_numbers):
-            if not value:
-                serial_numbers[index] = 'unknown'
-        return serial_numbers
-
-    def get_model_name(self):
-        """Get Model Name from the array."""
-        controllers = self._get_controllers()
-        if not controllers:
-            return 'unknown'
-        return controllers[0].get('modelName', 'unknown')

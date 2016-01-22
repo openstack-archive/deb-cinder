@@ -13,6 +13,7 @@
 #    under the License.
 
 import datetime
+import mock
 import uuid
 
 from iso8601 import iso8601
@@ -81,6 +82,33 @@ class TestCinderObject(test_objects.BaseObjectsTestCase):
         self.obj.scheduled_at = now_tz
         self.assertDictEqual({'scheduled_at': now},
                              self.obj.cinder_obj_get_changes())
+
+    def test_refresh(self):
+        @objects.base.CinderObjectRegistry.register_if(False)
+        class MyTestObject(objects.base.CinderObject,
+                           objects.base.CinderObjectDictCompat,
+                           objects.base.CinderComparableObject):
+            fields = {'id': fields.UUIDField(),
+                      'name': fields.StringField()}
+
+        test_obj = MyTestObject(id='1', name='foo')
+        refresh_obj = MyTestObject(id='1', name='bar')
+        with mock.patch(
+                'cinder.objects.base.CinderObject.get_by_id') as get_by_id:
+            get_by_id.return_value = refresh_obj
+
+            test_obj.refresh()
+            self._compare(self, refresh_obj, test_obj)
+
+    def test_refresh_no_id_field(self):
+        @objects.base.CinderObjectRegistry.register_if(False)
+        class MyTestObjectNoId(objects.base.CinderObject,
+                               objects.base.CinderObjectDictCompat,
+                               objects.base.CinderComparableObject):
+            fields = {'uuid': fields.UUIDField()}
+
+        test_obj = MyTestObjectNoId(uuid='1', name='foo')
+        self.assertRaises(NotImplementedError, test_obj.refresh)
 
 
 class TestCinderComparableObject(test_objects.BaseObjectsTestCase):
@@ -538,3 +566,32 @@ class TestCinderObjectConditionalUpdate(test.TestCase):
 
         # Check that the volume in the DB has also been updated
         self._check_volume(volume, 'deleting', expected_size, True)
+
+
+class TestCinderDictObject(test_objects.BaseObjectsTestCase):
+    @objects.base.CinderObjectRegistry.register_if(False)
+    class TestDictObject(objects.base.CinderObjectDictCompat,
+                         objects.base.CinderObject):
+        obj_extra_fields = ['foo']
+
+        fields = {
+            'abc': fields.StringField(nullable=True),
+            'def': fields.IntegerField(nullable=True),
+        }
+
+        @property
+        def foo(self):
+            return 42
+
+    def test_dict_objects(self):
+        obj = self.TestDictObject()
+        self.assertIsNone(obj.get('non_existing'))
+        self.assertEqual('val', obj.get('abc', 'val'))
+        self.assertIsNone(obj.get('abc'))
+        obj.abc = 'val2'
+        self.assertEqual('val2', obj.get('abc', 'val'))
+        self.assertEqual(42, obj.get('foo'))
+
+        self.assertTrue('foo' in obj)
+        self.assertTrue('abc' in obj)
+        self.assertFalse('def' in obj)

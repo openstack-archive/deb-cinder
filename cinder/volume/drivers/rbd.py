@@ -612,7 +612,7 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
         return (None, None, None)
 
     def _get_children_info(self, volume, snap):
-        """List children for the given snapshot of an volume(image).
+        """List children for the given snapshot of a volume(image).
 
         Returns a list of (pool, image).
         """
@@ -749,6 +749,8 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
         with RBDVolumeProxy(self, volume_name) as volume:
             try:
                 volume.unprotect_snap(snap_name)
+            except self.rbd.InvalidArgument:
+                LOG.info(_LI("Unable to unprotect snapshot %s."), snap_name)
             except self.rbd.ImageNotFound:
                 LOG.info(_LI("Snapshot %s does not exist in backend."),
                          snap_name)
@@ -1057,7 +1059,7 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
         :param new_volume: The migration volume object that was created on
                            this backend as part of the migration process
         :param original_volume_status: The status of the original volume
-        :return model_update to update DB with any needed changes
+        :returns: model_update to update DB with any needed changes
         """
         name_id = None
         provider_location = None

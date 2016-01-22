@@ -158,6 +158,11 @@ class DellSCSanFCDriverTestCase(test.TestCase):
                               'vendor_name': 'Dell',
                               'storage_protocol': 'FC'}
 
+        # Start with none.  Add in the specific tests later.
+        # Mock tests bozo this.
+        self.driver.backends = None
+        self.driver.replication_enabled = False
+
         self.volid = '5729f1db-4c45-416c-bc15-c8ea13a4465d'
         self.volume_name = "volume" + self.volid
         self.connector = {'ip': '192.168.0.77',
@@ -204,7 +209,8 @@ class DellSCSanFCDriverTestCase(test.TestCase):
         connector = self.connector
         res = self.driver.initialize_connection(volume, connector)
         expected = {'data':
-                    {'initiator_target_map':
+                    {'discard': True,
+                     'initiator_target_map':
                      {u'21000024FF30441C': [u'5000D31000FCBE35'],
                       u'21000024FF30441D': [u'5000D31000FCBE3D']},
                      'target_discovered': True,

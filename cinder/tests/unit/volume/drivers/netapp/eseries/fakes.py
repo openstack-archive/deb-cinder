@@ -36,6 +36,8 @@ FOREIGN_HOST_GROUP = {
     'label': 'FOREIGN HOST GROUP',
 }
 
+HOST_GROUPS = [MULTIATTACH_HOST_GROUP, FOREIGN_HOST_GROUP]
+
 SSC_POOLS = [
     {
         "poolId": "0400000060080E5000290D8000009C9955828DD2",
@@ -595,6 +597,8 @@ VOLUME_MAPPING_TO_MULTIATTACH_GROUP.update(
 )
 
 STORAGE_SYSTEM = {
+    'chassisSerialNumber': 1,
+    'fwVersion': '08.10.15.00',
     'freePoolSpace': 11142431623168,
     'driveCount': 24,
     'hostSparesUsed': 0, 'id':
@@ -667,7 +671,26 @@ SNAPSHOT_IMAGE = {
     'pitSequenceNumber': '19'
 }
 
+HARDWARE_INVENTORY_SINGLE_CONTROLLER = {
+    'controllers': [
+        {
+            'modelName': '2752',
+            'serialNumber': '021436001321'
+        }
+    ]
+}
+
 HARDWARE_INVENTORY = {
+    'controllers': [
+        {
+            'modelName': '2752',
+            'serialNumber': '021436000943'
+        },
+        {
+            'modelName': '2752',
+            'serialNumber': '021436001321'
+        }
+    ],
     'iscsiPorts': [
         {
             'controllerId':
@@ -806,7 +829,6 @@ FAKE_POOL_ACTION_PROGRESS = [
     },
 ]
 
-
 FAKE_RESOURCE_URL = '/devmgr/v2/devmgr/utils/about'
 FAKE_APP_VERSION = '2015.2|2015.2.dev59|vendor|Linux-3.13.0-24-generic'
 FAKE_BACKEND = 'eseriesiSCSI'
@@ -840,8 +862,17 @@ FAKE_ASUP_DATA = {
     'model': FAKE_CONTROLLERS[0]['modelName'],
     'controller2-serial': FAKE_CONTROLLERS[1]['serialNumber'],
     'controller1-serial': FAKE_CONTROLLERS[0]['serialNumber'],
+    'chassis-serial-number': FAKE_SERIAL_NUMBER[0],
     'operating-mode': 'proxy',
 }
+
+GET_ASUP_RETURN = {
+    'model': FAKE_CONTROLLERS[0]['modelName'],
+    'serial_numbers': FAKE_SERIAL_NUMBERS,
+    'firmware_version': FAKE_ASUP_DATA['system-version'],
+    'chassis_sn': FAKE_ASUP_DATA['chassis-serial-number'],
+}
+
 FAKE_POST_INVOKE_DATA = ('POST', '/key-values/%s' % FAKE_KEY,
                          json.dumps(FAKE_ASUP_DATA))
 
@@ -927,6 +958,7 @@ def deepcopy_return_value_class_decorator(cls):
 
 @deepcopy_return_value_class_decorator
 class FakeEseriesClient(object):
+    features = mock.Mock()
 
     def __init__(self, *args, **kwargs):
         pass
@@ -977,7 +1009,7 @@ class FakeEseriesClient(object):
         return MULTIATTACH_HOST_GROUP
 
     def list_host_groups(self):
-        return [MULTIATTACH_HOST_GROUP]
+        return [MULTIATTACH_HOST_GROUP, FOREIGN_HOST_GROUP]
 
     def get_host_group_by_name(self, name, *args, **kwargs):
         host_groups = self.list_host_groups()
@@ -1057,14 +1089,15 @@ class FakeEseriesClient(object):
     def get_eseries_api_info(self, verify=False):
         return 'Proxy', '1.53.9010.0005'
 
-    def set_counter(self, key):
+    def set_counter(self, key, value):
         pass
 
     def add_autosupport_data(self, *args):
         pass
 
     def get_serial_numbers(self):
-        pass
+        return FAKE_ASUP_DATA.get('controller1-serial'), FAKE_ASUP_DATA.get(
+            'controller2-serial')
 
     def get_model_name(self):
         pass
@@ -1073,7 +1106,7 @@ class FakeEseriesClient(object):
         pass
 
     def get_firmware_version(self):
-        return FAKE_POST_INVOKE_DATA["system-version"]
+        return FAKE_ASUP_DATA['system-version']
 
     def create_volume_copy_job(self, *args, **kwargs):
         return VOLUME_COPY_JOB

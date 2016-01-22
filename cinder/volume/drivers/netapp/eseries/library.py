@@ -173,8 +173,11 @@ class NetAppESeriesLibrary(object):
     def check_for_setup_error(self):
         self._check_host_type()
         self._check_multipath()
-        self._check_pools()
+        # It is important that this be called before any other methods that
+        # interact with the storage-system. It blocks until the
+        # storage-system comes online.
         self._check_storage_system()
+        self._check_pools()
         self._start_periodic_tasks()
 
     def _check_host_type(self):
@@ -260,7 +263,7 @@ class NetAppESeriesLibrary(object):
 
         Example: (invalid, True)
 
-        :returns (str, bool)
+        :returns: (str, bool)
         """
 
         status = system.get('passwordStatus')
@@ -283,7 +286,7 @@ class NetAppESeriesLibrary(object):
 
         Example: (needsAttn, True)
 
-        :returns (str, bool)
+        :returns: (str, bool)
         """
         status = system.get('status')
         status = status.lower() if status else ''
@@ -387,7 +390,7 @@ class NetAppESeriesLibrary(object):
         """Return pool name where volume resides.
 
         :param volume: The volume hosted by the driver.
-        :return: Name of the pool where given volume is hosted.
+        :returns: Name of the pool where given volume is hosted.
         """
         eseries_volume = self._get_volume(volume['name_id'])
         storage_pool = self._client.get_storage_pool(
@@ -987,7 +990,7 @@ class NetAppESeriesLibrary(object):
             cinder_pool["QoS_support"] = False
             cinder_pool["reserved_percentage"] = (
                 self.configuration.reserved_percentage)
-            cinder_pool["max_oversubscription_ratio"] = (
+            cinder_pool["max_over_subscription_ratio"] = (
                 self.configuration.max_over_subscription_ratio)
             tot_bytes = int(storage_pool.get("totalRaidedSpace", 0))
             used_bytes = int(storage_pool.get("usedSpace", 0))
@@ -1020,12 +1023,14 @@ class NetAppESeriesLibrary(object):
             LOG.info(msg % self._client.api_version)
             return
 
-        firmware_version = self._client.get_firmware_version()
         event_source = ("Cinder driver %s" % self.DRIVER_NAME)
         category = "provisioning"
         event_description = "OpenStack Cinder connected to E-Series proxy"
-        model = self._client.get_model_name()
-        serial_numbers = self._client.get_serial_numbers()
+        asup_info = self._client.get_asup_info()
+        model = asup_info.get('model')
+        firmware_version = asup_info.get('firmware_version')
+        serial_numbers = asup_info.get('serial_numbers')
+        chassis_sn = asup_info.get('chassis_sn')
 
         key = ("openstack-%s-%s-%s"
                % (cinder_host, serial_numbers[0], serial_numbers[1]))
@@ -1043,6 +1048,7 @@ class NetAppESeriesLibrary(object):
             'event-description': event_description,
             'controller1-serial': serial_numbers[0],
             'controller2-serial': serial_numbers[1],
+            'chassis-serial-number': chassis_sn,
             'model': model,
             'system-version': firmware_version,
             'operating-mode': self._client.api_operating_mode
@@ -1264,7 +1270,7 @@ class NetAppESeriesLibrary(object):
 
         :param pool_id: The id of a storage pool
         :param action: The anticipated action
-        :return: A tuple (bool, set(str), int)
+        :returns: A tuple (bool, set(str), int)
         """
         actions = set()
         eta = 0
@@ -1356,6 +1362,10 @@ class NetAppESeriesLibrary(object):
         try:
             vol_id = existing_ref.get('source-name') or existing_ref.get(
                 'source-id')
+            if vol_id is None:
+                raise exception.InvalidInput(message='No valid identifier '
+                                                     'was available for the '
+                                                     'volume.')
             return self._client.list_volume(vol_id)
         except exception.InvalidInput:
             reason = _('Reference must contain either source-name'

@@ -134,7 +134,7 @@ class ZFSSANFSDriver(nfs.NfsDriver):
         self.zfssa = factory_zfssa()
         self.zfssa.set_host(host, timeout=lcfg.zfssa_rest_timeout)
 
-        auth_str = base64.encode_as_text('%s:%s' % (user, password))[:-1]
+        auth_str = base64.encode_as_text('%s:%s' % (user, password))
         self.zfssa.login(auth_str)
 
         self.zfssa.create_project(lcfg.zfssa_nfs_pool, lcfg.zfssa_nfs_project,
@@ -615,7 +615,7 @@ class ZFSSANFSDriver(nfs.NfsDriver):
         :param new_volume: The migration volume object that was created on
                            this backend as part of the migration process
         :param original_volume_status: The status of the original volume
-        :return model_update to update DB with any needed changes
+        :returns: model_update to update DB with any needed changes
         """
 
         original_name = CONF.volume_name_template % volume['id']

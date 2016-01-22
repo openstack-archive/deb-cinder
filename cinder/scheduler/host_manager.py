@@ -221,7 +221,7 @@ class HostState(object):
                 self._append_backend_info(capability)
                 self.pools[pool_name] = single_pool
             else:
-                # this is a update from legacy driver
+                # this is an update from legacy driver
                 try:
                     single_pool = self.pools[pool_name]
                 except KeyError:
@@ -265,7 +265,7 @@ class HostState(object):
         self.updated = capability['timestamp']
 
     def consume_from_volume(self, volume):
-        """Incrementally update host state from an volume."""
+        """Incrementally update host state from a volume."""
         volume_gb = volume['size']
         self.allocated_capacity_gb += volume_gb
         self.provisioned_capacity_gb += volume_gb

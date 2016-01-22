@@ -31,6 +31,7 @@ from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI
 from cinder.image import image_utils
+from cinder.objects import fields
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers import nfs
@@ -542,12 +543,11 @@ class GPFSDriver(driver.ConsistencyGroupVD, driver.ExtendVD,
         # check if the snapshot lies in the same CG as the volume to be created
         # if yes, clone the volume from the snapshot, else perform full copy
         clone = False
-        if volume['consistencygroup_id'] is not None:
-            ctxt = context.get_admin_context()
-            snap_parent_vol = self.db.volume_get(ctxt, snapshot['volume_id'])
-            if (volume['consistencygroup_id'] ==
-                    snap_parent_vol['consistencygroup_id']):
-                clone = True
+        ctxt = context.get_admin_context()
+        snap_parent_vol = self.db.volume_get(ctxt, snapshot['volume_id'])
+        if (volume['consistencygroup_id'] ==
+                snap_parent_vol['consistencygroup_id']):
+            clone = True
         volume_path = self._get_volume_path(volume)
         if clone:
             self._create_gpfs_copy(src=snapshot_path, dest=volume_path)
@@ -1163,7 +1163,7 @@ class GPFSDriver(driver.ConsistencyGroupVD, driver.ExtendVD,
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-        model_update = {'status': 'available'}
+        model_update = {'status': fields.ConsistencyGroupStatus.AVAILABLE}
         return model_update
 
     def delete_consistencygroup(self, context, group, volumes):

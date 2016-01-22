@@ -142,17 +142,13 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
 
         self.shares = {}  # address : options
 
-        # Check if /sbin/mount.nfs is installed on this system;
-        # note that we don't need to be root, to see if the package
-        # is installed.
-        # We rely on the absolute path /sbin/mount.nfs; this seems to be
-        # common on most distributions (SUSE, RedHat, CentOS, Ubuntu, Debian)
-        # and it does not depend on correct PATH of the executing user,
-        # when trying to find the relative binary.
-        package = '/sbin/mount.nfs'
+        # Check if mount.nfs is installed on this system; note that we
+        # need to be root, to also find mount.nfs on distributions, where
+        # it is not located in an unprivileged users PATH (e.g. /sbin).
+        package = 'mount.nfs'
         try:
             self._execute(package, check_exit_code=False,
-                          run_as_root=False)
+                          run_as_root=True)
         except OSError as exc:
             if exc.errno == errno.ENOENT:
                 msg = _('%s is not installed') % package
@@ -201,10 +197,15 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
         target_share_reserved = 0
 
         for nfs_share in self._mounted_shares:
-            if not self._is_share_eligible(nfs_share, volume_size_in_gib):
+            total_size, total_available, total_allocated = (
+                self._get_capacity_info(nfs_share))
+            share_info = {'total_size': total_size,
+                          'total_available': total_available,
+                          'total_allocated': total_allocated,
+                          }
+            if not self._is_share_eligible(nfs_share, volume_size_in_gib,
+                                           share_info):
                 continue
-            _total_size, _total_available, total_allocated = \
-                self._get_capacity_info(nfs_share)
             if target_share is not None:
                 if target_share_reserved > total_allocated:
                     target_share = nfs_share
@@ -221,7 +222,8 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
 
         return target_share
 
-    def _is_share_eligible(self, nfs_share, volume_size_in_gib):
+    def _is_share_eligible(self, nfs_share, volume_size_in_gib,
+                           share_info=None):
         """Verifies NFS share is eligible to host volume with given size.
 
         First validation step: ratio of actual space (used_space / total_space)
@@ -245,18 +247,26 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
 
         # 'nfs_used_ratio' is deprecated, so derive used_ratio from
         # reserved_percentage.
+        if share_info is None:
+            total_size, total_available, total_allocated = (
+                self._get_capacity_info(nfs_share))
+            share_info = {'total_size': total_size,
+                          'total_available': total_available,
+                          'total_allocated': total_allocated,
+                          }
         used_percentage = 100 - self.reserved_percentage
         used_ratio = used_percentage / 100.0
 
         oversub_ratio = self.over_subscription_ratio
         requested_volume_size = volume_size_in_gib * units.Gi
 
-        total_size, total_available, total_allocated = \
-            self._get_capacity_info(nfs_share)
-        apparent_size = max(0, total_size * oversub_ratio)
-        apparent_available = max(0, apparent_size - total_allocated)
+        apparent_size = max(0, share_info['total_size'] * oversub_ratio)
+        apparent_available = max(0, apparent_size -
+                                 share_info['total_allocated'])
 
-        actual_used_ratio = (total_size - total_available) / float(total_size)
+        actual_used_ratio = ((share_info['total_size'] -
+                              share_info['total_available']) /
+                             float(share_info['total_size']))
         if actual_used_ratio > used_ratio:
             # NOTE(morganfainberg): We check the used_ratio first since
             # with oversubscription it is possible to not have the actual
@@ -268,7 +278,8 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
         if apparent_available <= requested_volume_size:
             LOG.debug('%s is above nfs_oversub_ratio', nfs_share)
             return False
-        if total_allocated / total_size >= oversub_ratio:
+        if share_info['total_allocated'] / share_info['total_size'] >= (
+                oversub_ratio):
             LOG.debug('%s reserved space is above nfs_oversub_ratio',
                       nfs_share)
             return False
@@ -394,7 +405,7 @@ class NfsDriver(driver.ExtendVD, remotefs.RemoteFSDriver):
         :param new_volume: The migration volume object that was created on
                            this backend as part of the migration process
         :param original_volume_status: The status of the original volume
-        :return model_update to update DB with any needed changes
+        :returns: model_update to update DB with any needed changes
         """
         # TODO(vhou) This method may need to be updated after
         # NFS snapshots are introduced.

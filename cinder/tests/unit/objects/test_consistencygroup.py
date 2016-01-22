@@ -16,6 +16,7 @@ import mock
 
 from cinder import exception
 from cinder import objects
+from cinder.objects import fields
 from cinder.tests.unit import objects as test_objects
 
 fake_consistencygroup = {
@@ -27,9 +28,19 @@ fake_consistencygroup = {
     'name': 'fake_name',
     'description': 'fake_description',
     'volume_type_id': 'fake_volume_type_id',
-    'status': 'creating',
+    'status': fields.ConsistencyGroupStatus.CREATING,
     'cgsnapshot_id': 'fake_id',
     'source_cgid': None,
+}
+
+fake_cgsnapshot = {
+    'id': '1',
+    'user_id': 'fake_user_id',
+    'project_id': 'fake_project_id',
+    'name': 'fake_name',
+    'description': 'fake_description',
+    'status': 'creating',
+    'consistencygroup_id': 'fake_id',
 }
 
 
@@ -68,11 +79,63 @@ class TestConsistencyGroup(test_objects.BaseObjectsTestCase):
     def test_save(self, consistencygroup_update):
         consistencygroup = objects.ConsistencyGroup._from_db_object(
             self.context, objects.ConsistencyGroup(), fake_consistencygroup)
-        consistencygroup.status = 'active'
+        consistencygroup.status = fields.ConsistencyGroupStatus.AVAILABLE
         consistencygroup.save()
-        consistencygroup_update.assert_called_once_with(self.context,
-                                                        consistencygroup.id,
-                                                        {'status': 'active'})
+        consistencygroup_update.assert_called_once_with(
+            self.context,
+            consistencygroup.id,
+            {'status': fields.ConsistencyGroupStatus.AVAILABLE})
+
+    def test_save_with_cgsnapshots(self):
+        consistencygroup = objects.ConsistencyGroup._from_db_object(
+            self.context, objects.ConsistencyGroup(), fake_consistencygroup)
+        cgsnapshots_objs = [objects.CGSnapshot(context=self.context, id=i)
+                            for i in [3, 4, 5]]
+        cgsnapshots = objects.CGSnapshotList(objects=cgsnapshots_objs)
+        consistencygroup.name = 'foobar'
+        consistencygroup.cgsnapshots = cgsnapshots
+        self.assertEqual({'name': 'foobar',
+                          'cgsnapshots': cgsnapshots},
+                         consistencygroup.obj_get_changes())
+        self.assertRaises(exception.ObjectActionError, consistencygroup.save)
+
+    def test_save_with_volumes(self):
+        consistencygroup = objects.ConsistencyGroup._from_db_object(
+            self.context, objects.ConsistencyGroup(), fake_consistencygroup)
+        volumes_objs = [objects.Volume(context=self.context, id=i)
+                        for i in [3, 4, 5]]
+        volumes = objects.VolumeList(objects=volumes_objs)
+        consistencygroup.name = 'foobar'
+        consistencygroup.volumes = volumes
+        self.assertEqual({'name': 'foobar',
+                          'volumes': volumes},
+                         consistencygroup.obj_get_changes())
+        self.assertRaises(exception.ObjectActionError, consistencygroup.save)
+
+    @mock.patch('cinder.objects.cgsnapshot.CGSnapshotList.get_all_by_group')
+    @mock.patch('cinder.objects.volume.VolumeList.get_all_by_group')
+    def test_obj_load_attr(self, mock_vol_get_all_by_group,
+                           mock_cgsnap_get_all_by_group):
+        consistencygroup = objects.ConsistencyGroup._from_db_object(
+            self.context, objects.ConsistencyGroup(), fake_consistencygroup)
+        # Test cgsnapshots lazy-loaded field
+        cgsnapshots_objs = [objects.CGSnapshot(context=self.context, id=i)
+                            for i in [3, 4, 5]]
+        cgsnapshots = objects.CGSnapshotList(context=self.context,
+                                             objects=cgsnapshots_objs)
+        mock_cgsnap_get_all_by_group.return_value = cgsnapshots
+        self.assertEqual(cgsnapshots, consistencygroup.cgsnapshots)
+        mock_cgsnap_get_all_by_group.assert_called_once_with(
+            self.context, consistencygroup.id)
+
+        # Test volumes lazy-loaded field
+        volume_objs = [objects.Volume(context=self.context, id=i)
+                       for i in [3, 4, 5]]
+        volumes = objects.VolumeList(context=self.context, objects=volume_objs)
+        mock_vol_get_all_by_group.return_value = volumes
+        self.assertEqual(volumes, consistencygroup.volumes)
+        mock_vol_get_all_by_group.assert_called_once_with(self.context,
+                                                          consistencygroup.id)
 
     @mock.patch('cinder.db.consistencygroup_destroy')
     def test_destroy(self, consistencygroup_destroy):
@@ -82,6 +145,26 @@ class TestConsistencyGroup(test_objects.BaseObjectsTestCase):
         self.assertTrue(consistencygroup_destroy.called)
         admin_context = consistencygroup_destroy.call_args[0][0]
         self.assertTrue(admin_context.is_admin)
+
+    @mock.patch('cinder.db.sqlalchemy.api.consistencygroup_get')
+    def test_refresh(self, consistencygroup_get):
+        db_cg1 = fake_consistencygroup.copy()
+        db_cg2 = db_cg1.copy()
+        db_cg2['description'] = 'foobar'
+
+        # On the second consistencygroup_get, return the ConsistencyGroup with
+        # an updated description
+        consistencygroup_get.side_effect = [db_cg1, db_cg2]
+        cg = objects.ConsistencyGroup.get_by_id(self.context, '1')
+        self._compare(self, db_cg1, cg)
+
+        # description was updated, so a ConsistencyGroup refresh should have a
+        # new value for that field
+        cg.refresh()
+        self._compare(self, db_cg2, cg)
+        consistencygroup_get.assert_has_calls([mock.call(self.context, '1'),
+                                               mock.call.__nonzero__(),
+                                               mock.call(self.context, '1')])
 
 
 class TestConsistencyGroupList(test_objects.BaseObjectsTestCase):

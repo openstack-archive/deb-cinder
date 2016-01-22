@@ -108,6 +108,7 @@ def _usage_from_backup(backup_ref, **kw):
                       fail_reason=backup_ref['fail_reason'],
                       parent_id=backup_ref['parent_id'],
                       num_dependent_backups=num_dependent_backups,
+                      snapshot_id=backup_ref['snapshot_id'],
                       )
 
     usage_info.update(kw)
@@ -298,9 +299,15 @@ def check_for_odirect_support(src, dest, flag='oflag=direct'):
 
     # Check whether O_DIRECT is supported
     try:
-        utils.execute('dd', 'count=0', 'if=%s' % src, 'of=%s' % dest,
-                      flag, run_as_root=True)
-        return True
+        # iflag=direct and if=/dev/zero combination does not work
+        # error: dd: failed to open '/dev/zero': Invalid argument
+        if (src == '/dev/zero' and flag == 'iflag=direct'):
+            return False
+        else:
+            utils.execute('dd', 'count=0', 'if=%s' % src,
+                          'of=%s' % dest,
+                          flag, run_as_root=True)
+            return True
     except processutils.ProcessExecutionError:
         return False
 

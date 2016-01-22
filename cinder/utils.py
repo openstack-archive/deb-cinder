@@ -46,6 +46,7 @@ from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import encodeutils
+from oslo_utils import excutils
 from oslo_utils import importutils
 from oslo_utils import strutils
 from oslo_utils import timeutils
@@ -281,7 +282,7 @@ def last_completed_audit_period(unit=None):
 
 
 def list_of_dicts_to_dict(seq, key):
-    """Convert list of dicts to a indexted dict.
+    """Convert list of dicts to an indexted dict.
 
     Takes a list of dicts, and converts it a nested dict
     indexed by <key>
@@ -341,10 +342,7 @@ def safe_minidom_parse_string(xml_string):
 def is_valid_boolstr(val):
     """Check if the provided string is a valid bool string or not."""
     val = str(val).lower()
-    return (val == 'true' or val == 'false' or
-            val == 'yes' or val == 'no' or
-            val == 'y' or val == 'n' or
-            val == '1' or val == '0')
+    return val in ('true', 'false', 'yes', 'no', 'y', 'n', '1', '0')
 
 
 def is_none_string(val):
@@ -450,6 +448,49 @@ def read_file_as_root(file_path):
         return out
     except processutils.ProcessExecutionError:
         raise exception.FileNotFound(file_path=file_path)
+
+
+def robust_file_write(directory, filename, data):
+    """Robust file write.
+
+    Use "write to temp file and rename" model for writing the
+    persistence file.
+
+    :param directory: Target directory to create a file.
+    :param filename: File name to store specified data.
+    :param data: String data.
+    """
+    tempname = None
+    dirfd = None
+    try:
+        dirfd = os.open(directory, os.O_DIRECTORY)
+
+        # write data to temporary file
+        with tempfile.NamedTemporaryFile(prefix=filename,
+                                         dir=directory,
+                                         delete=False) as tf:
+            tempname = tf.name
+            tf.write(data.encode('utf-8'))
+            tf.flush()
+            os.fdatasync(tf.fileno())
+            tf.close()
+
+            # Fsync the directory to ensure the fact of the existence of
+            # the temp file hits the disk.
+            os.fsync(dirfd)
+            # If destination file exists, it will be replaced silently.
+            os.rename(tempname, os.path.join(directory, filename))
+            # Fsync the directory to ensure the rename hits the disk.
+            os.fsync(dirfd)
+    except OSError:
+        with excutils.save_and_reraise_exception():
+            LOG.error(_LE("Failed to write persistence file: %(path)s."),
+                      {'path': os.path.join(directory, filename)})
+            if os.path.isfile(tempname):
+                os.unlink(tempname)
+    finally:
+        if dirfd:
+            os.close(dirfd)
 
 
 @contextlib.contextmanager
@@ -823,7 +864,7 @@ def trace(f):
     Using this decorator on a function will cause its execution to be logged at
     `DEBUG` level with arguments, return values, and exceptions.
 
-    :returns a function decorator
+    :returns: a function decorator
     """
 
     func_name = f.__name__
@@ -924,10 +965,33 @@ def resolve_hostname(hostname):
     In this case, the same IP address will be returned.
 
     :param hostname:  Host name to resolve.
-    :return:          IP Address for Host name.
+    :returns:         IP Address for Host name.
     """
     result = socket.getaddrinfo(hostname, None)[0]
     (family, socktype, proto, canonname, sockaddr) = result
     LOG.debug('Asked to resolve hostname %(host)s and got IP %(ip)s.',
               {'host': hostname, 'ip': sockaddr[0]})
     return sockaddr[0]
+
+
+def build_or_str(elements, str_format=None):
+    """Builds a string of elements joined by 'or'.
+
+    Will join strings with the 'or' word and if a str_format is provided it
+    will be used to format the resulted joined string.
+    If there are no elements an empty string will be returned.
+
+    :param elements: Elements we want to join.
+    :type elements: String or iterable of strings.
+    :param str_format: String to use to format the response.
+    :type str_format: String.
+    """
+    if not elements:
+        return ''
+
+    if not isinstance(elements, six.string_types):
+        elements = _(' or ').join(elements)
+
+    if str_format:
+        return str_format % elements
+    return elements

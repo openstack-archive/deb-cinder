@@ -30,6 +30,7 @@ import six
 
 from cinder.api import common
 from cinder import context
+from cinder import db
 from cinder.db import base
 from cinder import exception
 from cinder import flow_utils
@@ -142,6 +143,8 @@ def valid_replication_volume(func):
 class API(base.Base):
     """API for interacting with the volume manager."""
 
+    AVAILABLE_MIGRATION_STATUS = (None, 'deleting', 'error', 'success')
+
     def __init__(self, db_driver=None, image_service=None):
         self.image_service = (image_service or
                               glance.get_default_image_service())
@@ -221,8 +224,8 @@ class API(base.Base):
         # fails to delete after a migration.
         # All of the statuses above means the volume is not in the process
         # of a migration.
-        return volume['migration_status'] not in (None, 'deleting',
-                                                  'error', 'success')
+        return (volume['migration_status'] not in
+                self.AVAILABLE_MIGRATION_STATUS)
 
     def create(self, context, size, name, description, snapshot=None,
                image_id=None, volume_type=None, metadata=None,
@@ -349,22 +352,21 @@ class API(base.Base):
 
     @wrap_check_policy
     def delete(self, context, volume, force=False, unmanage_only=False):
-        if context.is_admin and context.project_id != volume['project_id']:
-            project_id = volume['project_id']
+        if context.is_admin and context.project_id != volume.project_id:
+            project_id = volume.project_id
         else:
             project_id = context.project_id
 
-        volume_id = volume['id']
-        if not volume['host']:
+        if not volume.host:
             volume_utils.notify_about_volume_usage(context,
                                                    volume, "delete.start")
             # NOTE(vish): scheduling failed, so delete it
             # Note(zhiteng): update volume quota reservation
             try:
-                reserve_opts = {'volumes': -1, 'gigabytes': -volume['size']}
+                reserve_opts = {'volumes': -1, 'gigabytes': -volume.size}
                 QUOTAS.add_volume_type_opts(context,
                                             reserve_opts,
-                                            volume['volume_type_id'])
+                                            volume.volume_type_id)
                 reservations = QUOTAS.reserve(context,
                                               project_id=project_id,
                                               **reserve_opts)
@@ -381,51 +383,35 @@ class API(base.Base):
                                                    volume, "delete.end")
             LOG.info(_LI("Delete volume request issued successfully."),
                      resource={'type': 'volume',
-                               'id': volume_id})
+                               'id': volume.id})
             return
-        if volume['attach_status'] == "attached":
-            # Volume is still attached, need to detach first
-            LOG.info(_LI('Unable to delete volume: %s, '
-                         'volume is attached.'), volume['id'])
-            raise exception.VolumeAttached(volume_id=volume_id)
 
-        if not force and volume['status'] not in ["available", "error",
-                                                  "error_restoring",
-                                                  "error_extending"]:
-            msg = _("Volume status must be available or error, "
-                    "but current status is: %s.") % volume['status']
-            LOG.info(_LI('Unable to delete volume: %(vol_id)s, '
-                         'volume must be available or '
-                         'error, but is %(vol_status)s.'),
-                     {'vol_id': volume['id'],
-                      'vol_status': volume['status']})
-            raise exception.InvalidVolume(reason=msg)
+        # Build required conditions for conditional update
+        expected = {'attach_status': db.Not('attached'),
+                    'migration_status': self.AVAILABLE_MIGRATION_STATUS,
+                    'consistencygroup_id': None}
 
-        if self._is_volume_migrating(volume):
-            # Volume is migrating, wait until done
-            LOG.info(_LI('Unable to delete volume: %s, '
-                         'volume is currently migrating.'), volume['id'])
-            msg = _("Volume cannot be deleted while migrating")
-            raise exception.InvalidVolume(reason=msg)
+        # If not force deleting we have status conditions
+        if not force:
+            expected['status'] = ('available', 'error', 'error_restoring',
+                                  'error_extending')
 
-        if volume['consistencygroup_id'] is not None:
-            msg = _("Volume cannot be deleted while in a consistency group.")
-            LOG.info(_LI('Unable to delete volume: %s, '
-                         'volume is currently part of a '
-                         'consistency group.'), volume['id'])
-            raise exception.InvalidVolume(reason=msg)
+        # Volume cannot have snapshots if we want to delete it
+        filters = [~db.volume_has_snapshots_filter()]
+        values = {'status': 'deleting', 'terminated_at': timeutils.utcnow()}
 
-        snapshots = objects.SnapshotList.get_all_for_volume(context,
-                                                            volume_id)
-        if len(snapshots):
-            LOG.info(_LI('Unable to delete volume: %s, '
-                         'volume currently has snapshots.'), volume['id'])
-            msg = _("Volume still has %d dependent "
-                    "snapshots.") % len(snapshots)
+        result = volume.conditional_update(values, expected, filters)
+
+        if not result:
+            status = utils.build_or_str(expected.get('status'),
+                                        _(' status must be %s and '))
+            msg = _('Volume%s must not be migrating, attached, belong to a '
+                    'consistency group or have snapshots.') % status
+            LOG.info(msg)
             raise exception.InvalidVolume(reason=msg)
 
         cache = image_cache.ImageVolumeCache(self.db, self)
-        entry = cache.get_by_image_volume(context, volume_id)
+        entry = cache.get_by_image_volume(context, volume.id)
         if entry:
             cache.evict(context, entry)
 
@@ -439,10 +425,6 @@ class API(base.Base):
             except Exception as e:
                 msg = _("Unable to delete encrypted volume: %s.") % e.msg
                 raise exception.InvalidVolume(reason=msg)
-
-        volume.status = 'deleting'
-        volume.terminated_at = timeutils.utcnow()
-        volume.save()
 
         self.volume_rpcapi.delete_volume(context, volume, unmanage_only)
         LOG.info(_LI("Delete volume request issued successfully."),
@@ -458,7 +440,7 @@ class API(base.Base):
 
         # NOTE(thangp): Update is called by various APIs, some of which are
         # not yet using oslo_versionedobjects.  We need to handle the case
-        # where volume is either a dict or a oslo_versionedobject.
+        # where volume is either a dict or an oslo_versionedobject.
         if isinstance(volume, objects_base.CinderObject):
             volume.update(fields)
             volume.save()
@@ -574,68 +556,57 @@ class API(base.Base):
 
     @wrap_check_policy
     def reserve_volume(self, context, volume):
-        # NOTE(jdg): check for Race condition bug 1096983
-        # explicitly get updated ref and check
-        volume = self.db.volume_get(context, volume['id'])
-        if volume['status'] == 'available':
-            self.update(context, volume, {"status": "attaching"})
-        elif volume['status'] == 'in-use':
-            if volume['multiattach']:
-                self.update(context, volume, {"status": "attaching"})
-            else:
-                msg = _("Volume must be multiattachable to reserve again.")
-                LOG.error(msg)
-                raise exception.InvalidVolume(reason=msg)
-        else:
-            msg = _("Volume status must be available to reserve.")
+        expected = {'multiattach': volume.multiattach,
+                    'status': (('available', 'in-use') if volume.multiattach
+                               else 'available')}
+
+        result = volume.conditional_update({'status': 'attaching'}, expected)
+
+        if not result:
+            expected_status = utils.build_or_str(expected['status'])
+            msg = _('Volume status must be %s to reserve.') % expected_status
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
+
         LOG.info(_LI("Reserve volume completed successfully."),
                  resource=volume)
 
     @wrap_check_policy
     def unreserve_volume(self, context, volume):
-        volume = self.db.volume_get(context, volume['id'])
-        if volume['status'] == 'attaching':
-            attaches = self.db.volume_attachment_get_used_by_volume_id(
-                context, volume['id'])
-            if attaches:
-                self.update(context, volume, {"status": "in-use"})
-            else:
-                self.update(context, volume, {"status": "available"})
+        expected = {'status': 'attaching'}
+        # Status change depends on whether it has attachments (in-use) or not
+        # (available)
+        value = {'status': db.Case([(db.volume_has_attachments_filter(),
+                                     'in-use')],
+                                   else_='available')}
+        volume.conditional_update(value, expected)
         LOG.info(_LI("Unreserve volume completed successfully."),
                  resource=volume)
 
     @wrap_check_policy
     def begin_detaching(self, context, volume):
-        # NOTE(vbala): The volume status might be 'detaching' already due to
-        # a previous begin_detaching call. Get updated volume status so that
-        # we fail such cases.
-        volume = self.db.volume_get(context, volume['id'])
-        # If we are in the middle of a volume migration, we don't want the user
-        # to see that the volume is 'detaching'. Having 'migration_status' set
-        # will have the same effect internally.
-        if self._is_volume_migrating(volume):
-            return
+        # If we are in the middle of a volume migration, we don't want the
+        # user to see that the volume is 'detaching'. Having
+        # 'migration_status' set will have the same effect internally.
+        expected = {'status': 'in-use',
+                    'attach_status': 'attached',
+                    'migration_status': self.AVAILABLE_MIGRATION_STATUS}
 
-        if (volume['status'] != 'in-use' or
-                volume['attach_status'] != 'attached'):
-            msg = (_("Unable to detach volume. Volume status must be 'in-use' "
-                     "and attach_status must be 'attached' to detach. "
-                     "Currently: status: '%(status)s', "
-                     "attach_status: '%(attach_status)s.'") %
-                   {'status': volume['status'],
-                    'attach_status': volume['attach_status']})
+        result = volume.conditional_update({'status': 'detaching'}, expected)
+
+        if not (result or self._is_volume_migrating(volume)):
+            msg = _("Unable to detach volume. Volume status must be 'in-use' "
+                    "and attach_status must be 'attached' to detach.")
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
-        self.update(context, volume, {"status": "detaching"})
+
         LOG.info(_LI("Begin detaching volume completed successfully."),
                  resource=volume)
 
     @wrap_check_policy
     def roll_detaching(self, context, volume):
-        if volume['status'] == "detaching":
-            self.update(context, volume, {"status": "in-use"})
+        volume.conditional_update({'status': 'in-use'},
+                                  {'status': 'detaching'})
         LOG.info(_LI("Roll detaching of volume completed successfully."),
                  resource=volume)
 
@@ -647,15 +618,13 @@ class API(base.Base):
                          'because it is in maintenance.'), resource=volume)
             msg = _("The volume cannot be attached in maintenance mode.")
             raise exception.InvalidVolume(reason=msg)
-        volume_metadata = self.get_volume_admin_metadata(context.elevated(),
-                                                         volume)
-        if 'readonly' not in volume_metadata:
-            # NOTE(zhiyan): set a default value for read-only flag to metadata.
-            self.update_volume_admin_metadata(context.elevated(), volume,
-                                              {'readonly': 'False'})
-            volume_metadata['readonly'] = 'False'
 
-        if volume_metadata['readonly'] == 'True' and mode != 'ro':
+        # We add readonly metadata if it doesn't already exist
+        readonly = self.update_volume_admin_metadata(context.elevated(),
+                                                     volume,
+                                                     {'readonly': 'False'},
+                                                     update=False)['readonly']
+        if readonly == 'True' and mode != 'ro':
             raise exception.InvalidVolumeAttachMode(mode=mode,
                                                     volume_id=volume['id'])
 
@@ -959,29 +928,24 @@ class API(base.Base):
     @wrap_check_policy
     def delete_snapshot(self, context, snapshot, force=False,
                         unmanage_only=False):
-        if not force and snapshot.status not in ["available", "error"]:
-            LOG.error(_LE('Unable to delete snapshot: %(snap_id)s, '
-                          'due to invalid status. '
-                          'Status must be available or '
-                          'error, not %(snap_status)s.'),
-                      {'snap_id': snapshot.id,
-                       'snap_status': snapshot.status})
-            msg = _("Volume Snapshot status must be available or error.")
-            raise exception.InvalidSnapshot(reason=msg)
-        cgsnapshot_id = snapshot.cgsnapshot_id
-        if cgsnapshot_id:
-            msg = _('Unable to delete snapshot %s because it is part of a '
-                    'consistency group.') % snapshot.id
+        # Build required conditions for conditional update
+        expected = {'cgsnapshot_id': None}
+        # If not force deleting we have status conditions
+        if not force:
+            expected['status'] = ('available', 'error')
+
+        result = snapshot.conditional_update({'status': 'deleting'}, expected)
+        if not result:
+            status = utils.build_or_str(expected.get('status'),
+                                        _(' status must be %s and '))
+            msg = (_('Snapshot%s must not be part of a consistency group.') %
+                   status)
             LOG.error(msg)
             raise exception.InvalidSnapshot(reason=msg)
 
-        snapshot_obj = self.get_snapshot(context, snapshot.id)
-        snapshot_obj.status = 'deleting'
-        snapshot_obj.save()
-
-        volume = self.db.volume_get(context, snapshot_obj.volume_id)
-        self.volume_rpcapi.delete_snapshot(context, snapshot_obj,
-                                           volume['host'],
+        # Make RPC call to the right host
+        volume = objects.Volume.get_by_id(context, snapshot.volume_id)
+        self.volume_rpcapi.delete_snapshot(context, snapshot, volume.host,
                                            unmanage_only=unmanage_only)
         LOG.info(_LI("Snapshot delete request issued successfully."),
                  resource=snapshot)
@@ -1069,7 +1033,7 @@ class API(base.Base):
 
     @wrap_check_policy
     def update_volume_admin_metadata(self, context, volume, metadata,
-                                     delete=False):
+                                     delete=False, add=True, update=True):
         """Updates or creates volume administration metadata.
 
         If delete is True, metadata items that are not specified in the
@@ -1078,7 +1042,8 @@ class API(base.Base):
         """
         self._check_metadata_properties(metadata)
         db_meta = self.db.volume_admin_metadata_update(context, volume['id'],
-                                                       metadata, delete)
+                                                       metadata, delete, add,
+                                                       update)
 
         # TODO(jdg): Implement an RPC call for drivers that may use this info
 
@@ -1217,7 +1182,7 @@ class API(base.Base):
                     "container_format": recv_metadata['container_format'],
                     "disk_format": recv_metadata['disk_format'],
                     "image_name": recv_metadata.get('name', None)}
-        LOG.info(_LI("Copy image to volume completed successfully."),
+        LOG.info(_LI("Copy volume to image completed successfully."),
                  resource=volume)
         return response
 
@@ -1275,39 +1240,38 @@ class API(base.Base):
                        lock_volume):
         """Migrate the volume to the specified host."""
 
-        if volume['status'] not in ['available', 'in-use']:
+        if volume.status not in ['available', 'in-use']:
             msg = _('Volume %(vol_id)s status must be available or in-use, '
                     'but current status is: '
-                    '%(vol_status)s.') % {'vol_id': volume['id'],
-                                          'vol_status': volume['status']}
+                    '%(vol_status)s.') % {'vol_id': volume.id,
+                                          'vol_status': volume.status}
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
         # Make sure volume is not part of a migration.
         if self._is_volume_migrating(volume):
             msg = _("Volume %s is already part of an active "
-                    "migration.") % volume['id']
+                    "migration.") % volume.id
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
         # We only handle volumes without snapshots for now
-        snaps = objects.SnapshotList.get_all_for_volume(context, volume['id'])
+        snaps = objects.SnapshotList.get_all_for_volume(context, volume.id)
         if snaps:
-            msg = _("Volume %s must not have snapshots.") % volume['id']
+            msg = _("Volume %s must not have snapshots.") % volume.id
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
         # We only handle non-replicated volumes for now
-        rep_status = volume['replication_status']
-        if rep_status is not None and rep_status != 'disabled':
-            msg = _("Volume %s must not be replicated.") % volume['id']
+        if (volume.replication_status is not None and
+                volume.replication_status != 'disabled'):
+            msg = _("Volume %s must not be replicated.") % volume.id
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
-        cg_id = volume.get('consistencygroup_id', None)
-        if cg_id:
+        if volume.consistencygroup_id:
             msg = _("Volume %s must not be part of a consistency "
-                    "group.") % volume['id']
+                    "group.") % volume.id
             LOG.error(msg)
             raise exception.InvalidVolume(reason=msg)
 
@@ -1327,7 +1291,7 @@ class API(base.Base):
             raise exception.InvalidHost(reason=msg)
 
         # Make sure the destination host is different than the current one
-        if host == volume['host']:
+        if host == volume.host:
             msg = _('Destination host must be different '
                     'than the current host.')
             LOG.error(msg)
@@ -1340,27 +1304,27 @@ class API(base.Base):
         # that this volume is in maintenance mode, and no action is allowed
         # on this volume, e.g. attach, detach, retype, migrate, etc.
         updates = {'migration_status': 'starting',
-                   'previous_status': volume['status']}
-        if lock_volume and volume['status'] == 'available':
+                   'previous_status': volume.status}
+        if lock_volume and volume.status == 'available':
             updates['status'] = 'maintenance'
         self.update(context, volume, updates)
 
         # Call the scheduler to ensure that the host exists and that it can
         # accept the volume
         volume_type = {}
-        volume_type_id = volume['volume_type_id']
-        if volume_type_id:
+        if volume.volume_type_id:
             volume_type = volume_types.get_volume_type(context.elevated(),
-                                                       volume_type_id)
+                                                       volume.volume_type_id)
         request_spec = {'volume_properties': volume,
                         'volume_type': volume_type,
-                        'volume_id': volume['id']}
+                        'volume_id': volume.id}
         self.scheduler_rpcapi.migrate_volume_to_host(context,
                                                      CONF.volume_topic,
-                                                     volume['id'],
+                                                     volume.id,
                                                      host,
                                                      force_host_copy,
-                                                     request_spec)
+                                                     request_spec,
+                                                     volume=volume)
         LOG.info(_LI("Migrate volume request issued successfully."),
                  resource=volume)
 
@@ -1368,34 +1332,35 @@ class API(base.Base):
     def migrate_volume_completion(self, context, volume, new_volume, error):
         # This is a volume swap initiated by Nova, not Cinder. Nova expects
         # us to return the new_volume_id.
-        if not (volume['migration_status'] or new_volume['migration_status']):
-            # Don't need to do migration, but still need to finish the
-            # volume attach and detach so volumes don't end in 'attaching'
-            # and 'detaching' state
-            attachments = volume['volume_attachment']
-            for attachment in attachments:
-                self.detach(context, volume, attachment['id'])
+        if not (volume.migration_status or new_volume.migration_status):
+            # When we're not migrating and haven't hit any errors, we issue
+            # volume attach and detach requests so the volumes don't end in
+            # 'attaching' and 'detaching' state
+            if not error:
+                attachments = volume.volume_attachment
+                for attachment in attachments:
+                    self.detach(context, volume, attachment.id)
 
-                self.attach(context, new_volume,
-                            attachment['instance_uuid'],
-                            attachment['attached_host'],
-                            attachment['mountpoint'],
-                            'rw')
+                    self.attach(context, new_volume,
+                                attachment.instance_uuid,
+                                attachment.attached_host,
+                                attachment.mountpoint,
+                                'rw')
 
-            return new_volume['id']
+            return new_volume.id
 
-        if not volume['migration_status']:
+        if not volume.migration_status:
             msg = _('Source volume not mid-migration.')
             raise exception.InvalidVolume(reason=msg)
 
-        if not new_volume['migration_status']:
+        if not new_volume.migration_status:
             msg = _('Destination volume not mid-migration.')
             raise exception.InvalidVolume(reason=msg)
 
-        expected_status = 'target:%s' % volume['id']
-        if not new_volume['migration_status'] == expected_status:
+        expected_status = 'target:%s' % volume.id
+        if not new_volume.migration_status == expected_status:
             msg = (_('Destination has migration_status %(stat)s, expected '
-                     '%(exp)s.') % {'stat': new_volume['migration_status'],
+                     '%(exp)s.') % {'stat': new_volume.migration_status,
                                     'exp': expected_status})
             raise exception.InvalidVolume(reason=msg)
 
@@ -1503,8 +1468,29 @@ class API(base.Base):
         # We're checking here in so that we can report any quota issues as
         # early as possible, but won't commit until we change the type. We
         # pass the reservations onward in case we need to roll back.
-        reservations = quota_utils.get_volume_type_reservation(context, volume,
-                                                               vol_type_id)
+        reservations = quota_utils.get_volume_type_reservation(
+            context, volume, vol_type_id, reserve_vol_type_only=True)
+
+        # Get old reservations
+        try:
+            reserve_opts = {'volumes': -1, 'gigabytes': -volume.size}
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
+                                        old_vol_type_id)
+            # NOTE(wanghao): We don't need to reserve volumes and gigabytes
+            # quota for retyping operation since they didn't changed, just
+            # reserve volume_type and type gigabytes is fine.
+            reserve_opts.pop('volumes')
+            reserve_opts.pop('gigabytes')
+            old_reservations = QUOTAS.reserve(context,
+                                              project_id=volume.project_id,
+                                              **reserve_opts)
+        except Exception:
+            volume.status = volume.previous_status
+            volume.save()
+            msg = _("Failed to update quota usage while retyping volume.")
+            LOG.exception(msg, resource=volume)
+            raise exception.CinderException(msg)
 
         self.update(context, volume, {'status': 'retyping',
                                       'previous_status': volume.status})
@@ -1513,7 +1499,8 @@ class API(base.Base):
                         'volume_id': volume.id,
                         'volume_type': vol_type,
                         'migration_policy': migration_policy,
-                        'quota_reservations': reservations}
+                        'quota_reservations': reservations,
+                        'old_reservations': old_reservations}
 
         self.scheduler_rpcapi.retype(context, CONF.volume_topic, volume.id,
                                      request_spec=request_spec,
@@ -1594,7 +1581,7 @@ class API(base.Base):
 
     #  Replication V2 methods ##
 
-    # NOTE(jdg): It might be kinda silly to propogate the named
+    # NOTE(jdg): It might be kinda silly to propagate the named
     # args with defaults all the way down through rpc into manager
     # but for now the consistency is useful, and there may be
     # some usefulness in the future (direct calls in manager?)
@@ -1624,7 +1611,7 @@ class API(base.Base):
         # call to driver regardless of replication_status, most likely
         # this indicates an issue with the driver, but might be useful
         # cases to  consider modifying this for in the future.
-        valid_rep_status = ['disabled']
+        valid_rep_status = ['disabled', 'failed-over', 'error']
         rep_status = volume.get('replication_status', valid_rep_status[0])
 
         if rep_status not in valid_rep_status:
@@ -1712,7 +1699,7 @@ class API(base.Base):
 
     def check_volume_filters(self, filters):
         booleans = self.db.get_booleans_for_table('volume')
-        for k, v in filters.iteritems():
+        for k, v in filters.items():
             try:
                 if k in booleans:
                     filters[k] = bool(v)
