@@ -1,0 +1,9 @@
+Document: cinder
+Title: cinder Documentation
+Author: N/A
+Abstract: Sphinx documentation for Cinder
+Section: Programming/Python
+
+Format: HTML
+Index: /usr/share/doc/cinder-doc/html/index.html
+Files: /usr/share/doc/cinder-doc/html/*
