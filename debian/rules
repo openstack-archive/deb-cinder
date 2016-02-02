@@ -81,6 +81,8 @@ override_dh_install:
 	# Fix the missing sql_connection directive
 	pkgos-fix-config-default $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf database sqlite:////var/lib/cinder/cinderdb
 
+	install -D -m 0644 $(CURDIR)/etc/cinder/logging_sample.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/logging.conf
+
 override_dh_fixperms:
 	dh_fixperms -Xcinder_tgt.conf
 	chmod 0440 $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
