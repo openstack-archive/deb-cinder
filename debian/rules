@@ -27,63 +27,59 @@ override_dh_clean:
 	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst debian/cinder-volume.postinst
 	rm -rf debian/*.upstart debian/*.service
 
+override_dh_auto_install:
+	echo "Do nothing..."
+
 override_dh_install:
+	python2.7 setup.py install --install-layout=deb --root $(CURDIR)/debian/tmp
+
+	mkdir -p $(CURDIR)/debian/cinder-common/usr/share/cinder-common
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
+		--output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
+		--wrap-width 80 \
+		--namespace cinder \
+		--namespace keystonemiddleware.auth_token \
+		--namespace oslo.config \
+		--namespace oslo.concurrency \
+		--namespace oslo.context \
+		--namespace oslo.db \
+		--namespace oslo.i18n \
+		--namespace oslo.log \
+		--namespace oslo.messaging \
+		--namespace oslo.middleware \
+		--namespace oslo.policy \
+		--namespace oslo.reports \
+		--namespace oslo.rootwrap \
+		--namespace oslo.serialization \
+		--namespace oslo.service \
+		--namespace oslo.utils \
+		--namespace oslo.versionedobjects \
+		--namespace oslo.vmware
+#	# The generator is currently missing enabled_backend and the [lvm]
+#	# section. This script fixes it until upstream gets smarter.
+#	chmod +x debian/gen-fixed-config
+#	./debian/gen-fixed-config
+#	cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+
 	dh_install --fail-missing -Xbin/cinder-all
 	install -D -m 0440 debian/cinder-common.sudoers $(CURDIR)/debian/cinder-common/etc/sudoers.d/cinder-common
 
-	mkdir -p $(CURDIR)/debian/cinder-common/usr/share/cinder-common
-	$(CURDIR)/tools/config/generate_sample.sh from_tox
-#	PYTHONPATH=. oslo-config-generator --output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
-#		--wrap-width 80 \
-#		--namespace cinder \
-#		--namespace keystonemiddleware.auth_token \
-#		--namespace oslo.config \
-#		--namespace oslo.concurrency \
-#		--namespace oslo.context \
-#		--namespace oslo.db \
-#		--namespace oslo.i18n \
-#		--namespace oslo.log \
-#		--namespace oslo.messaging \
-#		--namespace oslo.middleware \
-#		--namespace oslo.policy \
-#		--namespace oslo.reports \
-#		--namespace oslo.rootwrap \
-#		--namespace oslo.serialization \
-#		--namespace oslo.service \
-#		--namespace oslo.utils \
-#		--namespace oslo.versionedobjects \
-#		--namespace oslo.vmware
-	# The generator is currently missing enabled_backend and the [lvm]
-	# section. This script fixes it until upstream gets smarter.
-#	chmod +x debian/gen-fixed-config
-#	./debian/gen-fixed-config
-	cp etc/cinder/cinder.conf.sample $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-
 	# Set LVM as default backend
-	sed -i 's/^[ \t#]*enabled_backends[ \t]*=.*/enabled_backends = lvm/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	pkgos-fix-config-default $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf DEFAULT enabled_backends lvm
 	echo "[lvm]" 				>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	echo "volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver" >> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	echo "volume_group = pkgosvg0" 		>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	echo "iscsi_protocol = iscsi" 		>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 	echo "iscsi_helper = tgtadm" 		>> $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
 
-	# Set a default value for lock_path
-	sed -i 's|^[ \t#]*lock_path[ \t]*=.*|lock_path = /var/lock/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	# Set a default value for lock_path & state_path
+	pkgos-fix-config-default $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf oslo_concurrency lock_path /var/lock/cinder
 
 	# Disable https in default setup, as this makes our CI fail
-	sed -i 's/^[ \t#]*auth_protocol[ \t]*=.*/auth_protocol = http/' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-
-	# Default to keystone auth
-	sed -i "s/#auth_strategy=noauth/auth_strategy=keystone/" $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-
-	# Write only in /var/lib/cinder please
-	sed -i 's|#[ \t#]*state_path[ \t]*=.*|state_path=/var/lib/cinder|' $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
+	pkgos-fix-config-default $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf keystone_authtoken auth_protocol http
 
 	# Fix the missing sql_connection directive
-	#echo "# Connection to db:" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-	#echo "sql_connection = sqlite:////var/lib/cinder/cinderdb" >>$(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf
-
-	install -D -m 0644 $(CURDIR)/etc/cinder/logging_sample.conf $(CURDIR)/debian/cinder-common/usr/share/cinder-common/logging.conf
+	pkgos-fix-config-default $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf database sqlite:////var/lib/cinder/cinderdb
 
 override_dh_fixperms:
 	dh_fixperms -Xcinder_tgt.conf
