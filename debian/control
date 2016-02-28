@@ -86,7 +86,7 @@ Build-Depends-Indep: bandit (>= 0.13.2),
 Standards-Version: 3.9.6
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/cinder.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/cinder.git
-Homepage: http://github.com/openstack/cinder
+Homepage: https://github.com/openstack/cinder
 
 Package: python-cinder
 Section: python
