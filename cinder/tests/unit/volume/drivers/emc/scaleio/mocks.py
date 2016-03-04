@@ -49,45 +49,19 @@ class ScaleIODriver(scaleio.ScaleIODriver):
                                             *args,
                                             **kwargs)
 
-    def update_consistencygroup(self, context, group, add_volumes=None,
-                                remove_volumes=None):
-        pass
-
     def local_path(self, volume):
         pass
 
     def reenable_replication(self, context, volume):
         pass
 
-    def manage_existing(self, volume, existing_ref):
-        pass
-
     def promote_replica(self, context, volume):
-        pass
-
-    def delete_consistencygroup(self, context, group, volumes):
-        pass
-
-    def create_consistencygroup_from_src(self, context, group, volumes,
-                                         cgsnapshot=None, snapshots=None):
         pass
 
     def create_replica_test_volume(self, volume, src_vref):
         pass
 
-    def create_consistencygroup(self, context, group):
-        pass
-
-    def manage_existing_get_size(self, volume, existing_ref):
-        pass
-
     def unmanage(self, volume):
-        pass
-
-    def create_cgsnapshot(self, context, cgsnapshot, snapshots):
-        pass
-
-    def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         pass
 
 

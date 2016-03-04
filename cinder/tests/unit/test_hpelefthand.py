@@ -88,6 +88,17 @@ class HPELeftHandBaseDriver(object):
                      'cluster_id': 6,
                      'cluster_vip': '10.0.1.6'}]
 
+    repl_targets_unmgd = [{'target_device_id': 'target',
+                           'hpelefthand_api_url': HPELEFTHAND_API_URL2,
+                           'hpelefthand_username': HPELEFTHAND_USERNAME,
+                           'hpelefthand_password': HPELEFTHAND_PASSWORD,
+                           'hpelefthand_clustername': HPELEFTHAND_CLUSTER_NAME,
+                           'hpelefthand_ssh_port': HPELEFTHAND_SSH_PORT,
+                           'ssh_conn_timeout': HPELEFTHAND_SAN_SSH_CON_TIMEOUT,
+                           'san_private_key': HPELEFTHAND_SAN_SSH_PRIVATE,
+                           'cluster_id': 6,
+                           'cluster_vip': '10.0.1.6'}]
+
     list_rep_targets = [{'target_device_id': 'target'}]
 
     serverName = 'fakehost'
@@ -97,8 +108,11 @@ class HPELeftHandBaseDriver(object):
     snapshot_name = "fakeshapshot"
     snapshot_id = 3
     snapshot = {
+        'id': snapshot_id,
         'name': snapshot_name,
-        'volume_name': volume_name}
+        'display_name': 'fakesnap',
+        'volume_name': volume_name,
+        'volume': volume}
 
     cloned_volume_name = "clone_volume"
     cloned_volume = {'name': cloned_volume_name}
@@ -137,9 +151,6 @@ class HPELeftHandBaseDriver(object):
     driver_startup_call_stack = [
         mock.call.login('foo1', 'bar2'),
         mock.call.getClusterByName('CloudCluster1'),
-    ]
-
-    driver_startup_ssh = [
         mock.call.setSSHOptions(
             HPELEFTHAND_SSH_IP,
             HPELEFTHAND_USERNAME,
@@ -1489,6 +1500,70 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                     mock.call.getVolumeByName(self.volume_name),
                     mock.call.logout()])
 
+    def test_manage_existing_snapshot(self):
+        mock_client = self.setup_driver()
+
+        self.driver.api_version = "1.1"
+
+        volume = {
+            'id': '111',
+        }
+        snapshot = {
+            'display_name': 'Foo Snap',
+            'id': '12345',
+            'volume': volume,
+            'volume_id': '111',
+        }
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+            mock_client.getSnapshotByName.return_value = {
+                'id': self.snapshot_id
+            }
+            mock_client.getSnapshotParentVolume.return_value = {
+                'name': 'volume-111'
+            }
+
+            existing_ref = {'source-name': self.snapshot_name}
+            expected_obj = {'display_name': 'Foo Snap'}
+
+            obj = self.driver.manage_existing_snapshot(snapshot, existing_ref)
+
+            mock_client.assert_has_calls(
+                self.driver_startup_call_stack + [
+                    mock.call.getSnapshotByName(self.snapshot_name),
+                    mock.call.getSnapshotParentVolume(self.snapshot_name),
+                    mock.call.modifySnapshot(self.snapshot_id,
+                                             {'name': 'snapshot-12345'}),
+                    mock.call.logout()])
+            self.assertEqual(expected_obj, obj)
+
+    def test_manage_existing_snapshot_failed_over_volume(self):
+        mock_client = self.setup_driver()
+
+        self.driver.api_version = "1.1"
+
+        volume = {
+            'id': self.volume_id,
+            'replication_status': 'failed-over',
+        }
+        snapshot = {
+            'display_name': 'Foo Snap',
+            'id': '12345',
+            'volume': volume,
+        }
+        existing_ref = {'source-name': self.snapshot_name}
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            self.assertRaises(exception.InvalidInput,
+                              self.driver.manage_existing_snapshot,
+                              snapshot=snapshot,
+                              existing_ref=existing_ref)
+
     def test_manage_existing_get_size(self):
         mock_client = self.setup_driver()
         mock_client.getVolumeByName.return_value = {'size': 2147483648}
@@ -1585,6 +1660,87 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                 self.driver_startup_call_stack +
                 expected)
 
+    def test_manage_existing_snapshot_get_size(self):
+        mock_client = self.setup_driver()
+        mock_client.getSnapshotByName.return_value = {'size': 2147483648}
+
+        self.driver.api_version = "1.1"
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            snapshot = {}
+            existing_ref = {'source-name': self.snapshot_name}
+
+            size = self.driver.manage_existing_snapshot_get_size(snapshot,
+                                                                 existing_ref)
+
+            expected_size = 2
+            expected = [mock.call.getSnapshotByName(
+                        existing_ref['source-name']),
+                        mock.call.logout()]
+
+            mock_client.assert_has_calls(
+                self.driver_startup_call_stack +
+                expected)
+            self.assertEqual(expected_size, size)
+
+    def test_manage_existing_snapshot_get_size_invalid_reference(self):
+        mock_client = self.setup_driver()
+        mock_client.getSnapshotByName.return_value = {'size': 2147483648}
+
+        self.driver.api_version = "1.1"
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            snapshot = {}
+            existing_ref = {'source-name': "snapshot-12345"}
+
+            self.assertRaises(exception.ManageExistingInvalidReference,
+                              self.driver.manage_existing_snapshot_get_size,
+                              snapshot=snapshot,
+                              existing_ref=existing_ref)
+
+            mock_client.assert_has_calls([])
+
+            existing_ref = {}
+
+            self.assertRaises(exception.ManageExistingInvalidReference,
+                              self.driver.manage_existing_snapshot_get_size,
+                              snapshot=snapshot,
+                              existing_ref=existing_ref)
+
+            mock_client.assert_has_calls([])
+
+    def test_manage_existing_snapshot_get_size_invalid_input(self):
+        mock_client = self.setup_driver()
+        mock_client.getSnapshotByName.side_effect = (
+            hpeexceptions.HTTPNotFound('fake'))
+
+        self.driver.api_version = "1.1"
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            snapshot = {}
+            existing_ref = {'source-name': self.snapshot_name}
+
+            self.assertRaises(exception.InvalidInput,
+                              self.driver.manage_existing_snapshot_get_size,
+                              snapshot=snapshot,
+                              existing_ref=existing_ref)
+
+            expected = [mock.call.getSnapshotByName(
+                        existing_ref['source-name'])]
+
+            mock_client.assert_has_calls(
+                self.driver_startup_call_stack +
+                expected)
+
     def test_unmanage(self):
         mock_client = self.setup_driver()
         mock_client.getVolumeByName.return_value = {'id': self.volume_id}
@@ -1618,6 +1774,62 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
                 expected)
+
+    def test_unmanage_snapshot(self):
+        mock_client = self.setup_driver()
+        volume = {
+            'id': self.volume_id,
+        }
+        snapshot = {
+            'name': self.snapshot_name,
+            'display_name': 'Foo Snap',
+            'volume': volume,
+            'id': self.snapshot_id,
+        }
+        mock_client.getSnapshotByName.return_value = {'id': self.snapshot_id, }
+
+        self.driver.api_version = "1.1"
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+            self.driver.unmanage_snapshot(snapshot)
+
+            new_name = 'ums-' + str(self.snapshot_id)
+
+            expected = [
+                mock.call.getSnapshotByName(snapshot['name']),
+                mock.call.modifySnapshot(self.snapshot_id, {'name': new_name}),
+                mock.call.logout()
+            ]
+
+            mock_client.assert_has_calls(
+                self.driver_startup_call_stack +
+                expected)
+
+    def test_unmanage_snapshot_failed_over_volume(self):
+        mock_client = self.setup_driver()
+        volume = {
+            'id': self.volume_id,
+            'replication_status': 'failed-over',
+        }
+        snapshot = {
+            'name': self.snapshot_name,
+            'display_name': 'Foo Snap',
+            'volume': volume,
+            'id': self.snapshot_id,
+        }
+        mock_client.getSnapshotByName.return_value = {'id': self.snapshot_id, }
+
+        self.driver.api_version = "1.1"
+
+        with mock.patch.object(hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                               '_create_client') as mock_do_setup:
+            mock_do_setup.return_value = mock_client
+
+            self.assertRaises(exception.SnapshotIsBusy,
+                              self.driver.unmanage_snapshot,
+                              snapshot=snapshot)
 
     def test_api_version(self):
         self.setup_driver()
@@ -1860,7 +2072,6 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                 ctxt, cgsnapshot, expected_snaps)
             self.assertEqual('deleting', cgsnap['status'])
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_create_volume_replicated_managed(self, _mock_get_volume_type):
         # set up driver with default config
@@ -1912,7 +2123,6 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
 
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
-                self.driver_startup_ssh +
                 expected)
             prov_location = '10.0.1.6:3260,1 iqn.1993-08.org.debian:01:222 0'
             rep_data = json.dumps({"location": HPELEFTHAND_API_URL})
@@ -1921,7 +2131,65 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                               'provider_location': prov_location},
                              return_model)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_create_volume_replicated_unmanaged(self, _mock_get_volume_type):
+        # set up driver with default config
+        conf = self.default_mock_conf()
+        conf.replication_device = self.repl_targets_unmgd
+        mock_client = self.setup_driver(config=conf)
+        mock_client.createVolume.return_value = {
+            'iscsiIqn': self.connector['initiator']}
+        mock_client.doesRemoteSnapshotScheduleExist.return_value = False
+        mock_replicated_client = self.setup_driver(config=conf)
+
+        _mock_get_volume_type.return_value = {
+            'name': 'replicated',
+            'extra_specs': {
+                'replication_enabled': '<is> True'}}
+
+        with mock.patch.object(
+                hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                '_create_client') as mock_do_setup, \
+            mock.patch.object(
+                hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                '_create_replication_client') as mock_replication_client:
+            mock_do_setup.return_value = mock_client
+            mock_replication_client.return_value = mock_replicated_client
+            return_model = self.driver.create_volume(self.volume_replicated)
+
+            expected = [
+                mock.call.createVolume(
+                    'fakevolume_replicated',
+                    1,
+                    units.Gi,
+                    {'isThinProvisioned': True,
+                     'clusterName': 'CloudCluster1'}),
+                mock.call.doesRemoteSnapshotScheduleExist(
+                    'fakevolume_replicated_SCHED_Pri'),
+                mock.call.createRemoteSnapshotSchedule(
+                    'fakevolume_replicated',
+                    'fakevolume_replicated_SCHED',
+                    1800,
+                    '1970-01-01T00:00:00Z',
+                    5,
+                    'CloudCluster1',
+                    5,
+                    'fakevolume_replicated',
+                    '1.1.1.1',
+                    'foo1',
+                    'bar2'),
+                mock.call.logout()]
+
+            mock_client.assert_has_calls(
+                self.driver_startup_call_stack +
+                expected)
+            prov_location = '10.0.1.6:3260,1 iqn.1993-08.org.debian:01:222 0'
+            rep_data = json.dumps({"location": HPELEFTHAND_API_URL})
+            self.assertEqual({'replication_status': 'enabled',
+                              'replication_driver_data': rep_data,
+                              'provider_location': prov_location},
+                             return_model)
+
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_delete_volume_replicated(self, _mock_get_volume_type):
         # set up driver with default config
@@ -1954,10 +2222,8 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                 mock.call.deleteVolume(1)]
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
-                self.driver_startup_ssh +
                 expected)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_replication_enable_no_snapshot_schedule(self,
                                                      _mock_get_volume_type):
@@ -2002,13 +2268,11 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                     'bar2')]
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
-                self.driver_startup_ssh +
                 expected)
 
             self.assertEqual({'replication_status': 'enabled'},
                              return_model)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_replication_enable_with_snapshot_schedule(self,
                                                        _mock_get_volume_type):
@@ -2043,13 +2307,11 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                     'fakevolume_replicated_SCHED_Pri')]
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
-                self.driver_startup_ssh +
                 expected)
 
             self.assertEqual({'replication_status': 'enabled'},
                              return_model)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_replication_disable(self, _mock_get_volume_type):
         # set up driver with default config
@@ -2080,13 +2342,11 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                     'fakevolume_replicated_SCHED_Pri')]
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
-                self.driver_startup_ssh +
                 expected)
 
             self.assertEqual({'replication_status': 'disabled'},
                              return_model)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_replication_disable_fail(self, _mock_get_volume_type):
         # set up driver with default config
@@ -2119,13 +2379,11 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                     'fakevolume_replicated_SCHED_Pri')]
             mock_client.assert_has_calls(
                 self.driver_startup_call_stack +
-                self.driver_startup_ssh +
                 expected)
 
             self.assertEqual({'replication_status': 'disable_failed'},
                              return_model)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_list_replication_targets(self, _mock_get_volume_type):
         # set up driver with default config
@@ -2156,7 +2414,6 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
                               'targets': targets},
                              return_model)
 
-    @mock.patch('hpelefthandclient.version', "2.0.1")
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_replication_failover_managed(self, _mock_get_volume_type):
         ctxt = context.get_admin_context()
@@ -2202,4 +2459,50 @@ class TestHPELeftHandISCSIDriver(HPELeftHandBaseDriver, test.TestCase):
             self.assertEqual({'provider_location': prov_location,
                               'replication_driver_data': rep_data,
                               'host': FAKE_FAILOVER_HOST},
+                             return_model)
+
+    @mock.patch.object(volume_types, 'get_volume_type')
+    def test_replication_failover_unmanaged(self, _mock_get_volume_type):
+        ctxt = context.get_admin_context()
+        # set up driver with default config
+        conf = self.default_mock_conf()
+        conf.replication_device = self.repl_targets_unmgd
+        mock_client = self.setup_driver(config=conf)
+        mock_replicated_client = self.setup_driver(config=conf)
+        mock_replicated_client.getVolumeByName.return_value = {
+            'iscsiIqn': self.connector['initiator']}
+
+        _mock_get_volume_type.return_value = {
+            'name': 'replicated',
+            'extra_specs': {
+                'replication_enabled': '<is> True'}}
+
+        with mock.patch.object(
+                hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                '_create_client') as mock_do_setup, \
+            mock.patch.object(
+                hpe_lefthand_iscsi.HPELeftHandISCSIDriver,
+                '_create_replication_client') as mock_replication_client:
+            mock_do_setup.return_value = mock_client
+            mock_replication_client.return_value = mock_replicated_client
+            valid_target_device_id = (self.repl_targets[0]['target_device_id'])
+            invalid_target_device_id = 'INVALID'
+
+            # test invalid secondary target
+            self.assertRaises(
+                exception.VolumeBackendAPIException,
+                self.driver.replication_failover,
+                ctxt,
+                self.volume_replicated,
+                invalid_target_device_id)
+
+            # test a successful failover
+            return_model = self.driver.replication_failover(
+                context.get_admin_context(),
+                self.volume_replicated,
+                valid_target_device_id)
+            rep_data = json.dumps({"location": HPELEFTHAND_API_URL2})
+            prov_location = '10.0.1.6:3260,1 iqn.1993-08.org.debian:01:222 0'
+            self.assertEqual({'provider_location': prov_location,
+                              'replication_driver_data': rep_data},
                              return_model)

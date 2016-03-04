@@ -106,14 +106,19 @@ def service_get_by_host_and_topic(context, host, topic):
     return IMPL.service_get_by_host_and_topic(context, host, topic)
 
 
-def service_get_all(context, disabled=None):
+def service_get_all(context, filters=None):
     """Get all services."""
-    return IMPL.service_get_all(context, disabled)
+    return IMPL.service_get_all(context, filters)
 
 
 def service_get_all_by_topic(context, topic, disabled=None):
     """Get all services for a given topic."""
     return IMPL.service_get_all_by_topic(context, topic, disabled=disabled)
+
+
+def service_get_all_by_binary(context, binary, disabled=None):
+    """Get all services for a given binary."""
+    return IMPL.service_get_all_by_binary(context, binary, disabled)
 
 
 def service_get_by_args(context, host, binary):
@@ -248,6 +253,10 @@ def volume_update_status_based_on_attachment(context, volume_id):
 
 def volume_has_snapshots_filter():
     return IMPL.volume_has_snapshots_filter()
+
+
+def volume_has_undeletable_snapshots_filter():
+    return IMPL.volume_has_undeletable_snapshots_filter()
 
 
 def volume_has_attachments_filter():
@@ -761,6 +770,11 @@ def quota_update(context, project_id, resource, limit):
     return IMPL.quota_update(context, project_id, resource, limit)
 
 
+def quota_update_resource(context, old_res, new_res):
+    """Update resource of quotas."""
+    return IMPL.quota_update_resource(context, old_res, new_res)
+
+
 def quota_destroy(context, project_id, resource):
     """Destroy the quota or raise if it does not exist."""
     return IMPL.quota_destroy(context, project_id, resource)
@@ -794,6 +808,11 @@ def quota_class_update(context, class_name, resource, limit):
     return IMPL.quota_class_update(context, class_name, resource, limit)
 
 
+def quota_class_update_resource(context, resource, new_resource):
+    """Update resource name in quota_class."""
+    return IMPL.quota_class_update_resource(context, resource, new_resource)
+
+
 def quota_class_destroy(context, class_name, resource):
     """Destroy the quota class or raise if it does not exist."""
     return IMPL.quota_class_destroy(context, class_name, resource)
@@ -821,10 +840,12 @@ def quota_usage_get_all_by_project(context, project_id):
 
 
 def quota_reserve(context, resources, quotas, deltas, expire,
-                  until_refresh, max_age, project_id=None):
+                  until_refresh, max_age, project_id=None,
+                  is_allocated_reserve=False):
     """Check quotas and create appropriate reservations."""
     return IMPL.quota_reserve(context, resources, quotas, deltas, expire,
-                              until_refresh, max_age, project_id=project_id)
+                              until_refresh, max_age, project_id=project_id,
+                              is_allocated_reserve=is_allocated_reserve)
 
 
 def reservation_commit(context, reservations, project_id=None):
@@ -847,6 +868,11 @@ def quota_destroy_by_project(context, project_id):
 def reservation_expire(context):
     """Roll back any expired reservations."""
     return IMPL.reservation_expire(context)
+
+
+def quota_usage_update_resource(context, old_res, new_res):
+    """Update resource field in quota_usages."""
+    return IMPL.quota_usage_update_resource(context, old_res, new_res)
 
 
 ###################
@@ -946,9 +972,13 @@ def consistencygroup_get(context, consistencygroup_id):
     return IMPL.consistencygroup_get(context, consistencygroup_id)
 
 
-def consistencygroup_get_all(context):
+def consistencygroup_get_all(context, filters=None, marker=None, limit=None,
+                             offset=None, sort_keys=None, sort_dirs=None):
     """Get all consistencygroups."""
-    return IMPL.consistencygroup_get_all(context)
+    return IMPL.consistencygroup_get_all(context, filters=filters,
+                                         marker=marker, limit=limit,
+                                         offset=offset, sort_keys=sort_keys,
+                                         sort_dirs=sort_dirs)
 
 
 def consistencygroup_create(context, values):
@@ -956,9 +986,16 @@ def consistencygroup_create(context, values):
     return IMPL.consistencygroup_create(context, values)
 
 
-def consistencygroup_get_all_by_project(context, project_id):
+def consistencygroup_get_all_by_project(context, project_id, filters=None,
+                                        marker=None, limit=None, offset=None,
+                                        sort_keys=None, sort_dirs=None):
     """Get all consistencygroups belonging to a project."""
-    return IMPL.consistencygroup_get_all_by_project(context, project_id)
+    return IMPL.consistencygroup_get_all_by_project(context, project_id,
+                                                    filters=filters,
+                                                    marker=marker, limit=limit,
+                                                    offset=offset,
+                                                    sort_keys=sort_keys,
+                                                    sort_dirs=sort_dirs)
 
 
 def consistencygroup_update(context, consistencygroup_id, values):

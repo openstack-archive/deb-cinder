@@ -124,7 +124,7 @@ class PosixBackupDriverTestCase(test.TestCase):
         self.assertRaises(OSError, self.driver.put_container,
                           FAKE_CONTAINER)
         os.path.exists.assert_called_once_with(path)
-        os.makedirs.called_once_with(path)
+        os.makedirs.assert_called_once_with(path)
         self.assertEqual(0, os.chmod.call_count)
 
     def test_get_container_entries(self):
@@ -159,14 +159,14 @@ class PosixBackupDriverTestCase(test.TestCase):
         self.driver.get_object_writer(FAKE_CONTAINER, FAKE_OBJECT_NAME)
 
         os.chmod.assert_called_once_with(FAKE_OBJECT_PATH, 0o660)
-        builtins.open.assert_called_once_with(FAKE_OBJECT_PATH, 'w')
+        builtins.open.assert_called_once_with(FAKE_OBJECT_PATH, 'wb')
 
     def test_get_object_reader(self):
         self.mock_object(builtins, 'open', mock.mock_open())
 
         self.driver.get_object_reader(FAKE_CONTAINER, FAKE_OBJECT_NAME)
 
-        builtins.open.assert_called_once_with(FAKE_OBJECT_PATH, 'r')
+        builtins.open.assert_called_once_with(FAKE_OBJECT_PATH, 'rb')
 
     def test_delete_object(self):
         self.mock_object(os, 'remove')

@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import ast
+
 from oslo_log import log as logging
 import six
 
@@ -49,6 +51,14 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
               - Proper error handling for invalid SLOs (bug #1512795)
               - Extend Volume for VMAX3, SE8.1.0.3
               https://blueprints.launchpad.net/cinder/+spec/vmax3-extend-volume
+              - Incorrect SG selected on an attach (#1515176)
+              - Cleanup Zoning (bug #1501938)  NOTE: FC only
+              - Last volume in SG fix
+              - _remove_last_vol_and_delete_sg is not being called
+                for VMAX3 (bug #1520549)
+              - necessary updates for CG changes (#1534616)
+              - Changing PercentSynced to CopyState (bug #1517103)
+              - Getting iscsi ip from port in existing masking view
     """
 
     VERSION = "2.3.0"
@@ -203,7 +213,7 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
         data = {'driver_volume_type': 'fibre_channel',
                 'data': {}}
         loc = volume['provider_location']
-        name = eval(loc)
+        name = ast.literal_eval(loc)
         storage_system = name['keybindings']['SystemName']
         LOG.debug("Start FC detach process for volume: %(volume)s.",
                   {'volume': volume['name']})
@@ -214,24 +224,28 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
             portGroupInstanceName = (
                 self.common.get_port_group_from_masking_view(
                     mvInstanceName))
+            initiatorGroupInstanceName = (
+                self.common.get_initiator_group_from_masking_view(
+                    mvInstanceName))
 
             LOG.debug("Found port group: %(portGroup)s "
                       "in masking view %(maskingView)s.",
                       {'portGroup': portGroupInstanceName,
                        'maskingView': mvInstanceName})
+            # Map must be populated before the terminate_connection
+            target_wwns, init_targ_map = self._build_initiator_target_map(
+                storage_system, volume, connector)
 
             self.common.terminate_connection(volume, connector)
 
             LOG.debug("Looking for masking views still associated with "
                       "Port Group %s.", portGroupInstanceName)
-            mvInstances = self.common.get_masking_views_by_port_group(
-                portGroupInstanceName)
+            mvInstances = self._get_common_masking_views(
+                portGroupInstanceName, initiatorGroupInstanceName)
             if len(mvInstances) > 0:
                 LOG.debug("Found %(numViews)lu MaskingViews.",
                           {'numViews': len(mvInstances)})
             else:  # No views found.
-                target_wwns, init_targ_map = self._build_initiator_target_map(
-                    storage_system, volume, connector)
                 LOG.debug("No MaskingViews were found. Deleting zone.")
                 data = {'driver_volume_type': 'fibre_channel',
                         'data': {'target_wwn': target_wwns,
@@ -242,6 +256,21 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
             LOG.warning(_LW("Volume %(volume)s is not in any masking view."),
                         {'volume': volume['name']})
         return data
+
+    def _get_common_masking_views(
+            self, portGroupInstanceName, initiatorGroupInstanceName):
+        """Check to see the existence of mv in list"""
+        mvInstances = []
+        mvInstancesByPG = self.common.get_masking_views_by_port_group(
+            portGroupInstanceName)
+
+        mvInstancesByIG = self.common.get_masking_views_by_initiator_group(
+            initiatorGroupInstanceName)
+
+        for mvInstanceByPG in mvInstancesByPG:
+            if mvInstanceByPG in mvInstancesByIG:
+                mvInstances.append(mvInstanceByPG)
+        return mvInstances
 
     def _build_initiator_target_map(self, storage_system, volume, connector):
         """Build the target_wwns and the initiator target map."""
@@ -327,11 +356,11 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
 
     def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
-        return self.common.create_cgsnapshot(context, cgsnapshot, self.db)
+        return self.common.create_cgsnapshot(context, cgsnapshot, snapshots)
 
     def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
-        return self.common.delete_cgsnapshot(context, cgsnapshot, self.db)
+        return self.common.delete_cgsnapshot(context, cgsnapshot, snapshots)
 
     def manage_existing(self, volume, external_ref):
         """Manages an existing VMAX Volume (import to Cinder).
@@ -380,4 +409,5 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
         :param source_vols: a list of volume dictionaries in the source_cg.
         """
         return self.common.create_consistencygroup_from_src(
-            context, group, volumes, cgsnapshot, snapshots, self.db)
+            context, group, volumes, cgsnapshot, snapshots, source_cg,
+            source_vols)

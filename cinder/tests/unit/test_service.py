@@ -32,7 +32,6 @@ from cinder import objects
 from cinder import rpc
 from cinder import service
 from cinder import test
-from cinder.wsgi import common as wsgi
 
 
 test_service_opts = [
@@ -83,6 +82,18 @@ class ServiceManagerTestCase(test.TestCase):
                                'cinder.tests.unit.test_service.FakeManager')
         serv.start()
         self.assertEqual('service', serv.test_method())
+
+    @mock.patch('cinder.rpc.LAST_OBJ_VERSIONS', {'test': '1.5'})
+    @mock.patch('cinder.rpc.LAST_RPC_VERSIONS', {'test': '1.3'})
+    def test_reset(self):
+        serv = service.Service('test',
+                               'test',
+                               'test',
+                               'cinder.tests.unit.test_service.FakeManager')
+        serv.start()
+        serv.reset()
+        self.assertEqual({}, rpc.LAST_OBJ_VERSIONS)
+        self.assertEqual({}, rpc.LAST_RPC_VERSIONS)
 
 
 class ServiceFlagsTestCase(test.TestCase):
@@ -246,64 +257,114 @@ class ServiceTestCase(test.TestCase):
         serv.rpcserver.stop.assert_called_once_with()
         serv.rpcserver.wait.assert_called_once_with()
 
+    @mock.patch('cinder.service.Service.report_state')
+    @mock.patch('cinder.service.Service.periodic_tasks')
+    @mock.patch.object(service.loopingcall, 'FixedIntervalLoopingCall')
+    @mock.patch.object(rpc, 'get_server')
+    @mock.patch('cinder.db')
+    def test_service_stop_waits_for_timers(self, mock_db, mock_rpc,
+                                           mock_loopcall, mock_periodic,
+                                           mock_report):
+        """Test that we wait for loopcalls only if stop succeeds."""
+        serv = service.Service(
+            self.host,
+            self.binary,
+            self.topic,
+            'cinder.tests.unit.test_service.FakeManager',
+            report_interval=5,
+            periodic_interval=10,
+        )
+
+        # One of the loopcalls will raise an exception on stop
+        mock_loopcall.side_effect = (
+            mock.Mock(**{'stop.side_effect': Exception}),
+            mock.Mock())
+
+        serv.start()
+        serv.stop()
+        serv.wait()
+        serv.rpcserver.start.assert_called_once_with()
+        serv.rpcserver.stop.assert_called_once_with()
+        serv.rpcserver.wait.assert_called_once_with()
+
+        # The first loopcall will have failed on the stop call, so we will not
+        # have waited for it to stop
+        self.assertEqual(1, serv.timers[0].start.call_count)
+        self.assertEqual(1, serv.timers[0].stop.call_count)
+        self.assertFalse(serv.timers[0].wait.called)
+
+        # We will wait for the second loopcall
+        self.assertEqual(1, serv.timers[1].start.call_count)
+        self.assertEqual(1, serv.timers[1].stop.call_count)
+        self.assertEqual(1, serv.timers[1].wait.call_count)
+
 
 class TestWSGIService(test.TestCase):
 
     def setUp(self):
         super(TestWSGIService, self).setUp()
 
-    def test_service_random_port(self):
-        with mock.patch.object(wsgi.Loader, 'load_app') as mock_load_app:
-            test_service = service.WSGIService("test_service")
-            self.assertEqual(0, test_service.port)
-            test_service.start()
-            self.assertNotEqual(0, test_service.port)
-            test_service.stop()
-            self.assertTrue(mock_load_app.called)
+    @mock.patch('oslo_service.wsgi.Loader')
+    def test_service_random_port(self, mock_loader):
+        test_service = service.WSGIService("test_service")
+        self.assertEqual(0, test_service.port)
+        test_service.start()
+        self.assertNotEqual(0, test_service.port)
+        test_service.stop()
+        self.assertTrue(mock_loader.called)
 
-    def test_reset_pool_size_to_default(self):
-        with mock.patch.object(wsgi.Loader, 'load_app') as mock_load_app:
-            test_service = service.WSGIService("test_service")
-            test_service.start()
+    @mock.patch('oslo_service.wsgi.Loader')
+    def test_reset_pool_size_to_default(self, mock_loader):
+        test_service = service.WSGIService("test_service")
+        test_service.start()
 
-            # Stopping the service, which in turn sets pool size to 0
-            test_service.stop()
-            self.assertEqual(0, test_service.server._pool.size)
+        # Stopping the service, which in turn sets pool size to 0
+        test_service.stop()
+        self.assertEqual(0, test_service.server._pool.size)
 
-            # Resetting pool size to default
-            test_service.reset()
-            test_service.start()
-            self.assertEqual(1000, test_service.server._pool.size)
-            self.assertTrue(mock_load_app.called)
+        # Resetting pool size to default
+        test_service.reset()
+        test_service.start()
+        self.assertEqual(cfg.CONF.wsgi_default_pool_size,
+                         test_service.server._pool.size)
+        self.assertTrue(mock_loader.called)
 
-    @mock.patch('oslo_service.wsgi.Server')
-    def test_workers_set_default(self, wsgi_server):
-        self.override_config('osapi_volume_listen_port', 0)
+    @mock.patch('oslo_service.wsgi.Loader')
+    def test_workers_set_default(self, mock_loader):
+        self.override_config('osapi_volume_listen_port',
+                             CONF.test_service_listen_port)
         test_service = service.WSGIService("osapi_volume")
-        self.assertEqual(processutils.get_worker_count(), test_service.workers)
+        self.assertEqual(processutils.get_worker_count(),
+                         test_service.workers)
+        self.assertTrue(mock_loader.called)
 
-    @mock.patch('oslo_service.wsgi.Server')
-    def test_workers_set_good_user_setting(self, wsgi_server):
-        self.override_config('osapi_volume_listen_port', 0)
+    @mock.patch('oslo_service.wsgi.Loader')
+    def test_workers_set_good_user_setting(self, mock_loader):
+        self.override_config('osapi_volume_listen_port',
+                             CONF.test_service_listen_port)
         self.override_config('osapi_volume_workers', 8)
         test_service = service.WSGIService("osapi_volume")
         self.assertEqual(8, test_service.workers)
+        self.assertTrue(mock_loader.called)
 
-    @mock.patch('oslo_service.wsgi.Server')
-    def test_workers_set_zero_user_setting(self, wsgi_server):
-        self.override_config('osapi_volume_listen_port', 0)
+    @mock.patch('oslo_service.wsgi.Loader')
+    def test_workers_set_zero_user_setting(self, mock_loader):
+        self.override_config('osapi_volume_listen_port',
+                             CONF.test_service_listen_port)
         self.override_config('osapi_volume_workers', 0)
         test_service = service.WSGIService("osapi_volume")
-        # If a value less than 1 is used, defaults to number of procs available
-        self.assertEqual(processutils.get_worker_count(), test_service.workers)
+        # If a value less than 1 is used, defaults to number of procs
+        # available
+        self.assertEqual(processutils.get_worker_count(),
+                         test_service.workers)
+        self.assertTrue(mock_loader.called)
 
-    @mock.patch('oslo_service.wsgi.Server')
-    def test_workers_set_negative_user_setting(self, wsgi_server):
+    @mock.patch('oslo_service.wsgi.Loader')
+    def test_workers_set_negative_user_setting(self, mock_loader):
         self.override_config('osapi_volume_workers', -1)
         self.assertRaises(exception.InvalidInput,
-                          service.WSGIService,
-                          "osapi_volume")
-        self.assertFalse(wsgi_server.called)
+                          service.WSGIService, "osapi_volume")
+        self.assertTrue(mock_loader.called)
 
 
 class OSCompatibilityTestCase(test.TestCase):

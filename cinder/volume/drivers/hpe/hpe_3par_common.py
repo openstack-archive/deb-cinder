@@ -71,8 +71,7 @@ from taskflow.patterns import linear_flow
 
 LOG = logging.getLogger(__name__)
 
-MIN_CLIENT_VERSION = '4.0.0'
-MIN_REP_CLIENT_VERSION = '4.0.2'
+MIN_CLIENT_VERSION = '4.1.0'
 DEDUP_API_VERSION = 30201120
 FLASH_CACHE_API_VERSION = 30201200
 SRSTATLD_API_VERSION = 30201200
@@ -224,10 +223,14 @@ class HPE3PARCommon(object):
         3.0.8 - Optimize array ID retrieval
         3.0.9 - Bump minimum API version for volume replication
         3.0.10 - Added additional volumes checks to the manage snapshot API
+        3.0.11 - Fix the image cache capability bug #1491088
+        3.0.12 - Remove client version checks for replication
+        3.0.13 - Support creating a cg from a source cg
+        3.0.14 - Comparison of WWNs now handles case difference. bug #1546453
 
     """
 
-    VERSION = "3.0.10"
+    VERSION = "3.0.14"
 
     stats = {}
 
@@ -297,19 +300,14 @@ class HPE3PARCommon(object):
     def check_replication_flags(self, options, required_flags):
         for flag in required_flags:
             if not options.get(flag, None):
-                msg = (_('%s is not set and is required for the replicaiton '
+                msg = (_('%s is not set and is required for the replication '
                          'device to be valid.') % flag)
                 LOG.error(msg)
                 raise exception.InvalidInput(reason=msg)
 
     def _create_client(self, timeout=None):
         hpe3par_api_url = self._client_conf['hpe3par_api_url']
-        # Timeout is only supported in version 4.0.2 and greater of the
-        # python-3parclient.
-        if hpe3parclient.version >= MIN_REP_CLIENT_VERSION:
-            cl = client.HPE3ParClient(hpe3par_api_url, timeout=timeout)
-        else:
-            cl = client.HPE3ParClient(hpe3par_api_url)
+        cl = client.HPE3ParClient(hpe3par_api_url, timeout=timeout)
         client_version = hpe3parclient.version
 
         if client_version < MIN_CLIENT_VERSION:
@@ -415,8 +413,7 @@ class HPE3PARCommon(object):
         except hpeexceptions.UnsupportedVersion as ex:
             # In the event we cannot contact the configured primary array,
             # we want to allow a failover if replication is enabled.
-            if hpe3parclient.version >= MIN_REP_CLIENT_VERSION:
-                self._do_replication_setup()
+            self._do_replication_setup()
             if self._replication_enabled:
                 self.client = None
             raise exception.InvalidInput(ex)
@@ -436,17 +433,6 @@ class HPE3PARCommon(object):
                             "version '%(version)s' is installed.") %
                         {'srstatld_version': SRSTATLD_API_VERSION,
                          'version': self.API_VERSION})
-
-        # TODO(walter-boring) BUG: 1491088.  For the time being disable
-        # making the drivers usable if they enable the image cache
-        # The image cache feature fails on 3PAR drivers
-        # because it tries to extend a volume as it's still being cloned.
-        if self.config.image_volume_cache_enabled:
-            msg = _("3PAR drivers do not support enabling the image "
-                    "cache capability at this time.  You must disable "
-                    "the configuration setting in cinder.conf")
-            LOG.error(msg)
-            raise exception.InvalidInput(message=msg)
 
         # Get the client ID for provider_location. We only need to retrieve
         # the ID directly from the array if the driver stats are not provided.
@@ -528,22 +514,35 @@ class HPE3PARCommon(object):
                                          cgsnapshot=None, snapshots=None,
                                          source_cg=None, source_vols=None):
 
+        self.create_consistencygroup(context, group)
+        vvs_name = self._get_3par_vvs_name(group.id)
         if cgsnapshot and snapshots:
-            self.create_consistencygroup(context, group)
-            vvs_name = self._get_3par_vvs_name(group.id)
             cgsnap_name = self._get_3par_snap_name(cgsnapshot.id)
-            for i, (volume, snapshot) in enumerate(zip(volumes, snapshots)):
-                snap_name = cgsnap_name + "-" + six.text_type(i)
-                volume_name = self._get_3par_vol_name(volume['id'])
-                type_info = self.get_volume_settings_from_type(volume)
-                cpg = type_info['cpg']
-                optional = {'online': True, 'snapCPG': cpg}
-                self.client.copyVolume(snap_name, volume_name, cpg, optional)
-                self.client.addVolumeToVolumeSet(vvs_name, volume_name)
-        else:
-            msg = _("create_consistencygroup_from_src only supports a"
-                    " cgsnapshot source, other sources cannot be used.")
-            raise exception.InvalidInput(reason=msg)
+            snap_base = cgsnap_name
+        elif source_cg and source_vols:
+            cg_id = source_cg.id
+            # Create a brand new uuid for the temp snap.
+            snap_uuid = uuid.uuid4().hex
+
+            # Create a temporary snapshot of the volume set in order to
+            # perform an online copy. These temp snapshots will be deleted
+            # when the source consistency group is deleted.
+            temp_snap = self._get_3par_snap_name(snap_uuid, temp_snap=True)
+            snap_shot_name = temp_snap + "-@count@"
+            copy_of_name = self._get_3par_vvs_name(cg_id)
+            optional = {'expirationHours': 1}
+            self.client.createSnapshotOfVolumeSet(snap_shot_name, copy_of_name,
+                                                  optional=optional)
+            snap_base = temp_snap
+
+        for i, volume in enumerate(volumes):
+            snap_name = snap_base + "-" + six.text_type(i)
+            volume_name = self._get_3par_vol_name(volume['id'])
+            type_info = self.get_volume_settings_from_type(volume)
+            cpg = type_info['cpg']
+            optional = {'online': True, 'snapCPG': cpg}
+            self.client.copyVolume(snap_name, volume_name, cpg, optional)
+            self.client.addVolumeToVolumeSet(vvs_name, volume_name)
 
         return None, None
 
@@ -1041,9 +1040,15 @@ class HPE3PARCommon(object):
         volume_name = self._encode_name(volume_id)
         return "osv-%s" % volume_name
 
-    def _get_3par_snap_name(self, snapshot_id):
+    def _get_3par_snap_name(self, snapshot_id, temp_snap=False):
         snapshot_name = self._encode_name(snapshot_id)
-        return "oss-%s" % snapshot_name
+        if temp_snap:
+            # is this a temporary snapshot
+            # this is done during cloning
+            prefix = "tss-%s"
+        else:
+            prefix = "oss-%s"
+        return prefix % snapshot_name
 
     def _get_3par_ums_name(self, snapshot_id):
         ums_name = self._encode_name(snapshot_id)
@@ -1298,8 +1303,7 @@ class HPE3PARCommon(object):
                     'consistencygroup_support': True,
                     }
 
-            if (hpe3parclient.version >= MIN_REP_CLIENT_VERSION
-                    and remotecopy_support):
+            if remotecopy_support:
                 pool['replication_enabled'] = self._replication_enabled
                 pool['replication_type'] = ['sync', 'periodic']
                 pool['replication_count'] = len(self._replication_targets)
@@ -1919,17 +1923,45 @@ class HPE3PARCommon(object):
             model_update = None
         return model_update
 
+    def _create_temp_snapshot(self, volume):
+        """This creates a temporary snapshot of a volume.
+
+        This is used by cloning a volume so that we can then
+        issue extend volume against the original volume.
+        """
+        vol_name = self._get_3par_vol_name(volume['id'])
+        # create a brand new uuid for the temp snap
+        snap_uuid = uuid.uuid4().hex
+
+        # this will be named tss-%s
+        snap_name = self._get_3par_snap_name(snap_uuid, temp_snap=True)
+
+        extra = {'volume_name': volume['name'],
+                 'volume_id': volume['id']}
+
+        optional = {'comment': json.dumps(extra)}
+
+        # let the snapshot die in an hour
+        optional['expirationHours'] = 1
+
+        LOG.info(_LI("Creating temp snapshot %(snap)s from volume %(vol)s"),
+                 {'snap': snap_name, 'vol': vol_name})
+
+        self.client.createSnapshot(snap_name, vol_name, optional)
+        return self.client.getVolume(snap_name)
+
     def create_cloned_volume(self, volume, src_vref):
         try:
-            orig_name = self._get_3par_vol_name(src_vref['id'])
             vol_name = self._get_3par_vol_name(volume['id'])
+            # create a temporary snapshot
+            snapshot = self._create_temp_snapshot(src_vref)
 
             type_info = self.get_volume_settings_from_type(volume)
 
             # make the 3PAR copy the contents.
             # can't delete the original until the copy is done.
             cpg = type_info['cpg']
-            self._copy_volume(orig_name, vol_name, cpg=cpg,
+            self._copy_volume(snapshot['name'], vol_name, cpg=cpg,
                               snap_cpg=type_info['snap_cpg'],
                               tpvv=type_info['tpvv'],
                               tdvv=type_info['tdvv'])
@@ -2004,7 +2036,7 @@ class HPE3PARCommon(object):
                         self.client.removeVolumeFromVolumeSet(vvset_name,
                                                               volume_name)
                     self.client.deleteVolume(volume_name)
-                elif (ex.get_code() == 151 or ex.get_code() == 32):
+                elif (ex.get_code() == 151):
                     # the volume is being operated on in a background
                     # task on the 3PAR.
                     # TODO(walter-boring) do a retry a few times.
@@ -2014,6 +2046,33 @@ class HPE3PARCommon(object):
                             "You can try again later.")
                     LOG.error(msg)
                     raise exception.VolumeIsBusy(message=msg)
+                elif (ex.get_code() == 32):
+                    # Error 32 means that the volume has children
+
+                    # see if we have any temp snapshots
+                    snaps = self.client.getVolumeSnapshots(volume_name)
+                    for snap in snaps:
+                        if snap.startswith('tss-'):
+                            # looks like we found a temp snapshot.
+                            LOG.info(
+                                _LI("Found a temporary snapshot %(name)s"),
+                                {'name': snap})
+                            try:
+                                self.client.deleteVolume(snap)
+                            except hpeexceptions.HTTPNotFound:
+                                # if the volume is gone, it's as good as a
+                                # successful delete
+                                pass
+                            except Exception:
+                                msg = _("Volume has a temporary snapshot that "
+                                        "can't be deleted at this time.")
+                                raise exception.VolumeIsBusy(message=msg)
+
+                    try:
+                        self.delete_volume(volume)
+                    except Exception:
+                        msg = _("Volume has children and cannot be deleted!")
+                        raise exception.VolumeIsBusy(message=msg)
                 else:
                     LOG.error(_LE("Exception: %s"), ex)
                     raise exception.VolumeIsBusy(message=ex.get_description())
@@ -2036,9 +2095,7 @@ class HPE3PARCommon(object):
 
     def create_volume_from_snapshot(self, volume, snapshot, snap_name=None,
                                     vvs_name=None):
-        """Creates a volume from a snapshot.
-
-        """
+        """Creates a volume from a snapshot."""
         LOG.debug("Create Volume from Snapshot\n%(vol_name)s\n%(ss_name)s",
                   {'vol_name': pprint.pformat(volume['display_name']),
                    'ss_name': pprint.pformat(snapshot['display_name'])})
@@ -2431,7 +2488,7 @@ class HPE3PARCommon(object):
                 fc_paths = host['FCPaths']
                 for fc in fc_paths:
                     for wwn in wwns:
-                        if wwn == fc['wwn']:
+                        if wwn.upper() == fc['wwn'].upper():
                             return host['name']
 
     def terminate_connection(self, volume, hostname, wwn=None, iqn=None):
@@ -2793,12 +2850,6 @@ class HPE3PARCommon(object):
         return existing_vluns
 
     # v2 replication methods
-    def get_replication_updates(self, context):
-        # TODO(aorourke): the manager does not do anything with these updates.
-        # When that is chanaged, I will modify this as well.
-        errors = []
-        return errors
-
     def replication_enable(self, context, volume):
         """Enable replication on a replication capable volume."""
         if not self._volume_of_replicated_type(volume):
@@ -3106,8 +3157,7 @@ class HPE3PARCommon(object):
         return ret_mode
 
     def _get_3par_config(self, volume):
-        if hpe3parclient.version >= MIN_REP_CLIENT_VERSION:
-            self._do_replication_setup()
+        self._do_replication_setup()
         conf = None
         if self._replication_enabled and volume:
             provider_location = volume.get('provider_location')

@@ -75,88 +75,6 @@ class NotifyUsageTestCase(test.TestCase):
             'volume.test_suffix',
             mock_usage.return_value)
 
-    @mock.patch('cinder.volume.utils._usage_from_volume')
-    @mock.patch('cinder.volume.utils.CONF')
-    @mock.patch('cinder.volume.utils.rpc')
-    def test_notify_about_replication_usage(self, mock_rpc,
-                                            mock_conf, mock_usage):
-        mock_conf.host = 'host1'
-        output = volume_utils.notify_about_replication_usage(
-            mock.sentinel.context,
-            mock.sentinel.volume,
-            'test_suffix')
-        self.assertIsNone(output)
-        mock_usage.assert_called_once_with(mock.sentinel.context,
-                                           mock.sentinel.volume)
-        mock_rpc.get_notifier.assert_called_once_with('replication', 'host1')
-        mock_rpc.get_notifier.return_value.info.assert_called_once_with(
-            mock.sentinel.context,
-            'replication.test_suffix',
-            mock_usage.return_value)
-
-    @mock.patch('cinder.volume.utils._usage_from_volume')
-    @mock.patch('cinder.volume.utils.CONF')
-    @mock.patch('cinder.volume.utils.rpc')
-    def test_notify_about_replication_usage_with_kwargs(self, mock_rpc,
-                                                        mock_conf, mock_usage):
-        mock_conf.host = 'host1'
-        output = volume_utils.notify_about_replication_usage(
-            mock.sentinel.context,
-            mock.sentinel.volume,
-            'test_suffix',
-            extra_usage_info={'a': 'b', 'c': 'd'},
-            host='host2')
-        self.assertIsNone(output)
-        mock_usage.assert_called_once_with(mock.sentinel.context,
-                                           mock.sentinel.volume,
-                                           a='b', c='d')
-        mock_rpc.get_notifier.assert_called_once_with('replication', 'host2')
-        mock_rpc.get_notifier.return_value.info.assert_called_once_with(
-            mock.sentinel.context,
-            'replication.test_suffix',
-            mock_usage.return_value)
-
-    @mock.patch('cinder.volume.utils._usage_from_volume')
-    @mock.patch('cinder.volume.utils.CONF')
-    @mock.patch('cinder.volume.utils.rpc')
-    def test_notify_about_replication_error(self, mock_rpc,
-                                            mock_conf, mock_usage):
-        mock_conf.host = 'host1'
-        output = volume_utils.notify_about_replication_error(
-            mock.sentinel.context,
-            mock.sentinel.volume,
-            'test_suffix')
-        self.assertIsNone(output)
-        mock_usage.assert_called_once_with(mock.sentinel.context,
-                                           mock.sentinel.volume)
-        mock_rpc.get_notifier.assert_called_once_with('replication', 'host1')
-        mock_rpc.get_notifier.return_value.error.assert_called_once_with(
-            mock.sentinel.context,
-            'replication.test_suffix',
-            mock_usage.return_value)
-
-    @mock.patch('cinder.volume.utils._usage_from_volume')
-    @mock.patch('cinder.volume.utils.CONF')
-    @mock.patch('cinder.volume.utils.rpc')
-    def test_notify_about_replication_error_with_kwargs(self, mock_rpc,
-                                                        mock_conf, mock_usage):
-        mock_conf.host = 'host1'
-        output = volume_utils.notify_about_replication_error(
-            mock.sentinel.context,
-            mock.sentinel.volume,
-            'test_suffix',
-            extra_error_info={'a': 'b', 'c': 'd'},
-            host='host2')
-        self.assertIsNone(output)
-        mock_usage.assert_called_once_with(mock.sentinel.context,
-                                           mock.sentinel.volume,
-                                           a='b', c='d')
-        mock_rpc.get_notifier.assert_called_once_with('replication', 'host2')
-        mock_rpc.get_notifier.return_value.error.assert_called_once_with(
-            mock.sentinel.context,
-            'replication.test_suffix',
-            mock_usage.return_value)
-
     @mock.patch('cinder.volume.utils._usage_from_snapshot')
     @mock.patch('cinder.volume.utils.CONF')
     @mock.patch('cinder.volume.utils.rpc')
@@ -788,6 +706,13 @@ class VolumeUtilsTestCase(test.TestCase):
                          volume_utils.extract_host(host, 'pool'))
         self.assertEqual(pool,
                          volume_utils.extract_host(host, 'pool', True))
+
+    def test_get_volume_rpc_host(self):
+        host = 'Host@backend'
+        # default level is 'backend'
+        # check if host with backend is returned
+        self.assertEqual(volume_utils.extract_host(host),
+                         volume_utils.get_volume_rpc_host(host))
 
     def test_append_host(self):
         host = 'Host'

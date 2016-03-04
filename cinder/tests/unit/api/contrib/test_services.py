@@ -132,7 +132,13 @@ class FakeRequestWithHostBinary(object):
 
 
 def fake_service_get_all(context, filters=None):
-    return fake_services_list
+    filters = filters or {}
+    host = filters.get('host')
+    binary = filters.get('binary')
+    return [s for s in fake_services_list
+            if (not host or s['host'] == host or
+                s['host'].startswith(host + '@'))
+            and (not binary or s['binary'] == binary)]
 
 
 def fake_service_get_by_host_binary(context, host, binary):
@@ -243,6 +249,9 @@ class ServicesTest(test.TestCase):
                                       2012, 10, 29, 13, 42, 2),
                                   'disabled_reason': 'test1'},
                                  {'binary': 'cinder-volume',
+                                  'replication_status': None,
+                                  'active_backend_id': None,
+                                  'frozen': False,
                                   'host': 'host1', 'zone': 'cinder',
                                   'status': 'disabled', 'state': 'up',
                                   'updated_at': datetime.datetime(
@@ -256,6 +265,9 @@ class ServicesTest(test.TestCase):
                                       2012, 9, 19, 6, 55, 34),
                                   'disabled_reason': ''},
                                  {'binary': 'cinder-volume',
+                                  'replication_status': None,
+                                  'active_backend_id': None,
+                                  'frozen': False,
                                   'host': 'host2',
                                   'zone': 'cinder',
                                   'status': 'disabled', 'state': 'down',
@@ -263,6 +275,9 @@ class ServicesTest(test.TestCase):
                                       2012, 9, 18, 8, 3, 38),
                                   'disabled_reason': 'test4'},
                                  {'binary': 'cinder-volume',
+                                  'replication_status': None,
+                                  'active_backend_id': None,
+                                  'frozen': False,
                                   'host': 'host2',
                                   'zone': 'cinder',
                                   'status': 'disabled', 'state': 'down',
@@ -270,6 +285,9 @@ class ServicesTest(test.TestCase):
                                       2012, 10, 29, 13, 42, 5),
                                   'disabled_reason': 'test5'},
                                  {'binary': 'cinder-volume',
+                                  'replication_status': None,
+                                  'active_backend_id': None,
+                                  'frozen': False,
                                   'host': 'host2',
                                   'zone': 'cinder',
                                   'status': 'enabled', 'state': 'down',
@@ -319,6 +337,9 @@ class ServicesTest(test.TestCase):
                                              29, 13, 42, 2),
              'disabled_reason': 'test1'},
             {'binary': 'cinder-volume',
+             'frozen': False,
+             'replication_status': None,
+             'active_backend_id': None,
              'host': 'host1',
              'zone': 'cinder',
              'status': 'disabled', 'state': 'up',
@@ -370,6 +391,9 @@ class ServicesTest(test.TestCase):
 
         response = {'services': [
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
+             'frozen': False,
              'host': 'host1',
              'zone': 'cinder',
              'status': 'disabled',
@@ -378,6 +402,9 @@ class ServicesTest(test.TestCase):
                                              13, 42, 5),
              'disabled_reason': 'test2'},
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
+             'frozen': False,
              'host': 'host2',
              'zone': 'cinder',
              'status': 'disabled',
@@ -386,6 +413,9 @@ class ServicesTest(test.TestCase):
                                              8, 3, 38),
              'disabled_reason': 'test4'},
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
+             'frozen': False,
              'host': 'host2',
              'zone': 'cinder',
              'status': 'disabled',
@@ -394,6 +424,9 @@ class ServicesTest(test.TestCase):
                                              13, 42, 5),
              'disabled_reason': 'test5'},
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
+             'frozen': False,
              'host': 'host2',
              'zone': 'cinder',
              'status': 'enabled',
@@ -446,34 +479,46 @@ class ServicesTest(test.TestCase):
 
         response = {'services': [
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
              'host': 'host1',
              'zone': 'cinder',
              'status': 'disabled',
              'state': 'up',
+             'frozen': False,
              'updated_at': datetime.datetime(2012, 10, 29,
                                              13, 42, 5),
              'disabled_reason': 'test2'},
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
              'host': 'host2',
              'zone': 'cinder',
              'status': 'disabled',
              'state': 'down',
+             'frozen': False,
              'updated_at': datetime.datetime(2012, 9, 18,
                                              8, 3, 38),
              'disabled_reason': 'test4'},
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
              'host': 'host2',
              'zone': 'cinder',
              'status': 'disabled',
              'state': 'down',
+             'frozen': False,
              'updated_at': datetime.datetime(2012, 10, 29,
                                              13, 42, 5),
              'disabled_reason': 'test5'},
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
              'host': 'host2',
              'zone': 'cinder',
              'status': 'enabled',
              'state': 'down',
+             'frozen': False,
              'updated_at': datetime.datetime(2012, 9, 18,
                                              8, 3, 38),
              'disabled_reason': ''}]}
@@ -501,13 +546,16 @@ class ServicesTest(test.TestCase):
 
         response = {'services': [
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
              'host': 'host1',
              'zone': 'cinder',
              'status': 'disabled',
              'state': 'up',
              'updated_at': datetime.datetime(2012, 10, 29,
                                              13, 42, 5),
-             'disabled_reason': 'test2'}]}
+             'disabled_reason': 'test2',
+             'frozen': False}]}
         self.assertEqual(response, res_dict)
 
     def test_services_list_with_host_binary(self):
@@ -532,6 +580,9 @@ class ServicesTest(test.TestCase):
 
         response = {'services': [
             {'binary': 'cinder-volume',
+             'replication_status': None,
+             'active_backend_id': None,
+             'frozen': False,
              'host': 'host1',
              'zone': 'cinder',
              'status': 'disabled',

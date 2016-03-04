@@ -57,6 +57,7 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
                 Snap copy support
                 Support efficient non-disruptive backup
         7.0.0 - Clone consistency group support
+                Replication v2 support(managed)
     """
 
     def __init__(self, *args, **kwargs):
@@ -135,7 +136,6 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
                     'target_iqn': 'iqn.2010-10.org.openstack:volume-00000001',
                     'target_portal': '127.0.0.0.1:3260',
                     'target_lun': 1,
-                    'access_mode': 'rw'
                 }
             }
 
@@ -149,7 +149,6 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
                                     'iqn.2010-10.org.openstack:volume-00002'],
                     'target_portals': ['127.0.0.1:3260', '127.0.1.1:3260'],
                     'target_luns': [1, 1],
-                    'access_mode': 'rw'
                 }
             }
 
@@ -280,3 +279,19 @@ class EMCCLIISCSIDriver(driver.ISCSIDriver):
 
     def backup_use_temp_snapshot(self):
         return True
+
+    def replication_enable(self, context, volume):
+        """Enables replication on a replication capable volume."""
+        return self.cli.replication_enable(context, volume)
+
+    def replication_disable(self, context, volume):
+        """Disables replication on a replication-enabled volume."""
+        return self.cli.replication_disable(context, volume)
+
+    def replication_failover(self, context, volume, secondary):
+        """Failovers volume from primary device to secondary."""
+        return self.cli.replication_failover(context, volume, secondary)
+
+    def list_replication_targets(self, context, volume):
+        """Returns volume replication info."""
+        return self.cli.list_replication_targets(context, volume)

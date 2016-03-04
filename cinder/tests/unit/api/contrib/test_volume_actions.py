@@ -14,11 +14,9 @@
 
 import datetime
 import iso8601
-import json
 import uuid
 
 import mock
-from oslo_config import cfg
 import oslo_messaging as messaging
 from oslo_serialization import jsonutils
 import webob
@@ -31,12 +29,11 @@ from cinder import objects
 from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.api.v2 import stubs
+from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_volume
 from cinder import volume
 from cinder.volume import api as volume_api
 from cinder.volume import rpcapi as volume_rpcapi
-
-CONF = cfg.CONF
 
 
 class VolumeActionsTest(test.TestCase):
@@ -52,7 +49,8 @@ class VolumeActionsTest(test.TestCase):
         self.controller = volume_actions.VolumeActionsController()
         self.api_patchers = {}
         for _meth in self._methods:
-            self.api_patchers[_meth] = mock.patch('cinder.volume.API.' + _meth)
+            self.api_patchers[_meth] = mock.patch('cinder.volume.api.API.' +
+                                                  _meth)
             self.api_patchers[_meth].start()
             self.addCleanup(self.api_patchers[_meth].stop)
             self.api_patchers[_meth].return_value = True
@@ -61,11 +59,11 @@ class VolumeActionsTest(test.TestCase):
                   'size': 1, 'migration_status': None,
                   'volume_type_id': 'fake', 'project_id': 'project_id'}
         vol = fake_volume.fake_volume_obj(self.context, **db_vol)
-        self.get_patcher = mock.patch('cinder.volume.API.get')
+        self.get_patcher = mock.patch('cinder.volume.api.API.get')
         self.mock_volume_get = self.get_patcher.start()
         self.addCleanup(self.get_patcher.stop)
         self.mock_volume_get.return_value = vol
-        self.update_patcher = mock.patch('cinder.volume.API.update')
+        self.update_patcher = mock.patch('cinder.volume.api.API.update')
         self.mock_volume_update = self.update_patcher.start()
         self.addCleanup(self.update_patcher.stop)
         self.mock_volume_update.return_value = vol
@@ -82,7 +80,7 @@ class VolumeActionsTest(test.TestCase):
             req = webob.Request.blank('/v2/fake/volumes/%s/action' %
                                       self.UUID)
             req.method = 'POST'
-            req.body = jsonutils.dumps({_action: None})
+            req.body = jsonutils.dump_as_bytes({_action: None})
             req.content_type = 'application/json'
             res = req.get_response(app)
             self.assertEqual(202, res.status_int)
@@ -94,7 +92,7 @@ class VolumeActionsTest(test.TestCase):
             body = {'os-initialize_connection': {'connector': 'fake'}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
 
             res = req.get_response(fakes.wsgi_app())
@@ -107,7 +105,7 @@ class VolumeActionsTest(test.TestCase):
             body = {'os-initialize_connection': {}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
 
             res = req.get_response(fakes.wsgi_app())
@@ -121,7 +119,7 @@ class VolumeActionsTest(test.TestCase):
             body = {'os-initialize_connection': {'connector': 'fake'}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
 
             res = req.get_response(fakes.wsgi_app())
@@ -134,7 +132,7 @@ class VolumeActionsTest(test.TestCase):
             body = {'os-terminate_connection': {'connector': 'fake'}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
 
             res = req.get_response(fakes.wsgi_app())
@@ -147,7 +145,7 @@ class VolumeActionsTest(test.TestCase):
             body = {'os-terminate_connection': {}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
 
             res = req.get_response(fakes.wsgi_app())
@@ -161,7 +159,7 @@ class VolumeActionsTest(test.TestCase):
             body = {'os-terminate_connection': {'connector': 'fake'}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
 
             res = req.get_response(fakes.wsgi_app())
@@ -173,7 +171,7 @@ class VolumeActionsTest(test.TestCase):
                               'mode': 'rw'}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -185,7 +183,7 @@ class VolumeActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
         req.headers["content-type"] = "application/json"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(202, res.status_int)
 
@@ -195,7 +193,7 @@ class VolumeActionsTest(test.TestCase):
                               'mountpoint': '/dev/vdc'}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -240,7 +238,7 @@ class VolumeActionsTest(test.TestCase):
         body = {'os-detach': {'attachment_id': 'fakeuuid'}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -283,7 +281,7 @@ class VolumeActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
         req.headers["content-type"] = "application/json"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
 
@@ -294,7 +292,7 @@ class VolumeActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
         req.headers["content-type"] = "application/json"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
         body = {'os-attach': {'host_name': 'fake_host',
@@ -303,20 +301,20 @@ class VolumeActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
         req.headers["content-type"] = "application/json"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
 
     def test_begin_detaching(self):
         def fake_begin_detaching(*args, **kwargs):
             return {}
-        self.stubs.Set(volume.API, 'begin_detaching',
+        self.stubs.Set(volume.api.API, 'begin_detaching',
                        fake_begin_detaching)
 
         body = {'os-begin_detaching': {'fake': 'fake'}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -325,13 +323,13 @@ class VolumeActionsTest(test.TestCase):
     def test_roll_detaching(self):
         def fake_roll_detaching(*args, **kwargs):
             return {}
-        self.stubs.Set(volume.API, 'roll_detaching',
+        self.stubs.Set(volume.api.API, 'roll_detaching',
                        fake_roll_detaching)
 
         body = {'os-roll_detaching': {'fake': 'fake'}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -340,13 +338,13 @@ class VolumeActionsTest(test.TestCase):
     def test_extend_volume(self):
         def fake_extend_volume(*args, **kwargs):
             return {}
-        self.stubs.Set(volume.API, 'extend',
+        self.stubs.Set(volume.api.API, 'extend',
                        fake_extend_volume)
 
         body = {'os-extend': {'new_size': 5}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -356,13 +354,13 @@ class VolumeActionsTest(test.TestCase):
         def fake_extend_volume(*args, **kwargs):
             msg = "Volume status must be available"
             raise exception.InvalidVolume(reason=msg)
-        self.stubs.Set(volume.API, 'extend',
+        self.stubs.Set(volume.api.API, 'extend',
                        fake_extend_volume)
 
         body = {'os-extend': {'new_size': 5}}
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = "POST"
-        req.body = jsonutils.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         req.headers["content-type"] = "application/json"
 
         res = req.get_response(fakes.wsgi_app())
@@ -371,7 +369,7 @@ class VolumeActionsTest(test.TestCase):
     def test_update_readonly_flag(self):
         def fake_update_readonly_flag(*args, **kwargs):
             return {}
-        self.stubs.Set(volume.API, 'update_readonly_flag',
+        self.stubs.Set(volume.api.API, 'update_readonly_flag',
                        fake_update_readonly_flag)
 
         def make_update_readonly_flag_test(self, readonly, return_code):
@@ -380,7 +378,7 @@ class VolumeActionsTest(test.TestCase):
                 body = {"os-update_readonly_flag": {}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
             res = req.get_response(fakes.wsgi_app())
             self.assertEqual(return_code, res.status_int)
@@ -403,7 +401,7 @@ class VolumeActionsTest(test.TestCase):
                 body = {"os-set_bootable": {}}
             req = webob.Request.blank('/v2/fake/volumes/1/action')
             req.method = "POST"
-            req.body = jsonutils.dumps(body)
+            req.body = jsonutils.dump_as_bytes(body)
             req.headers["content-type"] = "application/json"
             res = req.get_response(fakes.wsgi_app())
             self.assertEqual(return_code, res.status_int)
@@ -451,7 +449,7 @@ class VolumeRetypeActionsTest(VolumeActionsTest):
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
         retype_body = {'new_type': new_type, 'migration_policy': 'never'}
-        req.body = jsonutils.dumps({'os-retype': retype_body})
+        req.body = jsonutils.dump_as_bytes({'os-retype': retype_body})
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(expected_status, res.status_int)
 
@@ -470,7 +468,7 @@ class VolumeRetypeActionsTest(VolumeActionsTest):
         req = webob.Request.blank('/v2/fake/volumes/1/action')
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
-        req.body = jsonutils.dumps({'os-retype': None})
+        req.body = jsonutils.dump_as_bytes({'os-retype': None})
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
 
@@ -480,7 +478,7 @@ class VolumeRetypeActionsTest(VolumeActionsTest):
         req.method = 'POST'
         req.headers['content-type'] = 'application/json'
         retype_body = {'new_type': 'foo', 'migration_policy': 'invalid'}
-        req.body = jsonutils.dumps({'os-retype': retype_body})
+        req.body = jsonutils.dump_as_bytes({'os-retype': retype_body})
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
 
@@ -716,7 +714,7 @@ class VolumeImageActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/tenant1/volumes/%s/action' % id)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
 
@@ -730,7 +728,7 @@ class VolumeImageActionsTest(test.TestCase):
         req = webob.Request.blank('/v2/tenant1/volumes/%s/action' % id)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
         self.assertEqual(400, res.status_int)
 
@@ -1002,7 +1000,7 @@ class VolumeImageActionsTest(test.TestCase):
         res_dict = self.controller._volume_upload_image(req, id, body)
         expected_res = {
             'os-volume_upload_image': {
-                'id': '1',
+                'id': fake.volume_id,
                 'updated_at': None,
                 'status': 'uploading',
                 'display_description': None,

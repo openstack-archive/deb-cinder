@@ -21,15 +21,15 @@ from cinder import test
 # NOTE: The hashes in this list should only be changed if they come with a
 # corresponding version bump in the affected objects.
 object_data = {
-    'Backup': '1.3-2e63492190bbbc85c0e5bea328cd38f7',
-    'BackupImport': '1.3-2e63492190bbbc85c0e5bea328cd38f7',
+    'Backup': '1.4-1002c50b6e31938583c95c4c4889286c',
+    'BackupImport': '1.4-1002c50b6e31938583c95c4c4889286c',
     'BackupList': '1.0-24591dabe26d920ce0756fe64cd5f3aa',
     'CGSnapshot': '1.0-190da2a2aa9457edc771d888f7d225c4',
     'CGSnapshotList': '1.0-e8c3f4078cd0ee23487b34d173eec776',
     'ConsistencyGroup': '1.2-ed7f90a6871991a19af716ade7337fc9',
-    'ConsistencyGroupList': '1.0-09d0aad5491e762ecfdf66bef02ceb8d',
-    'Service': '1.0-64baeb4911dbab1153064dd1c87edb9f',
-    'ServiceList': '1.0-d242d3384b68e5a5a534e090ff1d5161',
+    'ConsistencyGroupList': '1.1-73916823b697dfa0c7f02508d87e0f28',
+    'Service': '1.3-e8f82835bd43722d8d84c55072466eba',
+    'ServiceList': '1.1-cb758b200f0a3a90efabfc5aa2ffb627',
     'Snapshot': '1.0-a6c33eefeadefb324d79f72f66c54e9a',
     'SnapshotList': '1.0-71661e7180ef6cc51501704a9bea4bf1',
     'Volume': '1.3-97c3977846dae6588381e7bd3e6e6558',
@@ -51,3 +51,20 @@ class TestObjectVersions(test.TestCase):
                          'Some objects have changed; please make sure the '
                          'versions have been bumped, and then update their '
                          'hashes in the object_data map in this test module.')
+
+    def test_versions_history(self):
+        classes = base.CinderObjectRegistry.obj_classes()
+        versions = base.OBJ_VERSIONS.get_current_versions()
+        expected = {}
+        actual = {}
+        for name, cls in classes.items():
+            if name not in versions:
+                expected[name] = cls[0].VERSION
+            elif cls[0].VERSION != versions[name]:
+                expected[name] = cls[0].VERSION
+                actual[name] = versions[name]
+
+        self.assertEqual(expected, actual,
+                         'Some objects versions have changed; please make '
+                         'sure a new objects history version was added in '
+                         'cinder.objects.base.OBJ_VERSIONS.')

@@ -15,8 +15,10 @@
 #
 
 import math
+import paramiko
 import random
 import re
+import string
 import time
 import unicodedata
 
@@ -32,6 +34,8 @@ import six
 
 from cinder import context
 from cinder import exception
+from cinder import ssh_utils
+from cinder import utils as cinder_utils
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.objects import fields
 from cinder.volume import driver
@@ -48,9 +52,10 @@ DEFAULT_TIMEOUT = 15
 LOG = logging.getLogger(__name__)
 
 storwize_svc_opts = [
-    cfg.StrOpt('storwize_svc_volpool_name',
-               default='volpool',
-               help='Storage system storage pool for volumes'),
+    cfg.ListOpt('storwize_svc_volpool_name',
+                default=['volpool'],
+                help='Comma separated list of storage system storage '
+                     'pools for volumes.'),
     cfg.IntOpt('storwize_svc_vol_rsize',
                default=2,
                min=-1, max=100,
@@ -96,6 +101,10 @@ storwize_svc_opts = [
                help='If operating in stretched cluster mode, specify the '
                     'name of the pool in which mirrored copies are stored.'
                     'Example: "pool2"'),
+    cfg.StrOpt('storwize_san_secondary_ip',
+               default=None,
+               help='Specifies secondary management IP or hostname to be '
+                    'used if san_ip is invalid or becomes inaccessible.'),
     cfg.BoolOpt('storwize_svc_vol_nofmtdisk',
                 default=False,
                 help='Specifies that the volume not be formatted during '
@@ -247,24 +256,77 @@ class StorwizeSSH(object):
         """
         ssh_cmd = ['svctask', 'mkvdiskhostmap', '-host', '"%s"' % host,
                    '-scsi', lun, vdisk]
-        out, err = self._ssh(ssh_cmd, check_exit_code=False)
-        if 'successfully created' in out:
-            return
-        if not err:
-            msg = (_('Did not find success message nor error for %(fun)s: '
-                     '%(out)s.') % {'out': out, 'fun': ssh_cmd})
-            raise exception.VolumeBackendAPIException(data=msg)
-        if err.startswith('CMMVC6071E'):
-            if not multihostmap:
+        if multihostmap:
+            ssh_cmd.insert(ssh_cmd.index('mkvdiskhostmap') + 1, '-force')
+        try:
+            self.run_ssh_check_created(ssh_cmd)
+        except Exception as ex:
+            if (not multihostmap and hasattr(ex, 'message') and
+                    'CMMVC6071E' in ex.message):
                 LOG.error(_LE('storwize_svc_multihostmap_enabled is set '
                               'to False, not allowing multi host mapping.'))
                 raise exception.VolumeDriverException(
                     message=_('CMMVC6071E The VDisk-to-host mapping was not '
                               'created because the VDisk is already mapped '
                               'to a host.\n"'))
+            with excutils.save_and_reraise_exception():
+                LOG.error(_LE('Error mapping VDisk-to-host'))
 
-        ssh_cmd.insert(ssh_cmd.index('mkvdiskhostmap') + 1, '-force')
+    def mkrcrelationship(self, master, aux, system, name, asyncmirror):
+        ssh_cmd = ['svctask', 'mkrcrelationship', '-master', master,
+                   '-aux', aux, '-cluster', system, '-name', name]
+        if asyncmirror:
+            ssh_cmd.append('-global')
         return self.run_ssh_check_created(ssh_cmd)
+
+    def rmrcrelationship(self, relationship):
+        ssh_cmd = ['svctask', 'rmrcrelationship', relationship]
+        self.run_ssh_assert_no_output(ssh_cmd)
+
+    def startrcrelationship(self, rc_rel, primary=None):
+        ssh_cmd = ['svctask', 'startrcrelationship', '-force']
+        if primary:
+            ssh_cmd.extend(['-primary', primary])
+        ssh_cmd.append(rc_rel)
+        self.run_ssh_assert_no_output(ssh_cmd)
+
+    def stoprcrelationship(self, relationship, access=False):
+        ssh_cmd = ['svctask', 'stoprcrelationship']
+        if access:
+            ssh_cmd.append('-access')
+        ssh_cmd.append(relationship)
+        self.run_ssh_assert_no_output(ssh_cmd)
+
+    def lsrcrelationship(self, volume_name):
+        key_value = 'name=%s' % volume_name
+        ssh_cmd = ['svcinfo', 'lsrcrelationship', '-filtervalue',
+                   key_value, '-delim', '!']
+        return self.run_ssh_info(ssh_cmd, with_header=True)
+
+    def lspartnership(self, system_name):
+        key_value = 'name=%s' % system_name
+        ssh_cmd = ['svcinfo', 'lspartnership', '-filtervalue',
+                   key_value, '-delim', '!']
+        return self.run_ssh_info(ssh_cmd, with_header=True)
+
+    def lspartnershipcandidate(self):
+        ssh_cmd = ['svcinfo', 'lspartnershipcandidate', '-delim', '!']
+        return self.run_ssh_info(ssh_cmd, with_header=True)
+
+    def mkippartnership(self, ip_v4, bandwith):
+        ssh_cmd = ['svctask', 'mkippartnership', '-type', 'ipv4',
+                   '-clusterip', ip_v4, '-linkbandwidthmbits',
+                   six.text_type(bandwith)]
+        return self.run_ssh_assert_no_output(ssh_cmd)
+
+    def mkfcpartnership(self, system_name, bandwith):
+        ssh_cmd = ['svctask', 'mkfcpartnership', '-linkbandwidthmbits',
+                   six.text_type(bandwith), system_name]
+        return self.run_ssh_assert_no_output(ssh_cmd)
+
+    def startpartnership(self, partnership_id):
+        ssh_cmd = ['svctask', 'chpartnership', '-start', partnership_id]
+        return self.run_ssh_assert_no_output(ssh_cmd)
 
     def rmvdiskhostmap(self, host, vdisk):
         ssh_cmd = ['svctask', 'rmvdiskhostmap', '-host', '"%s"' % host, vdisk]
@@ -537,6 +599,15 @@ class StorwizeHelpers(object):
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
         return iogrps
+
+    def get_volume_io_group(self, vol_name):
+        vdisk = self.ssh.lsvdisk(vol_name)
+        if vdisk:
+            resp = self.ssh.lsiogrp()
+            for iogrp in resp:
+                if iogrp['name'] == vdisk['IO_group_name']:
+                    return int(iogrp['id'])
+        return None
 
     def get_node_info(self):
         """Return dictionary containing information on system's nodes."""
@@ -1223,11 +1294,12 @@ class StorwizeHelpers(object):
             for source, target in zip(sources, targets):
                 opts = self.get_vdisk_params(config, state,
                                              source['volume_type_id'])
+                pool = utils.extract_host(target['host'], 'pool')
                 self.create_flashcopy_to_consistgrp(source['name'],
                                                     target['name'],
                                                     fc_consistgrp,
                                                     config, opts,
-                                                    True)
+                                                    True, pool=pool)
             self.prepare_fc_consistgrp(fc_consistgrp, timeout)
             self.start_fc_consistgrp(fc_consistgrp)
             self.delete_fc_consistgrp(fc_consistgrp)
@@ -1297,7 +1369,7 @@ class StorwizeHelpers(object):
         src_size = src_attrs['capacity']
         # In case we need to use a specific pool
         if not pool:
-            pool = config.storwize_svc_volpool_name
+            pool = src_attrs['mdisk_grp_name']
         self.create_vdisk(target, src_size, 'b', pool, opts)
 
         self.ssh.mkfcmap(source, target, full_copy,
@@ -1395,6 +1467,69 @@ class StorwizeHelpers(object):
         timer.stop()
         return ret
 
+    def start_relationship(self, volume_name, primary=None):
+        vol_attrs = self.get_vdisk_attributes(volume_name)
+        if vol_attrs['RC_name']:
+            self.ssh.startrcrelationship(vol_attrs['RC_name'], primary)
+
+    def stop_relationship(self, volume_name):
+        vol_attrs = self.get_vdisk_attributes(volume_name)
+        if vol_attrs['RC_name']:
+            self.ssh.stoprcrelationship(vol_attrs['RC_name'], access=True)
+
+    def create_relationship(self, master, aux, system, asyncmirror):
+        name = 'rcrel' + ''.join(random.sample(string.digits, 10))
+        try:
+            rc_id = self.ssh.mkrcrelationship(master, aux, system, name,
+                                              asyncmirror)
+        except exception.VolumeBackendAPIException as e:
+            # CMMVC5959E is the code in Stowize storage, meaning that
+            # there is a relationship that already has this name on the
+            # master cluster.
+            if 'CMMVC5959E' not in e:
+                # If there is no relation between the primary and the
+                # secondary back-end storage, the exception is raised.
+                raise
+        if rc_id:
+            self.start_relationship(master)
+
+    def delete_relationship(self, volume_name):
+        vol_attrs = self.get_vdisk_attributes(volume_name)
+        if vol_attrs['RC_name']:
+            self.ssh.stoprcrelationship(vol_attrs['RC_name'])
+            self.ssh.rmrcrelationship(vol_attrs['RC_name'])
+        vol_attrs = self.get_vdisk_attributes(volume_name)
+
+    def get_relationship_info(self, volume):
+        vol_attrs = self.get_vdisk_attributes(volume['name'])
+        if not vol_attrs or not vol_attrs['RC_name']:
+            LOG.info(_LI("Unable to get remote copy information for "
+                         "volume %s"), volume['name'])
+            return
+
+        relationship = self.ssh.lsrcrelationship(vol_attrs['RC_name'])
+        return relationship[0] if len(relationship) > 0 else None
+
+    def get_partnership_info(self, system_name):
+        partnership = self.ssh.lspartnership(system_name)
+        return partnership[0] if len(partnership) > 0 else None
+
+    def get_partnershipcandidate_info(self, system_name):
+        candidates = self.ssh.lspartnershipcandidate()
+        for candidate in candidates:
+            if system_name == candidate['name']:
+                return candidate
+        return None
+
+    def mkippartnership(self, ip_v4, bandwith=1000):
+        self.ssh.mkippartnership(ip_v4, bandwith)
+
+    def mkfcpartnership(self, system_name, bandwith=1000):
+        self.ssh.mkfcpartnership(system_name, bandwith)
+
+    def startpartnership(self, partnership_id):
+        self.ssh.startpartnership(partnership_id)
+
     def delete_vdisk(self, vdisk, force):
         """Ensures that vdisk is not part of FC mapping and deletes it."""
         LOG.debug('Enter: delete_vdisk: vdisk %s.', vdisk)
@@ -1421,7 +1556,7 @@ class StorwizeHelpers(object):
         src_size = src_attrs['capacity']
         # In case we need to use a specific pool
         if not pool:
-            pool = config.storwize_svc_volpool_name
+            pool = src_attrs['mdisk_grp_name']
         self.create_vdisk(tgt, src_size, 'b', pool, opts)
         timeout = config.storwize_svc_flashcopy_timeout
         try:
@@ -1706,10 +1841,16 @@ class StorwizeSVCCommonDriver(san.SanDriver,
     1.3.3 - Update driver to use ABC metaclasses
     2.0 - Code refactor, split init file and placed shared methods for
           FC and iSCSI within the StorwizeSVCCommonDriver class
+    2.1 - Added replication V2 support to the global/metro mirror
+          mode
     """
 
-    VERSION = "2.0"
+    VERSION = "2.1"
     VDISKCOPYOPS_INTERVAL = 600
+
+    GLOBAL = 'global'
+    METRO = 'metro'
+    VALID_REP_TYPES = (GLOBAL, METRO)
 
     def __init__(self, *args, **kwargs):
         super(StorwizeSVCCommonDriver, self).__init__(*args, **kwargs)
@@ -1727,6 +1868,23 @@ class StorwizeSVCCommonDriver(san.SanDriver,
                        'system_id': None,
                        'code_level': None,
                        }
+
+        # Since there are three replication modes supported by Storwize,
+        # this dictionary is used to map the replication types to certain
+        # replications.
+        self.replications = {}
+
+        # One driver can be configured with multiple replication targets
+        # to failover.
+        self._replication_targets = []
+
+        # This boolean is used to indicate whether this driver is configured
+        # with replication.
+        self._replication_enabled = False
+
+        # This list is used to save the supported replication modes.
+        self._supported_replication_types = []
+
         # Storwize has the limitation that can not burst more than 3 new ssh
         # connections within 1 second. So slow down the initialization.
         time.sleep(1)
@@ -1742,12 +1900,7 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         self.replication = storwize_rep.StorwizeSVCReplication.factory(self)
 
         # Validate that the pool exists
-        pool = self.configuration.storwize_svc_volpool_name
-        try:
-            self._helpers.get_pool_attrs(pool)
-        except exception.VolumeBackendAPIException:
-            msg = _('Failed getting details for pool %s.') % pool
-            raise exception.InvalidInput(reason=msg)
+        self._validate_pools_exist()
 
         # Check if compression is supported
         self._state['compression_enabled'] = (self._helpers.
@@ -1781,6 +1934,19 @@ class StorwizeSVCCommonDriver(san.SanDriver,
                 self._check_volume_copy_ops)
             self._vdiskcopyops_loop.start(interval=self.VDISKCOPYOPS_INTERVAL)
 
+        # v2 replication setup
+        self._do_replication_setup()
+
+    def _validate_pools_exist(self):
+        # Validate that the pool exists
+        pools = self.configuration.storwize_svc_volpool_name
+        for pool in pools:
+            try:
+                self._helpers.get_pool_attrs(pool)
+            except exception.VolumeBackendAPIException:
+                msg = _('Failed getting details for pool %s.') % pool
+                raise exception.InvalidInput(reason=msg)
+
     def check_for_setup_error(self):
         """Ensure that the flags are set properly."""
         LOG.debug('enter: check_for_setup_error')
@@ -1813,6 +1979,100 @@ class StorwizeSVCCommonDriver(san.SanDriver,
 
         LOG.debug('leave: check_for_setup_error')
 
+    def _run_ssh(self, cmd_list, check_exit_code=True, attempts=1):
+        cinder_utils.check_ssh_injection(cmd_list)
+        command = ' '.join(cmd_list)
+        if not self.sshpool:
+            try:
+                self.sshpool = self._set_up_sshpool(self.configuration.san_ip)
+            except paramiko.SSHException:
+                LOG.warning(_LW('Unable to use san_ip to create SSHPool. Now '
+                                'attempting to use storwize_san_secondary_ip '
+                                'to create SSHPool.'))
+                if self.configuration.storwize_san_secondary_ip is not None:
+                    self.sshpool = self._set_up_sshpool(
+                        self.configuration.storwize_san_secondary_ip)
+                else:
+                    LOG.warning(_LW('Unable to create SSHPool using san_ip '
+                                    'and not able to use '
+                                    'storwize_san_secondary_ip since it is '
+                                    'not configured.'))
+                    raise
+        try:
+            self._ssh_execute(self.sshpool.command,
+                              check_exit_code, attempts)
+
+        except Exception:
+            # Need to check if creating an SSHPool storwize_san_secondary_ip
+            # before raising an error.
+
+            if self.configuration.storwize_san_secondary_ip is not None:
+
+                LOG.warning(_LW("Unable to execute SSH command. "
+                                "Attempting to switch IP to %s."),
+                            self.configuration.storwize_san_secondary_ip)
+                self.sshpool = self._set_up_sshpool(
+                    self.configuration.storwize_san_secondary_ip)
+                self._ssh_execute(self.sshpool.command,
+                                  check_exit_code, attempts)
+            else:
+                LOG.warning(_LW('Unable to execute SSH command. '
+                                'Not able to use '
+                                'storwize_san_secondary_ip since it is '
+                                'not configured.'))
+                with excutils.save_and_reraise_exception():
+                    LOG.error(_LE("Error running SSH command: %s"),
+                              command)
+
+    def _set_up_sshpool(self, ip):
+        password = self.configuration.san_password
+        privatekey = self.configuration.san_private_key
+        min_size = self.configuration.ssh_min_pool_conn
+        max_size = self.configuration.ssh_max_pool_conn
+        sshpool = ssh_utils.SSHPool(
+            ip,
+            self.configuration.san_ssh_port,
+            self.configuration.ssh_conn_timeout,
+            self.configuration.san_login,
+            password=password,
+            privatekey=privatekey,
+            min_size=min_size,
+            max_size=max_size)
+
+        return sshpool
+
+    def _ssh_execute(self, sshpool, command,
+                     check_exit_code = True, attempts=1):
+        try:
+            with sshpool.item() as ssh:
+                while attempts > 0:
+                    attempts -= 1
+                    try:
+                        return processutils.ssh_execute(
+                            ssh,
+                            command,
+                            check_exit_code=check_exit_code)
+                    except Exception as e:
+                            LOG.error(_LE('Error has occurred: %s'), e)
+                            last_exception = e
+                            greenthread.sleep(random.randint(20, 500) / 100.0)
+                    try:
+                        raise processutils.ProcessExecutionError(
+                            exit_code=last_exception.exit_code,
+                            stdout=last_exception.stdout,
+                            stderr=last_exception.stderr,
+                            cmd=last_exception.cmd)
+                    except AttributeError:
+                        raise processutils.ProcessExecutionError(
+                            exit_code=-1,
+                            stdout="",
+                            stderr="Error running SSH command",
+                            cmd=command)
+
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_LE("Error running SSH command: %s"), command)
+
     def ensure_export(self, ctxt, volume):
         """Check that the volume exists on the storage.
 
@@ -1843,19 +2103,35 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         opts = self._get_vdisk_params(volume['volume_type_id'],
                                       volume_metadata=
                                       volume.get('volume_metadata'))
-        pool = self.configuration.storwize_svc_volpool_name
+        pool = utils.extract_host(volume['host'], 'pool')
         self._helpers.create_vdisk(volume['name'], str(volume['size']),
                                    'gb', pool, opts)
         if opts['qos']:
             self._helpers.add_vdisk_qos(volume['name'], opts['qos'])
 
         model_update = None
-        if opts.get('replication'):
-            ctxt = context.get_admin_context()
+        ctxt = context.get_admin_context()
+        rep_type = self._get_volume_replicated_type(ctxt, volume)
+
+        # The replication V2 has a higher priority than the replication V1.
+        # Check if V2 is available first, then check if V1 is available.
+        if rep_type:
+            self.replications.get(rep_type).volume_replication_setup(ctxt,
+                                                                     volume)
+            model_update = {'replication_status': 'enabled'}
+        elif opts.get('replication'):
             model_update = self.replication.create_replica(ctxt, volume)
         return model_update
 
     def delete_volume(self, volume):
+        ctxt = context.get_admin_context()
+        rep_mirror_type = self._get_volume_replicated_type_mirror(ctxt,
+                                                                  volume)
+        rep_status = volume.get("replication_status", None)
+        if rep_mirror_type and rep_status != "failed-over":
+            self.replications.get(rep_mirror_type).delete_target_volume(
+                volume)
+
         self._helpers.delete_vdisk(volume['name'], False)
 
         if volume['id'] in self._vdiskcopyops:
@@ -1873,10 +2149,11 @@ class StorwizeSVCCommonDriver(san.SanDriver,
             msg = (_('create_snapshot: get source volume failed.'))
             LOG.error(msg)
             raise exception.VolumeDriverException(message=msg)
+        pool = utils.extract_host(source_vol['host'], 'pool')
         opts = self._get_vdisk_params(source_vol['volume_type_id'])
         self._helpers.create_copy(snapshot['volume_name'], snapshot['name'],
                                   snapshot['volume_id'], self.configuration,
-                                  opts, False)
+                                  opts, False, pool=pool)
 
     def delete_snapshot(self, snapshot):
         self._helpers.delete_vdisk(snapshot['name'], False)
@@ -1891,14 +2168,23 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         opts = self._get_vdisk_params(volume['volume_type_id'],
                                       volume_metadata=
                                       volume.get('volume_metadata'))
+        pool = utils.extract_host(volume['host'], 'pool')
         self._helpers.create_copy(snapshot['name'], volume['name'],
                                   snapshot['id'], self.configuration,
-                                  opts, True)
+                                  opts, True, pool=pool)
         if opts['qos']:
             self._helpers.add_vdisk_qos(volume['name'], opts['qos'])
 
-        if 'replication' in opts and opts['replication']:
-            ctxt = context.get_admin_context()
+        ctxt = context.get_admin_context()
+        rep_type = self._get_volume_replicated_type(ctxt, volume)
+
+        # The replication V2 has a higher priority than the replication V1.
+        # Check if V2 is available first, then check if V1 is available.
+        if rep_type and self._replication_enabled:
+            self.replications.get(rep_type).volume_replication_setup(ctxt,
+                                                                     volume)
+            return {'replication_status': 'enabled'}
+        elif opts.get('replication'):
             replica_status = self.replication.create_replica(ctxt, volume)
             if replica_status:
                 return replica_status
@@ -1913,14 +2199,23 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         opts = self._get_vdisk_params(tgt_volume['volume_type_id'],
                                       volume_metadata=
                                       tgt_volume.get('volume_metadata'))
+        pool = utils.extract_host(tgt_volume['host'], 'pool')
         self._helpers.create_copy(src_volume['name'], tgt_volume['name'],
                                   src_volume['id'], self.configuration,
-                                  opts, True)
+                                  opts, True, pool=pool)
         if opts['qos']:
             self._helpers.add_vdisk_qos(tgt_volume['name'], opts['qos'])
 
-        if 'replication' in opts and opts['replication']:
-            ctxt = context.get_admin_context()
+        ctxt = context.get_admin_context()
+        rep_type = self._get_volume_replicated_type(ctxt, tgt_volume)
+
+        # The replication V2 has a higher priority than the replication V1.
+        # Check if V2 is available first, then check if V1 is available.
+        if rep_type and self._replication_enabled:
+            self.replications.get(rep_type).volume_replication_setup(
+                ctxt, tgt_volume)
+            return {'replication_status': 'enabled'}
+        elif opts.get('replication'):
             replica_status = self.replication.create_replica(ctxt, tgt_volume)
             if replica_status:
                 return replica_status
@@ -1936,7 +2231,32 @@ class StorwizeSVCCommonDriver(san.SanDriver,
             raise exception.VolumeDriverException(message=msg)
 
         extend_amt = int(new_size) - volume['size']
+        ctxt = context.get_admin_context()
+        rep_mirror_type = self._get_volume_replicated_type_mirror(ctxt,
+                                                                  volume)
+        rep_status = volume.get("replication_status", None)
+        target_vol_name = None
+        if rep_mirror_type and rep_status != "failed-over":
+            try:
+                rel_info = self._helpers.get_relationship_info(volume)
+                self._helpers.delete_relationship(volume)
+            except Exception as e:
+                msg = (_('Failed to get remote copy information for '
+                         '%(volume)s. Exception: %(err)s.'), {'volume':
+                                                              volume['id'],
+                                                              'err': e})
+                LOG.error(msg)
+                raise exception.VolumeDriverException(message=msg)
+
+            if rel_info:
+                target_vol_name = rel_info.get('aux_vdisk_name')
+                self.replications.get(rep_mirror_type).extend_target_volume(
+                    target_vol_name, extend_amt)
+
         self._helpers.extend_vdisk(volume['name'], extend_amt)
+        if rep_mirror_type and rep_status != "failed-over":
+            self.replications.get(rep_mirror_type).create_relationship(
+                volume, target_vol_name)
         LOG.debug('leave: extend_volume: volume %s', volume['id'])
 
     def add_vdisk_copy(self, volume, dest_pool, vol_type):
@@ -2071,6 +2391,160 @@ class StorwizeSVCCommonDriver(san.SanDriver,
                                                copy_op[1])
         LOG.debug("Exit: update volume copy status.")
 
+    # #### V2 replication methods #### #
+    def replication_enable(self, context, vref):
+        """Enable replication on a replication capable volume."""
+        rep_type = self._validate_volume_rep_type(context, vref)
+        if rep_type not in self.replications:
+            msg = _("Driver does not support re-enabling replication for a "
+                    "failed over volume.")
+            LOG.error(msg)
+            raise exception.ReplicationError(volume_id=vref['id'],
+                                             reason=msg)
+        return self.replications.get(rep_type).replication_enable(
+            context, vref)
+
+    def replication_disable(self, context, vref):
+        """Disable replication on a replication capable volume."""
+        rep_type = self._validate_volume_rep_type(context, vref)
+        return self.replications[rep_type].replication_disable(
+            context, vref)
+
+    def replication_failover(self, context, vref, secondary):
+        """Force failover to a secondary replication target."""
+        rep_type = self._validate_volume_rep_type(context, vref)
+        return self.replications[rep_type].replication_failover(
+            context, vref, secondary)
+
+    def list_replication_targets(self, context, vref):
+        """Return the list of replication targets for a volume."""
+        rep_type = self._validate_volume_rep_type(context, vref)
+
+        # When a volume is failed over, the secondary volume driver will not
+        # have replication configured, so in this case, gracefully handle
+        # request by returning no target volumes
+        if rep_type not in self.replications:
+            targets = []
+        else:
+            targets = self.replications[rep_type].list_replication_targets(
+                context, vref)
+
+        return {'volume_id': vref['id'],
+                'targets': targets}
+
+    def _validate_volume_rep_type(self, ctxt, volume):
+        rep_type = self._get_volume_replicated_type(ctxt, volume)
+        if not rep_type:
+            msg = (_("Volume %s is not of replicated type. "
+                     "This volume needs to be of a volume type "
+                     "with the extra spec replication_enabled set "
+                     "to '<is> True' to support replication "
+                     "actions."), volume['id'])
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+        if not self._replication_enabled:
+            msg = _("The back-end where the volume is created "
+                    "does not have replication enabled.")
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+        return rep_type
+
+    def _get_volume_replicated_type_mirror(self, ctxt, volume):
+        rep_type = self._get_volume_replicated_type(ctxt, volume)
+        if rep_type in self.VALID_REP_TYPES:
+            return rep_type
+        else:
+            return None
+
+    def _get_specs_replicated_type(self, volume_type):
+        replication_type = None
+        extra_specs = volume_type.get("extra_specs", {})
+        rep_val = extra_specs.get('replication_enabled')
+        if rep_val == "<is> True":
+            replication_type = extra_specs.get('replication_type',
+                                               self.GLOBAL)
+            # The format for replication_type in extra spec is in
+            # "<in> global". Otherwise, the code will
+            # not reach here.
+            if replication_type != self.GLOBAL:
+                # Pick up the replication type specified in the
+                # extra spec from the format like "<in> global".
+                replication_type = replication_type.split()[1]
+            if replication_type not in self.VALID_REP_TYPES:
+                replication_type = None
+        return replication_type
+
+    def _get_volume_replicated_type(self, ctxt, volume):
+        replication_type = None
+        if volume.get("volume_type_id"):
+            volume_type = volume_types.get_volume_type(
+                ctxt, volume["volume_type_id"])
+            replication_type = self._get_specs_replicated_type(volume_type)
+
+        return replication_type
+
+    def _do_replication_setup(self):
+        replication_devices = self.configuration.replication_device
+        if replication_devices:
+            replication_targets = []
+            for dev in replication_devices:
+                remote_array = {}
+                remote_array['managed_backend_name'] = (
+                    dev.get('managed_backend_name'))
+                if not remote_array['managed_backend_name']:
+                    raise exception.InvalidConfigurationValue(
+                        option='managed_backend_name',
+                        value=remote_array['managed_backend_name'])
+                rep_mode = dev.get('replication_mode')
+                remote_array['replication_mode'] = rep_mode
+                remote_array['san_ip'] = (
+                    dev.get('san_ip'))
+                remote_array['target_device_id'] = (
+                    dev.get('target_device_id'))
+                remote_array['san_login'] = (
+                    dev.get('san_login'))
+                remote_array['san_password'] = (
+                    dev.get('san_password'))
+                remote_array['pool_name'] = (
+                    dev.get('pool_name'))
+                replication_targets.append(remote_array)
+
+            # Each replication type will have a coresponding replication.
+            self.create_replication_types(replication_targets)
+
+            if len(self._supported_replication_types) > 0:
+                self._replication_enabled = True
+
+    def create_replication_types(self, replication_targets):
+        for target in replication_targets:
+            rep_type = target['replication_mode']
+            if (rep_type in self.VALID_REP_TYPES
+                    and rep_type not in self.replications.keys()):
+                replication = self.replication_factory(rep_type, target)
+                try:
+                    replication.establish_target_partnership()
+                except exception.VolumeDriverException:
+                    msg = (_LE('The replication mode of %(type)s has not '
+                               'successfully established partnership '
+                               'with the replica Storwize target %(stor)s.'),
+                           {'type': rep_type,
+                            'stor': target['target_device_id']})
+                    LOG.error(msg)
+                    continue
+
+                self.replications[rep_type] = replication
+                self._replication_targets.append(target)
+                self._supported_replication_types.append(rep_type)
+
+    def replication_factory(self, replication_type, rep_target):
+        """Use replication methods for the requested mode."""
+        if replication_type == self.GLOBAL:
+            return storwize_rep.StorwizeSVCReplicationGlobalMirror(
+                self, rep_target, StorwizeHelpers)
+        if replication_type == self.METRO:
+            return storwize_rep.StorwizeSVCReplicationMetroMirror(
+                self, rep_target, StorwizeHelpers)
+
     def migrate_volume(self, ctxt, volume, host):
         """Migrate directly if source and dest are managed by same storage.
 
@@ -2162,8 +2636,8 @@ class StorwizeSVCCommonDriver(san.SanDriver,
                 elif key in no_copy_keys:
                     vdisk_changes.append(key)
 
-        dest_location = host['capabilities'].get('location_info')
-        if self._stats['location_info'] != dest_location:
+        if (utils.extract_host(volume['host'], 'pool') !=
+                utils.extract_host(host['host'], 'pool')):
             need_copy = True
 
         if need_copy:
@@ -2260,19 +2734,73 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         if we got here then we have a vdisk that isn't in use (or we don't
         care if it is in use.
         """
-        vdisk = self._helpers.vdisk_by_uid(ref['source-id'])
-        if vdisk is None:
-            reason = (_('No vdisk with the UID specified by source-id %s.')
-                      % ref['source-id'])
-            raise exception.ManageExistingInvalidReference(existing_ref=ref,
-                                                           reason=reason)
+        # Check that the reference is valid
+        vdisk = self._manage_input_check(ref)
+        vdisk_io_grp = self._helpers.get_volume_io_group(vdisk['name'])
+        if vdisk_io_grp not in self._state['available_iogrps']:
+            msg = (_("Failed to manage existing volume due to "
+                     "the volume to be managed is not in a valid "
+                     "I/O group."))
+            raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
+        if volume['volume_type_id']:
+            opts = self._get_vdisk_params(volume['volume_type_id'],
+                                          volume_metadata=
+                                          volume.get('volume_metadata'))
+            vdisk_copy = self._helpers.get_vdisk_copy_attrs(vdisk['name'], '0')
+
+            if vdisk_copy['autoexpand'] == 'on' and opts['rsize'] == -1:
+                msg = (_("Failed to manage existing volume due to "
+                         "the volume to be managed is thin, but "
+                         "the volume type chosen is thick."))
+                raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
+
+            if not vdisk_copy['autoexpand'] and opts['rsize'] != -1:
+                msg = (_("Failed to manage existing volume due to "
+                         "the volume to be managed is thick, but "
+                         "the volume type chosen is thin."))
+                raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
+
+            if (vdisk_copy['compressed_copy'] == 'no' and
+                    opts['compression']):
+                msg = (_("Failed to manage existing volume due to the "
+                         "volume to be managed is not compress, but "
+                         "the volume type chosen is compress."))
+                raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
+
+            if (vdisk_copy['compressed_copy'] == 'yes' and
+                    not opts['compression']):
+                msg = (_("Failed to manage existing volume due to the "
+                         "volume to be managed is compress, but "
+                         "the volume type chosen is not compress."))
+                raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
+
+            if vdisk_io_grp != opts['iogrp']:
+                msg = (_("Failed to manage existing volume due to "
+                         "I/O group mismatch. The I/O group of the "
+                         "volume to be managed is %(vdisk_iogrp)s. I/O group"
+                         "of the chosen type is %(opt_iogrp)s.") %
+                       {'vdisk_iogrp': vdisk['IO_group_name'],
+                        'opt_iogrp': opts['iogrp']})
+                raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
+        pool = utils.extract_host(volume['host'], 'pool')
+        if vdisk['mdisk_grp_name'] != pool:
+            msg = (_("Failed to manage existing volume due to the "
+                     "pool of the volume to be managed does not "
+                     "match the backend pool. Pool of the "
+                     "volume to be managed is %(vdisk_pool)s. Pool "
+                     "of the backend is %(backend_pool)s.") %
+                   {'vdisk_pool': vdisk['mdisk_grp_name'],
+                    'backend_pool':
+                        self.configuration.storwize_svc_volpool_name})
+            raise exception.ManageExistingVolumeTypeMismatch(reason=msg)
         self._helpers.rename_vdisk(vdisk['name'], volume['name'])
 
     def manage_existing_get_size(self, volume, ref):
         """Return size of an existing Vdisk for manage_existing.
 
         existing_ref is a dictionary of the form:
-        {'source-id': <uid of disk>}
+        {'source-id': <uid of disk>} or
+        {'source-name': <name of the disk>}
 
         Optional elements are:
           'manage_if_in_use':  True/False (default is False)
@@ -2281,18 +2809,7 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         """
 
         # Check that the reference is valid
-        if 'source-id' not in ref:
-            reason = _('Reference must contain source-id element.')
-            raise exception.ManageExistingInvalidReference(existing_ref=ref,
-                                                           reason=reason)
-
-        # Check for existence of the vdisk
-        vdisk = self._helpers.vdisk_by_uid(ref['source-id'])
-        if vdisk is None:
-            reason = (_('No vdisk with the UID specified by source-id %s.')
-                      % (ref['source-id']))
-            raise exception.ManageExistingInvalidReference(existing_ref=ref,
-                                                           reason=reason)
+        vdisk = self._manage_input_check(ref)
 
         # Check if the disk is in use, if we need to.
         manage_if_in_use = ref.get('manage_if_in_use', False)
@@ -2436,6 +2953,17 @@ class StorwizeSVCCommonDriver(san.SanDriver,
 
         return model_update, snapshots_model
 
+    def get_pool(self, volume):
+        attr = self._helpers.get_vdisk_attributes(volume['name'])
+
+        if attr is None:
+            msg = (_('get_pool: Failed to get attributes for volume '
+                     '%s') % volume['name'])
+            LOG.error(msg)
+            raise exception.VolumeDriverException(message=msg)
+
+        return attr['mdisk_grp_name']
+
     def _update_volume_stats(self):
         """Retrieve stats info from volume group."""
 
@@ -2445,39 +2973,82 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         data['vendor_name'] = 'IBM'
         data['driver_version'] = self.VERSION
         data['storage_protocol'] = self.protocol
+        data['pools'] = []
 
-        data['total_capacity_gb'] = 0  # To be overwritten
-        data['free_capacity_gb'] = 0   # To be overwritten
-        data['reserved_percentage'] = self.configuration.reserved_percentage
         data['multiattach'] = (self.configuration.
                                storwize_svc_multihostmap_enabled)
-        data['QoS_support'] = True
-        data['consistencygroup_support'] = True
 
-        pool = self.configuration.storwize_svc_volpool_name
         backend_name = self.configuration.safe_get('volume_backend_name')
-        if not backend_name:
-            backend_name = '%s_%s' % (self._state['system_name'], pool)
-        data['volume_backend_name'] = backend_name
+        data['volume_backend_name'] = (backend_name or
+                                       self._state['system_name'])
 
-        attributes = self._helpers.get_pool_attrs(pool)
-        if not attributes:
-            LOG.error(_LE('Could not get pool data from the storage.'))
-            exception_message = (_('_update_volume_stats: '
-                                   'Could not get storage pool data.'))
-            raise exception.VolumeBackendAPIException(data=exception_message)
-
-        data['total_capacity_gb'] = (float(attributes['capacity']) /
-                                     units.Gi)
-        data['free_capacity_gb'] = (float(attributes['free_capacity']) /
-                                    units.Gi)
-        data['easytier_support'] = attributes['easy_tier'] in ['on', 'auto']
-        data['compression_support'] = self._state['compression_enabled']
-        data['location_info'] = ('StorwizeSVCDriver:%(sys_id)s:%(pool)s' %
-                                 {'sys_id': self._state['system_id'],
-                                  'pool': pool})
-
-        if self.replication:
-            data.update(self.replication.get_replication_info())
-
+        data['pools'] = [self._build_pool_stats(pool)
+                         for pool in
+                         self.configuration.storwize_svc_volpool_name]
         self._stats = data
+
+    def _build_pool_stats(self, pool):
+        """Build pool status"""
+        QoS_support = True
+        pool_stats = {}
+        try:
+            pool_data = self._helpers.get_pool_attrs(pool)
+            if pool_data:
+                easy_tier = pool_data['easy_tier'] in ['on', 'auto']
+                total_capacity_gb = float(pool_data['capacity']) / units.Gi
+                free_capacity_gb = float(pool_data['free_capacity']) / units.Gi
+                allocated_capacity_gb = (float(pool_data['used_capacity']) /
+                                         units.Gi)
+                location_info = ('StorwizeSVCDriver:%(sys_id)s:%(pool)s' %
+                                 {'sys_id': self._state['system_id'],
+                                  'pool': pool_data['name']})
+                pool_stats = {
+                    'pool_name': pool_data['name'],
+                    'total_capacity_gb': total_capacity_gb,
+                    'free_capacity_gb': free_capacity_gb,
+                    'allocated_capacity_gb': allocated_capacity_gb,
+                    'easytier_support': easy_tier,
+                    'compression_support': self._state['compression_enabled'],
+                    'reserved_percentage':
+                        self.configuration.reserved_percentage,
+                    'QoS_support': QoS_support,
+                    'consistencygroup_support': True,
+                    'location_info': location_info,
+                    'easytier_support': easy_tier
+                }
+            if self._replication_enabled:
+                pool_stats.update({
+                    'replication_enabled': self._replication_enabled,
+                    'replication_type': self._supported_replication_types,
+                    'replication_count': len(self._replication_targets)
+                })
+            elif self.replication:
+                pool_stats.update(self.replication.get_replication_info())
+
+        except exception.VolumeBackendAPIException:
+            msg = _('Failed getting details for pool %s.') % pool
+            raise exception.VolumeBackendAPIException(data=msg)
+
+        return pool_stats
+
+    def _manage_input_check(self, ref):
+        """Verify the input of manage function."""
+        # Check that the reference is valid
+        if 'source-name' in ref:
+            manage_source = ref['source-name']
+            vdisk = self._helpers.get_vdisk_attributes(manage_source)
+        elif 'source-id' in ref:
+            manage_source = ref['source-id']
+            vdisk = self._helpers.vdisk_by_uid(manage_source)
+        else:
+            reason = _('Reference must contain source-id or '
+                       'source-name element.')
+            raise exception.ManageExistingInvalidReference(existing_ref=ref,
+                                                           reason=reason)
+
+        if vdisk is None:
+            reason = (_('No vdisk with the UID specified by ref %s.')
+                      % manage_source)
+            raise exception.ManageExistingInvalidReference(existing_ref=ref,
+                                                           reason=reason)
+        return vdisk

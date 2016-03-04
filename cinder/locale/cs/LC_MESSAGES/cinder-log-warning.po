@@ -7,9 +7,9 @@
 # Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.0b2.dev281\n"
+"Project-Id-Version: cinder 8.0.0.0b3.dev248\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-01-17 23:35+0000\n"
+"POT-Creation-Date: 2016-02-22 23:21+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -377,10 +377,6 @@ msgstr "Chyba při zpracování názvu cílové zásoby a pole."
 #, python-format
 msgid "Error refreshing volume info. Message: %s"
 msgstr "Chyba při obnovování informaci o svazku. Zpráva: %s"
-
-#, python-format
-msgid "Error running SSH command: %s"
-msgstr "Chyba při provádění příkazu SSH: %s"
 
 #, python-format
 msgid "Error unmapping LUN. Code :%(code)s, Message: %(message)s"
@@ -759,14 +755,6 @@ msgstr ""
 msgid "Id not in sort_keys; is sort_keys unique?"
 msgstr "id není v seřazení klíčů; je seřazení jedinečné?"
 
-#, python-format
-msgid ""
-"Ignoring error in delete volume %s: volume not found due to force delete "
-"settings."
-msgstr ""
-"Ignorování chyby ve smazání svazku %s: svazek nenalezen kvůli nastavení "
-"vynucující smazání."
-
 msgid "Image delete encountered an error."
 msgstr "Při mazání obrazu nastala chyba."
 
@@ -1007,14 +995,6 @@ msgstr "Zjištěn VLUN  mimo iSCSI."
 #, python-format
 msgid "Not deleting key %s"
 msgstr "Klíč %s nebude smazán"
-
-#, python-format
-msgid ""
-"Only one volume remains in storage group %(sgname)s. Driver will attempt "
-"cleanup."
-msgstr ""
-"Ve skupině úložiště %(sgname)s zbývá pouze jeden svazek. Ovladač se pokusí o "
-"vyčištění."
 
 #, python-format
 msgid "Persistence file already exists for volume, found file at: %s"
@@ -1351,22 +1331,6 @@ msgstr ""
 "Volba 'netapp_volume_list' je zastaralá a bude odstraněna v budoucích "
 "verzích. Místo toho prosím použijte 'netapp_pool_name_search_pattern'."
 
-#, python-format
-msgid ""
-"The option 'nfs_oversub_ratio' is deprecated and will be removed in the "
-"Mitaka release.  Please set 'max_over_subscription_ratio = %s' instead."
-msgstr ""
-"Volba 'nfs_oversub_ratio' je zastaralá a bude odstraněna ve verzi Mitaka. "
-"Místo toho prosím nastavte 'max_over_subscription_ratio = %s'."
-
-#, python-format
-msgid ""
-"The option 'nfs_used_ratio' is deprecated and will be removed in the Mitaka "
-"release.  Please set 'reserved_percentage = %d' instead."
-msgstr ""
-"Volba 'nfs_used_ratio' je zastaralá a bude odstraněna ve verzi Mitaka. Místo "
-"toho prosím nastavte 'reserved_percentage = %d'."
-
 msgid ""
 "The primary array is currently unreachable. All targets returned from "
 "list_replication_targets are pulled directly from cinder.conf and are not "
@@ -1504,10 +1468,6 @@ msgid ""
 "Unable to get internal tenant context: Missing required config parameters."
 msgstr ""
 "Nelze získat vnitřní kontext nájemníka: Chybí požadované parametry nastavení."
-
-#, python-format
-msgid "Unable to get masking view %(maskingView)s from storage group."
-msgstr "Nelze získat maskování %(maskingView)s ze skupiny úložiště."
 
 msgid "Unable to get rados pool stats."
 msgstr "Nelze získat statistiky zásoby rados."
@@ -1691,13 +1651,6 @@ msgstr "Typ svazku bude změněn aby odpovídal typu zdrojového svazku"
 msgid ""
 "Volume: %(volumeName)s Does not belong to storage group %(defaultSgName)s."
 msgstr "Svazek: %(volumeName)s nepatří do skupiny úložiště %(defaultSgName)s."
-
-#, python-format
-msgid ""
-"Volume: %(volumeName)s Does not belong to storage storage group "
-"%(defaultSgGroupName)s."
-msgstr ""
-"Svazek: %(volumeName)s nepatří do skupiny úložiště %(defaultSgGroupName)s."
 
 #, python-format
 msgid "Volume: %(volumeName)s is not currently belonging to any storage group."

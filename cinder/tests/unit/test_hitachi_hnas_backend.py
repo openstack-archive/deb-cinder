@@ -240,6 +240,8 @@ File System : fs1                     \n\
 File System Mounted : YES             \n\
 Logical Unit Mounted: No"
 
+HNAS_RESULT27 = "Connection reset"
+
 
 HNAS_CMDS = {
     ('ssh', '0.0.0.0', 'supervisor', 'supervisor', 'evsfs', 'list'):
@@ -353,14 +355,15 @@ class HDSHNASBendTest(test.TestCase):
                        return_value=(HNAS_RESULT5, ''))
     @mock.patch.object(utils, 'execute')
     @mock.patch.object(time, 'sleep')
-    def test_run_cmd(self, m_sleep, m_utl, m_ssh, m_ssh_cli,
-                     m_pvt_key, m_file, m_open):
+    def test_run_cmd(self, m_sleep, m_utl, m_ssh, m_ssh_cli, m_pvt_key,
+                     m_file, m_open):
         save_hkey_file = CONF.ssh_hosts_key_file
         save_spath = CONF.state_path
         CONF.ssh_hosts_key_file = '/var/lib/cinder/ssh_known_hosts'
         CONF.state_path = '/var/lib/cinder'
 
         # Test main flow
+        self.hnas_bend.drv_configs['ssh_enabled'] = 'True'
         out, err = self.hnas_bend.run_cmd('ssh', '0.0.0.0',
                                           'supervisor', 'supervisor',
                                           'df', '-a')
@@ -370,6 +373,14 @@ class HDSHNASBendTest(test.TestCase):
         # Test exception throwing when not using SSH
         m_utl.side_effect = putils.ProcessExecutionError(stdout='',
                                                          stderr=HNAS_RESULT22,
+                                                         exit_code=255)
+        self.hnas_bend.drv_configs['ssh_enabled'] = 'False'
+        self.assertRaises(exception.HNASConnError, self.hnas_bend.run_cmd,
+                          'ssh', '0.0.0.0', 'supervisor', 'supervisor',
+                          'df', '-a')
+
+        m_utl.side_effect = putils.ProcessExecutionError(stdout='',
+                                                         stderr=HNAS_RESULT27,
                                                          exit_code=255)
         self.hnas_bend.drv_configs['ssh_enabled'] = 'False'
         self.assertRaises(exception.HNASConnError, self.hnas_bend.run_cmd,
@@ -396,6 +407,27 @@ class HDSHNASBendTest(test.TestCase):
                                          "supervisor")
         self.assertIn('11.2.3319.14', out)
         self.assertIn('83-68-96-AA-DA-5D', out)
+
+    @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd',
+                       side_effect=m_run_cmd)
+    def test_get_version_ssh_cluster(self, m_cmd):
+        self.hnas_bend.drv_configs['ssh_enabled'] = 'True'
+        self.hnas_bend.drv_configs['cluster_admin_ip0'] = '1.1.1.1'
+        out = self.hnas_bend.get_version("ssh", "1.0", "0.0.0.0", "supervisor",
+                                         "supervisor")
+        self.assertIn('11.2.3319.14', out)
+        self.assertIn('83-68-96-AA-DA-5D', out)
+
+    @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd',
+                       side_effect=m_run_cmd)
+    @mock.patch.object(utils, 'execute', return_value=UTILS_EXEC_OUT)
+    def test_get_version_ssh_disable(self, m_cmd, m_exec):
+        self.hnas_bend.drv_configs['ssh_enabled'] = 'False'
+        out = self.hnas_bend.get_version("ssh", "1.0", "0.0.0.0", "supervisor",
+                                         "supervisor")
+        self.assertIn('11.2.3319.14', out)
+        self.assertIn('83-68-96-AA-DA-5D', out)
+        self.assertIn('Utility_version', out)
 
     @mock.patch.object(hnas_backend.HnasBackend, 'run_cmd',
                        side_effect=m_run_cmd)

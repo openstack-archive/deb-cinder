@@ -22,18 +22,25 @@ Contains classes required to issue API calls to Data ONTAP and OnCommand DFM.
 """
 
 import copy
+from eventlet import greenthread
+from eventlet import semaphore
 
 from lxml import etree
 from oslo_log import log as logging
+import random
 import six
 from six.moves import urllib
 
 from cinder import exception
 from cinder.i18n import _
+from cinder import ssh_utils
+from cinder import utils
 
 LOG = logging.getLogger(__name__)
 
+EAPINOTFOUND = '13005'
 ESIS_CLONE_NOT_LICENSED = '14956'
+ESNAPSHOTNOTALLOWED = '13023'
 
 
 class NaServer(object):
@@ -196,7 +203,8 @@ class NaServer(object):
         self._password = password
         self._refresh_conn = True
 
-    def invoke_elem(self, na_element, enable_tunneling=False):
+    @utils.trace_api
+    def send_http_request(self, na_element, enable_tunneling=False):
         """Invoke the API on the server."""
         if not na_element or not isinstance(na_element, NaElement):
             raise ValueError('NaElement must be supplied to invoke API')
@@ -230,7 +238,7 @@ class NaServer(object):
         tunneling. The vserver or vfiler should be set before this call
         otherwise tunneling remains disabled.
         """
-        result = self.invoke_elem(na_element, enable_tunneling)
+        result = self.send_http_request(na_element, enable_tunneling)
         if result.has_attr('status') and result.get_attr('status') == 'passed':
             return result
         code = result.get_attr('errno')\
@@ -387,10 +395,10 @@ class NaElement(object):
     def get_attr_names(self):
         """Returns the list of attribute names."""
         attributes = self._element.attrib or {}
-        return attributes.keys()
+        return list(attributes.keys())
 
     def add_new_child(self, name, content, convert=False):
-        """Add child with tag name and context.
+        """Add child with tag name and content.
 
            Convert replaces entity refs to chars.
         """
@@ -431,6 +439,12 @@ class NaElement(object):
             xml = xml.decode('utf-8')
         return xml
 
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(str(self))
+
     def __repr__(self):
         return str(self)
 
@@ -463,7 +477,7 @@ class NaElement(object):
                     child = NaElement(key)
                     child.add_child_elem(value)
                     self.add_child_elem(child)
-                elif isinstance(value, (str, int, float, long)):
+                elif isinstance(value, six.integer_types + (str, float)):
                     self.add_new_child(key, six.text_type(value))
                 elif isinstance(value, (list, tuple, dict)):
                     child = NaElement(key)
@@ -614,3 +628,84 @@ def create_api_request(api_name, query=None, des_result=None,
     if tag:
         api_el.add_new_child('tag', tag, True)
     return api_el
+
+
+class SSHUtil(object):
+    """Encapsulates connection logic and command execution for SSH client."""
+
+    MAX_CONCURRENT_SSH_CONNECTIONS = 5
+    RECV_TIMEOUT = 3
+    CONNECTION_KEEP_ALIVE = 600
+    WAIT_ON_STDOUT_TIMEOUT = 3
+
+    def __init__(self, host, username, password, port=22):
+        self.ssh_pool = self._init_ssh_pool(host, port, username, password)
+
+        # Note(cfouts) Number of SSH connections made to the backend need to be
+        # limited. Use of SSHPool allows connections to be cached and reused
+        # instead of creating a new connection each time a command is executed
+        # via SSH.
+        self.ssh_connect_semaphore = semaphore.Semaphore(
+            self.MAX_CONCURRENT_SSH_CONNECTIONS)
+
+    def _init_ssh_pool(self, host, port, username, password):
+        return ssh_utils.SSHPool(host,
+                                 port,
+                                 self.CONNECTION_KEEP_ALIVE,
+                                 username,
+                                 password)
+
+    def execute_command(self, client, command_text, timeout=RECV_TIMEOUT):
+        LOG.debug("execute_command() - Sending command.")
+        stdin, stdout, stderr = client.exec_command(command_text)
+        stdin.close()
+        self._wait_on_stdout(stdout, timeout)
+        output = stdout.read()
+        LOG.debug("Output of length %(size)d received.",
+                  {'size': len(output)})
+        stdout.close()
+        stderr.close()
+        return output
+
+    def execute_command_with_prompt(self,
+                                    client,
+                                    command,
+                                    expected_prompt_text,
+                                    prompt_response,
+                                    timeout=RECV_TIMEOUT):
+        LOG.debug("execute_command_with_prompt() - Sending command.")
+        stdin, stdout, stderr = client.exec_command(command)
+        self._wait_on_stdout(stdout, timeout)
+        response = stdout.channel.recv(999)
+        if response.strip() != expected_prompt_text:
+            msg = _("Unexpected output. Expected [%(expected)s] but "
+                    "received [%(output)s]") % {
+                'expected': expected_prompt_text,
+                'output': response.strip(),
+            }
+            LOG.error(msg)
+            stdin.close()
+            stdout.close()
+            stderr.close()
+            raise exception.VolumeBackendAPIException(msg)
+        else:
+            LOG.debug("execute_command_with_prompt() - Sending answer")
+            stdin.write(prompt_response + '\n')
+            stdin.flush()
+        stdin.close()
+        stdout.close()
+        stderr.close()
+
+    def _wait_on_stdout(self, stdout, timeout=WAIT_ON_STDOUT_TIMEOUT):
+        wait_time = 0.0
+        # NOTE(cfouts): The server does not always indicate when EOF is reached
+        # for stdout. The timeout exists for this reason and an attempt is made
+        # to read from stdout.
+        while not stdout.channel.exit_status_ready():
+            # period is 10 - 25 centiseconds
+            period = random.randint(10, 25) / 100.0
+            greenthread.sleep(period)
+            wait_time += period
+            if wait_time > timeout:
+                LOG.debug("Timeout exceeded while waiting for exit status.")
+                break

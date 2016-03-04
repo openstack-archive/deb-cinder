@@ -57,6 +57,14 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
               - Proper error handling for invalid SLOs (bug #1512795)
               - Extend Volume for VMAX3, SE8.1.0.3
               https://blueprints.launchpad.net/cinder/+spec/vmax3-extend-volume
+              - Incorrect SG selected on an attach (#1515176)
+              - Cleanup Zoning (bug #1501938)  NOTE: FC only
+              - Last volume in SG fix
+              - _remove_last_vol_and_delete_sg is not being called
+                for VMAX3 (bug #1520549)
+              - necessary updates for CG changes (#1534616)
+              - Changing PercentSynced to CopyState (bug #1517103)
+              - Getting iscsi ip from port in existing masking view
     """
 
     VERSION = "2.3.0"
@@ -345,11 +353,11 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
 
     def create_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
-        return self.common.create_cgsnapshot(context, cgsnapshot, self.db)
+        return self.common.create_cgsnapshot(context, cgsnapshot, snapshots)
 
     def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
-        return self.common.delete_cgsnapshot(context, cgsnapshot, self.db)
+        return self.common.delete_cgsnapshot(context, cgsnapshot, snapshots)
 
     def _check_for_iscsi_ip_address(self):
         """Check to see if iscsi_ip_address is set in cinder.conf
@@ -406,4 +414,5 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
         :param source_vols: a list of volume dictionaries in the source_cg.
         """
         return self.common.create_consistencygroup_from_src(
-            context, group, volumes, cgsnapshot, snapshots, self.db)
+            context, group, volumes, cgsnapshot, snapshots, source_cg,
+            source_vols)

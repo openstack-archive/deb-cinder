@@ -116,6 +116,22 @@ class VolumeTransferTestCase(test.TestCase):
         mock_notify.assert_has_calls(calls)
         self.assertEqual(3, mock_notify.call_count)
 
+    @mock.patch('cinder.volume.utils.notify_about_volume_usage')
+    def test_transfer_accept_volume_in_consistencygroup(self, mock_notify):
+        svc = self.start_service('volume', host='test_host')
+        self.addCleanup(svc.stop)
+        tx_api = transfer_api.API()
+        consistencygroup = utils.create_consistencygroup(self.ctxt)
+        volume = utils.create_volume(self.ctxt,
+                                     updated_at=self.updated_at,
+                                     consistencygroup_id=
+                                     consistencygroup.id)
+        transfer = tx_api.create(self.ctxt, volume.id, 'Description')
+
+        self.assertRaises(exception.InvalidVolume,
+                          tx_api.accept,
+                          self.ctxt, transfer['id'], transfer['auth_key'])
+
     @mock.patch.object(QUOTAS, "reserve")
     @mock.patch.object(QUOTAS, "add_volume_type_opts")
     @mock.patch('cinder.volume.utils.notify_about_volume_usage')
@@ -161,6 +177,36 @@ class VolumeTransferTestCase(test.TestCase):
         calls = [mock.call(mock.ANY, **reserve_opt),
                  mock.call(mock.ANY, project_id='project_id', **release_opt)]
         mock_quota_reserve.assert_has_calls(calls)
+
+    @mock.patch.object(QUOTAS, "reserve")
+    @mock.patch.object(QUOTAS, "add_volume_type_opts")
+    @mock.patch('cinder.volume.utils.notify_about_volume_usage')
+    def test_transfer_accept_over_quota(self, mock_notify, mock_quota_voltype,
+                                        mock_quota_reserve):
+        svc = self.start_service('volume', host='test_host')
+        self.addCleanup(svc.stop)
+        tx_api = transfer_api.API()
+        volume = utils.create_volume(self.ctxt, volume_type_id='12345',
+                                     updated_at=self.updated_at)
+        transfer = tx_api.create(self.ctxt, volume.id, 'Description')
+        fake_overs = ['volumes_lvmdriver-3']
+        fake_quotas = {'gigabytes_lvmdriver-3': 1,
+                       'volumes_lvmdriver-3': 10}
+        fake_usages = {'gigabytes_lvmdriver-3': {'reserved': 0, 'in_use': 1},
+                       'volumes_lvmdriver-3': {'reserved': 0, 'in_use': 1}}
+
+        mock_quota_reserve.side_effect = exception.OverQuota(
+            overs=fake_overs,
+            quotas=fake_quotas,
+            usages=fake_usages)
+
+        self.ctxt.user_id = 'new_user_id'
+        self.ctxt.project_id = 'new_project_id'
+        self.assertRaises(exception.VolumeLimitExceeded,
+                          tx_api.accept,
+                          self.ctxt,
+                          transfer['id'],
+                          transfer['auth_key'])
 
     def test_transfer_get(self):
         tx_api = transfer_api.API()

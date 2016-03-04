@@ -17,10 +17,11 @@
 Tests for volume transfer code.
 """
 
-import json
 import mock
 from xml.dom import minidom
 
+from oslo_serialization import jsonutils
+import six
 import webob
 
 from cinder.api.contrib import volume_transfer
@@ -74,7 +75,7 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.method = 'GET'
         req.headers['Content-Type'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
         self.assertEqual(200, res.status_int)
         self.assertEqual('test_transfer', res_dict['transfer']['name'])
         self.assertEqual(transfer['id'], res_dict['transfer']['id'])
@@ -106,7 +107,7 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.method = 'GET'
         req.headers['Content-Type'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(404, res.status_int)
         self.assertEqual(404, res_dict['itemNotFound']['code'])
@@ -123,7 +124,7 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.method = 'GET'
         req.headers['Content-Type'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(200, res.status_int)
         self.assertEqual(4, len(res_dict['transfers'][0]))
@@ -175,7 +176,7 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.headers['Content-Type'] = 'application/json'
         req.headers['Accept'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(200, res.status_int)
         self.assertEqual(5, len(res_dict['transfers'][0]))
@@ -264,10 +265,10 @@ class VolumeTransferAPITestCase(test.TestCase):
         req = webob.Request.blank('/v2/fake/os-volume-transfer')
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
 
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(202, res.status_int)
         self.assertIn('id', res_dict['transfer'])
@@ -285,9 +286,12 @@ class VolumeTransferAPITestCase(test.TestCase):
         volume_size = 2
         volume_id = self._create_volume(status='available', size=volume_size)
 
+        body = '<transfer name="transfer-001" volume_id="%s"/>' % volume_id
+        if isinstance(body, six.text_type):
+            body = body.encode('utf-8')
+
         req = webob.Request.blank('/v2/fake/os-volume-transfer')
-        req.body = ('<transfer name="transfer-001" '
-                    'volume_id="%s"/>' % volume_id)
+        req.body = body
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/xml'
         req.headers['Accept'] = 'application/xml'
@@ -307,12 +311,12 @@ class VolumeTransferAPITestCase(test.TestCase):
 
     def test_create_transfer_with_no_body(self):
         req = webob.Request.blank('/v2/fake/os-volume-transfer')
-        req.body = json.dumps(None)
+        req.body = jsonutils.dump_as_bytes(None)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
         req.headers['Accept'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(400, res.status_int)
         self.assertEqual(400, res_dict['badRequest']['code'])
@@ -325,9 +329,9 @@ class VolumeTransferAPITestCase(test.TestCase):
         req = webob.Request.blank('/v2/fake/os-volume-transfer')
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(400, res.status_int)
         self.assertEqual(400, res_dict['badRequest']['code'])
@@ -341,9 +345,9 @@ class VolumeTransferAPITestCase(test.TestCase):
         req = webob.Request.blank('/v2/fake/os-volume-transfer')
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(404, res.status_int)
         self.assertEqual(404, res_dict['itemNotFound']['code'])
@@ -357,9 +361,9 @@ class VolumeTransferAPITestCase(test.TestCase):
         req = webob.Request.blank('/v2/fake/os-volume-transfer')
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(400, res.status_int)
         self.assertEqual(400, res_dict['badRequest']['code'])
@@ -385,7 +389,7 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.method = 'GET'
         req.headers['Content-Type'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(404, res.status_int)
         self.assertEqual(404, res_dict['itemNotFound']['code'])
@@ -401,7 +405,7 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.method = 'DELETE'
         req.headers['Content-Type'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(404, res.status_int)
         self.assertEqual(404, res_dict['itemNotFound']['code'])
@@ -419,9 +423,9 @@ class VolumeTransferAPITestCase(test.TestCase):
                                   transfer['id'])
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(202, res.status_int)
         self.assertEqual(transfer['id'], res_dict['transfer']['id'])
@@ -434,9 +438,13 @@ class VolumeTransferAPITestCase(test.TestCase):
         transfer = self._create_transfer(volume_id)
         svc = self.start_service('volume', host='fake_host')
 
+        body = '<accept auth_key="%s"/>' % transfer['auth_key']
+        if isinstance(body, six.text_type):
+            body = body.encode('utf-8')
+
         req = webob.Request.blank('/v2/fake/os-volume-transfer/%s/accept' %
                                   transfer['id'])
-        req.body = '<accept auth_key="%s"/>' % transfer['auth_key']
+        req.body = body
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/xml'
         req.headers['Accept'] = 'application/xml'
@@ -459,12 +467,12 @@ class VolumeTransferAPITestCase(test.TestCase):
 
         req = webob.Request.blank('/v2/fake/os-volume-transfer/%s/accept' %
                                   transfer['id'])
-        req.body = json.dumps(None)
+        req.body = jsonutils.dump_as_bytes(None)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
         req.headers['Accept'] = 'application/json'
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(400, res.status_int)
         self.assertEqual(400, res_dict['badRequest']['code'])
@@ -483,10 +491,10 @@ class VolumeTransferAPITestCase(test.TestCase):
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
         req.headers['Accept'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
 
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(400, res.status_int)
         self.assertEqual(400, res_dict['badRequest']['code'])
@@ -503,9 +511,9 @@ class VolumeTransferAPITestCase(test.TestCase):
                                   transfer['id'])
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(400, res.status_int)
         self.assertEqual(400, res_dict['badRequest']['code'])
@@ -525,9 +533,9 @@ class VolumeTransferAPITestCase(test.TestCase):
         req = webob.Request.blank('/v2/fake/os-volume-transfer/1/accept')
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(404, res.status_int)
         self.assertEqual(404, res_dict['itemNotFound']['code'])
@@ -560,9 +568,9 @@ class VolumeTransferAPITestCase(test.TestCase):
 
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(413, res.status_int)
         self.assertEqual(413, res_dict['overLimit']['code'])
@@ -592,9 +600,9 @@ class VolumeTransferAPITestCase(test.TestCase):
 
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.body = json.dumps(body)
+        req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(fakes.wsgi_app())
-        res_dict = json.loads(res.body)
+        res_dict = jsonutils.loads(res.body)
 
         self.assertEqual(413, res.status_int)
         self.assertEqual(413, res_dict['overLimit']['code'])

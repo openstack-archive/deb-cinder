@@ -7,6 +7,7 @@
 # Copyright (c) 2014 Jeff Applewhite.  All rights reserved.
 # Copyright (c) 2015 Tom Barron.  All rights reserved.
 # Copyright (c) 2015 Goutham Pacha Ravi. All rights reserved.
+# Copyright (c) 2016 Mike Rooney. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -35,6 +36,7 @@ from cinder import utils
 from cinder.volume import configuration
 from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap.client import client_7mode
+from cinder.volume.drivers.netapp.dataontap.performance import perf_7mode
 from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 
@@ -76,6 +78,8 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
         self.vol_refresh_running = False
         self.vol_refresh_voluntary = False
         self.root_volume_name = self._get_root_volume_name()
+        self.perf_library = perf_7mode.Performance7modeLibrary(
+            self.zapi_client)
 
     def _do_partner_setup(self):
         partner_backend = self.configuration.netapp_partner_backend_name
@@ -190,7 +194,7 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
 
     def _clone_lun(self, name, new_name, space_reserved=None,
                    qos_policy_group_name=None, src_block=0, dest_block=0,
-                   block_count=0):
+                   block_count=0, source_snapshot=None):
         """Clone LUN with the given handle to the new name."""
         if not space_reserved:
             space_reserved = self.lun_space_reservation
@@ -207,7 +211,8 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
         self.zapi_client.clone_lun(path, clone_path, name, new_name,
                                    space_reserved, src_block=src_block,
                                    dest_block=dest_block,
-                                   block_count=block_count)
+                                   block_count=block_count,
+                                   source_snapshot=source_snapshot)
 
         self.vol_refresh_voluntary = True
         luns = self.zapi_client.get_lun_by_args(path=clone_path)
@@ -238,7 +243,8 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
             wwpns.extend(self.partner_zapi_client.get_fc_target_wwpns())
         return wwpns
 
-    def _update_volume_stats(self):
+    def _update_volume_stats(self, filter_function=None,
+                             goodness_function=None):
         """Retrieve stats info from filer."""
 
         # ensure we get current data
@@ -252,17 +258,20 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
         data['vendor_name'] = 'NetApp'
         data['driver_version'] = self.VERSION
         data['storage_protocol'] = self.driver_protocol
-        data['pools'] = self._get_pool_stats()
+        data['pools'] = self._get_pool_stats(
+            filter_function=filter_function,
+            goodness_function=goodness_function)
         data['sparse_copy_volume'] = True
 
         self.zapi_client.provide_ems(self, self.driver_name, self.app_version,
                                      server_type=self.driver_mode)
         self._stats = data
 
-    def _get_pool_stats(self):
+    def _get_pool_stats(self, filter_function=None, goodness_function=None):
         """Retrieve pool (i.e. Data ONTAP volume) stats info from volumes."""
 
         pools = []
+        self.perf_library.update_performance_cache()
 
         for vol in self.vols:
 
@@ -307,8 +316,15 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
 
             thick = (
                 self.configuration.netapp_lun_space_reservation == 'enabled')
-            pool['thick_provisioned_support'] = thick
-            pool['thin_provisioned_support'] = not thick
+            pool['thick_provisioning_support'] = thick
+            pool['thin_provisioning_support'] = not thick
+
+            utilization = self.perf_library.get_node_utilization()
+            pool['utilization'] = na_utils.round_down(utilization, '0.01')
+            pool['filter_function'] = filter_function
+            pool['goodness_function'] = goodness_function
+
+            pool['consistencygroup_support'] = True
 
             pools.append(pool)
 
@@ -383,6 +399,11 @@ class NetAppBlockStorage7modeLibrary(block_base.NetAppBlockStorageLibrary):
         super(NetAppBlockStorage7modeLibrary, self).delete_volume(volume)
         self.vol_refresh_voluntary = True
         LOG.debug('Deleted LUN with name %s', volume['name'])
+
+    def delete_snapshot(self, snapshot):
+        """Driver entry point for deleting a snapshot."""
+        super(NetAppBlockStorage7modeLibrary, self).delete_snapshot(snapshot)
+        self.vol_refresh_voluntary = True
 
     def _is_lun_valid_on_storage(self, lun):
         """Validate LUN specific to storage system."""

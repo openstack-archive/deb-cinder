@@ -33,9 +33,10 @@ from oslo_db import exception as db_exc
 from oslo_db import options
 from oslo_db.sqlalchemy import session as db_session
 from oslo_log import log as logging
+from oslo_utils import importutils
 from oslo_utils import timeutils
 from oslo_utils import uuidutils
-import osprofiler.sqlalchemy
+osprofiler_sqlalchemy = importutils.try_import('osprofiler.sqlalchemy')
 import six
 import sqlalchemy
 from sqlalchemy import MetaData
@@ -85,7 +86,7 @@ def _create_facade_lazily():
             CONF.import_group("profiler", "cinder.service")
             if CONF.profiler.profiler_enabled:
                 if CONF.profiler.trace_sqlalchemy:
-                    osprofiler.sqlalchemy.add_tracing(sqlalchemy,
+                    osprofiler_sqlalchemy.add_tracing(sqlalchemy,
                                                       _FACADE.get_engine(),
                                                       "db")
 
@@ -239,6 +240,18 @@ def _retry_on_deadlock(f):
     return wrapped
 
 
+def handle_db_data_error(f):
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except db_exc.DBDataError:
+            msg = _('Error writing field to database')
+            LOG.exception(msg)
+            raise exception.Invalid(msg)
+
+    return wrapper
+
+
 def model_query(context, *args, **kwargs):
     """Query helper that accounts for context's `read_deleted` field.
 
@@ -372,11 +385,23 @@ def service_get(context, service_id):
 
 
 @require_admin_context
-def service_get_all(context, disabled=None):
+def service_get_all(context, filters=None):
+    if filters and not is_valid_model_filters(models.Service, filters):
+        return []
+
     query = model_query(context, models.Service)
 
-    if disabled is not None:
-        query = query.filter_by(disabled=disabled)
+    if filters:
+        try:
+            host = filters.pop('host')
+            host_attr = models.Service.host
+            conditions = or_(host_attr ==
+                             host, host_attr.op('LIKE')(host + '@%'))
+            query = query.filter(conditions)
+        except KeyError:
+            pass
+
+        query = query.filter_by(**filters)
 
     return query.all()
 
@@ -386,6 +411,17 @@ def service_get_all_by_topic(context, topic, disabled=None):
     query = model_query(
         context, models.Service, read_deleted="no").\
         filter_by(topic=topic)
+
+    if disabled is not None:
+        query = query.filter_by(disabled=disabled)
+
+    return query.all()
+
+
+@require_admin_context
+def service_get_all_by_binary(context, binary, disabled=None):
+    query = model_query(
+        context, models.Service, read_deleted="no").filter_by(binary=binary)
 
     if disabled is not None:
         query = query.filter_by(disabled=disabled)
@@ -535,6 +571,15 @@ def quota_allocated_get_all_by_project(context, project_id):
     return result
 
 
+@require_context
+def _quota_get_by_resource(context, resource, session=None):
+    rows = model_query(context, models.Quota,
+                       session=session,
+                       read_deleted='no').filter_by(
+        resource=resource).all()
+    return rows
+
+
 @require_admin_context
 def quota_create(context, project_id, resource, limit, allocated):
     quota_ref = models.Quota()
@@ -557,6 +602,15 @@ def quota_update(context, project_id, resource, limit):
         quota_ref = _quota_get(context, project_id, resource, session=session)
         quota_ref.hard_limit = limit
         return quota_ref
+
+
+@require_context
+def quota_update_resource(context, old_res, new_res):
+    session = get_session()
+    with session.begin():
+        quotas = _quota_get_by_resource(context, old_res, session=session)
+        for quota in quotas:
+            quota.resource = new_res
 
 
 @require_admin_context
@@ -625,6 +679,18 @@ def quota_class_get_all_by_name(context, class_name):
     return result
 
 
+@require_context
+def _quota_class_get_all_by_resource(context, resource, session):
+    result = model_query(context, models.QuotaClass,
+                         session=session,
+                         read_deleted="no").\
+        filter_by(resource=resource).\
+        all()
+
+    return result
+
+
+@handle_db_data_error
 @require_admin_context
 def quota_class_create(context, class_name, resource, limit):
     quota_class_ref = models.QuotaClass()
@@ -646,6 +712,16 @@ def quota_class_update(context, class_name, resource, limit):
                                            session=session)
         quota_class_ref.hard_limit = limit
         return quota_class_ref
+
+
+@require_context
+def quota_class_update_resource(context, old_res, new_res):
+    session = get_session()
+    with session.begin():
+        quota_class_list = _quota_class_get_all_by_resource(
+            context, old_res, session)
+        for quota_class in quota_class_list:
+            quota_class.resource = new_res
 
 
 @require_admin_context
@@ -720,14 +796,16 @@ def _quota_usage_create(context, project_id, resource, in_use, reserved,
 
 
 def _reservation_create(context, uuid, usage, project_id, resource, delta,
-                        expire, session=None):
+                        expire, session=None, allocated_id=None):
+    usage_id = usage['id'] if usage else None
     reservation_ref = models.Reservation()
     reservation_ref.uuid = uuid
-    reservation_ref.usage_id = usage['id']
+    reservation_ref.usage_id = usage_id
     reservation_ref.project_id = project_id
     reservation_ref.resource = resource
     reservation_ref.delta = delta
     reservation_ref.expire = expire
+    reservation_ref.allocated_id = allocated_id
     reservation_ref.save(session=session)
     return reservation_ref
 
@@ -751,10 +829,32 @@ def _get_quota_usages(context, session, project_id):
     return {row.resource: row for row in rows}
 
 
+def _get_quota_usages_by_resource(context, session, resource):
+    rows = model_query(context, models.QuotaUsage,
+                       deleted="no",
+                       session=session).\
+        filter_by(resource=resource).\
+        with_lockmode('update').\
+        all()
+    return rows
+
+
+@require_context
+@_retry_on_deadlock
+def quota_usage_update_resource(context, old_res, new_res):
+    session = get_session()
+    with session.begin():
+        usages = _get_quota_usages_by_resource(context, session, old_res)
+        for usage in usages:
+            usage.resource = new_res
+            usage.until_refresh = 1
+
+
 @require_context
 @_retry_on_deadlock
 def quota_reserve(context, resources, quotas, deltas, expire,
-                  until_refresh, max_age, project_id=None):
+                  until_refresh, max_age, project_id=None,
+                  is_allocated_reserve=False):
     elevated = context.elevated()
     session = get_session()
     with session.begin():
@@ -763,6 +863,8 @@ def quota_reserve(context, resources, quotas, deltas, expire,
 
         # Get the current usages
         usages = _get_quota_usages(context, session, project_id)
+        allocated = quota_allocated_get_all_by_project(context, project_id)
+        allocated.pop('project_id')
 
         # Handle usage refresh
         work = set(deltas.keys())
@@ -833,8 +935,14 @@ def quota_reserve(context, resources, quotas, deltas, expire,
                     #            a best-effort mechanism.
 
         # Check for deltas that would go negative
-        unders = [r for r, delta in deltas.items()
-                  if delta < 0 and delta + usages[r].in_use < 0]
+        if is_allocated_reserve:
+            unders = [r for r, delta in deltas.items()
+                      if delta < 0 and delta + allocated.get(r, 0) < 0]
+        else:
+            unders = [r for r, delta in deltas.items()
+                      if delta < 0 and delta + usages[r].in_use < 0]
+
+        # TODO(mc_nair): Should ignore/zero alloc if using non-nested driver
 
         # Now, let's check the quotas
         # NOTE(Vek): We're only concerned about positive increments.
@@ -843,7 +951,7 @@ def quota_reserve(context, resources, quotas, deltas, expire,
         #            problems.
         overs = [r for r, delta in deltas.items()
                  if quotas[r] >= 0 and delta >= 0 and
-                 quotas[r] < delta + usages[r].total]
+                 quotas[r] < delta + usages[r].total + allocated.get(r, 0)]
 
         # NOTE(Vek): The quota check needs to be in the transaction,
         #            but the transaction doesn't fail just because
@@ -856,12 +964,26 @@ def quota_reserve(context, resources, quotas, deltas, expire,
         if not overs:
             reservations = []
             for resource, delta in deltas.items():
-                reservation = _reservation_create(elevated,
-                                                  str(uuid.uuid4()),
-                                                  usages[resource],
-                                                  project_id,
-                                                  resource, delta, expire,
-                                                  session=session)
+                usage = usages[resource]
+                allocated_id = None
+                if is_allocated_reserve:
+                    try:
+                        quota = _quota_get(context, project_id, resource,
+                                           session=session)
+                    except exception.ProjectQuotaNotFound:
+                        # If we were using the default quota, create DB entry
+                        quota = quota_create(context, project_id, resource,
+                                             quotas[resource], 0)
+                    # Since there's no reserved/total for allocated, update
+                    # allocated immediately and subtract on rollback if needed
+                    quota_allocated_update(context, project_id, resource,
+                                           quota.allocated + delta)
+                    allocated_id = quota.id
+                    usage = None
+                reservation = _reservation_create(
+                    elevated, str(uuid.uuid4()), usage, project_id, resource,
+                    delta, expire, session=session, allocated_id=allocated_id)
+
                 reservations.append(reservation.uuid)
 
                 # Also update the reserved quantity
@@ -876,14 +998,15 @@ def quota_reserve(context, resources, quotas, deltas, expire,
                 #
                 #            To prevent this, we only update the
                 #            reserved value if the delta is positive.
-                if delta > 0:
+                if delta > 0 and not is_allocated_reserve:
                     usages[resource].reserved += delta
 
     if unders:
         LOG.warning(_LW("Change will make usage less than 0 for the following "
                         "resources: %s"), unders)
     if overs:
-        usages = {k: dict(in_use=v['in_use'], reserved=v['reserved'])
+        usages = {k: dict(in_use=v.in_use, reserved=v.reserved,
+                          allocated=allocated.get(k, 0))
                   for k, v in usages.items()}
         raise exception.OverQuota(overs=sorted(overs), quotas=quotas,
                                   usages=usages)
@@ -903,18 +1026,25 @@ def _quota_reservations(session, context, reservations):
         all()
 
 
+def _dict_with_usage_id(usages):
+    return {row.id: row for row in usages.values()}
+
+
 @require_context
 @_retry_on_deadlock
 def reservation_commit(context, reservations, project_id=None):
     session = get_session()
     with session.begin():
         usages = _get_quota_usages(context, session, project_id)
+        usages = _dict_with_usage_id(usages)
 
         for reservation in _quota_reservations(session, context, reservations):
-            usage = usages[reservation.resource]
-            if reservation.delta >= 0:
-                usage.reserved -= reservation.delta
-            usage.in_use += reservation.delta
+            # Allocated reservations will have already been bumped
+            if not reservation.allocated_id:
+                usage = usages[reservation.usage_id]
+                if reservation.delta >= 0:
+                    usage.reserved -= reservation.delta
+                usage.in_use += reservation.delta
 
             reservation.delete(session=session)
 
@@ -925,11 +1055,14 @@ def reservation_rollback(context, reservations, project_id=None):
     session = get_session()
     with session.begin():
         usages = _get_quota_usages(context, session, project_id)
-
+        usages = _dict_with_usage_id(usages)
         for reservation in _quota_reservations(session, context, reservations):
-            usage = usages[reservation.resource]
-            if reservation.delta >= 0:
-                usage.reserved -= reservation.delta
+            if reservation.allocated_id:
+                reservation.quota.allocated -= reservation.delta
+            else:
+                usage = usages[reservation.usage_id]
+                if reservation.delta >= 0:
+                    usage.reserved -= reservation.delta
 
             reservation.delete(session=session)
 
@@ -998,8 +1131,12 @@ def reservation_expire(context):
         if results:
             for reservation in results:
                 if reservation.delta >= 0:
-                    reservation.usage.reserved -= reservation.delta
-                    reservation.usage.save(session=session)
+                    if reservation.allocated_id:
+                        reservation.quota.allocated -= reservation.delta
+                        reservation.quota.save(session=session)
+                    else:
+                        reservation.usage.reserved -= reservation.delta
+                        reservation.usage.save(session=session)
 
                 reservation.delete(session=session)
 
@@ -1056,6 +1193,7 @@ def volume_attached(context, attachment_id, instance_uuid, host_name,
         return volume_ref
 
 
+@handle_db_data_error
 @require_context
 def volume_create(context, values):
     values['volume_metadata'] = _metadata_refs(values.get('metadata'),
@@ -1669,6 +1807,7 @@ def process_sort_params(sort_keys, sort_dirs, default_keys=None,
     return result_keys, result_dirs
 
 
+@handle_db_data_error
 @require_context
 def volume_update(context, volume_id, values):
     session = get_session()
@@ -1735,6 +1874,15 @@ def volume_has_snapshots_filter():
     return sql.exists().where(
         and_(models.Volume.id == models.Snapshot.volume_id,
              ~models.Snapshot.deleted))
+
+
+def volume_has_undeletable_snapshots_filter():
+    deletable_statuses = ['available', 'error']
+    return sql.exists().where(
+        and_(models.Volume.id == models.Snapshot.volume_id,
+             ~models.Snapshot.deleted,
+             or_(models.Snapshot.cgsnapshot_id != None,  # noqa: != None
+                 models.Snapshot.status.notin_(deletable_statuses))))
 
 
 def volume_has_attachments_filter():
@@ -1868,6 +2016,16 @@ def _volume_image_metadata_update(context, volume_id, metadata, delete,
 
 
 @require_context
+def _volume_glance_metadata_key_to_id(context, volume_id, key):
+    db_data = volume_glance_metadata_get(context, volume_id)
+    metadata = {meta_entry.key: meta_entry.id
+                for meta_entry in db_data
+                if meta_entry.key == key}
+    metadata_id = metadata[key]
+    return metadata_id
+
+
+@require_context
 @require_volume_exists
 def volume_metadata_get(context, volume_id):
     return _volume_user_metadata_get(context, volume_id)
@@ -1884,8 +2042,10 @@ def volume_metadata_delete(context, volume_id, key, meta_type):
                     'deleted_at': timeutils.utcnow(),
                     'updated_at': literal_column('updated_at')}))
     elif meta_type == common.METADATA_TYPES.image:
+        metadata_id = _volume_glance_metadata_key_to_id(context,
+                                                        volume_id, key)
         (_volume_image_metadata_get_query(context, volume_id).
-            filter_by(key=key).
+            filter_by(id=metadata_id).
             update({'deleted': True,
                     'deleted_at': timeutils.utcnow(),
                     'updated_at': literal_column('updated_at')}))
@@ -1967,6 +2127,7 @@ def volume_admin_metadata_update(context, volume_id, metadata, delete,
 ###################
 
 
+@handle_db_data_error
 @require_context
 def snapshot_create(context, values):
     values['snapshot_metadata'] = _metadata_refs(values.get('metadata'),
@@ -2206,6 +2367,7 @@ def snapshot_get_active_by_window(context, begin, end=None, project_id=None):
     return query.all()
 
 
+@handle_db_data_error
 @require_context
 def snapshot_update(context, snapshot_id, values):
     session = get_session()
@@ -2306,6 +2468,7 @@ def snapshot_metadata_update(context, snapshot_id, metadata, delete):
 ###################
 
 
+@handle_db_data_error
 @require_admin_context
 def volume_type_create(context, values, projects=None):
     """Create a new volume type.
@@ -2405,6 +2568,7 @@ def _process_volume_types_filters(query, filters):
     return query
 
 
+@handle_db_data_error
 @require_admin_context
 def volume_type_update(context, volume_type_id, values):
     session = get_session()
@@ -2444,9 +2608,8 @@ def volume_type_update(context, volume_type_id, values):
 
         volume_type_ref.update(values)
         volume_type_ref.save(session=session)
-        volume_type = volume_type_get(context, volume_type_id)
 
-        return volume_type
+        return volume_type_ref
 
 
 @require_context
@@ -2839,6 +3002,7 @@ def _volume_type_extra_specs_get_item(context, volume_type_id, key,
     return result
 
 
+@handle_db_data_error
 @require_context
 def volume_type_extra_specs_update_or_create(context, volume_type_id,
                                              specs):
@@ -2903,6 +3067,10 @@ def qos_specs_create(context, values):
                 spec_entry = models.QualityOfServiceSpecs()
                 spec_entry.update(item)
                 spec_entry.save(session=session)
+        except db_exc.DBDataError:
+            msg = _('Error writing field to database')
+            LOG.exception(msg)
+            raise exception.Invalid(msg)
         except Exception as e:
             raise db_exc.DBError(e)
 
@@ -3141,6 +3309,7 @@ def _qos_specs_get_item(context, qos_specs_id, key, session=None):
     return result
 
 
+@handle_db_data_error
 @require_admin_context
 def qos_specs_update(context, qos_specs_id, specs):
     """Make updates to an existing qos specs.
@@ -3198,6 +3367,7 @@ def volume_type_encryption_delete(context, volume_type_id):
                            'updated_at': literal_column('updated_at')})
 
 
+@handle_db_data_error
 @require_admin_context
 def volume_type_encryption_create(context, volume_type_id, values):
     session = get_session()
@@ -3216,6 +3386,7 @@ def volume_type_encryption_create(context, volume_type_id, values):
         return encryption
 
 
+@handle_db_data_error
 @require_admin_context
 def volume_type_encryption_update(context, volume_type_id, values):
     session = get_session()
@@ -3581,6 +3752,7 @@ def backup_get_all_by_volume(context, volume_id, filters=None):
     return _backup_get_all(context, filters)
 
 
+@handle_db_data_error
 @require_context
 def backup_create(context, values):
     backup = models.Backup()
@@ -3594,6 +3766,7 @@ def backup_create(context, values):
         return backup
 
 
+@handle_db_data_error
 @require_context
 def backup_update(context, backup_id, values):
     session = get_session()
@@ -3792,19 +3965,102 @@ def consistencygroup_get(context, consistencygroup_id):
     return _consistencygroup_get(context, consistencygroup_id)
 
 
+def _consistencygroups_get_query(context, session=None, project_only=False):
+    return model_query(context, models.ConsistencyGroup, session=session,
+                       project_only=project_only)
+
+
+def _process_consistencygroups_filters(query, filters):
+    if filters:
+        # Ensure that filters' keys exist on the model
+        if not is_valid_model_filters(models.ConsistencyGroup, filters):
+            return
+        query = query.filter_by(**filters)
+    return query
+
+
+def _consistencygroup_get_all(context, filters=None, marker=None, limit=None,
+                              offset=None, sort_keys=None, sort_dirs=None):
+    if filters and not is_valid_model_filters(models.ConsistencyGroup,
+                                              filters):
+        return []
+
+    session = get_session()
+    with session.begin():
+        # Generate the paginate query
+        query = _generate_paginate_query(context, session, marker,
+                                         limit, sort_keys, sort_dirs, filters,
+                                         offset, models.ConsistencyGroup)
+        if query is None:
+            return []
+        return query.all()
+
+
 @require_admin_context
-def consistencygroup_get_all(context):
-    return model_query(context, models.ConsistencyGroup).all()
+def consistencygroup_get_all(context, filters=None, marker=None, limit=None,
+                             offset=None, sort_keys=None, sort_dirs=None):
+    """Retrieves all consistency groups.
+
+    If no sort parameters are specified then the returned cgs are sorted
+    first by the 'created_at' key and then by the 'id' key in descending
+    order.
+
+    :param context: context to query under
+    :param marker: the last item of the previous page, used to determine the
+                   next page of results to return
+    :param limit: maximum number of items to return
+    :param sort_keys: list of attributes by which results should be sorted,
+                      paired with corresponding item in sort_dirs
+    :param sort_dirs: list of directions in which results should be sorted,
+                      paired with corresponding item in sort_keys
+    :param filters: dictionary of filters; values that are in lists, tuples,
+                    or sets cause an 'IN' operation, while exact matching
+                    is used for other values, see
+                    _process_consistencygroups_filters function for more
+                    information
+    :returns: list of matching consistency groups
+    """
+    return _consistencygroup_get_all(context, filters, marker, limit, offset,
+                                     sort_keys, sort_dirs)
 
 
 @require_context
-def consistencygroup_get_all_by_project(context, project_id):
+def consistencygroup_get_all_by_project(context, project_id, filters=None,
+                                        marker=None, limit=None, offset=None,
+                                        sort_keys=None, sort_dirs=None):
+    """Retrieves all consistency groups in a project.
+
+    If no sort parameters are specified then the returned cgs are sorted
+    first by the 'created_at' key and then by the 'id' key in descending
+    order.
+
+    :param context: context to query under
+    :param marker: the last item of the previous page, used to determine the
+                   next page of results to return
+    :param limit: maximum number of items to return
+    :param sort_keys: list of attributes by which results should be sorted,
+                      paired with corresponding item in sort_dirs
+    :param sort_dirs: list of directions in which results should be sorted,
+                      paired with corresponding item in sort_keys
+    :param filters: dictionary of filters; values that are in lists, tuples,
+                    or sets cause an 'IN' operation, while exact matching
+                    is used for other values, see
+                    _process_consistencygroups_filters function for more
+                    information
+    :returns: list of matching consistency groups
+    """
     authorize_project_context(context, project_id)
+    if not filters:
+        filters = {}
+    else:
+        filters = filters.copy()
 
-    return model_query(context, models.ConsistencyGroup).\
-        filter_by(project_id=project_id).all()
+    filters['project_id'] = project_id
+    return _consistencygroup_get_all(context, filters, marker, limit, offset,
+                                     sort_keys, sort_dirs)
 
 
+@handle_db_data_error
 @require_context
 def consistencygroup_create(context, values):
     consistencygroup = models.ConsistencyGroup()
@@ -3819,6 +4075,7 @@ def consistencygroup_create(context, values):
         return _consistencygroup_get(context, values['id'], session=session)
 
 
+@handle_db_data_error
 @require_context
 def consistencygroup_update(context, consistencygroup_id, values):
     session = get_session()
@@ -3918,6 +4175,7 @@ def cgsnapshot_get_all_by_project(context, project_id, filters=None):
     return _cgsnapshot_get_all(context, project_id=project_id, filters=filters)
 
 
+@handle_db_data_error
 @require_context
 def cgsnapshot_create(context, values):
     cgsnapshot = models.Cgsnapshot()
@@ -3932,6 +4190,7 @@ def cgsnapshot_create(context, values):
         return _cgsnapshot_get(context, values['id'], session=session)
 
 
+@handle_db_data_error
 @require_context
 def cgsnapshot_update(context, cgsnapshot_id, values):
     session = get_session()
@@ -4065,7 +4324,10 @@ PAGINATION_HELPERS = {
     models.QualityOfServiceSpecs: (_qos_specs_get_query,
                                    _process_qos_specs_filters, _qos_specs_get),
     models.VolumeTypes: (_volume_type_get_query, _process_volume_types_filters,
-                         _volume_type_get_db_object)
+                         _volume_type_get_db_object),
+    models.ConsistencyGroup: (_consistencygroups_get_query,
+                              _process_consistencygroups_filters,
+                              _consistencygroup_get)
 }
 
 

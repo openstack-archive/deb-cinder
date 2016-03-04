@@ -1,5 +1,6 @@
 # Copyright (c) 2014 Alex Meade.  All rights reserved.
 # Copyright (c) 2015 Tom Barron.  All rights reserved.
+# Copyright (c) 2016 Mike Rooney. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -19,7 +20,10 @@ from lxml import etree
 import mock
 import six
 
+from cinder import exception
 from cinder import test
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fakes as fake_client)
 import cinder.tests.unit.volume.drivers.netapp.dataontap.fakes as fake
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap.client import client_base
@@ -38,13 +42,16 @@ class NetAppBaseClientTestCase(test.TestCase):
         super(NetAppBaseClientTestCase, self).setUp()
 
         self.mock_object(client_base, 'LOG')
+        self.mock_object(client_base.Client, '_init_ssh_client')
         self.client = client_base.Client(**CONNECTION_INFO)
         self.client.connection = mock.MagicMock()
+        self.client.ssh_client = mock.MagicMock()
         self.connection = self.client.connection
         self.fake_volume = six.text_type(uuid.uuid4())
         self.fake_lun = six.text_type(uuid.uuid4())
         self.fake_size = '1024'
         self.fake_metadata = {'OsType': 'linux', 'SpaceReserved': 'true'}
+        self.mock_send_request = self.mock_object(self.client, 'send_request')
 
     def tearDown(self):
         super(NetAppBaseClientTestCase, self).tearDown()
@@ -471,3 +478,84 @@ class NetAppBaseClientTestCase(test.TestCase):
         initiators = fake.FC_FORMATTED_INITIATORS
         mock_has_luns_mapped_to_initiator.return_value = False
         self.assertFalse(self.client.has_luns_mapped_to_initiators(initiators))
+
+    def test_get_performance_counter_info(self):
+
+        self.mock_send_request.return_value = netapp_api.NaElement(
+            fake_client.PERF_OBJECT_COUNTER_LIST_INFO_WAFL_RESPONSE)
+
+        result = self.client.get_performance_counter_info('wafl',
+                                                          'cp_phase_times')
+
+        expected = {
+            'name': 'cp_phase_times',
+            'base-counter': 'total_cp_msecs',
+            'labels': fake_client.PERF_OBJECT_COUNTER_TOTAL_CP_MSECS_LABELS,
+        }
+        self.assertEqual(expected, result)
+
+        perf_object_counter_list_info_args = {'objectname': 'wafl'}
+        self.mock_send_request.assert_called_once_with(
+            'perf-object-counter-list-info',
+            perf_object_counter_list_info_args, enable_tunneling=False)
+
+    def test_get_performance_counter_info_not_found(self):
+
+        self.mock_send_request.return_value = netapp_api.NaElement(
+            fake_client.PERF_OBJECT_COUNTER_LIST_INFO_WAFL_RESPONSE)
+
+        self.assertRaises(exception.NotFound,
+                          self.client.get_performance_counter_info,
+                          'wafl',
+                          'invalid')
+
+    def test_delete_snapshot(self):
+        api_args = {
+            'volume': fake.SNAPSHOT['volume_id'],
+            'snapshot': fake.SNAPSHOT['name'],
+        }
+        self.mock_object(self.client, 'send_request')
+
+        self.client.delete_snapshot(api_args['volume'],
+                                    api_args['snapshot'])
+
+        asserted_api_args = {
+            'volume': api_args['volume'],
+            'snapshot': api_args['snapshot'],
+        }
+        self.client.send_request.assert_called_once_with('snapshot-delete',
+                                                         asserted_api_args)
+
+    def test_create_cg_snapshot(self):
+        self.mock_object(self.client, '_start_cg_snapshot', mock.Mock(
+            return_value=fake.CONSISTENCY_GROUP_ID))
+        self.mock_object(self.client, '_commit_cg_snapshot')
+
+        self.client.create_cg_snapshot([fake.CG_VOLUME_NAME],
+                                       fake.CG_SNAPSHOT_NAME)
+
+        self.client._commit_cg_snapshot.assert_called_once_with(
+            fake.CONSISTENCY_GROUP_ID)
+
+    def test_start_cg_snapshot(self):
+        snapshot_init = {
+            'snapshot': fake.CG_SNAPSHOT_NAME,
+            'timeout': 'relaxed',
+            'volumes': [{'volume-name': fake.CG_VOLUME_NAME}],
+        }
+        self.mock_object(self.client, 'send_request')
+
+        self.client._start_cg_snapshot([fake.CG_VOLUME_NAME],
+                                       snapshot_init['snapshot'])
+
+        self.client.send_request.assert_called_once_with('cg-start',
+                                                         snapshot_init)
+
+    def test_commit_cg_snapshot(self):
+        snapshot_commit = {'cg-id': fake.CG_VOLUME_ID}
+        self.mock_object(self.client, 'send_request')
+
+        self.client._commit_cg_snapshot(snapshot_commit['cg-id'])
+
+        self.client.send_request.assert_called_once_with(
+            'cg-commit', {'cg-id': snapshot_commit['cg-id']})

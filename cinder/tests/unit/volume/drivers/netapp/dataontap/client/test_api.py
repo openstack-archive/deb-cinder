@@ -21,6 +21,7 @@ Tests for NetApp API layer
 import ddt
 from lxml import etree
 import mock
+import paramiko
 import six
 from six.moves import urllib
 
@@ -106,7 +107,7 @@ class NetAppApiServerTests(test.TestCase):
     @ddt.unpack
     def test_invoke_successfully_naapi_error(self, params):
         """Tests invoke successfully raising NaApiError"""
-        self.mock_object(self.root, 'invoke_elem',
+        self.mock_object(self.root, 'send_http_request',
                          mock.Mock(return_value=params['result']))
 
         self.assertRaises(netapp_api.NaApiError,
@@ -115,7 +116,7 @@ class NetAppApiServerTests(test.TestCase):
 
     def test_invoke_successfully_no_error(self):
         """Tests invoke successfully with no errors"""
-        self.mock_object(self.root, 'invoke_elem', mock.Mock(
+        self.mock_object(self.root, 'send_http_request', mock.Mock(
             return_value=zapi_fakes.FAKE_RESULT_SUCCESS))
 
         self.assertEqual(zapi_fakes.FAKE_RESULT_SUCCESS.to_string(),
@@ -187,12 +188,12 @@ class NetAppApiServerTests(test.TestCase):
         self.assertTrue(mock_invoke.called)
 
     @ddt.data(None, zapi_fakes.FAKE_XML_STR)
-    def test_invoke_elem_value_error(self, na_element):
+    def test_send_http_request_value_error(self, na_element):
         """Tests whether invalid NaElement parameter causes error"""
 
-        self.assertRaises(ValueError, self.root.invoke_elem, na_element)
+        self.assertRaises(ValueError, self.root.send_http_request, na_element)
 
-    def test_invoke_elem_http_error(self):
+    def test_send_http_request_http_error(self):
         """Tests handling of HTTPError"""
         na_element = zapi_fakes.FAKE_NA_ELEMENT
         self.mock_object(self.root, '_create_request', mock.Mock(
@@ -205,10 +206,10 @@ class NetAppApiServerTests(test.TestCase):
                                                fp=None, code='401',
                                                msg='httperror')))
 
-        self.assertRaises(netapp_api.NaApiError, self.root.invoke_elem,
+        self.assertRaises(netapp_api.NaApiError, self.root.send_http_request,
                           na_element)
 
-    def test_invoke_elem_unknown_exception(self):
+    def test_send_http_request_unknown_exception(self):
         """Tests handling of Unknown Exception"""
         na_element = zapi_fakes.FAKE_NA_ELEMENT
         self.mock_object(self.root, '_create_request', mock.Mock(
@@ -219,11 +220,11 @@ class NetAppApiServerTests(test.TestCase):
         self.mock_object(self.root._opener, 'open', mock.Mock(
             side_effect=Exception))
 
-        self.assertRaises(netapp_api.NaApiError, self.root.invoke_elem,
+        self.assertRaises(netapp_api.NaApiError, self.root.send_http_request,
                           na_element)
 
-    def test_invoke_elem_valid(self):
-        """Tests the method invoke_elem with valid parameters"""
+    def test_send_http_request_valid(self):
+        """Tests the method send_http_request with valid parameters"""
         na_element = zapi_fakes.FAKE_NA_ELEMENT
         self.root._trace = True
         self.mock_object(self.root, '_create_request', mock.Mock(
@@ -237,7 +238,7 @@ class NetAppApiServerTests(test.TestCase):
             self.root._opener, 'open', mock.Mock())
         opener_mock.read.side_effect = ['resp1', 'resp2']
 
-        self.root.invoke_elem(na_element)
+        self.root.send_http_request(na_element)
 
 
 class NetAppApiElementTransTests(test.TestCase):
@@ -468,7 +469,7 @@ class NetAppApiInvokeTests(test.TestCase):
         api_name = zapi_fakes.FAKE_API_NAME
         invoke_generator = netapp_api.invoke_api(na_server, api_name)
 
-        self.assertRaises(exception.InvalidInput, invoke_generator.next)
+        self.assertRaises(exception.InvalidInput, next, invoke_generator)
 
     @ddt.data({'params': {'na_server': zapi_fakes.FAKE_NA_SERVER,
                           'api_name': zapi_fakes.FAKE_API_NAME}},
@@ -507,3 +508,104 @@ class NetAppApiInvokeTests(test.TestCase):
 
         self.assertEqual(zapi_fakes.FAKE_API_NAME_ELEMENT.to_string(),
                          netapp_api.create_api_request(**params).to_string())
+
+
+@ddt.ddt
+class SSHUtilTests(test.TestCase):
+    """Test Cases for SSH API invocation."""
+
+    def setUp(self):
+        super(SSHUtilTests, self).setUp()
+        self.mock_object(netapp_api.SSHUtil, '_init_ssh_pool')
+        self.sshutil = netapp_api.SSHUtil('127.0.0.1',
+                                          'fake_user',
+                                          'fake_password')
+
+    def test_execute_command(self):
+        ssh = mock.Mock(paramiko.SSHClient)
+        stdin, stdout, stderr = self._mock_ssh_channel_files(
+            paramiko.ChannelFile)
+        self.mock_object(ssh, 'exec_command',
+                         mock.Mock(return_value=(stdin,
+                                                 stdout,
+                                                 stderr)))
+
+        wait_on_stdout = self.mock_object(self.sshutil, '_wait_on_stdout')
+        stdout_read = self.mock_object(stdout, 'read',
+                                       mock.Mock(return_value=''))
+        self.sshutil.execute_command(ssh, 'ls')
+
+        wait_on_stdout.assert_called_once_with(stdout,
+                                               netapp_api.SSHUtil.RECV_TIMEOUT)
+        stdout_read.assert_called_once_with()
+
+    def test_execute_read_exception(self):
+        ssh = mock.Mock(paramiko.SSHClient)
+        exec_command = self.mock_object(ssh, 'exec_command')
+        exec_command.side_effect = paramiko.SSHException('Failure')
+        wait_on_stdout = self.mock_object(self.sshutil, '_wait_on_stdout')
+
+        self.assertRaises(paramiko.SSHException,
+                          self.sshutil.execute_command, ssh, 'ls')
+        wait_on_stdout.assert_not_called()
+
+    @ddt.data('Password:',
+              'Password: ',
+              'Password: \n\n')
+    def test_execute_command_with_prompt(self, response):
+        ssh = mock.Mock(paramiko.SSHClient)
+        stdin, stdout, stderr = self._mock_ssh_channel_files(paramiko.Channel)
+        stdout_read = self.mock_object(stdout.channel, 'recv',
+                                       mock.Mock(return_value=response))
+        stdin_write = self.mock_object(stdin, 'write')
+        self.mock_object(ssh, 'exec_command',
+                         mock.Mock(return_value=(stdin,
+                                                 stdout,
+                                                 stderr)))
+
+        wait_on_stdout = self.mock_object(self.sshutil, '_wait_on_stdout')
+        self.sshutil.execute_command_with_prompt(ssh, 'sudo ls',
+                                                 'Password:', 'easypass')
+
+        wait_on_stdout.assert_called_once_with(stdout,
+                                               netapp_api.SSHUtil.RECV_TIMEOUT)
+        stdout_read.assert_called_once_with(999)
+        stdin_write.assert_called_once_with('easypass' + '\n')
+
+    def test_execute_command_unexpected_response(self):
+        ssh = mock.Mock(paramiko.SSHClient)
+        stdin, stdout, stderr = self._mock_ssh_channel_files(paramiko.Channel)
+        stdout_read = self.mock_object(stdout.channel, 'recv',
+                                       mock.Mock(return_value='bad response'))
+        self.mock_object(ssh, 'exec_command',
+                         mock.Mock(return_value=(stdin,
+                                                 stdout,
+                                                 stderr)))
+
+        wait_on_stdout = self.mock_object(self.sshutil, '_wait_on_stdout')
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.sshutil.execute_command_with_prompt,
+                          ssh, 'sudo ls', 'Password:', 'easypass')
+
+        wait_on_stdout.assert_called_once_with(stdout,
+                                               netapp_api.SSHUtil.RECV_TIMEOUT)
+        stdout_read.assert_called_once_with(999)
+
+    def test_wait_on_stdout(self):
+        stdout = mock.Mock()
+        stdout.channel = mock.Mock(paramiko.Channel)
+
+        exit_status = self.mock_object(stdout.channel, 'exit_status_ready',
+                                       mock.Mock(return_value=False))
+        self.sshutil._wait_on_stdout(stdout, 1)
+        exit_status.assert_any_call()
+        self.assertTrue(exit_status.call_count > 2)
+
+    def _mock_ssh_channel_files(self, channel):
+        stdin = mock.Mock()
+        stdin.channel = mock.Mock(channel)
+        stdout = mock.Mock()
+        stdout.channel = mock.Mock(channel)
+        stderr = mock.Mock()
+        stderr.channel = mock.Mock(channel)
+        return stdin, stdout, stderr

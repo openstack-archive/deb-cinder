@@ -687,30 +687,25 @@ class API(base.Base):
         check_policy(context, 'get', group)
         return group
 
-    def get_all(self, context, marker=None, limit=None, sort_key='created_at',
-                sort_dir='desc', filters=None):
+    def get_all(self, context, filters=None, marker=None, limit=None,
+                offset=None, sort_keys=None, sort_dirs=None):
         check_policy(context, 'get_all')
         if filters is None:
             filters = {}
-
-        try:
-            if limit is not None:
-                limit = int(limit)
-                if limit < 0:
-                    msg = _('limit param must be positive')
-                    raise exception.InvalidInput(reason=msg)
-        except ValueError:
-            msg = _('limit param must be an integer')
-            raise exception.InvalidInput(reason=msg)
 
         if filters:
             LOG.debug("Searching by: %s", filters)
 
         if (context.is_admin and 'all_tenants' in filters):
-            groups = objects.ConsistencyGroupList.get_all(context)
+            del filters['all_tenants']
+            groups = objects.ConsistencyGroupList.get_all(
+                context, filters=filters, marker=marker, limit=limit,
+                offset=offset, sort_keys=sort_keys, sort_dirs=sort_dirs)
         else:
             groups = objects.ConsistencyGroupList.get_all_by_project(
-                context, context.project_id)
+                context, context.project_id, filters=filters, marker=marker,
+                limit=limit, offset=offset, sort_keys=sort_keys,
+                sort_dirs=sort_dirs)
         return groups
 
     def create_cgsnapshot(self, context, group, name, description):
@@ -718,6 +713,15 @@ class API(base.Base):
 
     def _create_cgsnapshot(self, context,
                            group, name, description):
+        volumes = self.db.volume_get_all_by_group(
+            context.elevated(),
+            group.id)
+
+        if not volumes:
+            msg = _("Consistency group is empty. No cgsnapshot "
+                    "will be created.")
+            raise exception.InvalidConsistencyGroup(reason=msg)
+
         options = {'consistencygroup_id': group.id,
                    'user_id': context.user_id,
                    'project_id': context.project_id,
@@ -725,19 +729,12 @@ class API(base.Base):
                    'name': name,
                    'description': description}
 
+        cgsnapshot = None
+        cgsnapshot_id = None
         try:
             cgsnapshot = objects.CGSnapshot(context, **options)
             cgsnapshot.create()
             cgsnapshot_id = cgsnapshot.id
-
-            volumes = self.db.volume_get_all_by_group(
-                context.elevated(),
-                cgsnapshot.consistencygroup_id)
-
-            if not volumes:
-                msg = _("Consistency group is empty. No cgsnapshot "
-                        "will be created.")
-                raise exception.InvalidConsistencyGroup(reason=msg)
 
             snap_name = cgsnapshot.name
             snap_desc = cgsnapshot.description
@@ -747,7 +744,8 @@ class API(base.Base):
         except Exception:
             with excutils.save_and_reraise_exception():
                 try:
-                    cgsnapshot.destroy()
+                    if cgsnapshot:
+                        cgsnapshot.destroy()
                 finally:
                     LOG.error(_LE("Error occurred when creating cgsnapshot"
                                   " %s."), cgsnapshot_id)

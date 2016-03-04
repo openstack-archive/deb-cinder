@@ -29,10 +29,11 @@ from oslo_log import log as logging
 import oslo_messaging as messaging
 from oslo_service import loopingcall
 from oslo_service import service
+from oslo_service import wsgi
 from oslo_utils import importutils
-import osprofiler.notifier
-from osprofiler import profiler
-import osprofiler.web
+osprofiler_notifier = importutils.try_import('osprofiler.notifier')
+profiler = importutils.try_import('osprofiler.profiler')
+osprofiler_web = importutils.try_import('osprofiler.web')
 
 from cinder import context
 from cinder import exception
@@ -41,8 +42,7 @@ from cinder import objects
 from cinder.objects import base as objects_base
 from cinder import rpc
 from cinder import version
-from cinder.wsgi import common as wsgi_common
-from cinder.wsgi import eventlet_server as wsgi
+
 
 LOG = logging.getLogger(__name__)
 
@@ -84,12 +84,18 @@ CONF.register_opts(profiler_opts, group="profiler")
 
 
 def setup_profiler(binary, host):
+    if (osprofiler_notifier is None or
+            profiler is None or
+            osprofiler_web is None):
+        LOG.debug('osprofiler is not present')
+        return
+
     if CONF.profiler.profiler_enabled:
-        _notifier = osprofiler.notifier.create(
+        _notifier = osprofiler_notifier.create(
             "Messaging", messaging, context.get_admin_context().to_dict(),
             rpc.TRANSPORT, "cinder", binary, host)
-        osprofiler.notifier.set(_notifier)
-        osprofiler.web.enable(CONF.profiler.hmac_keys)
+        osprofiler_notifier.set(_notifier)
+        osprofiler_web.enable(CONF.profiler.hmac_keys)
         LOG.warning(
             _LW("OSProfiler is enabled.\nIt means that person who knows "
                 "any of hmac_keys that are specified in "
@@ -101,7 +107,7 @@ def setup_profiler(binary, host):
                 "To disable OSprofiler set in cinder.conf:\n"
                 "[profiler]\nprofiler_enabled=false"))
     else:
-        osprofiler.web.disable()
+        osprofiler_web.disable()
 
 
 class Service(service.Service):
@@ -125,7 +131,8 @@ class Service(service.Service):
         self.topic = topic
         self.manager_class_name = manager
         manager_class = importutils.import_class(self.manager_class_name)
-        manager_class = profiler.trace_cls("rpc")(manager_class)
+        if CONF.profiler.profiler_enabled:
+            manager_class = profiler.trace_cls("rpc")(manager_class)
 
         self.manager = manager_class(host=self.host,
                                      service_name=service_name,
@@ -150,6 +157,10 @@ class Service(service.Service):
         try:
             service_ref = objects.Service.get_by_args(
                 ctxt, self.host, self.binary)
+            service_ref.rpc_current_version = self.manager.RPC_API_VERSION
+            obj_version = objects_base.OBJ_VERSIONS.get_current()
+            service_ref.object_current_version = obj_version
+            service_ref.save()
             self.service_id = service_ref.id
         except exception.NotFound:
             self._create_service_ref(ctxt)
@@ -203,11 +214,15 @@ class Service(service.Service):
 
     def _create_service_ref(self, context):
         zone = CONF.storage_availability_zone
-        kwargs = {'host': self.host,
-                  'binary': self.binary,
-                  'topic': self.topic,
-                  'report_count': 0,
-                  'availability_zone': zone}
+        kwargs = {
+            'host': self.host,
+            'binary': self.binary,
+            'topic': self.topic,
+            'report_count': 0,
+            'availability_zone': zone,
+            'rpc_current_version': self.manager.RPC_API_VERSION,
+            'object_current_version': objects_base.OBJ_VERSIONS.get_current(),
+        }
         service_ref = objects.Service(context=context, **kwargs)
         service_ref.create()
         self.service_id = service_ref.id
@@ -254,16 +269,6 @@ class Service(service.Service):
 
         return service_obj
 
-    def kill(self):
-        """Destroy the service object in the datastore."""
-        self.stop()
-        try:
-            service_ref = objects.Service.get_by_id(
-                context.get_admin_context(), self.service_id)
-            service_ref.destroy()
-        except exception.NotFound:
-            LOG.warning(_LW('Service killed that has no database entry'))
-
     def stop(self):
         # Try to shut the connection down, but if we get any sort of
         # errors, go ahead and ignore them.. as we're shutting down anyway
@@ -271,22 +276,26 @@ class Service(service.Service):
             self.rpcserver.stop()
         except Exception:
             pass
+
+        self.timers_skip = []
         for x in self.timers:
             try:
                 x.stop()
             except Exception:
-                pass
-        self.timers = []
-        super(Service, self).stop()
+                self.timers_skip.append(x)
+        super(Service, self).stop(graceful=True)
 
     def wait(self):
+        skip = getattr(self, 'timers_skip', [])
         for x in self.timers:
-            try:
-                x.wait()
-            except Exception:
-                pass
+            if x not in skip:
+                try:
+                    x.wait()
+                except Exception:
+                    pass
         if self.rpcserver:
             self.rpcserver.wait()
+        super(Service, self).wait()
 
     def periodic_tasks(self, raise_on_error=False):
         """Tasks to be run at a periodic interval."""
@@ -344,6 +353,10 @@ class Service(service.Service):
                 self.model_disconnected = True
                 LOG.exception(_LE('Exception encountered: '))
 
+    def reset(self):
+        self.manager.reset()
+        super(Service, self).reset()
+
 
 class WSGIService(service.ServiceBase):
     """Provides ability to launch API from a 'paste' configuration."""
@@ -358,7 +371,7 @@ class WSGIService(service.ServiceBase):
         """
         self.name = name
         self.manager = self._get_manager()
-        self.loader = loader or wsgi_common.Loader()
+        self.loader = loader or wsgi.Loader(CONF)
         self.app = self.loader.load_app(name)
         self.host = getattr(CONF, '%s_listen' % name, "0.0.0.0")
         self.port = getattr(CONF, '%s_listen_port' % name, 0)

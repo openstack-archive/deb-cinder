@@ -216,10 +216,10 @@ class XMLDictSerializerTest(test.TestCase):
 class JSONDictSerializerTest(test.TestCase):
     def test_json(self):
         input_dict = dict(servers=dict(a=(2, 3)))
-        expected_json = '{"servers":{"a":[2,3]}}'
+        expected_json = b'{"servers":{"a":[2,3]}}'
         serializer = wsgi.JSONDictSerializer()
         result = serializer.serialize(input_dict)
-        result = result.replace('\n', '').replace(' ', '')
+        result = result.replace(b'\n', b'').replace(b' ', b'')
         self.assertEqual(expected_json, result)
 
 
@@ -796,6 +796,28 @@ class ResourceTest(test.TestCase):
                                                     None, None, {})
         self.assertEqual([2], called)
         self.assertEqual('foo', response)
+
+    def test_post_process_extensions_version_not_found(self):
+        class Controller(object):
+            def index(self, req, pants=None):
+                return pants
+
+        controller = Controller()
+        resource = wsgi.Resource(controller)
+
+        called = []
+
+        def extension1(req, resp_obj):
+            called.append(1)
+            return 'bar'
+
+        def extension2(req, resp_obj):
+            raise exception.VersionNotFoundForAPIMethod(version='fake_version')
+
+        response = resource.post_process_extensions([extension2, extension1],
+                                                    None, None, {})
+        self.assertEqual([1], called)
+        self.assertEqual('bar', response)
 
     def test_post_process_extensions_generator(self):
         class Controller(object):

@@ -35,18 +35,7 @@ from cinder import volume as cinder_volume
 from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
 
-
-query_volume_filters_opt = cfg.ListOpt('query_volume_filters',
-                                       default=['name', 'status', 'metadata',
-                                                'availability_zone'],
-                                       help="Volume filter options which "
-                                            "non-admin user could use to "
-                                            "query volumes. Default values "
-                                            "are: ['name', 'status', "
-                                            "'metadata', 'availability_zone']")
-
 CONF = cfg.CONF
-CONF.register_opt(query_volume_filters_opt)
 
 LOG = logging.getLogger(__name__)
 SCHEDULER_HINTS_NAMESPACE =\
@@ -197,11 +186,13 @@ class VolumeController(wsgi.Controller):
         """Delete a volume."""
         context = req.environ['cinder.context']
 
+        cascade = utils.get_bool_param('cascade', req.params)
+
         LOG.info(_LI("Delete volume with id: %s"), id, context=context)
 
         try:
             volume = self.volume_api.get(context, id)
-            self.volume_api.delete(context, volume)
+            self.volume_api.delete(context, volume, cascade=cascade)
         except exception.VolumeNotFound as error:
             raise exc.HTTPNotFound(explanation=error.msg)
         return webob.Response(status_int=202)

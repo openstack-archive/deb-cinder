@@ -215,14 +215,28 @@ def save_to_file(destination_file):
 
     except OSError as exc:
         raise RtstoolError(_('targetcli not installed and could not create '
-                             'default directory (%(default_path)s): %(exc)s'),
+                             'default directory (%(default_path)s): %(exc)s') %
                            {'default_path': path_to_file, 'exc': exc})
     try:
         rtsroot.save_to_file(destination_file)
     except (OSError, IOError) as exc:
         raise RtstoolError(_('Could not save configuration to %(file_path)s: '
-                             '%(exc)s'),
+                             '%(exc)s') %
                            {'file_path': destination_file, 'exc': exc})
+
+
+def restore_from_file(configration_file):
+    rtsroot = rtslib_fb.root.RTSRoot()
+    # If configuration file is None, use rtslib default save file.
+    if not configration_file:
+        configration_file = rtslib_fb.root.default_save_file
+
+    try:
+        rtsroot.restore_from_file(configration_file)
+    except (OSError, IOError) as exc:
+        raise RtstoolError(_('Could not restore configuration file '
+                             '%(file_path)s: %(exc)s'),
+                           {'file_path': configration_file, 'exc': exc})
 
 
 def parse_optional_create(argv):
@@ -314,6 +328,14 @@ def main(argv=None):
 
         destination_file = argv[2] if len(argv) > 2 else None
         save_to_file(destination_file)
+        return 0
+
+    elif argv[1] == 'restore':
+        if len(argv) > 3:
+            usage()
+
+        configuration_file = argv[2] if len(argv) > 2 else None
+        restore_from_file(configuration_file)
         return 0
 
     else:

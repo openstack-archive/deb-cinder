@@ -21,6 +21,7 @@
 Volume driver for NetApp NFS storage.
 """
 
+import copy
 import math
 import os
 import re
@@ -61,6 +62,8 @@ class NetAppNfsDriver(driver.ManageableVD,
     VERSION = "1.0.0"
     REQUIRED_FLAGS = ['netapp_login', 'netapp_password',
                       'netapp_server_hostname']
+    DEFAULT_FILTER_FUNCTION = 'capabilities.utilization < 70'
+    DEFAULT_GOODNESS_FUNCTION = '100 - capabilities.utilization'
 
     def __init__(self, *args, **kwargs):
         na_utils.validate_instantiation(**kwargs)
@@ -293,6 +296,14 @@ class NetAppNfsDriver(driver.ManageableVD,
     def _update_volume_stats(self):
         """Retrieve stats info from volume group."""
         raise NotImplementedError()
+
+    def get_default_filter_function(self):
+        """Get the default filter_function string."""
+        return self.DEFAULT_FILTER_FUNCTION
+
+    def get_default_goodness_function(self):
+        """Get the default goodness_function string."""
+        return self.DEFAULT_GOODNESS_FUNCTION
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
@@ -691,9 +702,33 @@ class NetAppNfsDriver(driver.ManageableVD,
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""
+
         LOG.info(_LI('Extending volume %s.'), volume['name'])
-        path = self.local_path(volume)
-        self._resize_image_file(path, new_size)
+
+        try:
+            path = self.local_path(volume)
+            self._resize_image_file(path, new_size)
+        except Exception as err:
+            exception_msg = (_("Failed to extend volume "
+                               "%(name)s, Error msg: %(msg)s.") %
+                             {'name': volume['name'],
+                              'msg': six.text_type(err)})
+            raise exception.VolumeBackendAPIException(data=exception_msg)
+
+        try:
+            extra_specs = na_utils.get_volume_extra_specs(volume)
+
+            # Create volume copy with new size for size-dependent QOS specs
+            volume_copy = copy.copy(volume)
+            volume_copy['size'] = new_size
+
+            self._do_qos_for_volume(volume_copy, extra_specs, cleanup=False)
+        except Exception as err:
+            exception_msg = (_("Failed to set QoS for existing volume "
+                               "%(name)s, Error msg: %(msg)s.") %
+                             {'name': volume['name'],
+                              'msg': six.text_type(err)})
+            raise exception.VolumeBackendAPIException(data=exception_msg)
 
     def _is_share_clone_compatible(self, volume, share):
         """Checks if share is compatible with volume to host its clone."""
@@ -709,7 +744,7 @@ class NetAppNfsDriver(driver.ManageableVD,
         reserved = int(round(total_size * reserved_ratio))
         available = max(0, total_available - reserved)
         if thin:
-            available = available * self.over_subscription_ratio
+            available = available * self.max_over_subscription_ratio
 
         return available >= requested_size
 
@@ -761,7 +796,8 @@ class NetAppNfsDriver(driver.ManageableVD,
 
         capacity = dict()
         capacity['reserved_percentage'] = self.reserved_percentage
-        capacity['max_over_subscription_ratio'] = self.over_subscription_ratio
+        capacity['max_over_subscription_ratio'] = (
+            self.max_over_subscription_ratio)
         total_size, total_available = self._get_capacity_info(nfs_share)
         capacity['total_capacity_gb'] = na_utils.round_down(
             total_size / units.Gi, '0.01')

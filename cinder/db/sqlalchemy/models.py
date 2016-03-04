@@ -15,6 +15,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+
 """
 SQLAlchemy models for cinder data.
 """
@@ -69,13 +70,20 @@ class Service(BASE, CinderBase):
     # periodic updates
     modified_at = Column(DateTime)
 
-    # Version columns to support rolling upgrade.
-    # Current version is what the service is running now (i.e. minimum).
-    # Available version is what the service can support (i.e. max).
+    # Version columns to support rolling upgrade. These report the max RPC API
+    # and objects versions that the manager of the service is able to support.
     rpc_current_version = Column(String(36))
-    rpc_available_version = Column(String(36))
     object_current_version = Column(String(36))
-    object_available_version = Column(String(36))
+
+    # FIXME(dulek): In M we've removed rpc_available_version and
+    # object_available_version from the model. We need to merge a DB migration
+    # that actually drops these columns from the DB in early Newton.
+
+    # replication_status can be: enabled, disabled, not-capable, error,
+    # failed-over or not-configured
+    replication_status = Column(String(255), default="not-capable")
+    active_backend_id = Column(String(255))
+    frozen = Column(Boolean, nullable=False, default=False)
 
 
 class ConsistencyGroup(BASE, CinderBase):
@@ -165,7 +173,6 @@ class Volume(BASE, CinderBase):
 
     consistencygroup_id = Column(String(36))
 
-    deleted = Column(Boolean, default=False)
     bootable = Column(Boolean, default=False)
     multiattach = Column(Boolean, default=False)
 
@@ -424,7 +431,8 @@ class Reservation(BASE, CinderBase):
     id = Column(Integer, primary_key=True)
     uuid = Column(String(36), nullable=False)
 
-    usage_id = Column(Integer, ForeignKey('quota_usages.id'), nullable=False)
+    usage_id = Column(Integer, ForeignKey('quota_usages.id'), nullable=True)
+    allocated_id = Column(Integer, ForeignKey('quotas.id'), nullable=True)
 
     project_id = Column(String(255), index=True)
     resource = Column(String(255))
@@ -437,6 +445,10 @@ class Reservation(BASE, CinderBase):
         foreign_keys=usage_id,
         primaryjoin='and_(Reservation.usage_id == QuotaUsage.id,'
                     'QuotaUsage.deleted == 0)')
+    quota = relationship(
+        "Quota",
+        foreign_keys=allocated_id,
+        primaryjoin='and_(Reservation.allocated_id == Quota.id)')
 
 
 class Snapshot(BASE, CinderBase):
@@ -528,6 +540,7 @@ class Backup(BASE, CinderBase):
     num_dependent_backups = Column(Integer)
     snapshot_id = Column(String(36))
     data_timestamp = Column(DateTime)
+    restore_volume_id = Column(String(36))
 
     @validates('fail_reason')
     def validate_fail_reason(self, key, fail_reason):

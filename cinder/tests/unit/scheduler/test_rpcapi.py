@@ -20,14 +20,10 @@ Unit Tests for cinder.scheduler.rpcapi
 import copy
 
 import mock
-from oslo_config import cfg
 
 from cinder import context
 from cinder.scheduler import rpcapi as scheduler_rpcapi
 from cinder import test
-
-
-CONF = cfg.CONF
 
 
 class SchedulerRpcAPITestCase(test.TestCase):
@@ -85,7 +81,8 @@ class SchedulerRpcAPITestCase(test.TestCase):
                                  service_name='fake_name',
                                  host='fake_host',
                                  capabilities='fake_capabilities',
-                                 fanout=True)
+                                 fanout=True,
+                                 version='1.0')
 
     @mock.patch('oslo_messaging.RPCClient.can_send_version',
                 return_value=True)

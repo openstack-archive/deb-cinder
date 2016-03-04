@@ -18,7 +18,6 @@ import datetime
 
 import enum
 import mock
-from oslo_config import cfg
 from oslo_utils import uuidutils
 import six
 
@@ -29,8 +28,6 @@ from cinder.db.sqlalchemy import api as sqlalchemy_api
 from cinder import exception
 from cinder import quota
 from cinder import test
-
-CONF = cfg.CONF
 
 THREE = 3
 THREE_HUNDREDS = 300
@@ -181,18 +178,26 @@ class DBAPIServiceTestCase(BaseTest):
 
     def test_service_get_all(self):
         values = [
-            {'host': 'host1', 'topic': 'topic1'},
-            {'host': 'host2', 'topic': 'topic2'},
+            {'host': 'host1', 'binary': 'b1'},
+            {'host': 'host1@ceph', 'binary': 'b2'},
+            {'host': 'host2', 'binary': 'b2'},
             {'disabled': True}
         ]
         services = [self._create_service(vals) for vals in values]
+
         disabled_services = [services[-1]]
         non_disabled_services = services[:-1]
-
+        expected = services[:2]
+        expected_bin = services[1:3]
         compares = [
+            (services, db.service_get_all(self.ctxt, {})),
             (services, db.service_get_all(self.ctxt)),
-            (disabled_services, db.service_get_all(self.ctxt, True)),
-            (non_disabled_services, db.service_get_all(self.ctxt, False))
+            (expected, db.service_get_all(self.ctxt, {'host': 'host1'})),
+            (expected_bin, db.service_get_all(self.ctxt, {'binary': 'b2'})),
+            (disabled_services, db.service_get_all(self.ctxt,
+                                                   {'disabled': True})),
+            (non_disabled_services, db.service_get_all(self.ctxt,
+                                                       {'disabled': False})),
         ]
         for comp in compares:
             self._assertEqualListsOfObjects(*comp)
@@ -207,6 +212,18 @@ class DBAPIServiceTestCase(BaseTest):
         services = [self._create_service(vals) for vals in values]
         expected = services[:3]
         real = db.service_get_all_by_topic(self.ctxt, 't1')
+        self._assertEqualListsOfObjects(expected, real)
+
+    def test_service_get_all_by_binary(self):
+        values = [
+            {'host': 'host1', 'binary': 'b1'},
+            {'host': 'host2', 'binary': 'b1'},
+            {'host': 'host4', 'disabled': True, 'binary': 'b1'},
+            {'host': 'host3', 'binary': 'b2'}
+        ]
+        services = [self._create_service(vals) for vals in values]
+        expected = services[:3]
+        real = db.service_get_all_by_binary(self.ctxt, 'b1')
         self._assertEqualListsOfObjects(expected, real)
 
     def test_service_get_by_args(self):
@@ -954,6 +971,66 @@ class DBAPIVolumeTestCase(BaseTest):
         db_meta = db.volume_metadata_update(self.ctxt, 1, metadata2, False)
 
         self.assertEqual(should_be, db_meta)
+
+    @mock.patch.object(db.sqlalchemy.api,
+                       '_volume_glance_metadata_key_to_id',
+                       return_value = '1')
+    def test_volume_glance_metadata_key_to_id_called(self,
+                                                     metadata_key_to_id_mock):
+        image_metadata = {'abc': '123'}
+
+        # create volume with metadata.
+        db.volume_create(self.ctxt, {'id': 1,
+                                     'metadata': image_metadata})
+
+        # delete metadata associated with the volume.
+        db.volume_metadata_delete(self.ctxt,
+                                  1,
+                                  'abc',
+                                  meta_type=common.METADATA_TYPES.image)
+
+        # assert _volume_glance_metadata_key_to_id() was called exactly once
+        metadata_key_to_id_mock.assert_called_once_with(self.ctxt, 1, 'abc')
+
+    def test_case_sensitive_glance_metadata_delete(self):
+        user_metadata = {'a': '1', 'c': '2'}
+        image_metadata = {'abc': '123', 'ABC': '123'}
+
+        # create volume with metadata.
+        db.volume_create(self.ctxt, {'id': 1,
+                                     'metadata': user_metadata})
+
+        # delete user metadata associated with the volume.
+        db.volume_metadata_delete(self.ctxt, 1, 'c',
+                                  meta_type=common.METADATA_TYPES.user)
+        user_metadata.pop('c')
+
+        self.assertEqual(user_metadata,
+                         db.volume_metadata_get(self.ctxt, 1))
+
+        # create image metadata associated with the volume.
+        db.volume_metadata_update(
+            self.ctxt,
+            1,
+            image_metadata,
+            False,
+            meta_type=common.METADATA_TYPES.image)
+
+        # delete image metadata associated with the volume.
+        db.volume_metadata_delete(
+            self.ctxt,
+            1,
+            'abc',
+            meta_type=common.METADATA_TYPES.image)
+
+        image_metadata.pop('abc')
+
+        # parse the result to build the dict.
+        rows = db.volume_glance_metadata_get(self.ctxt, 1)
+        result = {}
+        for row in rows:
+            result[row['key']] = row['value']
+        self.assertEqual(image_metadata, result)
 
     def test_volume_metadata_update_with_metatype(self):
         user_metadata1 = {'a': '1', 'c': '2'}
@@ -1710,6 +1787,15 @@ class DBAPIQuotaClassTestCase(BaseTest):
         updated = db.quota_class_get(self.ctxt, 'test_qc', 'test_resource')
         self.assertEqual(43, updated['hard_limit'])
 
+    def test_quota_class_update_resource(self):
+        old = db.quota_class_get(self.ctxt, 'test_qc', 'test_resource')
+        db.quota_class_update_resource(self.ctxt,
+                                       'test_resource',
+                                       'test_resource1')
+        new = db.quota_class_get(self.ctxt, 'test_qc', 'test_resource1')
+        self.assertEqual(old.id, new.id)
+        self.assertEqual('test_resource1', new.resource)
+
     def test_quota_class_destroy_all_by_name(self):
         db.quota_class_create(self.ctxt, 'test2', 'res1', 43)
         db.quota_class_create(self.ctxt, 'test2', 'res2', 44)
@@ -1751,6 +1837,13 @@ class DBAPIQuotaTestCase(BaseTest):
         self.assertEqual(42, quota.hard_limit)
         self.assertEqual('resource1', quota.resource)
         self.assertEqual('project1', quota.project_id)
+
+    def test_quota_update_resource(self):
+        old = db.quota_create(self.ctxt, 'project1', 'resource1', 41)
+        db.quota_update_resource(self.ctxt, 'resource1', 'resource2')
+        new = db.quota_get(self.ctxt, 'project1', 'resource2')
+        self.assertEqual(old.id, new.id)
+        self.assertEqual('resource2', new.resource)
 
     def test_quota_update_nonexistent(self):
         self.assertRaises(exception.ProjectQuotaNotFound,
@@ -1891,7 +1984,8 @@ class DBAPIBackupTestCase(BaseTest):
             'temp_volume_id': 'temp_volume_id',
             'temp_snapshot_id': 'temp_snapshot_id',
             'num_dependent_backups': 0,
-            'snapshot_id': 'snapshot_id', }
+            'snapshot_id': 'snapshot_id',
+            'restore_volume_id': 'restore_volume_id'}
         if one:
             return base_values
 

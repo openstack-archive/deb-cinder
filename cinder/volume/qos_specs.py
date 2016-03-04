@@ -16,7 +16,6 @@
 """The QoS Specs Implementation"""
 
 
-from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 
@@ -27,7 +26,6 @@ from cinder.i18n import _, _LE, _LW
 from cinder.volume import volume_types
 
 
-CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 CONTROL_LOCATION = ['front-end', 'back-end', 'both']
@@ -81,6 +79,10 @@ def create(context, name, specs=None):
 
     try:
         qos_specs_ref = db.qos_specs_create(context, values)
+    except db_exc.DBDataError:
+        msg = _('Error writing field to database')
+        LOG.exception(msg)
+        raise exception.Invalid(msg)
     except db_exc.DBError:
         LOG.exception(_LE('DB error:'))
         raise exception.QoSSpecsCreateFailed(name=name,

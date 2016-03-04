@@ -29,6 +29,7 @@ from cinder import exception
 from cinder import test
 from cinder.tests.unit.volume.drivers.netapp.dataontap import fakes as fake
 from cinder import utils
+from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap import nfs_base
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume.drivers import nfs
@@ -41,8 +42,8 @@ class NetAppNfsDriverTestCase(test.TestCase):
         configuration = mock.Mock()
         configuration.reserved_percentage = 0
         configuration.nfs_mount_point_base = '/mnt/test'
-        configuration.nfs_used_ratio = 1.0
-        configuration.nfs_oversub_ratio = 1.1
+        configuration.reserved_percentage = 0
+        configuration.max_over_subscription_ratio = 1.1
 
         kwargs = {'configuration': configuration}
 
@@ -70,7 +71,7 @@ class NetAppNfsDriverTestCase(test.TestCase):
         expected_free_capacity_gb = (na_utils.round_down(
             fake.AVAILABLE_BYTES / units.Gi, '0.01'))
         expected_reserved_percentage = round(
-            100 * (1 - self.driver.configuration.nfs_used_ratio))
+            self.driver.configuration.reserved_percentage)
 
         result = self.driver._get_share_capacity_info(fake.NFS_SHARE)
 
@@ -351,6 +352,90 @@ class NetAppNfsDriverTestCase(test.TestCase):
 
         self.assertEqual(expected, result)
 
+    def test_extend_volume(self):
+
+        new_size = 100
+        volume_copy = copy.copy(fake.VOLUME)
+        volume_copy['size'] = new_size
+
+        path = '%s/%s' % (fake.NFS_SHARE, fake.NFS_VOLUME['name'])
+        self.mock_object(self.driver,
+                         'local_path',
+                         mock.Mock(return_value=path))
+        mock_resize_image_file = self.mock_object(self.driver,
+                                                  '_resize_image_file')
+        mock_get_volume_extra_specs = self.mock_object(
+            na_utils, 'get_volume_extra_specs',
+            mock.Mock(return_value=fake.EXTRA_SPECS))
+        mock_do_qos_for_volume = self.mock_object(self.driver,
+                                                  '_do_qos_for_volume')
+
+        self.driver.extend_volume(fake.VOLUME, new_size)
+
+        mock_resize_image_file.assert_called_once_with(path, new_size)
+        mock_get_volume_extra_specs.assert_called_once_with(fake.VOLUME)
+        mock_do_qos_for_volume.assert_called_once_with(volume_copy,
+                                                       fake.EXTRA_SPECS,
+                                                       cleanup=False)
+
+    def test_extend_volume_resize_error(self):
+
+        new_size = 100
+        volume_copy = copy.copy(fake.VOLUME)
+        volume_copy['size'] = new_size
+
+        path = '%s/%s' % (fake.NFS_SHARE, fake.NFS_VOLUME['name'])
+        self.mock_object(self.driver,
+                         'local_path',
+                         mock.Mock(return_value=path))
+        mock_resize_image_file = self.mock_object(
+            self.driver, '_resize_image_file',
+            mock.Mock(side_effect=netapp_api.NaApiError))
+        mock_get_volume_extra_specs = self.mock_object(
+            na_utils, 'get_volume_extra_specs',
+            mock.Mock(return_value=fake.EXTRA_SPECS))
+        mock_do_qos_for_volume = self.mock_object(self.driver,
+                                                  '_do_qos_for_volume')
+
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume,
+                          fake.VOLUME,
+                          new_size)
+
+        mock_resize_image_file.assert_called_once_with(path, new_size)
+        self.assertFalse(mock_get_volume_extra_specs.called)
+        self.assertFalse(mock_do_qos_for_volume.called)
+
+    def test_extend_volume_qos_error(self):
+
+        new_size = 100
+        volume_copy = copy.copy(fake.VOLUME)
+        volume_copy['size'] = new_size
+
+        path = '%s/%s' % (fake.NFS_SHARE, fake.NFS_VOLUME['name'])
+        self.mock_object(self.driver,
+                         'local_path',
+                         mock.Mock(return_value=path))
+        mock_resize_image_file = self.mock_object(self.driver,
+                                                  '_resize_image_file')
+        mock_get_volume_extra_specs = self.mock_object(
+            na_utils, 'get_volume_extra_specs',
+            mock.Mock(return_value=fake.EXTRA_SPECS))
+        mock_do_qos_for_volume = self.mock_object(
+            self.driver, '_do_qos_for_volume',
+            mock.Mock(side_effect=netapp_api.NaApiError))
+
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.extend_volume,
+                          fake.VOLUME,
+                          new_size)
+
+        mock_resize_image_file.assert_called_once_with(path, new_size)
+        mock_get_volume_extra_specs.assert_called_once_with(fake.VOLUME)
+        mock_do_qos_for_volume.assert_called_once_with(volume_copy,
+                                                       fake.EXTRA_SPECS,
+                                                       cleanup=False)
+
     def test_is_share_clone_compatible(self):
         self.assertRaises(NotImplementedError,
                           self.driver._is_share_clone_compatible,
@@ -375,7 +460,7 @@ class NetAppNfsDriverTestCase(test.TestCase):
                                return_value=(
                                    total_bytes, available_bytes)):
             with mock.patch.object(self.driver,
-                                   'over_subscription_ratio',
+                                   'max_over_subscription_ratio',
                                    over):
                 with mock.patch.object(self.driver,
                                        'reserved_percentage',
@@ -404,7 +489,7 @@ class NetAppNfsDriverTestCase(test.TestCase):
         mock_get_capacity.return_value = (total_bytes, available_bytes)
 
         with mock.patch.object(self.driver,
-                               'over_subscription_ratio',
+                               'max_over_subscription_ratio',
                                over):
             with mock.patch.object(self.driver,
                                    'reserved_percentage',

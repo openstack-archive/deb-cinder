@@ -7,9 +7,9 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.0b2.dev281\n"
+"Project-Id-Version: cinder 8.0.0.0b3.dev248\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-01-17 23:35+0000\n"
+"POT-Creation-Date: 2016-02-22 23:21+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -619,14 +619,6 @@ msgstr ""
 msgid "Id not in sort_keys; is sort_keys unique?"
 msgstr "Id sort_keys içinde değil, sort_keys benzersiz mi?"
 
-#, python-format
-msgid ""
-"Ignoring error in delete volume %s: volume not found due to force delete "
-"settings."
-msgstr ""
-"Mantıksal sürücü %s silme hatası atlanıyor: silmeyi zorla ayarları sebebiyle "
-"mantıksal sürücü bulunamadı."
-
 msgid "Image delete encountered an error."
 msgstr "İmaj silme bir hatayla karşılaştı."
 
@@ -834,14 +826,6 @@ msgstr "iSCSI olmayan VLUN algılandı."
 #, python-format
 msgid "Not deleting key %s"
 msgstr "%s anahtarı silinmiyor"
-
-#, python-format
-msgid ""
-"Only one volume remains in storage group %(sgname)s. Driver will attempt "
-"cleanup."
-msgstr ""
-"%(sgname)s depolama grubunda yalnızca bir mantıksal sürücü kalıyor. Sürücü "
-"temizleme girişiminde bulunacak."
 
 #, python-format
 msgid "Persistence file already exists for volume, found file at: %s"
@@ -1172,10 +1156,6 @@ msgstr "Maskeleme görünümü bulunamadı: %(view)s."
 msgid "Unable to find snapshot %s"
 msgstr "%s anlık görüntüsü bulunamadı"
 
-#, python-format
-msgid "Unable to get masking view %(maskingView)s from storage group."
-msgstr "Depolama grubundan maskeleme görünümü %(maskingView)s alınamadı."
-
 msgid "Unable to get rados pool stats."
 msgstr "Rados havuz istatistikleri alınamıyor."
 
@@ -1307,14 +1287,6 @@ msgid ""
 "Volume: %(volumeName)s Does not belong to storage group %(defaultSgName)s."
 msgstr ""
 "Mantıksal sürücü: %(volumeName)s %(defaultSgName)s depolama grubuna ait "
-"değil."
-
-#, python-format
-msgid ""
-"Volume: %(volumeName)s Does not belong to storage storage group "
-"%(defaultSgGroupName)s."
-msgstr ""
-"Mantıksal sürücü: %(volumeName)s %(defaultSgGroupName)s depolama grubuna ait "
 "değil."
 
 #, python-format

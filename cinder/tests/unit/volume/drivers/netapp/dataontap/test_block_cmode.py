@@ -1,6 +1,7 @@
 # Copyright (c) 2014 Alex Meade.  All rights reserved.
 # Copyright (c) 2014 Clinton Knight.  All rights reserved.
 # Copyright (c) 2015 Tom Barron.  All rights reserved.
+# Copyright (c) 2016 Mike Rooney. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -29,6 +30,7 @@ from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap import block_cmode
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap.client import client_base
+from cinder.volume.drivers.netapp.dataontap.performance import perf_cmode
 from cinder.volume.drivers.netapp.dataontap import ssc_cmode
 from cinder.volume.drivers.netapp import utils as na_utils
 
@@ -46,12 +48,18 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
 
         self.library.zapi_client = mock.Mock()
         self.zapi_client = self.library.zapi_client
+        self.library.perf_library = mock.Mock()
         self.library.vserver = mock.Mock()
         self.library.ssc_vols = None
         self.fake_lun = block_base.NetAppLun(fake.LUN_HANDLE, fake.LUN_NAME,
                                              fake.SIZE, None)
+        self.fake_snapshot_lun = block_base.NetAppLun(
+            fake.SNAPSHOT_LUN_HANDLE, fake.SNAPSHOT_NAME, fake.SIZE, None)
         self.mock_object(self.library, 'lun_table')
-        self.library.lun_table = {fake.LUN_NAME: self.fake_lun}
+        self.library.lun_table = {
+            fake.LUN_NAME: self.fake_lun,
+            fake.SNAPSHOT_NAME: self.fake_snapshot_lun,
+        }
         self.mock_object(block_base.NetAppBlockStorageLibrary, 'delete_volume')
 
     def tearDown(self):
@@ -68,11 +76,13 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         config.netapp_vserver = 'openstack'
         return config
 
+    @mock.patch.object(perf_cmode, 'PerformanceCmodeLibrary', mock.Mock())
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.MagicMock(return_value=(1, 20)))
     @mock.patch.object(na_utils, 'check_flags')
     @mock.patch.object(block_base.NetAppBlockStorageLibrary, 'do_setup')
     def test_do_setup(self, super_do_setup, mock_check_flags):
+        self.mock_object(client_base.Client, '_init_ssh_client')
         context = mock.Mock()
 
         self.library.do_setup(context)
@@ -190,7 +200,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
 
         self.library.zapi_client.clone_lun.assert_called_once_with(
             'fakeLUN', 'fakeLUN', 'newFakeLUN', 'false', block_count=0,
-            dest_block=0, src_block=0, qos_policy_group_name=None)
+            dest_block=0, src_block=0, qos_policy_group_name=None,
+            source_snapshot=None)
 
     def test_clone_lun_blocks(self):
         """Test for when clone lun is passed block information."""
@@ -215,7 +226,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.zapi_client.clone_lun.assert_called_once_with(
             'fakeLUN', 'fakeLUN', 'newFakeLUN', 'false',
             block_count=block_count, dest_block=dest_block,
-            src_block=src_block, qos_policy_group_name=None)
+            src_block=src_block, qos_policy_group_name=None,
+            source_snapshot=None)
 
     def test_clone_lun_no_space_reservation(self):
         """Test for when space_reservation is not passed."""
@@ -235,7 +247,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
 
         self.library.zapi_client.clone_lun.assert_called_once_with(
             'fakeLUN', 'fakeLUN', 'newFakeLUN', 'false', block_count=0,
-            dest_block=0, src_block=0, qos_policy_group_name=None)
+            dest_block=0, src_block=0, qos_policy_group_name=None,
+            source_snapshot=None)
 
     def test_get_fc_target_wwpns(self):
         ports = [fake.FC_FORMATTED_TARGET_WWPNS[0],
@@ -351,19 +364,23 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.max_over_subscription_ratio = 10
         self.library.configuration.netapp_lun_space_reservation = (
             netapp_lun_space_reservation)
+        self.library.perf_library.get_node_utilization_for_pool = (
+            mock.Mock(return_value=30.0))
 
         netapp_thin = 'true' if thin else 'false'
         netapp_thick = 'false' if thin else 'true'
 
         thick = not thin and (netapp_lun_space_reservation == 'enabled')
 
-        result = self.library._get_pool_stats()
+        result = self.library._get_pool_stats(filter_function='filter',
+                                              goodness_function='goodness')
 
         expected = [{'pool_name': 'vola',
+                     'consistencygroup_support': True,
                      'netapp_unmirrored': 'true',
                      'QoS_support': True,
-                     'thin_provisioned_support': not thick,
-                     'thick_provisioned_support': thick,
+                     'thin_provisioning_support': not thick,
+                     'thick_provisioning_support': thick,
                      'provisioned_capacity_gb': 8.0,
                      'netapp_thick_provisioned': netapp_thick,
                      'netapp_nocompression': 'true',
@@ -377,7 +394,10 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
                      'max_over_subscription_ratio': 10.0,
                      'netapp_raid_type': 'raiddp',
                      'netapp_disk_type': 'SSD',
-                     'netapp_nodedup': 'true'}]
+                     'netapp_nodedup': 'true',
+                     'utilization': 30.0,
+                     'filter_function': 'filter',
+                     'goodness_function': 'goodness'}]
 
         self.assertEqual(expected, result)
 
@@ -438,6 +458,30 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library._mark_qos_policy_group_for_deletion\
             .assert_called_once_with(None)
         self.assertEqual(1, self.library._update_stale_vols.call_count)
+
+    def test_delete_snapshot(self):
+        self.mock_object(block_base.NetAppLun, 'get_metadata_property',
+                         mock.Mock(return_value=fake.NETAPP_VOLUME))
+        mock_super_delete_snapshot = self.mock_object(
+            block_base.NetAppBlockStorageLibrary, 'delete_snapshot')
+        mock_update_stale_vols = self.mock_object(self.library,
+                                                  '_update_stale_vols')
+        self.library.delete_snapshot(fake.SNAPSHOT)
+
+        mock_super_delete_snapshot.assert_called_once_with(fake.SNAPSHOT)
+        self.assertTrue(mock_update_stale_vols.called)
+
+    def test_delete_snapshot_no_netapp_vol(self):
+        self.mock_object(block_base.NetAppLun, 'get_metadata_property',
+                         mock.Mock(return_value=None))
+        mock_super_delete_snapshot = self.mock_object(
+            block_base.NetAppBlockStorageLibrary, 'delete_snapshot')
+        mock_update_stale_vols = self.mock_object(self.library,
+                                                  '_update_stale_vols')
+        self.library.delete_snapshot(fake.SNAPSHOT)
+
+        mock_super_delete_snapshot.assert_called_once_with(fake.SNAPSHOT)
+        self.assertFalse(mock_update_stale_vols.called)
 
     def test_setup_qos_for_volume(self):
         self.mock_object(na_utils, 'get_valid_qos_policy_group_info',
@@ -631,8 +675,11 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.ssc_vols = fake.ssc_map
         self.mock_object(self.library, '_get_filtered_pools',
                          mock.Mock(return_value=[fake.FAKE_CMODE_VOL1]))
+        self.library.perf_library.get_node_utilization_for_pool = (
+            mock.Mock(return_value=30.0))
 
-        pools = self.library._get_pool_stats()
+        pools = self.library._get_pool_stats(filter_function='filter',
+                                             goodness_function='goodness')
 
         self.assertListEqual(fake.FAKE_CMODE_POOLS, pools)
 

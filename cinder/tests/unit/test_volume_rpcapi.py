@@ -24,8 +24,10 @@ from oslo_serialization import jsonutils
 
 from cinder import context
 from cinder import db
+from cinder import exception
 from cinder import objects
 from cinder import test
+from cinder.tests.unit import fake_backup
 from cinder.tests.unit import fake_snapshot
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import utils as tests_utils
@@ -94,6 +96,7 @@ class VolumeRpcAPITestCase(test.TestCase):
         self.fake_cg2 = group2
         self.fake_src_cg = jsonutils.to_primitive(source_group)
         self.fake_cgsnap = cgsnapshot
+        self.fake_backup_obj = fake_backup.fake_backup_obj(self.context)
 
     def test_serialized_volume_has_id(self):
         self.assertIn('id', self.fake_volume)
@@ -110,7 +113,7 @@ class VolumeRpcAPITestCase(test.TestCase):
         expected_retval = 'foo' if method == 'call' else None
 
         target = {
-            "version": kwargs.pop('version', rpcapi.BASE_RPC_API_VERSION)
+            "version": kwargs.pop('version', rpcapi.RPC_API_VERSION)
         }
 
         if 'request_spec' in kwargs:
@@ -137,6 +140,12 @@ class VolumeRpcAPITestCase(test.TestCase):
             if cgsnapshot:
                 cgsnapshot.consistencygroup
                 kwargs['cgsnapshot'].consistencygroup
+        if 'backup' in expected_msg:
+            backup = expected_msg['backup']
+            del expected_msg['backup']
+            expected_msg['backup_id'] = backup.id
+            expected_msg['backup'] = backup
+
         if 'host' in expected_msg:
             del expected_msg['host']
         if 'dest_host' in expected_msg:
@@ -205,6 +214,10 @@ class VolumeRpcAPITestCase(test.TestCase):
                 expected_volume = expected_msg[kwarg].obj_to_primitive()
                 volume = value.obj_to_primitive()
                 self.assertEqual(expected_volume, volume)
+            elif isinstance(value, objects.Backup):
+                expected_backup = expected_msg[kwarg].obj_to_primitive()
+                backup = value.obj_to_primitive()
+                self.assertEqual(expected_backup, backup)
             else:
                 self.assertEqual(expected_msg[kwarg], value)
 
@@ -278,8 +291,9 @@ class VolumeRpcAPITestCase(test.TestCase):
                               rpc_method='cast',
                               volume=self.fake_volume_obj,
                               unmanage_only=False,
-                              version='1.33')
-        can_send_version.assert_called_once_with('1.33')
+                              cascade=False,
+                              version='1.40')
+        can_send_version.assert_any_call('1.40')
 
     @mock.patch('oslo_messaging.RPCClient.can_send_version',
                 return_value=False)
@@ -289,27 +303,42 @@ class VolumeRpcAPITestCase(test.TestCase):
                               volume=self.fake_volume_obj,
                               unmanage_only=False,
                               version='1.15')
-        can_send_version.assert_called_once_with('1.33')
+        can_send_version.assert_any_call('1.33')
+
+    @mock.patch('oslo_messaging.RPCClient.can_send_version',
+                return_value=True)
+    def test_delete_volume_cascade(self, can_send_version):
+        self._test_volume_api('delete_volume',
+                              rpc_method='cast',
+                              volume=self.fake_volume_obj,
+                              unmanage_only=False,
+                              cascade=True,
+                              version='1.40')
+        can_send_version.assert_any_call('1.33')
+        can_send_version.assert_any_call('1.40')
 
     def test_create_snapshot(self):
         self._test_volume_api('create_snapshot',
                               rpc_method='cast',
                               volume=self.fake_volume,
-                              snapshot=self.fake_snapshot)
+                              snapshot=self.fake_snapshot,
+                              version='1.20')
 
     def test_delete_snapshot(self):
         self._test_volume_api('delete_snapshot',
                               rpc_method='cast',
                               snapshot=self.fake_snapshot,
                               host='fake_host',
-                              unmanage_only=False)
+                              unmanage_only=False,
+                              version='1.20')
 
     def test_delete_snapshot_with_unmanage_only(self):
         self._test_volume_api('delete_snapshot',
                               rpc_method='cast',
                               snapshot=self.fake_snapshot,
                               host='fake_host',
-                              unmanage_only=True)
+                              unmanage_only=True,
+                              version='1.20')
 
     def test_attach_volume_to_instance(self):
         self._test_volume_api('attach_volume',
@@ -351,14 +380,16 @@ class VolumeRpcAPITestCase(test.TestCase):
         self._test_volume_api('initialize_connection',
                               rpc_method='call',
                               volume=self.fake_volume,
-                              connector='fake_connector')
+                              connector='fake_connector',
+                              version='1.0')
 
     def test_terminate_connection(self):
         self._test_volume_api('terminate_connection',
                               rpc_method='call',
                               volume=self.fake_volume,
                               connector='fake_connector',
-                              force=False)
+                              force=False,
+                              version='1.0')
 
     def test_accept_transfer(self):
         self._test_volume_api('accept_transfer',
@@ -448,7 +479,8 @@ class VolumeRpcAPITestCase(test.TestCase):
 
     @mock.patch('oslo_messaging.RPCClient.can_send_version',
                 return_value=True)
-    def test_retype(self, can_send_version):
+    @mock.patch('cinder.quota.DbQuotaDriver.rollback')
+    def test_retype(self, rollback, can_send_version):
         class FakeHost(object):
             def __init__(self):
                 self.host = 'host'
@@ -463,9 +495,11 @@ class VolumeRpcAPITestCase(test.TestCase):
                               reservations=self.fake_reservations,
                               old_reservations=self.fake_reservations,
                               version='1.37')
+        rollback.assert_not_called()
         can_send_version.assert_called_once_with('1.37')
 
-    def test_retype_version_134(self):
+    @mock.patch('cinder.quota.DbQuotaDriver.rollback')
+    def test_retype_version_134(self, rollback):
         class FakeHost(object):
             def __init__(self):
                 self.host = 'host'
@@ -483,10 +517,12 @@ class VolumeRpcAPITestCase(test.TestCase):
                                   reservations=self.fake_reservations,
                                   old_reservations=self.fake_reservations,
                                   version='1.34')
+        self.assertTrue(rollback.called)
         can_send_version.assert_any_call('1.37')
         can_send_version.assert_any_call('1.34')
 
-    def test_retype_version_112(self):
+    @mock.patch('cinder.quota.DbQuotaDriver.rollback')
+    def test_retype_version_112(self, rollback):
         class FakeHost(object):
             def __init__(self):
                 self.host = 'host'
@@ -504,6 +540,7 @@ class VolumeRpcAPITestCase(test.TestCase):
                                   reservations=self.fake_reservations,
                                   old_reservations=self.fake_reservations,
                                   version='1.12')
+            self.assertTrue(rollback.called)
             can_send_version.assert_any_call('1.37')
             can_send_version.assert_any_call('1.34')
 
@@ -547,6 +584,20 @@ class VolumeRpcAPITestCase(test.TestCase):
                               volume=self.fake_volume,
                               version='1.17')
 
+    def test_freeze_host(self):
+        self._test_volume_api('freeze_host', rpc_method='call',
+                              host='fake_host', version='1.39')
+
+    def test_thaw_host(self):
+        self._test_volume_api('thaw_host', rpc_method='call', host='fake_host',
+                              version='1.39')
+
+    def test_failover_host(self):
+        self._test_volume_api('failover_host', rpc_method='call',
+                              host='fake_host',
+                              secondary_backend_id='fake_backend',
+                              version='1.39')
+
     def test_create_consistencygroup_from_src_cgsnapshot(self):
         self._test_volume_api('create_consistencygroup_from_src',
                               rpc_method='cast',
@@ -575,3 +626,29 @@ class VolumeRpcAPITestCase(test.TestCase):
                               rpc_method='cast',
                               volume=self.fake_volume,
                               version='1.30')
+
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_get_backup_device(self, mock_can_send_version):
+        self._test_volume_api('get_backup_device',
+                              rpc_method='call',
+                              backup=self.fake_backup_obj,
+                              volume=self.fake_volume_obj,
+                              version='1.38')
+
+        mock_can_send_version.return_value = False
+        self.assertRaises(exception.ServiceTooOld, self._test_volume_api,
+                          'get_backup_device', rpc_method='call',
+                          backup=self.fake_backup_obj,
+                          volume=self.fake_volume_obj, version='1.38')
+
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_secure_file_operations_enabled(self, mock_can_send_version):
+        self._test_volume_api('secure_file_operations_enabled',
+                              rpc_method='call',
+                              volume=self.fake_volume_obj,
+                              version='1.38')
+
+        mock_can_send_version.return_value = False
+        self.assertRaises(exception.ServiceTooOld, self._test_volume_api,
+                          'secure_file_operations_enabled', rpc_method='call',
+                          volume=self.fake_volume_obj, version='1.38')

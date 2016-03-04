@@ -1,5 +1,6 @@
 # Copyright (c) 2014 Alex Meade.  All rights reserved.
 # Copyright (c) 2015 Dustin Schoenbrun. All rights reserved.
+# Copyright (c) 2016 Mike Rooney. All rights reserved.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -18,9 +19,14 @@ import uuid
 
 from lxml import etree
 import mock
+import paramiko
 import six
 
+from cinder import exception
+from cinder import ssh_utils
 from cinder import test
+from cinder.tests.unit.volume.drivers.netapp.dataontap.client import (
+    fakes as fake_client)
 from cinder.tests.unit.volume.drivers.netapp.dataontap import fakes as fake
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp.dataontap.client import client_7mode
@@ -40,12 +46,14 @@ class NetApp7modeClientTestCase(test.TestCase):
 
         self.fake_volume = six.text_type(uuid.uuid4())
 
+        self.mock_object(client_7mode.Client, '_init_ssh_client')
         with mock.patch.object(client_7mode.Client,
                                'get_ontapi_version',
                                return_value=(1, 20)):
             self.client = client_7mode.Client([self.fake_volume],
                                               **CONNECTION_INFO)
 
+        self.client.ssh_client = mock.MagicMock()
         self.client.connection = mock.MagicMock()
         self.connection = self.client.connection
         self.fake_lun = six.text_type(uuid.uuid4())
@@ -667,3 +675,137 @@ class NetApp7modeClientTestCase(test.TestCase):
 
         self.assertEqual(expected_total_bytes, total_bytes)
         self.assertEqual(expected_available_bytes, available_bytes)
+
+    def test_get_performance_instance_names(self):
+
+        mock_send_request = self.mock_object(self.client, 'send_request')
+        mock_send_request.return_value = netapp_api.NaElement(
+            fake_client.PERF_OBJECT_INSTANCE_LIST_INFO_RESPONSE)
+
+        result = self.client.get_performance_instance_names('processor')
+
+        expected = ['processor0', 'processor1']
+        self.assertEqual(expected, result)
+
+        perf_object_instance_list_info_args = {'objectname': 'processor'}
+        mock_send_request.assert_called_once_with(
+            'perf-object-instance-list-info',
+            perf_object_instance_list_info_args, enable_tunneling=False)
+
+    def test_get_performance_counters(self):
+
+        mock_send_request = self.mock_object(self.client, 'send_request')
+        mock_send_request.return_value = netapp_api.NaElement(
+            fake_client.PERF_OBJECT_GET_INSTANCES_SYSTEM_RESPONSE_7MODE)
+
+        instance_names = ['system']
+        counter_names = ['avg_processor_busy']
+        result = self.client.get_performance_counters('system',
+                                                      instance_names,
+                                                      counter_names)
+
+        expected = [
+            {
+                'avg_processor_busy': '13215732322',
+                'instance-name': 'system',
+                'timestamp': '1454146292',
+            }
+        ]
+        self.assertEqual(expected, result)
+
+        perf_object_get_instances_args = {
+            'objectname': 'system',
+            'instances': [
+                {'instance': instance} for instance in instance_names
+            ],
+            'counters': [
+                {'counter': counter} for counter in counter_names
+            ],
+        }
+        mock_send_request.assert_called_once_with(
+            'perf-object-get-instances', perf_object_get_instances_args,
+            enable_tunneling=False)
+
+    def test_get_system_name(self):
+
+        mock_send_request = self.mock_object(self.client, 'send_request')
+        mock_send_request.return_value = netapp_api.NaElement(
+            fake_client.SYSTEM_GET_INFO_RESPONSE)
+
+        result = self.client.get_system_name()
+
+        self.assertEqual(fake_client.NODE_NAME, result)
+
+    def test_check_iscsi_initiator_exists_when_no_initiator_exists(self):
+        self.connection.invoke_successfully = mock.Mock(
+            side_effect=netapp_api.NaApiError)
+        initiator = fake_client.INITIATOR_IQN
+
+        initiator_exists = self.client.check_iscsi_initiator_exists(initiator)
+
+        self.assertFalse(initiator_exists)
+
+    def test_check_iscsi_initiator_exists_when_initiator_exists(self):
+        self.connection.invoke_successfully = mock.Mock()
+        initiator = fake_client.INITIATOR_IQN
+
+        initiator_exists = self.client.check_iscsi_initiator_exists(initiator)
+
+        self.assertTrue(initiator_exists)
+
+    def test_set_iscsi_chap_authentication(self):
+        ssh = mock.Mock(paramiko.SSHClient)
+        sshpool = mock.Mock(ssh_utils.SSHPool)
+        self.client.ssh_client.ssh_pool = sshpool
+        self.mock_object(self.client.ssh_client, 'execute_command')
+        sshpool.item().__enter__ = mock.Mock(return_value=ssh)
+        sshpool.item().__exit__ = mock.Mock(return_value=False)
+
+        self.client.set_iscsi_chap_authentication(fake_client.INITIATOR_IQN,
+                                                  fake_client.USER_NAME,
+                                                  fake_client.PASSWORD)
+
+        command = ('iscsi security add -i iqn.2015-06.com.netapp:fake_iqn '
+                   '-s CHAP -p passw0rd -n fake_user')
+        self.client.ssh_client.execute_command.assert_has_calls(
+            [mock.call(ssh, command)]
+        )
+
+    def test_get_snapshot_if_snapshot_present_not_busy(self):
+        expected_vol_name = fake.SNAPSHOT['volume_id']
+        expected_snapshot_name = fake.SNAPSHOT['name']
+        response = netapp_api.NaElement(
+            fake_client.SNAPSHOT_INFO_FOR_PRESENT_NOT_BUSY_SNAPSHOT_7MODE)
+        self.connection.invoke_successfully.return_value = response
+
+        snapshot = self.client.get_snapshot(expected_vol_name,
+                                            expected_snapshot_name)
+
+        self.assertEqual(expected_vol_name, snapshot['volume'])
+        self.assertEqual(expected_snapshot_name, snapshot['name'])
+        self.assertEqual(set([]), snapshot['owners'])
+        self.assertFalse(snapshot['busy'])
+
+    def test_get_snapshot_if_snapshot_present_busy(self):
+        expected_vol_name = fake.SNAPSHOT['volume_id']
+        expected_snapshot_name = fake.SNAPSHOT['name']
+        response = netapp_api.NaElement(
+            fake_client.SNAPSHOT_INFO_FOR_PRESENT_BUSY_SNAPSHOT_7MODE)
+        self.connection.invoke_successfully.return_value = response
+
+        snapshot = self.client.get_snapshot(expected_vol_name,
+                                            expected_snapshot_name)
+
+        self.assertEqual(expected_vol_name, snapshot['volume'])
+        self.assertEqual(expected_snapshot_name, snapshot['name'])
+        self.assertEqual(set([]), snapshot['owners'])
+        self.assertTrue(snapshot['busy'])
+
+    def test_get_snapshot_if_snapshot_not_present(self):
+        expected_vol_name = fake.SNAPSHOT['volume_id']
+        expected_snapshot_name = fake.SNAPSHOT['name']
+        response = netapp_api.NaElement(fake_client.SNAPSHOT_NOT_PRESENT_7MODE)
+        self.connection.invoke_successfully.return_value = response
+
+        self.assertRaises(exception.SnapshotNotFound, self.client.get_snapshot,
+                          expected_vol_name, expected_snapshot_name)

@@ -90,16 +90,6 @@ class GenericUtilsTestCase(test.TestCase):
                           obj,
                           quiet=False)
 
-    def test_is_int_like(self):
-        self.assertTrue(utils.is_int_like(1))
-        self.assertTrue(utils.is_int_like(-1))
-        self.assertTrue(utils.is_int_like(0b1))
-        self.assertTrue(utils.is_int_like(0o1))
-        self.assertTrue(utils.is_int_like(0x1))
-        self.assertTrue(utils.is_int_like('1'))
-        self.assertFalse(utils.is_int_like(1.0))
-        self.assertFalse(utils.is_int_like('abc'))
-
     def test_check_exclusive_options(self):
         utils.check_exclusive_options()
         utils.check_exclusive_options(something=None,
@@ -393,7 +383,7 @@ class TemporaryChownTestCase(test.TestCase):
         with utils.temporary_chown(test_filename):
             mock_exec.assert_called_once_with('chown', 1234, test_filename,
                                               run_as_root=True)
-        mock_getuid.asset_called_once_with()
+        mock_getuid.assert_called_once_with()
         mock_stat.assert_called_once_with(test_filename)
         calls = [mock.call('chown', 1234, test_filename, run_as_root=True),
                  mock.call('chown', 5678, test_filename, run_as_root=True)]
@@ -422,7 +412,7 @@ class TemporaryChownTestCase(test.TestCase):
         test_filename = 'a_file'
         with utils.temporary_chown(test_filename):
             pass
-        mock_getuid.asset_called_once_with()
+        mock_getuid.assert_called_once_with()
         mock_stat.assert_called_once_with(test_filename)
         self.assertFalse(mock_exec.called)
 
@@ -1323,3 +1313,91 @@ class LogTracingTestCase(test.TestCase):
 
         self.assertEqual('OK', result)
         self.assertEqual(2, mock_log.debug.call_count)
+
+    def test_utils_calculate_virtual_free_capacity_with_thick(self):
+        host_stat = {'total_capacity_gb': 30.01,
+                     'free_capacity_gb': 28.01,
+                     'provisioned_capacity_gb': 2.0,
+                     'max_over_subscription_ratio': 1.0,
+                     'thin_provisioning_support': False,
+                     'thick_provisioning_support': True,
+                     'reserved_percentage': 5}
+
+        free = utils.calculate_virtual_free_capacity(
+            host_stat['total_capacity_gb'],
+            host_stat['free_capacity_gb'],
+            host_stat['provisioned_capacity_gb'],
+            host_stat['thin_provisioning_support'],
+            host_stat['max_over_subscription_ratio'],
+            host_stat['reserved_percentage'])
+
+        self.assertEqual(27.01, free)
+
+    def test_utils_calculate_virtual_free_capacity_with_thin(self):
+        host_stat = {'total_capacity_gb': 20.01,
+                     'free_capacity_gb': 18.01,
+                     'provisioned_capacity_gb': 2.0,
+                     'max_over_subscription_ratio': 2.0,
+                     'thin_provisioning_support': True,
+                     'thick_provisioning_support': False,
+                     'reserved_percentage': 5}
+
+        free = utils.calculate_virtual_free_capacity(
+            host_stat['total_capacity_gb'],
+            host_stat['free_capacity_gb'],
+            host_stat['provisioned_capacity_gb'],
+            host_stat['thin_provisioning_support'],
+            host_stat['max_over_subscription_ratio'],
+            host_stat['reserved_percentage'])
+
+        self.assertEqual(37.02, free)
+
+
+class Comparable(utils.ComparableMixin):
+    def __init__(self, value):
+        self.value = value
+
+    def _cmpkey(self):
+        return self.value
+
+
+class TestComparableMixin(test.TestCase):
+
+    def setUp(self):
+        super(TestComparableMixin, self).setUp()
+        self.one = Comparable(1)
+        self.two = Comparable(2)
+
+    def test_lt(self):
+        self.assertTrue(self.one < self.two)
+        self.assertFalse(self.two < self.one)
+        self.assertFalse(self.one < self.one)
+
+    def test_le(self):
+        self.assertTrue(self.one <= self.two)
+        self.assertFalse(self.two <= self.one)
+        self.assertTrue(self.one <= self.one)
+
+    def test_eq(self):
+        self.assertFalse(self.one == self.two)
+        self.assertFalse(self.two == self.one)
+        self.assertTrue(self.one == self.one)
+
+    def test_ge(self):
+        self.assertFalse(self.one >= self.two)
+        self.assertTrue(self.two >= self.one)
+        self.assertTrue(self.one >= self.one)
+
+    def test_gt(self):
+        self.assertFalse(self.one > self.two)
+        self.assertTrue(self.two > self.one)
+        self.assertFalse(self.one > self.one)
+
+    def test_ne(self):
+        self.assertTrue(self.one != self.two)
+        self.assertTrue(self.two != self.one)
+        self.assertFalse(self.one != self.one)
+
+    def test_compare(self):
+        self.assertEqual(NotImplemented,
+                         self.one._compare(1, self.one._cmpkey))

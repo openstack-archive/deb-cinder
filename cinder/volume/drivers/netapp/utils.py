@@ -2,6 +2,7 @@
 # Copyright (c) 2014 Navneet Singh.  All rights reserved.
 # Copyright (c) 2014 Clinton Knight.  All rights reserved.
 # Copyright (c) 2015 Tom Barron.  All rights reserved.
+# Copyright (c) 2016 Michael Price.  All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -50,9 +51,12 @@ DEPRECATED_SSC_SPECS = {'netapp_unmirrored': 'netapp_mirrored',
                         'netapp_nodedup': 'netapp_dedup',
                         'netapp_nocompression': 'netapp_compression',
                         'netapp_thick_provisioned': 'netapp_thin_provisioned'}
-QOS_KEYS = frozenset(
-    ['maxIOPS', 'total_iops_sec', 'maxBPS', 'total_bytes_sec'])
+QOS_KEYS = frozenset(['maxIOPS', 'maxIOPSperGiB', 'maxBPS', 'maxBPSperGiB'])
 BACKEND_QOS_CONSUMERS = frozenset(['back-end', 'both'])
+
+# Secret length cannot be less than 96 bits. http://tools.ietf.org/html/rfc3723
+CHAP_SECRET_LENGTH = 16
+DEFAULT_CHAP_USER_NAME = 'NetApp_iSCSI_CHAP_Username'
 
 
 def validate_instantiation(**kwargs):
@@ -200,14 +204,23 @@ def map_qos_spec(qos_spec, volume):
     """Map Cinder QOS spec to limit/throughput-value as used in client API."""
     if qos_spec is None:
         return None
+
     qos_spec = map_dict_to_lower(qos_spec)
     spec = dict(policy_name=get_qos_policy_group_name(volume),
                 max_throughput=None)
-    # IOPS and BPS specifications are exclusive of one another.
-    if 'maxiops' in qos_spec or 'total_iops_sec' in qos_spec:
+
+    # QoS specs are exclusive of one another.
+    if 'maxiops' in qos_spec:
         spec['max_throughput'] = '%siops' % qos_spec['maxiops']
-    elif 'maxbps' in qos_spec or 'total_bytes_sec' in qos_spec:
+    elif 'maxiopspergib' in qos_spec:
+        spec['max_throughput'] = '%siops' % six.text_type(
+            int(qos_spec['maxiopspergib']) * int(volume['size']))
+    elif 'maxbps' in qos_spec:
         spec['max_throughput'] = '%sB/s' % qos_spec['maxbps']
+    elif 'maxbpspergib' in qos_spec:
+        spec['max_throughput'] = '%sB/s' % six.text_type(
+            int(qos_spec['maxbpspergib']) * int(volume['size']))
+
     return spec
 
 
@@ -497,3 +510,59 @@ class FeatureState(object):
         :returns: True if the feature is supported, otherwise False
         """
         return self.supported
+
+
+class BitSet(object):
+    def __init__(self, value=0):
+        self._value = value
+
+    def set(self, bit):
+        self._value |= 1 << bit
+        return self
+
+    def unset(self, bit):
+        self._value &= ~(1 << bit)
+        return self
+
+    def is_set(self, bit):
+        return self._value & 1 << bit
+
+    def __and__(self, other):
+        self._value &= other
+        return self
+
+    def __or__(self, other):
+        self._value |= other
+        return self
+
+    def __invert__(self):
+        self._value = ~self._value
+        return self
+
+    def __xor__(self, other):
+        self._value ^= other
+        return self
+
+    def __lshift__(self, other):
+        self._value <<= other
+        return self
+
+    def __rshift__(self, other):
+        self._value >>= other
+        return self
+
+    def __int__(self):
+        return self._value
+
+    def __str__(self):
+        return bin(self._value)
+
+    def __repr__(self):
+        return str(self._value)
+
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and self._value ==
+                other._value) or self._value == int(other)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)

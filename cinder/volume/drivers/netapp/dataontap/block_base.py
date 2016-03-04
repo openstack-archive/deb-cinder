@@ -6,6 +6,9 @@
 # Copyright (c) 2014 Andrew Kerr.  All rights reserved.
 # Copyright (c) 2014 Jeff Applewhite.  All rights reserved.
 # Copyright (c) 2015 Tom Barron.  All rights reserved.
+# Copyright (c) 2015 Dustin Schoenbrun. All rights reserved.
+# Copyright (c) 2016 Chuck Fouts. All rights reserved.
+# Copyright (c) 2016 Mike Rooney. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -22,6 +25,7 @@
 Volume driver library for NetApp 7/C-mode block storage systems.
 """
 
+import copy
 import math
 import sys
 import uuid
@@ -40,7 +44,6 @@ from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume import utils as volume_utils
 from cinder.zonemanager import utils as fczm_utils
-
 
 LOG = logging.getLogger(__name__)
 
@@ -83,6 +86,8 @@ class NetAppBlockStorageLibrary(object):
                                  'xen', 'hyper_v']
     DEFAULT_LUN_OS = 'linux'
     DEFAULT_HOST_TYPE = 'linux'
+    DEFAULT_FILTER_FUNCTION = 'capabilities.utilization < 70'
+    DEFAULT_GOODNESS_FUNCTION = '100 - capabilities.utilization'
 
     def __init__(self, driver_name, driver_protocol, **kwargs):
 
@@ -228,14 +233,18 @@ class NetAppBlockStorageLibrary(object):
 
     def delete_volume(self, volume):
         """Driver entry point for destroying existing volumes."""
-        name = volume['name']
-        metadata = self._get_lun_attr(name, 'metadata')
-        if not metadata:
+        self._delete_lun(volume['name'])
+
+    def _delete_lun(self, lun_name):
+        """Helper method to delete LUN backing a volume or snapshot."""
+
+        metadata = self._get_lun_attr(lun_name, 'metadata')
+        if metadata:
+            self.zapi_client.destroy_lun(metadata['Path'])
+            self.lun_table.pop(lun_name)
+        else:
             LOG.warning(_LW("No entry in LUN table for volume/snapshot"
-                            " %(name)s."), {'name': name})
-            return
-        self.zapi_client.destroy_lun(metadata['Path'])
-        self.lun_table.pop(name)
+                            " %(name)s."), {'name': lun_name})
 
     def ensure_export(self, context, volume):
         """Driver entry point to get the export info for an existing volume."""
@@ -270,7 +279,7 @@ class NetAppBlockStorageLibrary(object):
 
     def delete_snapshot(self, snapshot):
         """Driver entry point for deleting a snapshot."""
-        self.delete_volume(snapshot)
+        self._delete_lun(snapshot['name'])
         LOG.debug("Snapshot %s deletion successful", snapshot['name'])
 
     def create_volume_from_snapshot(self, volume, snapshot):
@@ -305,9 +314,9 @@ class NetAppBlockStorageLibrary(object):
             if destination_size != source_size:
 
                 try:
-                    self.extend_volume(
-                        destination_volume, destination_size,
-                        qos_policy_group_name=qos_policy_group_name)
+                    self._extend_volume(destination_volume,
+                                        destination_size,
+                                        qos_policy_group_name)
                 except Exception:
                     with excutils.save_and_reraise_exception():
                         LOG.error(
@@ -444,7 +453,7 @@ class NetAppBlockStorageLibrary(object):
 
     def _clone_lun(self, name, new_name, space_reserved='true',
                    qos_policy_group_name=None, src_block=0, dest_block=0,
-                   block_count=0):
+                   block_count=0, source_snapshot=None):
         """Clone LUN with the given name to the new name."""
         raise NotImplementedError()
 
@@ -465,21 +474,53 @@ class NetAppBlockStorageLibrary(object):
     def _get_fc_target_wwpns(self, include_partner=True):
         raise NotImplementedError()
 
-    def get_volume_stats(self, refresh=False):
+    def get_volume_stats(self, refresh=False, filter_function=None,
+                         goodness_function=None):
         """Get volume stats.
 
-        If 'refresh' is True, run update the stats first.
+        If 'refresh' is True, update the stats first.
         """
 
         if refresh:
-            self._update_volume_stats()
-
+            self._update_volume_stats(filter_function=filter_function,
+                                      goodness_function=goodness_function)
         return self._stats
 
-    def _update_volume_stats(self):
+    def _update_volume_stats(self, filter_function=None,
+                             goodness_function=None):
         raise NotImplementedError()
 
-    def extend_volume(self, volume, new_size, qos_policy_group_name=None):
+    def get_default_filter_function(self):
+        """Get the default filter_function string."""
+        return self.DEFAULT_FILTER_FUNCTION
+
+    def get_default_goodness_function(self):
+        """Get the default goodness_function string."""
+        return self.DEFAULT_GOODNESS_FUNCTION
+
+    def extend_volume(self, volume, new_size):
+        """Driver entry point to increase the size of a volume."""
+
+        extra_specs = na_utils.get_volume_extra_specs(volume)
+
+        # Create volume copy with new size for size-dependent QOS specs
+        volume_copy = copy.copy(volume)
+        volume_copy['size'] = new_size
+
+        qos_policy_group_info = self._setup_qos_for_volume(volume_copy,
+                                                           extra_specs)
+        qos_policy_group_name = (
+            na_utils.get_qos_policy_group_name_from_info(
+                qos_policy_group_info))
+
+        try:
+            self._extend_volume(volume, new_size, qos_policy_group_name)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                # If anything went wrong, revert QoS settings
+                self._setup_qos_for_volume(volume, extra_specs)
+
+    def _extend_volume(self, volume, new_size, qos_policy_group_name):
         """Extend an existing volume to the new size."""
         name = volume['name']
         lun = self._get_lun_from_table(name)
@@ -739,7 +780,31 @@ class NetAppBlockStorageLibrary(object):
         properties = na_utils.get_iscsi_connection_properties(lun_id, volume,
                                                               iqn, address,
                                                               port)
+
+        if self.configuration.use_chap_auth:
+            chap_username, chap_password = self._configure_chap(initiator_name)
+            self._add_chap_properties(properties, chap_username, chap_password)
+
         return properties
+
+    def _configure_chap(self, initiator_name):
+        password = volume_utils.generate_password(na_utils.CHAP_SECRET_LENGTH)
+        username = na_utils.DEFAULT_CHAP_USER_NAME
+
+        self.zapi_client.set_iscsi_chap_authentication(initiator_name,
+                                                       username,
+                                                       password)
+        LOG.debug("Set iSCSI CHAP authentication.")
+
+        return username, password
+
+    def _add_chap_properties(self, properties, username, password):
+        properties['data']['auth_method'] = 'CHAP'
+        properties['data']['auth_username'] = username
+        properties['data']['auth_password'] = password
+        properties['data']['discovery_auth_method'] = 'CHAP'
+        properties['data']['discovery_auth_username'] = username
+        properties['data']['discovery_auth_password'] = password
 
     def _get_preferred_target_from_list(self, target_details_list,
                                         filter=None):
@@ -786,7 +851,6 @@ class NetAppBlockStorageLibrary(object):
                     'target_discovered': True,
                     'target_lun': 1,
                     'target_wwn': '500a098280feeba5',
-                    'access_mode': 'rw',
                     'initiator_target_map': {
                         '21000024ff406cc3': ['500a098280feeba5'],
                         '21000024ff406cc2': ['500a098280feeba5']
@@ -803,7 +867,6 @@ class NetAppBlockStorageLibrary(object):
                     'target_lun': 1,
                     'target_wwn': ['500a098280feeba5', '500a098290feeba5',
                                    '500a098190feeba5', '500a098180feeba5'],
-                    'access_mode': 'rw',
                     'initiator_target_map': {
                         '21000024ff406cc3': ['500a098280feeba5',
                                              '500a098290feeba5'],
@@ -839,7 +902,6 @@ class NetAppBlockStorageLibrary(object):
                        'data': {'target_discovered': True,
                                 'target_lun': int(lun_id),
                                 'target_wwn': target_wwpns,
-                                'access_mode': 'rw',
                                 'initiator_target_map': initiator_target_map}}
 
         return target_info
@@ -922,3 +984,143 @@ class NetAppBlockStorageLibrary(object):
                 init_targ_map[initiator] = target_wwpns
 
         return target_wwpns, init_targ_map, num_paths
+
+    def create_consistencygroup(self, group):
+        """Driver entry point for creating a consistency group.
+
+        ONTAP does not maintain an actual CG construct. As a result, no
+        communication to the backend is necessary for consistency group
+        creation.
+
+        :return: Hard-coded model update for consistency group model.
+        """
+        model_update = {'status': 'available'}
+        return model_update
+
+    def delete_consistencygroup(self, group, volumes):
+        """Driver entry point for deleting a consistency group.
+
+        :return: Updated consistency group model and list of volume models
+        for the volumes that were deleted.
+        """
+        model_update = {'status': 'deleted'}
+        volumes_model_update = []
+        for volume in volumes:
+            try:
+                self._delete_lun(volume['name'])
+                volumes_model_update.append(
+                    {'id': volume['id'], 'status': 'deleted'})
+            except Exception:
+                volumes_model_update.append(
+                    {'id': volume['id'], 'status': 'error_deleting'})
+                LOG.exception(_LE("Volume %(vol) in the consistency group "
+                                  "could not be deleted."), {'vol': volume})
+        return model_update, volumes_model_update
+
+    def update_consistencygroup(self, group, add_volumes=None,
+                                remove_volumes=None):
+        """Driver entry point for updating a consistency group.
+
+        Since no actual CG construct is ever created in ONTAP, it is not
+        necessary to update any metadata on the backend. Since this is a NO-OP,
+        there is guaranteed to be no change in any of the volumes' statuses.
+        """
+        return None, None, None
+
+    def create_cgsnapshot(self, cgsnapshot, snapshots):
+        """Creates a Cinder cgsnapshot object.
+
+        The Cinder cgsnapshot object is created by making use of an
+        ephemeral ONTAP CG in order to provide write-order consistency for a
+        set of flexvol snapshots. First, a list of the flexvols backing the
+        given Cinder CG must be gathered. An ONTAP cg-snapshot of these
+        flexvols will create a snapshot copy of all the Cinder volumes in the
+        CG group. For each Cinder volume in the CG, it is then necessary to
+        clone its backing LUN from the ONTAP cg-snapshot. The naming convention
+        used for the clones is what indicates the clone's role as a Cinder
+        snapshot and its inclusion in a Cinder CG. The ONTAP CG-snapshot of
+        the flexvols is no longer required after having cloned the LUNs
+        backing the Cinder volumes in the Cinder CG.
+
+        :return: An implicit update for cgsnapshot and snapshots models that
+        is interpreted by the manager to set their models to available.
+        """
+        flexvols = set()
+        for snapshot in snapshots:
+            flexvols.add(volume_utils.extract_host(snapshot['volume']['host'],
+                                                   level='pool'))
+
+        self.zapi_client.create_cg_snapshot(flexvols, cgsnapshot['id'])
+
+        for snapshot in snapshots:
+            self._clone_lun(snapshot['volume']['name'], snapshot['name'],
+                            source_snapshot=cgsnapshot['id'])
+
+        for flexvol in flexvols:
+            self._handle_busy_snapshot(flexvol, cgsnapshot['id'])
+            self.zapi_client.delete_snapshot(flexvol, cgsnapshot['id'])
+
+        return None, None
+
+    @utils.retry(exception.SnapshotIsBusy)
+    def _handle_busy_snapshot(self, flexvol, snapshot_name):
+        """Checks for and handles a busy snapshot.
+
+        If a snapshot is not busy, take no action.  If a snapshot is busy for
+        reasons other than a clone dependency, raise immediately.  Otherwise,
+        since we always start a clone split operation after cloning a share,
+        wait up to a minute for a clone dependency to clear before giving up.
+        """
+        snapshot = self.zapi_client.get_snapshot(flexvol, snapshot_name)
+        if not snapshot['busy']:
+            LOG.info(_LI("Backing consistency group snapshot %s "
+                         "available for deletion"), snapshot_name)
+            return
+        else:
+            LOG.debug('Snapshot %(snap)s for vol %(vol)s is busy, waiting '
+                      'for volume clone dependency to clear.',
+                      {'snap': snapshot_name, 'vol': flexvol})
+
+            raise exception.SnapshotIsBusy(snapshot_name=snapshot_name)
+
+    def delete_cgsnapshot(self, cgsnapshot, snapshots):
+        """Delete LUNs backing each snapshot in the cgsnapshot.
+
+        :return: An implicit update for snapshots models that is interpreted
+        by the manager to set their models to deleted.
+        """
+        for snapshot in snapshots:
+            self._delete_lun(snapshot['name'])
+            LOG.debug("Snapshot %s deletion successful", snapshot['name'])
+
+        return None, None
+
+    def create_consistencygroup_from_src(self, group, volumes,
+                                         cgsnapshot=None, snapshots=None,
+                                         source_cg=None, source_vols=None):
+        """Creates a CG from a either a cgsnapshot or group of cinder vols.
+
+        :return: An implicit update for the volumes model that is
+        interpreted by the manager as a successful operation.
+        """
+        LOG.debug("VOLUMES %s ", [dict(vol) for vol in volumes])
+
+        if cgsnapshot:
+            vols = zip(volumes, snapshots)
+
+            for volume, snapshot in vols:
+                source = {
+                    'name': snapshot['name'],
+                    'size': snapshot['volume_size'],
+                }
+                self._clone_source_to_destination(source, volume)
+
+        else:
+            vols = zip(volumes, source_vols)
+
+            for volume, old_src_vref in vols:
+                src_lun = self._get_lun_from_table(old_src_vref['name'])
+                source = {'name': src_lun.name, 'size': old_src_vref['size']}
+                self._clone_source_to_destination(source, volume)
+
+        return None, None

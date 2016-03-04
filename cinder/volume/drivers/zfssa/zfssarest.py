@@ -1,4 +1,4 @@
-# Copyright (c) 2014, 2015, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2014, 2016, Oracle and/or its affiliates. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -61,6 +61,33 @@ class ZFSSAApi(object):
         vdata = json.loads(ret.data)
         return vdata['version']['asn'] == pdata['pool']['asn'] and \
             vdata['version']['nodename'] == pdata['pool']['owner']
+
+    def get_pool_details(self, pool):
+        """Get properties of a pool."""
+        svc = '/api/storage/v1/pools/%s' % pool
+        ret = self.rclient.get(svc)
+        if ret.status != restclient.Status.OK:
+            exception_msg = (_('Error Getting Pool Stats: '
+                               'Pool: %(pool)s '
+                               'Return code: %(status)d '
+                               'Message: %(data)s.')
+                             % {'pool': pool,
+                                'status': ret.status,
+                                'data': ret.data})
+            LOG.error(exception_msg)
+            raise exception.VolumeBackendAPIException(data=exception_msg)
+
+        val = json.loads(ret.data)
+
+        if not self._is_pool_owned(val):
+            exception_msg = (_('Error Pool ownership: '
+                               'Pool %(pool)s is not owned '
+                               'by %(host)s.')
+                             % {'pool': pool,
+                                'host': self.host})
+            LOG.error(exception_msg)
+            raise exception.InvalidInput(reason=exception_msg)
+        return val['pool']
 
     def set_host(self, host, timeout=None):
         self.host = host
@@ -720,6 +747,7 @@ class ZFSSAApi(object):
 
         val = json.loads(ret.data)
         ret = {
+            'name': val['lun']['name'],
             'guid': val['lun']['lunguid'],
             'number': val['lun']['assignednumber'],
             'initiatorgroup': val['lun']['initiatorgroup'],
@@ -732,6 +760,8 @@ class ZFSSAApi(object):
         if 'custom:image_id' in val['lun']:
             ret.update({'image_id': val['lun']['custom:image_id']})
             ret.update({'updated_at': val['lun']['custom:updated_at']})
+        if 'custom:cinder_managed' in val['lun']:
+            ret.update({'cinder_managed': val['lun']['custom:cinder_managed']})
 
         return ret
 
@@ -896,6 +926,9 @@ class ZFSSAApi(object):
         if kargs is None:
             return
 
+        if 'schema' in kargs:
+            kargs.update(kargs.pop('schema'))
+
         ret = self.rclient.put(svc, kargs)
         if ret.status != restclient.Status.ACCEPTED:
             exception_msg = (_('Error Setting props '
@@ -953,10 +986,6 @@ class ZFSSAApi(object):
         for initiator_group in val['groups']:
             if initiator in initiator_group['initiators']:
                 groups.append(initiator_group["name"])
-        if len(groups) == 0:
-            LOG.debug("Initiator group not found. Attaching volume to "
-                      "default initiator group.")
-            groups.append('default')
         return groups
 
     def create_schema(self, schema):
@@ -1228,6 +1257,7 @@ class ZFSSANfsApi(ZFSSAApi):
             'updated_at': self._parse_prop(resp, 'updated_at'),
             'image_id': self._parse_prop(resp, 'image_id'),
             'origin': self._parse_prop(resp, 'origin'),
+            'cinder_managed': self._parse_prop(resp, 'cinder_managed'),
         }
         return result
 
@@ -1265,3 +1295,7 @@ class ZFSSANfsApi(ZFSSAApi):
             except Exception:
                 exception_msg = (_('Cannot create directory %s.'), dirname)
                 raise exception.VolumeBackendAPIException(data=exception_msg)
+
+    def rename_volume(self, src, dst):
+        return self.webdavclient.request(src_file=src, dst_file=dst,
+                                         method='MOVE')

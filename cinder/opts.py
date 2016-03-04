@@ -17,8 +17,8 @@ import itertools
 from cinder.api import common as cinder_api_common
 from cinder.api.middleware import auth as cinder_api_middleware_auth
 from cinder.api.middleware import sizelimit as cinder_api_middleware_sizelimit
-from cinder.api.v2 import volumes as cinder_api_v2_volumes
 from cinder.api.views import versions as cinder_api_views_versions
+from cinder.backup import api as cinder_backup_api
 from cinder.backup import chunkeddriver as cinder_backup_chunkeddriver
 from cinder.backup import driver as cinder_backup_driver
 from cinder.backup.drivers import ceph as cinder_backup_drivers_ceph
@@ -168,10 +168,6 @@ from cinder.zonemanager.drivers.brocade import brcd_fabric_opts as \
     cinder_zonemanager_drivers_brocade_brcdfabricopts
 from cinder.zonemanager.drivers.brocade import brcd_fc_zone_driver as \
     cinder_zonemanager_drivers_brocade_brcdfczonedriver
-from cinder.zonemanager.drivers.cisco import cisco_fabric_opts as \
-    cinder_zonemanager_drivers_cisco_ciscofabricopts
-from cinder.zonemanager.drivers.cisco import cisco_fc_zone_driver as \
-    cinder_zonemanager_drivers_cisco_ciscofczonedriver
 from cinder.zonemanager import fc_zone_manager as \
     cinder_zonemanager_fczonemanager
 
@@ -182,7 +178,6 @@ def list_opts():
             itertools.chain(
                 cinder_zonemanager_fczonemanager.zone_manager_opts,
                 cinder_zonemanager_drivers_brocade_brcdfczonedriver.brcd_opts,
-                cinder_zonemanager_drivers_cisco_ciscofczonedriver.cisco_opts,
             )),
         ('KEYMGR',
             itertools.chain(
@@ -294,6 +289,7 @@ def list_opts():
                 cinder_volume_drivers_hitachi_hnasiscsi.iSCSI_OPTS,
                 cinder_volume_drivers_rbd.rbd_opts,
                 cinder_volume_drivers_tintri.tintri_opts,
+                cinder_backup_api.backup_api_opts,
                 cinder_volume_drivers_hitachi_hbsdhorcm.volume_opts,
                 cinder_backup_manager.backup_manager_opts,
                 cinder_volume_drivers_ibm_storwize_svc_storwizesvccommon.
@@ -333,7 +329,6 @@ def list_opts():
                 cinder_volume_drivers_hpe_hpe3parcommon.hpe3par_opts,
                 cinder_volume_drivers_datera.d_opts,
                 cinder_volume_drivers_blockdevice.volume_opts,
-                [cinder_api_v2_volumes.query_volume_filters_opt],
                 cinder_volume_drivers_quobyte.volume_opts,
                 cinder_volume_drivers_vzstorage.vzstorage_opts,
                 cinder_volume_drivers_nfs.nfs_opts,
@@ -341,11 +336,6 @@ def list_opts():
         ('PROFILER',
             itertools.chain(
                 cinder_service.profiler_opts,
-            )),
-        ('CISCO_FABRIC_EXAMPLE',
-            itertools.chain(
-                cinder_zonemanager_drivers_cisco_ciscofabricopts.
-                cisco_zone_opts,
             )),
         ('BRCD_FABRIC_EXAMPLE',
             itertools.chain(

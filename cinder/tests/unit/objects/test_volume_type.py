@@ -13,8 +13,10 @@
 #    under the License.
 
 import mock
+import six
 
 from cinder import objects
+from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import objects as test_objects
 
@@ -25,7 +27,8 @@ class TestVolumeType(test_objects.BaseObjectsTestCase):
     def test_get_by_id(self, volume_type_get):
         db_volume_type = fake_volume.fake_db_volume_type()
         volume_type_get.return_value = db_volume_type
-        volume_type = objects.VolumeType.get_by_id(self.context, '1')
+        volume_type = objects.VolumeType.get_by_id(self.context,
+                                                   fake.volume_type_id)
         self._compare(self, db_volume_type, volume_type)
 
     @mock.patch('cinder.volume.volume_types.create')
@@ -76,19 +79,25 @@ class TestVolumeType(test_objects.BaseObjectsTestCase):
         db_type2 = db_type1.copy()
         db_type2['description'] = 'foobar'
 
-        # On the second _volume_type_get_full, return the volume type with an
         # updated description
         volume_type_get.side_effect = [db_type1, db_type2]
-        volume_type = objects.VolumeType.get_by_id(self.context, '1')
+        volume_type = objects.VolumeType.get_by_id(self.context,
+                                                   fake.volume_type_id)
         self._compare(self, db_type1, volume_type)
 
         # description was updated, so a volume type refresh should have a new
         # value for that field
         volume_type.refresh()
         self._compare(self, db_type2, volume_type)
-        volume_type_get.assert_has_calls([mock.call(self.context, '1'),
-                                          mock.call.__nonzero__(),
-                                          mock.call(self.context, '1')])
+        if six.PY3:
+            call_bool = mock.call.__bool__()
+        else:
+            call_bool = mock.call.__nonzero__()
+        volume_type_get.assert_has_calls([mock.call(self.context,
+                                                    fake.volume_type_id),
+                                          call_bool,
+                                          mock.call(self.context,
+                                                    fake.volume_type_id)])
 
 
 class TestVolumeTypeList(test_objects.BaseObjectsTestCase):

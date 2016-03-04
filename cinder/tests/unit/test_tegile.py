@@ -47,7 +47,7 @@ test_volume = {'host': 'node#testPool',
 test_snapshot = {'name': 'testSnap',
                  'id': '07ae9978-5445-405e-8881-28f2adfee732',
                  'volume': {'host': 'node#testPool',
-                            'size': '1',
+                            'size': 1,
                             '_name_id': 'testvol'
                             }
                  }
@@ -356,8 +356,7 @@ class TegileISCSIDriverTestCase(test.TestCase):
                                '_api_executor',
                                fake_tegile_backend):
             self.assertEqual(
-                {'data': {'access_mode': 'rw',
-                          'auth_method': 'CHAP',
+                {'data': {'auth_method': 'CHAP',
                           'discard': False,
                           'target_discovered': (False,),
                           'auth_password': 'test',
@@ -388,8 +387,7 @@ class TegileFCDriverTestCase(test.TestCase):
         with mock.patch.object(tegile_driver,
                                '_api_executor',
                                fake_tegile_backend):
-            self.assertEqual({'data': {'access_mode': 'rw',
-                                       'encrypted': False,
+            self.assertEqual({'data': {'encrypted': False,
                                        'initiator_target_map': {
                                            '21000024ff59bb6e':
                                                ['21000024ff578701'],

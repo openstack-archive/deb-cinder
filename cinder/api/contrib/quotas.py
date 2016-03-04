@@ -15,11 +15,6 @@
 
 import webob
 
-from keystoneclient.auth.identity.generic import token
-from keystoneclient import client
-from keystoneclient import exceptions
-from keystoneclient import session
-
 from cinder.api import extensions
 from cinder.api.openstack import wsgi
 from cinder.api import xmlutil
@@ -28,6 +23,7 @@ from cinder.db.sqlalchemy import api as sqlalchemy_api
 from cinder import exception
 from cinder.i18n import _
 from cinder import quota
+from cinder import quota_utils
 from cinder import utils
 
 from oslo_config import cfg
@@ -57,17 +53,6 @@ class QuotaTemplate(xmlutil.TemplateBuilder):
 
 class QuotaSetsController(wsgi.Controller):
 
-    class GenericProjectInfo(object):
-
-        """Abstraction layer for Keystone V2 and V3 project objects"""
-
-        def __init__(self, project_id, project_keystone_api_version,
-                     project_parent_id=None, project_subtree=None):
-            self.id = project_id
-            self.keystone_api_version = project_keystone_api_version
-            self.parent_id = project_parent_id
-            self.subtree = project_subtree
-
     def _format_quota_set(self, project_id, quota_set):
         """Convert the quota object to a result dict."""
 
@@ -75,52 +60,21 @@ class QuotaSetsController(wsgi.Controller):
 
         return dict(quota_set=quota_set)
 
-    def _keystone_client(self, context):
-        """Creates and returns an instance of a generic keystone client.
-
-        :param context: The request context
-        :return: keystoneclient.client.Client object
-        """
-        auth_plugin = token.Token(
-            auth_url=CONF.keystone_authtoken.auth_uri,
-            token=context.auth_token,
-            project_id=context.project_id)
-        client_session = session.Session(auth=auth_plugin)
-        return client.Client(auth_url=CONF.keystone_authtoken.auth_uri,
-                             session=client_session)
-
     def _validate_existing_resource(self, key, value, quota_values):
-        if key == 'per_volume_gigabytes':
+        # -1 limit will always be greater than the existing value
+        if key == 'per_volume_gigabytes' or value == -1:
             return
         v = quota_values.get(key, {})
-        if value < (v.get('in_use', 0) + v.get('reserved', 0)):
+        used = (v.get('in_use', 0) + v.get('reserved', 0))
+        if QUOTAS.using_nested_quotas():
+            used += v.get('allocated', 0)
+        if value < used:
             msg = _("Quota %s limit must be equal or greater than existing "
                     "resources.") % key
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
-    def _validate_quota_limit(self, quota, key, project_quotas=None,
-                              parent_project_quotas=None):
-        limit = self.validate_integer(quota[key], key, min_value=-1,
-                                      max_value=db.MAX_INT)
-
-        if parent_project_quotas:
-            free_quota = (parent_project_quotas[key]['limit'] -
-                          parent_project_quotas[key]['in_use'] -
-                          parent_project_quotas[key]['reserved'] -
-                          parent_project_quotas[key].get('allocated', 0))
-
-            current = 0
-            if project_quotas.get(key):
-                current = project_quotas[key]['limit']
-
-            if limit - current > free_quota:
-                msg = _("Free quota available is %s.") % free_quota
-                raise webob.exc.HTTPBadRequest(explanation=msg)
-        return limit
-
-    def _get_quotas(self, context, id, usages=False, parent_project_id=None):
-        values = QUOTAS.get_project_quotas(context, id, usages=usages,
-                                           parent_project_id=parent_project_id)
+    def _get_quotas(self, context, id, usages=False):
+        values = QUOTAS.get_project_quotas(context, id, usages=usages)
 
         if usages:
             return values
@@ -199,27 +153,6 @@ class QuotaSetsController(wsgi.Controller):
                     return True
         return False
 
-    def _get_project(self, context, id, subtree_as_ids=False):
-        """A Helper method to get the project hierarchy.
-
-        Along with Hierachical Multitenancy in keystone API v3, projects can be
-        hierarchically organized. Therefore, we need to know the project
-        hierarchy, if any, in order to do quota operations properly.
-        """
-        try:
-            keystone = self._keystone_client(context)
-            generic_project = self.GenericProjectInfo(id, keystone.version)
-            if keystone.version == 'v3':
-                project = keystone.projects.get(id,
-                                                subtree_as_ids=subtree_as_ids)
-                generic_project.parent_id = project.parent_id
-                generic_project.subtree = (
-                    project.subtree if subtree_as_ids else None)
-        except exceptions.NotFound:
-            msg = (_("Tenant ID: %s does not exist.") % id)
-            raise webob.exc.HTTPNotFound(explanation=msg)
-        return generic_project
-
     @wsgi.serializers(xml=QuotaTemplate)
     def show(self, req, id):
         """Show quota for a particular tenant
@@ -242,21 +175,16 @@ class QuotaSetsController(wsgi.Controller):
         else:
             usage = False
 
-        try:
+        if QUOTAS.using_nested_quotas():
             # With hierarchical projects, only the admin of the current project
             # or the root project has privilege to perform quota show
             # operations.
-            target_project = self._get_project(context, target_project_id)
-            context_project = self._get_project(context, context.project_id,
-                                                subtree_as_ids=True)
+            target_project = quota_utils.get_project_hierarchy(
+                context, target_project_id)
+            context_project = quota_utils.get_project_hierarchy(
+                context, context.project_id, subtree_as_ids=True)
 
             self._authorize_show(context_project, target_project)
-            parent_project_id = target_project.parent_id
-        except exceptions.Forbidden:
-            # NOTE(e0ne): Keystone API v2 requires admin permissions for
-            # project_get method. We ignore Forbidden exception for
-            # non-admin users.
-            parent_project_id = None
 
         try:
             sqlalchemy_api.authorize_project_context(context,
@@ -264,8 +192,7 @@ class QuotaSetsController(wsgi.Controller):
         except exception.NotAuthorized:
             raise webob.exc.HTTPForbidden()
 
-        quotas = self._get_quotas(context, target_project_id, usage,
-                                  parent_project_id=parent_project_id)
+        quotas = self._get_quotas(context, target_project_id, usage)
         return self._format_quota_set(target_project_id, quotas)
 
     @wsgi.serializers(xml=QuotaTemplate)
@@ -311,22 +238,23 @@ class QuotaSetsController(wsgi.Controller):
             msg = _("Bad key(s) in quota set: %s") % ",".join(bad_keys)
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
-        # Get the parent_id of the target project to verify whether we are
-        # dealing with hierarchical namespace or non-hierarchical namespace.
-        target_project = self._get_project(context, target_project_id)
-        parent_id = target_project.parent_id
+        # Saving off this value since we need to use it multiple times
+        use_nested_quotas = QUOTAS.using_nested_quotas()
+        if use_nested_quotas:
+            # Get the parent_id of the target project to verify whether we are
+            # dealing with hierarchical namespace or non-hierarchical namespace
+            target_project = quota_utils.get_project_hierarchy(
+                context, target_project_id, parents_as_ids=True)
+            parent_id = target_project.parent_id
 
-        if parent_id:
-            # Get the children of the project which the token is scoped to
-            # in order to know if the target_project is in its hierarchy.
-            context_project = self._get_project(context,
-                                                context.project_id,
-                                                subtree_as_ids=True)
-            self._authorize_update_or_delete(context_project,
-                                             target_project.id,
-                                             parent_id)
-            parent_project_quotas = QUOTAS.get_project_quotas(
-                context, parent_id)
+            if parent_id:
+                # Get the children of the project which the token is scoped to
+                # in order to know if the target_project is in its hierarchy.
+                context_project = quota_utils.get_project_hierarchy(
+                    context, context.project_id, subtree_as_ids=True)
+                self._authorize_update_or_delete(context_project,
+                                                 target_project.id,
+                                                 parent_id)
 
         # NOTE(ankit): Pass #2 - In this loop for body['quota_set'].keys(),
         # we validate the quota limits to ensure that we can bail out if
@@ -336,27 +264,29 @@ class QuotaSetsController(wsgi.Controller):
         quota_values = QUOTAS.get_project_quotas(context, target_project_id,
                                                  defaults=False)
         valid_quotas = {}
-        allocated_quotas = {}
+        reservations = []
         for key in body['quota_set'].keys():
             if key in NON_QUOTA_KEYS:
                 continue
 
-            if not skip_flag:
+            value = self.validate_integer(
+                body['quota_set'][key], key, min_value=-1,
+                max_value=db.MAX_INT)
+
+            # Can't skip the validation of nested quotas since it could mess up
+            # hierarchy if parent limit is less than childrens' current usage
+            if not skip_flag or use_nested_quotas:
                 self._validate_existing_resource(key, value, quota_values)
 
-            if parent_id:
-                value = self._validate_quota_limit(body['quota_set'], key,
-                                                   quota_values,
-                                                   parent_project_quotas)
-                original_quota = 0
-                if quota_values.get(key):
-                    original_quota = quota_values[key]['limit']
+            if use_nested_quotas:
+                try:
+                    reservations += self._update_nested_quota_allocated(
+                        context, target_project, quota_values, key, value)
+                except exception.OverQuota as e:
+                    if reservations:
+                        db.reservation_rollback(context, reservations)
+                    raise webob.exc.HTTPBadRequest(explanation=e.message)
 
-                allocated_quotas[key] = (
-                    parent_project_quotas[key].get('allocated', 0) + value -
-                    original_quota)
-            else:
-                value = self._validate_quota_limit(body['quota_set'], key)
             valid_quotas[key] = value
 
         # NOTE(ankit): Pass #3 - At this point we know that all the keys and
@@ -370,37 +300,48 @@ class QuotaSetsController(wsgi.Controller):
                 db.quota_create(context, target_project_id, key, value)
             except exception.AdminRequired:
                 raise webob.exc.HTTPForbidden()
-            # If hierarchical projects, update child's quota first
-            # and then parents quota. In future this needs to be an
-            # atomic operation.
-            if parent_id:
-                if key in allocated_quotas.keys():
-                    try:
-                        db.quota_allocated_update(context, parent_id, key,
-                                                  allocated_quotas[key])
-                    except exception.ProjectQuotaNotFound:
-                        parent_limit = parent_project_quotas[key]['limit']
-                        db.quota_create(context, parent_id, key, parent_limit,
-                                        allocated=allocated_quotas[key])
 
-        return {'quota_set': self._get_quotas(context, target_project_id,
-                                              parent_project_id=parent_id)}
+        if reservations:
+            db.reservation_commit(context, reservations)
+        return {'quota_set': self._get_quotas(context, target_project_id)}
+
+    def _get_quota_usage(self, quota_obj):
+        return (quota_obj.get('in_use', 0) + quota_obj.get('allocated', 0) +
+                quota_obj.get('reserved', 0))
+
+    def _update_nested_quota_allocated(self, ctxt, target_project,
+                                       target_project_quotas, res, new_limit):
+        reservations = []
+        # per_volume_gigabytes doesn't make sense to nest
+        if res == "per_volume_gigabytes":
+            return reservations
+
+        quota_for_res = target_project_quotas.get(res, {})
+        orig_quota_from_target_proj = quota_for_res.get('limit', 0)
+        # If limit was -1, we were "taking" current child's usage from parent
+        if orig_quota_from_target_proj == -1:
+            orig_quota_from_target_proj = self._get_quota_usage(quota_for_res)
+
+        new_quota_from_target_proj = new_limit
+        # If we set limit to -1, we will "take" the current usage from parent
+        if new_limit == -1:
+            new_quota_from_target_proj = self._get_quota_usage(quota_for_res)
+
+        res_change = new_quota_from_target_proj - orig_quota_from_target_proj
+        if res_change != 0:
+            deltas = {res: res_change}
+            reservations += quota_utils.update_alloc_to_next_hard_limit(
+                ctxt, QUOTAS.resources, deltas, res, None, target_project.id)
+
+        return reservations
 
     @wsgi.serializers(xml=QuotaTemplate)
     def defaults(self, req, id):
         context = req.environ['cinder.context']
         authorize_show(context)
-        try:
-            project = self._get_project(context, context.project_id)
-            parent_id = project.parent_id
-        except exceptions.Forbidden:
-            # NOTE(e0ne): Keystone API v2 requires admin permissions for
-            # project_get method. We ignore Forbidden exception for
-            # non-admin users.
-            parent_id = context.project_id
 
         return self._format_quota_set(id, QUOTAS.get_defaults(
-            context, parent_project_id=parent_id))
+            context, project_id=id))
 
     @wsgi.serializers(xml=QuotaTemplate)
     def delete(self, req, id):
@@ -416,57 +357,72 @@ class QuotaSetsController(wsgi.Controller):
         context = req.environ['cinder.context']
         authorize_delete(context)
 
-        # Get the parent_id of the target project to verify whether we are
-        # dealing with hierarchical namespace or non-hierarchical namespace.
-        target_project = self._get_project(context, id)
-        parent_id = target_project.parent_id
+        if QUOTAS.using_nested_quotas():
+            self._delete_nested_quota(context, id)
+        else:
+            try:
+                db.quota_destroy_by_project(context, id)
+            except exception.AdminRequired:
+                raise webob.exc.HTTPForbidden()
 
+    def _delete_nested_quota(self, ctxt, proj_id):
+        # Get the parent_id of the target project to verify whether we are
+        # dealing with hierarchical namespace or non-hierarchical
+        # namespace.
         try:
             project_quotas = QUOTAS.get_project_quotas(
-                context, target_project.id, usages=True,
-                parent_project_id=parent_id, defaults=False)
+                ctxt, proj_id, usages=True, defaults=False)
         except exception.NotAuthorized:
             raise webob.exc.HTTPForbidden()
 
-        # If the project which is being deleted has allocated part of its quota
-        # to its subprojects, then subprojects' quotas should be deleted first.
-        for key, value in project_quotas.items():
-            if 'allocated' in project_quotas[key].keys():
-                if project_quotas[key]['allocated'] != 0:
+        target_project = quota_utils.get_project_hierarchy(
+            ctxt, proj_id)
+        parent_id = target_project.parent_id
+        # If the project which is being deleted has allocated part of its
+        # quota to its subprojects, then subprojects' quotas should be
+        # deleted first.
+        for res, value in project_quotas.items():
+            if 'allocated' in project_quotas[res].keys():
+                if project_quotas[res]['allocated'] != 0:
                     msg = _("About to delete child projects having "
                             "non-zero quota. This should not be performed")
                     raise webob.exc.HTTPBadRequest(explanation=msg)
 
         if parent_id:
-            # Get the children of the project which the token is scoped to in
-            # order to know if the target_project is in its hierarchy.
-            context_project = self._get_project(context,
-                                                context.project_id,
-                                                subtree_as_ids=True)
+            # Get the children of the project which the token is scoped to
+            # in order to know if the target_project is in its hierarchy.
+            context_project = quota_utils.get_project_hierarchy(
+                ctxt, ctxt.project_id, subtree_as_ids=True)
             self._authorize_update_or_delete(context_project,
                                              target_project.id,
                                              parent_id)
-            parent_project_quotas = QUOTAS.get_project_quotas(
-                context, parent_id, parent_project_id=parent_id)
 
-            # Delete child quota first and later update parent's quota.
             try:
-                db.quota_destroy_by_project(context, target_project.id)
+                db.quota_destroy_by_project(ctxt, target_project.id)
             except exception.AdminRequired:
                 raise webob.exc.HTTPForbidden()
 
-            # Update the allocated of the parent
-            for key, value in project_quotas.items():
-                project_hard_limit = project_quotas[key]['limit']
-                parent_allocated = parent_project_quotas[key]['allocated']
-                parent_allocated -= project_hard_limit
-                db.quota_allocated_update(context, parent_id, key,
-                                          parent_allocated)
-        else:
-            try:
-                db.quota_destroy_by_project(context, target_project.id)
-            except exception.AdminRequired:
-                raise webob.exc.HTTPForbidden()
+            for res, limit in project_quotas.items():
+                # Update child limit to 0 so the parent hierarchy gets it's
+                # allocated values updated properly
+                self._update_nested_quota_allocated(
+                    ctxt, target_project, project_quotas, res, 0)
+
+    def validate_setup_for_nested_quota_use(self, req):
+        """Validates that the setup supports using nested quotas.
+
+        Ensures that Keystone v3 or greater is being used, and that the
+        existing quotas make sense to nest in the current hierarchy (e.g. that
+        no child quota would be larger than it's parent).
+        """
+        ctxt = req.environ['cinder.context']
+        params = req.params
+        try:
+            quota_utils.validate_setup_for_nested_quota_use(
+                ctxt, QUOTAS.resources, quota.NestedDbQuotaDriver(),
+                fix_allocated_quotas=params.get('fix_allocated_quotas'))
+        except exception.InvalidNestedQuotaSetup as e:
+            raise webob.exc.HTTPBadRequest(explanation=e.msg)
 
 
 class Quotas(extensions.ExtensionDescriptor):
@@ -480,9 +436,10 @@ class Quotas(extensions.ExtensionDescriptor):
     def get_resources(self):
         resources = []
 
-        res = extensions.ResourceExtension('os-quota-sets',
-                                           QuotaSetsController(),
-                                           member_actions={'defaults': 'GET'})
+        res = extensions.ResourceExtension(
+            'os-quota-sets', QuotaSetsController(),
+            member_actions={'defaults': 'GET'},
+            collection_actions={'validate_setup_for_nested_quota_use': 'GET'})
         resources.append(res)
 
         return resources

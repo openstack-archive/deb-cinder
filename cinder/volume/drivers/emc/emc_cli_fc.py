@@ -59,6 +59,7 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
                 Snap copy support
                 Support efficient non-disruptive backup
         7.0.0 - Clone consistency group support
+                Replication v2 support(managed)
     """
 
     def __init__(self, *args, **kwargs):
@@ -144,7 +145,6 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
                     'target_discovered': True,
                     'target_lun': 1,
                     'target_wwn': '1234567890123',
-                    'access_mode': 'rw'
                     'initiator_target_map': {
                         '1122334455667788': ['1234567890123']
                     }
@@ -159,7 +159,6 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
                     'target_discovered': True,
                     'target_lun': 1,
                     'target_wwn': ['1234567890123', '0987654321321'],
-                    'access_mode': 'rw'
                     'initiator_target_map': {
                         '1122334455667788': ['1234567890123',
                                              '0987654321321']
@@ -301,3 +300,19 @@ class EMCCLIFCDriver(driver.FibreChannelDriver):
 
     def backup_use_temp_snapshot(self):
         return True
+
+    def replication_enable(self, context, volume):
+        """Enables replication on a replication capable volume."""
+        return self.cli.replication_enable(context, volume)
+
+    def replication_disable(self, context, volume):
+        """Disables replication on a replication-enabled volume."""
+        return self.cli.replication_disable(context, volume)
+
+    def replication_failover(self, context, volume, secondary):
+        """Failovers volume from primary device to secondary."""
+        return self.cli.replication_failover(context, volume, secondary)
+
+    def list_replication_targets(self, context, volume):
+        """Returns volume replication info."""
+        return self.cli.list_replication_targets(context, volume)

@@ -1197,6 +1197,53 @@ class TestCinderRtstoolCmd(test.TestCase):
         mock_os.path.exists.assert_called_once_with(mock.sentinel.dirname)
         mock_os.makedirs.assert_called_once_with(mock.sentinel.dirname, 0o755)
 
+    @mock.patch.object(cinder_rtstool, 'os', autospec=True)
+    @mock.patch.object(cinder_rtstool, 'rtslib_fb', autospec=True)
+    def test_save_error_creating_dir(self, mock_rtslib, mock_os):
+        mock_os.path.dirname.return_value = 'dirname'
+        mock_os.path.exists.return_value = False
+        mock_os.makedirs.side_effect = OSError('error')
+
+        regexp = (u'targetcli not installed and could not create default '
+                  'directory \(dirname\): error$')
+        self.assertRaisesRegexp(cinder_rtstool.RtstoolError, regexp,
+                                cinder_rtstool.save_to_file, None)
+
+    @mock.patch.object(cinder_rtstool, 'os', autospec=True)
+    @mock.patch.object(cinder_rtstool, 'rtslib_fb', autospec=True)
+    def test_save_error_saving(self, mock_rtslib, mock_os):
+        save = mock_rtslib.root.RTSRoot.return_value.save_to_file
+        save.side_effect = OSError('error')
+        regexp = u'Could not save configuration to myfile: error'
+        self.assertRaisesRegexp(cinder_rtstool.RtstoolError, regexp,
+                                cinder_rtstool.save_to_file, 'myfile')
+
+    @mock.patch.object(cinder_rtstool, 'rtslib_fb',
+                       **{'root.default_save_file': mock.sentinel.filename})
+    def test_restore(self, mock_rtslib):
+        """Test that we restore target configuration with default file."""
+        cinder_rtstool.restore_from_file(None)
+        rtsroot = mock_rtslib.root.RTSRoot
+        rtsroot.assert_called_once_with()
+        rtsroot.return_value.restore_from_file.assert_called_once_with(
+            mock.sentinel.filename)
+
+    @mock.patch.object(cinder_rtstool, 'rtslib_fb')
+    def test_restore_with_file(self, mock_rtslib):
+        """Test that we restore target configuration with specified file."""
+        cinder_rtstool.restore_from_file('saved_file')
+        rtsroot = mock_rtslib.root.RTSRoot
+        rtsroot.return_value.restore_from_file.assert_called_once_with(
+            'saved_file')
+
+    @mock.patch('cinder.cmd.rtstool.restore_from_file')
+    def test_restore_error(self, restore_from_file):
+        """Test that we fail to restore target configuration."""
+        restore_from_file.side_effect = OSError
+        self.assertRaises(OSError,
+                          cinder_rtstool.restore_from_file,
+                          mock.sentinel.filename)
+
     def test_usage(self):
         with mock.patch('sys.stdout', new=six.StringIO()):
             exit = self.assertRaises(SystemExit, cinder_rtstool.usage)

@@ -55,6 +55,7 @@
 from __future__ import print_function
 
 
+import logging as python_logging
 import os
 import sys
 
@@ -171,7 +172,7 @@ def _db_error(caught_exception):
     print(_("The above error may show that the database has not "
             "been created.\nPlease create a database using "
             "'cinder-manage db sync' before running this command."))
-    exit(1)
+    sys.exit(1)
 
 
 class HostCommands(object):
@@ -226,7 +227,7 @@ class DbCommands(object):
         age_in_days = int(age_in_days)
         if age_in_days <= 0:
             print(_("Must supply a positive, non-zero value for age"))
-            exit(1)
+            sys.exit(1)
         ctxt = context.get_admin_context()
         db.purge_deleted_rows(ctxt, age_in_days)
 
@@ -554,6 +555,7 @@ def main():
         CONF(sys.argv[1:], project='cinder',
              version=version.version_string())
         logging.setup(CONF, "cinder")
+        python_logging.captureWarnings(True)
     except cfg.ConfigDirNotFoundError as details:
         print(_("Invalid directory: %s") % details)
         sys.exit(2)

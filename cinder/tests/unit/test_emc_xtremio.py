@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import time
+
 import mock
 
 from cinder import exception
@@ -122,7 +124,7 @@ def get_obj(typ, name, idx):
         return {"content": xms_data[typ][idx]}
 
 
-def xms_request(object_type='volumes', request_typ='GET', data=None,
+def xms_request(object_type='volumes', method='GET', data=None,
                 name=None, idx=None, ver='v1'):
     if object_type == 'snapshots':
         object_type = 'volumes'
@@ -131,7 +133,7 @@ def xms_request(object_type='volumes', request_typ='GET', data=None,
         res = xms_data[object_type]
     except KeyError:
         raise exception.VolumeDriverException
-    if request_typ == 'GET':
+    if method == 'GET':
         if name or idx:
             return get_obj(object_type, name, idx)
         else:
@@ -142,7 +144,7 @@ def xms_request(object_type='volumes', request_typ='GET', data=None,
                                                            obj['index']),
                                        "name": obj.get('name')}
                                       for obj in res.values()]}
-    elif request_typ == 'POST':
+    elif method == 'POST':
         data = fix_data(data, object_type)
         name_key = get_xms_obj_key(data)
         try:
@@ -162,7 +164,7 @@ def xms_request(object_type='volumes', request_typ='GET', data=None,
 
         return {"links": [{"href": "/%s/%d" %
                           (object_type, data[typ2id[object_type]][2])}]}
-    elif request_typ == 'DELETE':
+    elif method == 'DELETE':
         if object_type == 'consistency-group-volumes':
             data = [cgv for cgv in
                     xms_data['consistency-group-volumes'].values()
@@ -174,34 +176,34 @@ def xms_request(object_type='volumes', request_typ='GET', data=None,
             del xms_data[object_type][data['index']]
         else:
             raise exception.NotFound()
-    elif request_typ == 'PUT':
+    elif method == 'PUT':
         obj = get_obj(object_type, name, idx)['content']
         data = fix_data(data, object_type)
         del data['index']
         obj.update(data)
 
 
-def xms_bad_request(object_type='volumes', request_typ='GET', data=None,
+def xms_bad_request(object_type='volumes', method='GET', data=None,
                     name=None, idx=None, ver='v1'):
-    if request_typ == 'GET':
+    if method == 'GET':
         raise exception.NotFound()
-    elif request_typ == 'POST':
+    elif method == 'POST':
         raise exception.VolumeBackendAPIException('Failed to create ig')
 
 
 def xms_failed_rename_snapshot_request(object_type='volumes',
-                                       request_typ='GET', data=None,
+                                       method='GET', data=None,
                                        name=None, idx=None, ver='v1'):
-    if request_typ == 'POST':
+    if method == 'POST':
         xms_data['volumes'][27] = {}
         return {
             "links": [
                 {
                     "href": "https://host/api/json/v2/types/snapshots/27",
                     "rel": "self"}]}
-    elif request_typ == 'PUT':
+    elif method == 'PUT':
         raise exception.VolumeBackendAPIException(data='Failed to delete')
-    elif request_typ == 'DELETE':
+    elif method == 'DELETE':
         del xms_data['volumes'][27]
 
 
@@ -317,6 +319,12 @@ class EMCXIODriverISCSITestCase(test.TestCase):
                           self.driver.check_for_setup_error)
         xms_data['clusters'] = clusters
         self.driver.check_for_setup_error()
+
+    def test_client4_uses_v2(self, req):
+        def base_req(*args, **kwargs):
+            self.assertIn('v2', args)
+        req.side_effect = base_req
+        self.driver.client.req('volumes')
 
     def test_create_extend_delete_volume(self, req):
         req.side_effect = xms_request
@@ -560,6 +568,20 @@ class EMCXIODriverISCSITestCase(test.TestCase):
                                                      [new_vol1],
                                                      d.cgsnapshot, [snapshot1])
 
+        new_cg_obj = fake_cg.fake_consistencyobject_obj(d.context, id=5)
+        snapset2_name = new_cg_obj.id
+        new_vol1.id = '192eb39b-6c2f-420c-bae3-3cfd117f0001'
+        new_vol2 = fake_volume.fake_volume_obj(d.context)
+        snapset2 = {'vol-list': [xms_data['volumes'][2]['vol-id']],
+                    'name': snapset2_name,
+                    'index': 1}
+        xms_data['snapshot-sets'].update({5: snapset2,
+                                          snapset2_name: snapset2})
+        self.driver.create_consistencygroup_from_src(d.context, new_cg_obj,
+                                                     [new_vol2],
+                                                     None, None,
+                                                     cg_obj, [new_vol1])
+
 
 @mock.patch('requests.request')
 class EMCXIODriverTestCase(test.TestCase):
@@ -571,15 +593,18 @@ class EMCXIODriverTestCase(test.TestCase):
         configuration.san_password = ''
         configuration.san_ip = ''
         configuration.xtremio_cluster_name = ''
+        configuration.driver_ssl_cert_verify = True
+        configuration.driver_ssl_cert_path = '/test/path/root_ca.crt'
 
         def safe_get(key):
-            getattr(configuration, key)
+            return getattr(configuration, key)
 
         configuration.safe_get = safe_get
         self.driver = xtremio.XtremIOISCSIDriver(configuration=configuration)
 
         self.data = CommonData()
 
+    @mock.patch.object(time, 'sleep', mock.Mock(return_value=0))
     def test_retry_request(self, req):
         busy_response = mock.MagicMock()
         busy_response.status_code = 400
@@ -600,6 +625,17 @@ class EMCXIODriverTestCase(test.TestCase):
 
         req.side_effect = busy_request
         self.driver.create_volume(self.data.test_volume)
+
+    def test_verify_cert(self, req):
+        good_response = mock.MagicMock()
+        good_response.status_code = 200
+
+        def request_verify_cert(*args, **kwargs):
+            self.assertEqual(kwargs['verify'], '/test/path/root_ca.crt')
+            return good_response
+
+        req.side_effect = request_verify_cert
+        self.driver.client.req('volumes')
 
 
 @mock.patch('cinder.volume.drivers.emc.xtremio.XtremIOClient.req')
@@ -626,6 +662,33 @@ class EMCXIODriverFibreChannelTestCase(test.TestCase):
         map_data = self.driver.initialize_connection(self.data.test_volume,
                                                      self.data.connector)
         self.assertEqual(1, map_data['data']['target_lun'])
+        self.driver.terminate_connection(self.data.test_volume,
+                                         self.data.connector)
+        self.driver.delete_volume(self.data.test_volume)
+
+    def test_initialize_existing_ig_terminate_connection(self, req):
+        req.side_effect = xms_request
+        self.driver.client = xtremio.XtremIOClient4(
+            self.config, self.config.xtremio_cluster_name)
+
+        self.driver.create_volume(self.data.test_volume)
+
+        pre_existing = 'pre_existing_host'
+        self.driver._create_ig(pre_existing)
+        wwpns = self.driver._get_initiator_name(self.data.connector)
+        for wwpn in wwpns:
+            data = {'initiator-name': wwpn, 'ig-id': pre_existing,
+                    'port-address': wwpn}
+            self.driver.client.req('initiators', 'POST', data)
+
+        def get_fake_initiator(wwpn):
+            return {'port-address': wwpn, 'ig-id': ['', pre_existing, 1]}
+        with mock.patch.object(self.driver.client, 'get_initiator',
+                               side_effect=get_fake_initiator):
+            map_data = self.driver.initialize_connection(self.data.test_volume,
+                                                         self.data.connector)
+        self.assertEqual(1, map_data['data']['target_lun'])
+        self.assertEqual(1, len(xms_data['initiator-groups']))
         self.driver.terminate_connection(self.data.test_volume,
                                          self.data.connector)
         self.driver.delete_volume(self.data.test_volume)

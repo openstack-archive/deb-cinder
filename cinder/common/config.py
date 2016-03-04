@@ -103,7 +103,10 @@ global_opts = [
                 help=_("DEPRECATED: Deploy v1 of the Cinder API.")),
     cfg.BoolOpt('enable_v2_api',
                 default=True,
-                help=_("Deploy v2 of the Cinder API.")),
+                help=_("DEPRECATED: Deploy v2 of the Cinder API.")),
+    cfg.BoolOpt('enable_v3_api',
+                default=True,
+                help=_("Deploy v3 of the Cinder API.")),
     cfg.BoolOpt('api_rate_limit',
                 default=True,
                 help='Enables or disables rate limit of the API.'),
@@ -171,7 +174,8 @@ global_opts = [
     cfg.StrOpt('auth_strategy',
                default='keystone',
                choices=['noauth', 'keystone'],
-               help='The strategy to use for auth. Supports noauth or keystone.'),
+               help='The strategy to use for auth. Supports noauth or '
+                    'keystone.'),
     cfg.ListOpt('enabled_backends',
                 help='A list of backend names to use. These backend names '
                      'should be backed by a unique [CONFIG] group '

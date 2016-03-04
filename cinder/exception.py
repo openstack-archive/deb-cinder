@@ -243,6 +243,20 @@ class InvalidUUID(Invalid):
     message = _("Expected a uuid but received %(uuid)s.")
 
 
+class InvalidAPIVersionString(Invalid):
+    message = _("API Version String %(version)s is of invalid format. Must "
+                "be of format MajorNum.MinorNum.")
+
+
+class VersionNotFoundForAPIMethod(Invalid):
+    message = _("API version %(version)s is not supported on this method.")
+
+
+class InvalidGlobalAPIVersion(Invalid):
+    message = _("Version %(req_ver)s is not supported by the API. Minimum "
+                "is %(min_ver)s and maximum is %(max_ver)s.")
+
+
 class APIException(CinderException):
     message = _("Error while requesting %(service)s API.")
 
@@ -254,6 +268,12 @@ class APIException(CinderException):
 
 class APITimeout(APIException):
     message = _("Timeout while requesting %(service)s API.")
+
+
+class RPCTimeout(CinderException):
+    message = _("Timeout while requesting capabilities from backend "
+                "%(service)s.")
+    code = 502
 
 
 class NotFound(CinderException):
@@ -351,6 +371,10 @@ class ServiceNotFound(NotFound):
     message = _("Service %(service_id)s could not be found.")
 
 
+class ServiceTooOld(Invalid):
+    message = _("Service is too old to fulfil this request.")
+
+
 class HostNotFound(NotFound):
     message = _("Host %(host)s could not be found.")
 
@@ -374,6 +398,11 @@ class InvalidReservationExpiration(Invalid):
 class InvalidQuotaValue(Invalid):
     message = _("Change would make usage less than 0 for the following "
                 "resources: %(unders)s")
+
+
+class InvalidNestedQuotaSetup(CinderException):
+    message = _("Project quotas are not properly setup for nested quotas: "
+                "%(reason)s.")
 
 
 class QuotaNotFound(NotFound):
@@ -678,6 +707,15 @@ class ManageExistingAlreadyManaged(CinderException):
                 "Volume %(volume_ref)s already managed.")
 
 
+class InvalidReplicationTarget(Invalid):
+    message = _("Invalid Replication Target: %(reason)s")
+
+
+class UnableToFailOver(CinderException):
+    message = _("Unable to failover to replication target:"
+                "%(reason)s).")
+
+
 class ReplicationError(CinderException):
     message = _("Volume %(volume_id)s replication "
                 "error: %(reason)s")
@@ -767,6 +805,11 @@ class RemoteFSException(VolumeDriverException):
     message = _("Unknown RemoteFS exception")
 
 
+class RemoteFSConcurrentRequest(RemoteFSException):
+    message = _("A concurrent, possibly contradictory, request "
+                "has been made.")
+
+
 class RemoteFSNoSharesMounted(RemoteFSException):
     message = _("No mounted shares found")
 
@@ -842,11 +885,15 @@ class FCSanLookupServiceException(CinderException):
 
 
 class BrocadeZoningCliException(CinderException):
-    message = _("Fibre Channel Zoning CLI error: %(reason)s")
+    message = _("Brocade Fibre Channel Zoning CLI error: %(reason)s")
+
+
+class BrocadeZoningHttpException(CinderException):
+    message = _("Brocade Fibre Channel Zoning HTTP error: %(reason)s")
 
 
 class CiscoZoningCliException(CinderException):
-    message = _("Fibre Channel Zoning CLI error: %(reason)s")
+    message = _("Cisco Fibre Channel Zoning CLI error: %(reason)s")
 
 
 class NetAppDriverException(VolumeDriverException):

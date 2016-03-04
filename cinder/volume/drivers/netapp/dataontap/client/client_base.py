@@ -1,6 +1,7 @@
 # Copyright (c) 2014 Alex Meade.  All rights reserved.
 # Copyright (c) 2014 Clinton Knight.  All rights reserved.
 # Copyright (c) 2015 Tom Barron.  All rights reserved.
+# Copyright (c) 2016 Mike Rooney. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -24,7 +25,8 @@ from oslo_utils import timeutils
 
 import six
 
-from cinder.i18n import _LE, _LW, _LI
+from cinder import exception
+from cinder.i18n import _, _LE, _LW, _LI
 from cinder import utils
 from cinder.volume.drivers.netapp.dataontap.client import api as netapp_api
 from cinder.volume.drivers.netapp import utils as na_utils
@@ -37,12 +39,23 @@ LOG = logging.getLogger(__name__)
 class Client(object):
 
     def __init__(self, **kwargs):
+        host = kwargs['hostname']
+        username = kwargs['username']
+        password = kwargs['password']
         self.connection = netapp_api.NaServer(
-            host=kwargs['hostname'],
+            host=host,
             transport_type=kwargs['transport_type'],
             port=kwargs['port'],
-            username=kwargs['username'],
-            password=kwargs['password'])
+            username=username,
+            password=password)
+
+        self.ssh_client = self._init_ssh_client(host, username, password)
+
+    def _init_ssh_client(self, host, username, password):
+        return netapp_api.SSHUtil(
+            host=host,
+            username=username,
+            password=password)
 
     def _init_features(self):
         """Set up the repository of available Data ONTAP features."""
@@ -230,6 +243,14 @@ class Client(object):
         """Returns iscsi iqn."""
         raise NotImplementedError()
 
+    def check_iscsi_initiator_exists(self, iqn):
+        """Returns True if initiator exists."""
+        raise NotImplementedError()
+
+    def set_iscsi_chap_authentication(self, iqn, username, password):
+        """Provides NetApp host's CHAP credentials to the backend."""
+        raise NotImplementedError()
+
     def get_lun_list(self):
         """Gets the list of LUNs on filer."""
         raise NotImplementedError()
@@ -257,6 +278,36 @@ class Client(object):
     def get_lun_by_args(self, **args):
         """Retrieves LUNs with specified args."""
         raise NotImplementedError()
+
+    def get_performance_counter_info(self, object_name, counter_name):
+        """Gets info about one or more Data ONTAP performance counters."""
+
+        api_args = {'objectname': object_name}
+        result = self.send_request('perf-object-counter-list-info',
+                                   api_args,
+                                   enable_tunneling=False)
+
+        counters = result.get_child_by_name(
+            'counters') or netapp_api.NaElement('None')
+
+        for counter in counters.get_children():
+
+            if counter.get_child_content('name') == counter_name:
+
+                labels = []
+                label_list = counter.get_child_by_name(
+                    'labels') or netapp_api.NaElement('None')
+                for label in label_list.get_children():
+                    labels.extend(label.get_content().split(','))
+                base_counter = counter.get_child_content('base-counter')
+
+                return {
+                    'name': counter_name,
+                    'labels': labels,
+                    'base-counter': base_counter,
+                }
+        else:
+            raise exception.NotFound(_('Counter %s not found') % counter_name)
 
     def provide_ems(self, requester, netapp_backend, app_version,
                     server_type="cluster"):
@@ -346,3 +397,37 @@ class Client(object):
                 LOG.warning(_LW("Failed to invoke ems. Message : %s"), e)
             finally:
                 requester.last_ems = timeutils.utcnow()
+
+    def delete_snapshot(self, volume_name, snapshot_name):
+        """Deletes a volume snapshot."""
+        api_args = {'volume': volume_name, 'snapshot': snapshot_name}
+        self.send_request('snapshot-delete', api_args)
+
+    def create_cg_snapshot(self, volume_names, snapshot_name):
+        """Creates a consistency group snapshot out of one or more flexvols.
+
+        ONTAP requires an invocation of cg-start to first fence off the
+        flexvols to be included in the snapshot. If cg-start returns
+        success, a cg-commit must be executed to finalized the snapshot and
+        unfence the flexvols.
+        """
+        cg_id = self._start_cg_snapshot(volume_names, snapshot_name)
+        if not cg_id:
+            msg = _('Could not start consistency group snapshot %s.')
+            raise exception.VolumeBackendAPIException(data=msg % snapshot_name)
+        self._commit_cg_snapshot(cg_id)
+
+    def _start_cg_snapshot(self, volume_names, snapshot_name):
+        snapshot_init = {
+            'snapshot': snapshot_name,
+            'timeout': 'relaxed',
+            'volumes': [
+                {'volume-name': volume_name} for volume_name in volume_names
+            ],
+        }
+        result = self.send_request('cg-start', snapshot_init)
+        return result.get_child_content('cg-id')
+
+    def _commit_cg_snapshot(self, cg_id):
+        snapshot_commit = {'cg-id': cg_id}
+        self.send_request('cg-commit', snapshot_commit)

@@ -38,7 +38,6 @@ class DPLISCSIDriver(dplcommon.DPLCOMMONDriver,
         properties['target_portal'] = ''
         properties['target_iqn'] = None
         properties['volume_id'] = volume['id']
-        properties['access_mode'] = 'rw'
 
         dpl_server = self.configuration.san_ip
         dpl_iscsi_port = self.configuration.iscsi_port
@@ -83,7 +82,7 @@ class DPLISCSIDriver(dplcommon.DPLCOMMONDriver,
                                 properties['target_portal'] = tgportal
                                 break
                             properties['target_lun'] = \
-                                assign[connector['initiator'].lower()]
+                                int(assign[connector['initiator'].lower()])
                             break
 
                     if properties['target_portal'] != '':
@@ -97,7 +96,7 @@ class DPLISCSIDriver(dplcommon.DPLCOMMONDriver,
 
                     if properties['target_portal'] != '':
                         properties['target_lun'] = \
-                            tgInfo['logical_unit_number']
+                            int(tgInfo['logical_unit_number'])
                         properties['target_iqn'] = \
                             tgInfo['target_identifier']
                         break

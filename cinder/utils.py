@@ -24,6 +24,7 @@ import datetime
 import functools
 import inspect
 import logging as py_logging
+import math
 import os
 import pyclbr
 import random
@@ -106,14 +107,6 @@ def as_int(obj, quiet=True):
     if not quiet:
         raise TypeError(_("Can not translate %s to integer.") % (obj))
     return obj
-
-
-def is_int_like(val):
-    """Check if a value looks like an int."""
-    try:
-        return str(int(val)) == str(val)
-    except Exception:
-        return False
 
 
 def check_exclusive_options(**kwargs):
@@ -282,9 +275,9 @@ def last_completed_audit_period(unit=None):
 
 
 def list_of_dicts_to_dict(seq, key):
-    """Convert list of dicts to an indexted dict.
+    """Convert list of dicts to an indexed dict.
 
-    Takes a list of dicts, and converts it a nested dict
+    Takes a list of dicts, and converts it to a nested dict
     indexed by <key>
 
     :param seq: list of dicts
@@ -334,6 +327,12 @@ def safe_minidom_parse_string(xml_string):
 
     """
     try:
+        if six.PY3 and isinstance(xml_string, bytes):
+            # On Python 3, minidom.parseString() requires Unicode when
+            # the parser parameter is used.
+            #
+            # Bet that XML used in Cinder is always encoded to UTF-8.
+            xml_string = xml_string.decode('utf-8')
         return minidom.parseString(xml_string, parser=ProtectedExpatParser())
     except sax.SAXParseException:
         raise expat.ExpatError()
@@ -771,6 +770,34 @@ def is_blk_device(dev):
         return False
 
 
+class ComparableMixin(object):
+    def _compare(self, other, method):
+        try:
+            return method(self._cmpkey(), other._cmpkey())
+        except (AttributeError, TypeError):
+            # _cmpkey not implemented, or return different type,
+            # so I can't compare with "other".
+            return NotImplemented
+
+    def __lt__(self, other):
+        return self._compare(other, lambda s, o: s < o)
+
+    def __le__(self, other):
+        return self._compare(other, lambda s, o: s <= o)
+
+    def __eq__(self, other):
+        return self._compare(other, lambda s, o: s == o)
+
+    def __ge__(self, other):
+        return self._compare(other, lambda s, o: s >= o)
+
+    def __gt__(self, other):
+        return self._compare(other, lambda s, o: s > o)
+
+    def __ne__(self, other):
+        return self._compare(other, lambda s, o: s != o)
+
+
 def retry(exceptions, interval=1, retries=3, backoff_rate=2,
           wait_random=False):
 
@@ -995,3 +1022,38 @@ def build_or_str(elements, str_format=None):
     if str_format:
         return str_format % elements
     return elements
+
+
+def calculate_virtual_free_capacity(total_capacity,
+                                    free_capacity,
+                                    provisioned_capacity,
+                                    thin_provisioning_support,
+                                    max_over_subscription_ratio,
+                                    reserved_percentage):
+    """Calculate the virtual free capacity based on thin provisioning support.
+
+    :param total_capacity:  total_capacity_gb of a host_state or pool.
+    :param free_capacity:   free_capacity_gb of a host_state or pool.
+    :param provisioned_capacity:    provisioned_capacity_gb of a host_state
+                                    or pool.
+    :param thin_provisioning_support:   thin_provisioning_support of
+                                        a host_state or a pool.
+    :param max_over_subscription_ratio: max_over_subscription_ratio of
+                                        a host_state or a pool
+    :param reserved_percentage: reserved_percentage of a host_state or
+                                a pool.
+    :returns: the calculated virtual free capacity.
+    """
+
+    total = float(total_capacity)
+    reserved = float(reserved_percentage) / 100
+
+    if thin_provisioning_support:
+        free = (total * max_over_subscription_ratio
+                - provisioned_capacity
+                - math.floor(total * reserved))
+    else:
+        # Calculate how much free space is left after taking into
+        # account the reserved space.
+        free = free_capacity - math.floor(total * reserved)
+    return free

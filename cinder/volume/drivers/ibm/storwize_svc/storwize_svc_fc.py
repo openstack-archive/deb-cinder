@@ -79,9 +79,10 @@ class StorwizeSVCFCDriver(storwize_common.StorwizeSVCCommonDriver):
     1.3.3 - Update driver to use ABC metaclasses
     2.0 - Code refactor, split init file and placed shared methods for
           FC and iSCSI within the StorwizeSVCCommonDriver class
+    2.0.1 - Added support for multiple pools with model update
     """
 
-    VERSION = "2.0"
+    VERSION = "2.0.1"
 
     def __init__(self, *args, **kwargs):
         super(StorwizeSVCFCDriver, self).__init__(*args, **kwargs)
@@ -291,7 +292,12 @@ class StorwizeSVCFCDriver(storwize_common.StorwizeSVCCommonDriver):
                              "target map."))
                 # Build info data structure for zone removing
                 if 'wwpns' in connector and host_name:
-                    target_wwpns = self._helpers.get_conn_fc_wwpns(host_name)
+                    target_wwpns = []
+                    # Returning all target_wwpns in storage_nodes, since
+                    # we cannot determine which wwpns are logged in during
+                    # a VM deletion.
+                    for node in self._state['storage_nodes'].values():
+                        target_wwpns.extend(node['WWPN'])
                     init_targ_map = (self._make_initiator_target_map
                                      (connector['wwpns'],
                                       target_wwpns))

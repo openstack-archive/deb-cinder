@@ -18,6 +18,7 @@ import contextlib
 import datetime
 
 from oslo_log import log as logging
+from oslo_utils import versionutils
 from oslo_versionedobjects import base
 from oslo_versionedobjects import fields
 
@@ -31,6 +32,74 @@ LOG = logging.getLogger('object')
 remotable = base.remotable
 remotable_classmethod = base.remotable_classmethod
 obj_make_list = base.obj_make_list
+
+
+class CinderObjectVersionsHistory(dict):
+    """Helper class that maintains objects version history.
+
+    Current state of object versions is aggregated in a single version number
+    that explicitily identifies a set of object versions. That way a service
+    is able to report what objects it supports using a single string and all
+    the newer services will know exactly what that mean for a single object.
+    """
+
+    def __init__(self):
+        super(CinderObjectVersionsHistory, self).__init__()
+        # NOTE(dulek): This is our pre-history and a starting point - Liberty.
+        # We want Mitaka to be able to talk to Liberty services, so we need to
+        # handle backporting to these objects versions (although I don't expect
+        # we've made a lot of incompatible changes inside the objects).
+        #
+        # If an object doesn't exist in Liberty, RPC API compatibility layer
+        # shouldn't send it or convert it to a dictionary.
+        #
+        # Please note that we do not need to add similar entires for each
+        # release. Liberty is here just for historical reasons.
+        self.versions = ['liberty']
+        self['liberty'] = {
+            'Backup': '1.1',
+            'BackupImport': '1.1',
+            'BackupList': '1.0',
+            'ConsistencyGroup': '1.1',
+            'ConsistencyGroupList': '1.0',
+            'Service': '1.0',
+            'ServiceList': '1.0',
+            'Snapshot': '1.0',
+            'SnapshotList': '1.0',
+            'Volume': '1.1',
+            'VolumeAttachment': '1.0',
+            'VolumeAttachmentList': '1.0',
+            'VolumeList': '1.1',
+            'VolumeType': '1.0',
+            'VolumeTypeList': '1.0',
+        }
+
+    def get_current(self):
+        return self.versions[-1]
+
+    def get_current_versions(self):
+        return self[self.get_current()]
+
+    def add(self, ver, updates):
+        self[ver] = self[self.get_current()].copy()
+        self.versions.append(ver)
+        self[ver].update(updates)
+
+
+OBJ_VERSIONS = CinderObjectVersionsHistory()
+# NOTE(dulek): You should add a new version here each time you bump a version
+# of any object. As a second parameter you need to specify only what changed.
+#
+# When dropping backward compatibility with an OpenStack release we can rework
+# this and remove some history while keeping the versions order.
+OBJ_VERSIONS.add('1.0', {'Backup': '1.3', 'BackupImport': '1.3',
+                         'CGSnapshot': '1.0', 'CGSnapshotList': '1.0',
+                         'ConsistencyGroup': '1.2',
+                         'ConsistencyGroupList': '1.1', 'Service': '1.1',
+                         'Volume': '1.3', 'VolumeTypeList': '1.1'})
+OBJ_VERSIONS.add('1.1', {'Service': '1.2', 'ServiceList': '1.1'})
+OBJ_VERSIONS.add('1.2', {'Backup': '1.4', 'BackupImport': '1.4'})
+OBJ_VERSIONS.add('1.3', {'Service': '1.3'})
 
 
 class CinderObjectRegistry(base.VersionedObjectRegistry):
@@ -260,6 +329,7 @@ class CinderObjectDictCompat(base.VersionedObjectDictCompat):
                        'attribute_name': key})
             return None
         if (value != base._NotSpecifiedSentinel and
+                key not in self.obj_extra_fields and
                 not self.obj_attr_is_set(key)):
             return value
         else:
@@ -320,3 +390,35 @@ class ObjectListBase(base.ObjectListBase):
 
 class CinderObjectSerializer(base.VersionedObjectSerializer):
     OBJ_BASE_CLASS = CinderObject
+
+    def __init__(self, version_cap=None):
+        super(CinderObjectSerializer, self).__init__()
+        self.version_cap = version_cap
+
+    def _get_capped_obj_version(self, obj):
+        objname = obj.obj_name()
+        version_dict = OBJ_VERSIONS.get(self.version_cap, {})
+        version_cap = version_dict.get(objname, None)
+
+        if version_cap:
+            cap_tuple = versionutils.convert_version_to_tuple(version_cap)
+            obj_tuple = versionutils.convert_version_to_tuple(obj.VERSION)
+            if cap_tuple > obj_tuple:
+                # NOTE(dulek): Do not set version cap to be higher than actual
+                # object version as we don't support "forwardporting" of
+                # objects. If service will receive an object that's too old it
+                # should handle it explicitly.
+                version_cap = None
+
+        return version_cap
+
+    def serialize_entity(self, context, entity):
+        if isinstance(entity, (tuple, list, set, dict)):
+            entity = self._process_iterable(context, self.serialize_entity,
+                                            entity)
+        elif (hasattr(entity, 'obj_to_primitive') and
+              callable(entity.obj_to_primitive)):
+            # NOTE(dulek): Backport outgoing object to the capped version.
+            backport_ver = self._get_capped_obj_version(entity)
+            entity = entity.obj_to_primitive(backport_ver)
+        return entity

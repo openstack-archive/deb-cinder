@@ -3297,8 +3297,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_domains.called)
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_controller.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3341,8 +3340,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_domains.called)
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_controller.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3386,8 +3384,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_domains.called)
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_ctrl.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3506,8 +3503,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_domains.called)
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_controller.called)
-        expected = {'access_mode': 'ro',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3549,8 +3545,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_controller.called)
         self.assertTrue(mock_is_virtualport_mode.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3598,8 +3593,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_controller_port_iscsi_config.called)
         self.assertTrue(mock_find_active_controller.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3677,8 +3671,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_controller.called)
         self.assertTrue(mock_find_controller_port_iscsi_config.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3722,8 +3715,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_ctrl.called)
         self.assertTrue(mock_find_controller_port_iscsi_config.called)
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3765,8 +3757,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_ctrl_port.called)
         self.assertTrue(mock_find_active_controller.called)
         self.assertTrue(mock_find_iscsi_config.called)
-        expected = {'access_mode': 'ro',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -3811,8 +3802,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_controller_port_iscsi_config.called)
         # Since we're feeding the same info back multiple times the information
         # will be duped.
-        expected = {'access_mode': 'rw',
-                    'target_discovered': False,
+        expected = {'target_discovered': False,
                     'target_iqn':
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
@@ -5543,7 +5533,8 @@ class DellSCSanAPITestCase(test.TestCase):
         newname = 'guid'
         existing = {'source-name': 'scvolname'}
         self.scapi.manage_existing(newname, existing)
-        mock_get_volume_list.asert_called_once_with(existing, False)
+        mock_get_volume_list.assert_called_once_with(
+            existing.get('source-name'), None, False)
         self.assertTrue(mock_find_mappings.called)
         self.assertTrue(mock_size_to_gb.called)
 
@@ -5563,7 +5554,7 @@ class DellSCSanAPITestCase(test.TestCase):
                           self.scapi.manage_existing,
                           newname,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5584,7 +5575,7 @@ class DellSCSanAPITestCase(test.TestCase):
                           self.scapi.manage_existing,
                           newname,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5610,7 +5601,7 @@ class DellSCSanAPITestCase(test.TestCase):
                           self.scapi.manage_existing,
                           newname,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5640,7 +5631,7 @@ class DellSCSanAPITestCase(test.TestCase):
                           self.scapi.manage_existing,
                           newname,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5675,7 +5666,7 @@ class DellSCSanAPITestCase(test.TestCase):
                           self.scapi.manage_existing,
                           newname,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5697,7 +5688,7 @@ class DellSCSanAPITestCase(test.TestCase):
                                        mock_init):
         existing = {'source-name': 'scvolname'}
         res = self.scapi.get_unmanaged_volume_size(existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5716,7 +5707,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertRaises(exception.ManageExistingInvalidReference,
                           self.scapi.get_unmanaged_volume_size,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5733,7 +5724,7 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertRaises(exception.ManageExistingInvalidReference,
                           self.scapi.get_unmanaged_volume_size,
                           existing)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)
@@ -5756,7 +5747,7 @@ class DellSCSanAPITestCase(test.TestCase):
                           self.scapi.get_unmanaged_volume_size,
                           existing)
         self.assertTrue(mock_size_to_gb.called)
-        mock_get_volume_list.asert_called_once_with(
+        mock_get_volume_list.assert_called_once_with(
             existing.get('source-name'),
             existing.get('source-id'),
             False)

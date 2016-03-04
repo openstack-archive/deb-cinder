@@ -17,6 +17,7 @@ import mock
 import uuid
 
 from iso8601 import iso8601
+from oslo_utils import versionutils
 from oslo_versionedobjects import fields
 from sqlalchemy import sql
 
@@ -25,16 +26,26 @@ from cinder import db
 from cinder.db.sqlalchemy import models
 from cinder import objects
 from cinder import test
+from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import objects as test_objects
 
 
 @objects.base.CinderObjectRegistry.register_if(False)
 class TestObject(objects.base.CinderObject):
+    VERSION = '1.1'
+
     fields = {
         'scheduled_at': objects.base.fields.DateTimeField(nullable=True),
         'uuid': objects.base.fields.UUIDField(),
         'text': objects.base.fields.StringField(nullable=True),
     }
+
+    def obj_make_compatible(self, primitive, target_version):
+        super(TestObject, self).obj_make_compatible(primitive,
+                                                    target_version)
+        target_version = versionutils.convert_version_to_tuple(target_version)
+        if target_version < (1, 1):
+            primitive.pop('text', None)
 
 
 class TestCinderObject(test_objects.BaseObjectsTestCase):
@@ -91,8 +102,8 @@ class TestCinderObject(test_objects.BaseObjectsTestCase):
             fields = {'id': fields.UUIDField(),
                       'name': fields.StringField()}
 
-        test_obj = MyTestObject(id='1', name='foo')
-        refresh_obj = MyTestObject(id='1', name='bar')
+        test_obj = MyTestObject(id=fake.object_id, name='foo')
+        refresh_obj = MyTestObject(id=fake.object_id, name='bar')
         with mock.patch(
                 'cinder.objects.base.CinderObject.get_by_id') as get_by_id:
             get_by_id.return_value = refresh_obj
@@ -107,7 +118,7 @@ class TestCinderObject(test_objects.BaseObjectsTestCase):
                                objects.base.CinderComparableObject):
             fields = {'uuid': fields.UUIDField()}
 
-        test_obj = MyTestObjectNoId(uuid='1', name='foo')
+        test_obj = MyTestObjectNoId(uuid=fake.object_id, name='foo')
         self.assertRaises(NotImplementedError, test_obj.refresh)
 
 
@@ -163,7 +174,7 @@ class TestCinderObjectConditionalUpdate(test.TestCase):
         self.assertEqual(status, volume.status)
         self.assertEqual(size, volume.size)
         dirty = volume.cinder_obj_get_changes()
-        self.assertEqual(list(dirty_keys), dirty.keys())
+        self.assertEqual(list(dirty_keys), list(dirty.keys()))
         for key, value in kwargs.items():
             self.assertEqual(value, getattr(volume, key))
 
@@ -591,7 +602,28 @@ class TestCinderDictObject(test_objects.BaseObjectsTestCase):
         obj.abc = 'val2'
         self.assertEqual('val2', obj.get('abc', 'val'))
         self.assertEqual(42, obj.get('foo'))
+        self.assertEqual(42, obj.get('foo', None))
 
         self.assertTrue('foo' in obj)
         self.assertTrue('abc' in obj)
         self.assertFalse('def' in obj)
+
+
+@mock.patch('cinder.objects.base.OBJ_VERSIONS', {'1.0': {'TestObject': '1.0'},
+                                                 '1.1': {'TestObject': '1.1'},
+                                                 })
+class TestCinderObjectSerializer(test_objects.BaseObjectsTestCase):
+    def setUp(self):
+        super(TestCinderObjectSerializer, self).setUp()
+        self.obj = TestObject(scheduled_at=None, uuid=uuid.uuid4(),
+                              text='text')
+
+    def test_serialize_entity_backport(self):
+        serializer = objects.base.CinderObjectSerializer('1.0')
+        primitive = serializer.serialize_entity(self.context, self.obj)
+        self.assertEqual('1.0', primitive['versioned_object.version'])
+
+    def test_serialize_entity_unknown_version(self):
+        serializer = objects.base.CinderObjectSerializer('0.9')
+        primitive = serializer.serialize_entity(self.context, self.obj)
+        self.assertEqual('1.1', primitive['versioned_object.version'])

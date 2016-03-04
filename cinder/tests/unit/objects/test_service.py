@@ -13,6 +13,7 @@
 #    under the License.
 
 import mock
+import six
 
 from cinder import objects
 from cinder.tests.unit import fake_service
@@ -93,9 +94,46 @@ class TestService(test_objects.BaseObjectsTestCase):
         # new value for that field
         service.refresh()
         self._compare(self, db_service2, service)
+        if six.PY3:
+            call_bool = mock.call.__bool__()
+        else:
+            call_bool = mock.call.__nonzero__()
         service_get.assert_has_calls([mock.call(self.context, 123),
-                                      mock.call.__nonzero__(),
+                                      call_bool,
                                       mock.call(self.context, 123)])
+
+    @mock.patch('cinder.db.service_get_all_by_binary')
+    def _test_get_minimum_version(self, services_update, expected,
+                                  service_get_all_by_binary):
+        services = [fake_service.fake_db_service(**s) for s in services_update]
+        service_get_all_by_binary.return_value = services
+
+        min_rpc = objects.Service.get_minimum_rpc_version(self.context, 'foo')
+        self.assertEqual(expected[0], min_rpc)
+        min_obj = objects.Service.get_minimum_obj_version(self.context, 'foo')
+        self.assertEqual(expected[1], min_obj)
+        service_get_all_by_binary.assert_has_calls(
+            [mock.call(self.context, 'foo', disabled=None)] * 2)
+
+    @mock.patch('cinder.db.service_get_all_by_binary')
+    def test_get_minimum_version(self, service_get_all_by_binary):
+        services_update = [
+            {'rpc_current_version': '1.0', 'object_current_version': '1.3'},
+            {'rpc_current_version': '1.1', 'object_current_version': '1.2'},
+            {'rpc_current_version': '2.0', 'object_current_version': '2.5'},
+        ]
+        expected = ('1.0', '1.2')
+        self._test_get_minimum_version(services_update, expected)
+
+    @mock.patch('cinder.db.service_get_all_by_binary')
+    def test_get_minimum_version_liberty(self, service_get_all_by_binary):
+        services_update = [
+            {'rpc_current_version': '1.0', 'object_current_version': '1.3'},
+            {'rpc_current_version': '1.1', 'object_current_version': None},
+            {'rpc_current_version': None, 'object_current_version': '2.5'},
+        ]
+        expected = ('liberty', 'liberty')
+        self._test_get_minimum_version(services_update, expected)
 
 
 class TestServiceList(test_objects.BaseObjectsTestCase):
@@ -104,8 +142,9 @@ class TestServiceList(test_objects.BaseObjectsTestCase):
         db_service = fake_service.fake_db_service()
         service_get_all.return_value = [db_service]
 
-        services = objects.ServiceList.get_all(self.context, 'foo')
-        service_get_all.assert_called_once_with(self.context, 'foo')
+        filters = {'host': 'host', 'binary': 'foo', 'disabled': False}
+        services = objects.ServiceList.get_all(self.context, filters)
+        service_get_all.assert_called_once_with(self.context, filters)
         self.assertEqual(1, len(services))
         TestService._compare(self, db_service, services[0])
 
@@ -117,6 +156,18 @@ class TestServiceList(test_objects.BaseObjectsTestCase):
         services = objects.ServiceList.get_all_by_topic(
             self.context, 'foo', 'bar')
         service_get_all_by_topic.assert_called_once_with(
+            self.context, 'foo', disabled='bar')
+        self.assertEqual(1, len(services))
+        TestService._compare(self, db_service, services[0])
+
+    @mock.patch('cinder.db.service_get_all_by_binary')
+    def test_get_all_by_binary(self, service_get_all_by_binary):
+        db_service = fake_service.fake_db_service()
+        service_get_all_by_binary.return_value = [db_service]
+
+        services = objects.ServiceList.get_all_by_binary(
+            self.context, 'foo', 'bar')
+        service_get_all_by_binary.assert_called_once_with(
             self.context, 'foo', disabled='bar')
         self.assertEqual(1, len(services))
         TestService._compare(self, db_service, services[0])

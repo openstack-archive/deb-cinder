@@ -93,9 +93,12 @@ class NetAppESeriesDriverTestCase(object):
         self.library = self.driver.library
         self.mock_object(self.library,
                          '_check_mode_get_or_register_storage_system')
+        self.mock_object(self.library, '_version_check')
         self.mock_object(self.driver.library, '_check_storage_system')
         self.driver.do_setup(context='context')
         self.driver.library._client._endpoint = fakes.FAKE_ENDPOINT_HTTP
+        self.driver.library._client.features = mock.Mock()
+        self.driver.library._client.features.REST_1_4_RELEASE = True
 
     def _set_config(self, configuration):
         configuration.netapp_storage_family = 'eseries'
@@ -126,13 +129,11 @@ class NetAppESeriesDriverTestCase(object):
         pass
 
     def test_embedded_mode(self):
-        self.mock_object(self.driver.library,
-                         '_check_mode_get_or_register_storage_system')
         self.mock_object(client.RestClient, '_init_features')
         configuration = self._set_config(self.create_configuration())
         configuration.netapp_controller_ips = '127.0.0.1,127.0.0.3'
-
         driver = common.NetAppDriver(configuration=configuration)
+        self.mock_object(driver.library, '_version_check')
         self.mock_object(client.RestClient, 'list_storage_systems', mock.Mock(
             return_value=[fakes.STORAGE_SYSTEM]))
         driver.do_setup(context='context')
@@ -487,3 +488,70 @@ class NetAppESeriesDriverTestCase(object):
         self.driver.extend_volume(self.fake_ret_vol, capacity)
         self.library.extend_volume.assert_called_with(self.fake_ret_vol,
                                                       capacity)
+
+    @mock.patch.object(library.NetAppESeriesLibrary,
+                       'create_cgsnapshot', mock.Mock())
+    def test_create_cgsnapshot(self):
+        cgsnapshot = copy.deepcopy(fakes.FAKE_CINDER_CG_SNAPSHOT)
+        snapshots = copy.deepcopy([fakes.SNAPSHOT_IMAGE])
+
+        self.driver.create_cgsnapshot('ctx', cgsnapshot, snapshots)
+
+        self.library.create_cgsnapshot.assert_called_with(cgsnapshot,
+                                                          snapshots)
+
+    @mock.patch.object(library.NetAppESeriesLibrary,
+                       'delete_cgsnapshot', mock.Mock())
+    def test_delete_cgsnapshot(self):
+        cgsnapshot = copy.deepcopy(fakes.FAKE_CINDER_CG_SNAPSHOT)
+        snapshots = copy.deepcopy([fakes.SNAPSHOT_IMAGE])
+
+        self.driver.delete_cgsnapshot('ctx', cgsnapshot, snapshots)
+
+        self.library.delete_cgsnapshot.assert_called_with(cgsnapshot,
+                                                          snapshots)
+
+    @mock.patch.object(library.NetAppESeriesLibrary,
+                       'create_consistencygroup', mock.Mock())
+    def test_create_consistencygroup(self):
+        cg = copy.deepcopy(fakes.FAKE_CINDER_CG)
+
+        self.driver.create_consistencygroup('ctx', cg)
+
+        self.library.create_consistencygroup.assert_called_with(cg)
+
+    @mock.patch.object(library.NetAppESeriesLibrary,
+                       'delete_consistencygroup', mock.Mock())
+    def test_delete_consistencygroup(self):
+        cg = copy.deepcopy(fakes.FAKE_CINDER_CG)
+        volumes = copy.deepcopy([fakes.VOLUME])
+
+        self.driver.delete_consistencygroup('ctx', cg, volumes)
+
+        self.library.delete_consistencygroup.assert_called_with(cg, volumes)
+
+    @mock.patch.object(library.NetAppESeriesLibrary,
+                       'update_consistencygroup', mock.Mock())
+    def test_update_consistencygroup(self):
+        group = copy.deepcopy(fakes.FAKE_CINDER_CG)
+
+        self.driver.update_consistencygroup('ctx', group, {}, {})
+
+        self.library.update_consistencygroup.assert_called_with(group, {}, {})
+
+    @mock.patch.object(library.NetAppESeriesLibrary,
+                       'create_consistencygroup_from_src', mock.Mock())
+    def test_create_consistencygroup_from_src(self):
+        cg = copy.deepcopy(fakes.FAKE_CINDER_CG)
+        volumes = copy.deepcopy([fakes.VOLUME])
+        source_vols = copy.deepcopy([fakes.VOLUME])
+        cgsnapshot = copy.deepcopy(fakes.FAKE_CINDER_CG_SNAPSHOT)
+        source_cg = copy.deepcopy(fakes.FAKE_CINDER_CG_SNAPSHOT)
+        snapshots = copy.deepcopy([fakes.SNAPSHOT_IMAGE])
+
+        self.driver.create_consistencygroup_from_src(
+            'ctx', cg, volumes, cgsnapshot, snapshots, source_cg,
+            source_vols)
+
+        self.library.create_consistencygroup_from_src.assert_called_with(
+            cg, volumes, cgsnapshot, snapshots, source_cg, source_vols)

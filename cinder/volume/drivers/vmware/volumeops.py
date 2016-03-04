@@ -1228,6 +1228,26 @@ class VMwareVolumeOps(object):
         self._reconfigure_backing(backing, reconfig_spec)
         LOG.debug("Backing VM: %s reconfigured with new disk.", backing)
 
+    def _create_spec_for_disk_remove(self, disk_device):
+        cf = self._session.vim.client.factory
+        disk_spec = cf.create('ns0:VirtualDeviceConfigSpec')
+        disk_spec.operation = 'remove'
+        disk_spec.device = disk_device
+        return disk_spec
+
+    def detach_disk_from_backing(self, backing, disk_device):
+        """Detach the given disk from backing."""
+
+        LOG.debug("Reconfiguring backing VM: %(backing)s to remove disk: "
+                  "%(disk_device)s.",
+                  {'backing': backing, 'disk_device': disk_device})
+
+        cf = self._session.vim.client.factory
+        reconfig_spec = cf.create('ns0:VirtualMachineConfigSpec')
+        spec = self._create_spec_for_disk_remove(disk_device)
+        reconfig_spec.deviceChange = [spec]
+        self._reconfigure_backing(backing, reconfig_spec)
+
     def rename_backing(self, backing, new_name):
         """Rename backing VM.
 
@@ -1495,6 +1515,32 @@ class VMwareVolumeOps(object):
         LOG.info(_LI("Successfully copied disk at: %(src)s to: %(dest)s."),
                  {'src': src_vmdk_file_path, 'dest': dest_vmdk_file_path})
 
+    def move_vmdk_file(self, src_dc_ref, src_vmdk_file_path,
+                       dest_vmdk_file_path, dest_dc_ref=None):
+        """Move the given vmdk file to another datastore location.
+
+        :param src_dc_ref: Reference to datacenter containing src datastore
+        :param src_vmdk_file_path: Source vmdk file path
+        :param dest_vmdk_file_path: Destination vmdk file path
+        :param dest_dc_ref: Reference to datacenter of dest datastore.
+                            If unspecified, source datacenter is used.
+        """
+        LOG.debug('Moving disk: %(src)s to %(dest)s.',
+                  {'src': src_vmdk_file_path, 'dest': dest_vmdk_file_path})
+
+        dest_dc_ref = dest_dc_ref or src_dc_ref
+        diskMgr = self._session.vim.service_content.virtualDiskManager
+        task = self._session.invoke_api(self._session.vim,
+                                        'MoveVirtualDisk_Task',
+                                        diskMgr,
+                                        sourceName=src_vmdk_file_path,
+                                        sourceDatacenter=src_dc_ref,
+                                        destName=dest_vmdk_file_path,
+                                        destDatacenter=dest_dc_ref,
+                                        force=True)
+
+        self._session.wait_for_task(task)
+
     def delete_vmdk_file(self, vmdk_file_path, dc_ref):
         """Delete given vmdk files.
 
@@ -1542,13 +1588,15 @@ class VMwareVolumeOps(object):
         :param names: list of cluster names
         :return: Dictionary of cluster names to references
         """
+        clusters_ref = {}
         clusters = self._get_all_clusters()
         for name in names:
             if name not in clusters:
                 LOG.error(_LE("Compute cluster: %s not found."), name)
                 raise vmdk_exceptions.ClusterNotFoundException(cluster=name)
+            clusters_ref[name] = clusters[name]
 
-        return {name: clusters[name] for name in names}
+        return clusters_ref
 
     def get_cluster_hosts(self, cluster):
         """Get hosts in the given cluster.
@@ -1567,3 +1615,47 @@ class VMwareVolumeOps(object):
             host_refs.extend(hosts.ManagedObjectReference)
 
         return host_refs
+
+    def get_entity_by_inventory_path(self, path):
+        """Returns the managed object identified by the given inventory path.
+
+        :param path: Inventory path
+        :return: Reference to the managed object
+        """
+        return self._session.invoke_api(
+            self._session.vim,
+            "FindByInventoryPath",
+            self._session.vim.service_content.searchIndex,
+            inventoryPath=path)
+
+    def _get_disk_devices(self, vm):
+        disk_devices = []
+        hardware_devices = self._session.invoke_api(vim_util,
+                                                    'get_object_property',
+                                                    self._session.vim,
+                                                    vm,
+                                                    'config.hardware.device')
+
+        if hardware_devices.__class__.__name__ == "ArrayOfVirtualDevice":
+            hardware_devices = hardware_devices.VirtualDevice
+
+        for device in hardware_devices:
+            if device.__class__.__name__ == "VirtualDisk":
+                disk_devices.append(device)
+
+        return disk_devices
+
+    def get_disk_device(self, vm, vmdk_path):
+        """Get the disk device of the VM which corresponds to the given path.
+
+        :param vm: VM reference
+        :param vmdk_path: Datastore path of virtual disk
+        :return: Matching disk device
+        """
+        disk_devices = self._get_disk_devices(vm)
+
+        for disk_device in disk_devices:
+            backing = disk_device.backing
+            if (backing.__class__.__name__ == "VirtualDiskFlatVer2BackingInfo"
+                    and backing.fileName == vmdk_path):
+                return disk_device
