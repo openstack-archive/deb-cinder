@@ -6,6 +6,7 @@ cinder (2:8.0.0~b3-1) experimental; urgency=medium
   * New (build-)depends on python-oauth2client to ensure its version.
   * Added missing build-depends on git, needed by sphinx-build.
   * Fixed config file generation.
+  * Refreshed / rebased patches.
 
   [ Ondřej Nový ]
   * Fixed homepage (https).
