@@ -2,7 +2,8 @@ cinder (2:8.0.0~b3-1) experimental; urgency=medium
 
   [ Thomas Goirand ]
   * New upstream release.
-  * New (build-)depends on python-oauth2client to ensure version.
+  * Fixed (build-)depends for this release.
+  * New (build-)depends on python-oauth2client to ensure its version.
   * Added missing build-depends on git, needed by sphinx-build.
   * Fixed config file generation.
 
