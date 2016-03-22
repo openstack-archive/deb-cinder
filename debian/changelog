@@ -1,5 +1,6 @@
-cinder (2:8.0.0~b3-2) UNRELEASED; urgency=medium
+cinder (2:8.0.0~rc1-1) experimental; urgency=medium
 
+  * New upstream release.
   * Disable non-deterministic failed tests:
     cinder.tests.unit.test_volume.VolumeTestCase.test_create_delete_volume
 
