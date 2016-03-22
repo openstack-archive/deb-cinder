@@ -5,6 +5,7 @@ cinder (2:8.0.0~rc1-1) experimental; urgency=medium
     cinder.tests.unit.test_volume.VolumeTestCase.test_create_delete_volume
   * Fixed (build-)depends for this release.
   * Removed install-missing-files.patch.
+  * Standards-Version: 3.9.7 (no change).
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 14 Mar 2016 14:10:58 +0100
 
