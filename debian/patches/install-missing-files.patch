@@ -1,0 +1,9 @@
+Description: Install missing files
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: not-needed
+Last-Update: 2016-03-22
+
+--- /dev/null	2015-11-25 10:13:06.495404578 +0000
++++ b/MANIFEST.in	2016-03-22 10:59:45.903008926 +0000
+@@ -0,0 +1 @@
++recursive-include cinder *

@@ -1,2 +1,3 @@
 no-zfssa-tests.patch
 remove-zfssa-from-opts.py.patch
+install-missing-files.patch
