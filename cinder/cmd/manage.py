@@ -414,6 +414,20 @@ class BackupCommands(object):
                          backup['size'],
                          object_count))
 
+    @args('--currenthost', required=True, help='Existing backup host name')
+    @args('--newhost', required=True, help='New backup host name')
+    def update_backup_host(self, currenthost, newhost):
+        """Modify the host name associated with a backup.
+
+        Particularly to recover from cases where one has moved
+        their Cinder Backup node, and not set backup_use_same_backend.
+        """
+        ctxt = context.get_admin_context()
+        backups = objects.BackupList.get_all_by_host(ctxt, currenthost)
+        for bk in backups:
+            bk.host = newhost
+            bk.save()
+
 
 class ServiceCommands(object):
     """Methods for managing services."""
@@ -421,13 +435,15 @@ class ServiceCommands(object):
         """Show a list of all cinder services."""
         ctxt = context.get_admin_context()
         services = objects.ServiceList.get_all(ctxt)
-        print_format = "%-16s %-36s %-16s %-10s %-5s %-10s"
+        print_format = "%-16s %-36s %-16s %-10s %-5s %-20s %-12s %-15s"
         print(print_format % (_('Binary'),
                               _('Host'),
                               _('Zone'),
                               _('Status'),
                               _('State'),
-                              _('Updated At')))
+                              _('Updated At'),
+                              _('RPC Version'),
+                              _('Object Version')))
         for svc in services:
             alive = utils.service_is_up(svc)
             art = ":-)" if alive else "XXX"
@@ -437,9 +453,13 @@ class ServiceCommands(object):
             updated_at = svc.updated_at
             if updated_at:
                 updated_at = timeutils.normalize_time(updated_at)
+            rpc_version = (svc.rpc_current_version or
+                           rpc.LIBERTY_RPC_VERSIONS.get(svc.binary, ''))
+            object_version = (svc.object_current_version or 'liberty')
             print(print_format % (svc.binary, svc.host.partition('.')[0],
                                   svc.availability_zone, status, art,
-                                  updated_at))
+                                  updated_at, rpc_version,
+                                  object_version))
 
     @args('binary', type=str,
           help='Service to delete from the host.')
@@ -451,7 +471,7 @@ class ServiceCommands(object):
         try:
             svc = objects.Service.get_by_args(ctxt, host_name, binary)
             svc.destroy()
-        except exception.HostBinaryNotFound as e:
+        except exception.ServiceNotFound as e:
             print(_("Host not found. Failed to remove %(service)s"
                     " on %(host)s.") %
                   {'service': binary, 'host': host_name})

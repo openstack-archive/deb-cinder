@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import ddt
 import mock
 import six
 
@@ -25,6 +26,7 @@ from cinder.tests.unit import fake_volume
 from cinder.tests.unit import objects as test_objects
 
 
+@ddt.ddt
 class TestVolume(test_objects.BaseObjectsTestCase):
     @staticmethod
     def _compare(test, db, obj):
@@ -335,15 +337,30 @@ class TestVolume(test_objects.BaseObjectsTestCase):
 
     @mock.patch('cinder.db.volume_metadata_update', return_value={})
     @mock.patch('cinder.db.volume_update')
-    def test_finish_volume_migration(self, volume_update, metadata_update):
-        src_volume_db = fake_volume.fake_db_volume(**{'id': fake.volume_id})
-        dest_volume_db = fake_volume.fake_db_volume(**{'id': fake.volume2_id})
+    @ddt.data({'src_vol_type_id': fake.volume_type_id,
+               'dest_vol_type_id': fake.volume_type2_id},
+              {'src_vol_type_id': None,
+               'dest_vol_type_id': fake.volume_type2_id})
+    @ddt.unpack
+    def test_finish_volume_migration(self, volume_update, metadata_update,
+                                     src_vol_type_id, dest_vol_type_id):
+        src_volume_db = fake_volume.fake_db_volume(
+            **{'id': fake.volume_id, 'volume_type_id': src_vol_type_id})
+        if src_vol_type_id:
+            src_volume_db['volume_type'] = fake_volume.fake_db_volume_type(
+                id=src_vol_type_id)
+        dest_volume_db = fake_volume.fake_db_volume(
+            **{'id': fake.volume2_id, 'volume_type_id': dest_vol_type_id})
+        if dest_vol_type_id:
+            dest_volume_db['volume_type'] = fake_volume.fake_db_volume_type(
+                id=dest_vol_type_id)
+        expected_attrs = objects.Volume._get_expected_attrs(self.context)
         src_volume = objects.Volume._from_db_object(
             self.context, objects.Volume(), src_volume_db,
-            expected_attrs=['metadata', 'glance_metadata'])
+            expected_attrs=expected_attrs)
         dest_volume = objects.Volume._from_db_object(
             self.context, objects.Volume(), dest_volume_db,
-            expected_attrs=['metadata', 'glance_metadata'])
+            expected_attrs=expected_attrs)
         updated_dest_volume = src_volume.finish_volume_migration(
             dest_volume)
         self.assertEqual('deleting', updated_dest_volume.migration_status)
@@ -351,16 +368,33 @@ class TestVolume(test_objects.BaseObjectsTestCase):
                          updated_dest_volume.display_description)
         self.assertEqual(src_volume.id, updated_dest_volume._name_id)
         self.assertTrue(volume_update.called)
+        ctxt, vol_id, updates = volume_update.call_args[0]
+        self.assertNotIn('volume_type', updates)
 
+        # Ensure that the destination volume type has not been overwritten
+        self.assertEqual(dest_vol_type_id,
+                         getattr(updated_dest_volume, 'volume_type_id'))
         # Ignore these attributes, since they were updated by
         # finish_volume_migration
         ignore_keys = ('id', 'provider_location', '_name_id',
-                       'migration_status', 'display_description', 'status')
-        dest_vol_filtered = {k: v for k, v in updated_dest_volume.iteritems()
-                             if k not in ignore_keys}
-        src_vol_filtered = {k: v for k, v in src_volume.iteritems()
-                            if k not in ignore_keys}
-        self.assertEqual(src_vol_filtered, dest_vol_filtered)
+                       'migration_status', 'display_description', 'status',
+                       'volume_type_id', 'volume_glance_metadata',
+                       'volume_type')
+
+        dest_vol_dict = {k: updated_dest_volume[k] for k in
+                         updated_dest_volume.keys() if k not in ignore_keys}
+        src_vol_dict = {k: src_volume[k] for k in src_volume.keys()
+                        if k not in ignore_keys}
+        self.assertEqual(src_vol_dict, dest_vol_dict)
+
+    def test_volume_with_metadata_serialize_deserialize_no_changes(self):
+        updates = {'volume_glance_metadata': [{'key': 'foo', 'value': 'bar'}],
+                   'expected_attrs': ['glance_metadata']}
+        volume = fake_volume.fake_volume_obj(self.context, **updates)
+        serializer = objects.base.CinderObjectSerializer()
+        serialized_volume = serializer.serialize_entity(self.context, volume)
+        volume = serializer.deserialize_entity(self.context, serialized_volume)
+        self.assertDictEqual({}, volume.obj_get_changes())
 
 
 class TestVolumeList(test_objects.BaseObjectsTestCase):

@@ -43,7 +43,7 @@ import cinder.volume
 from cinder.volume import utils as volume_utils
 
 backup_api_opts = [
-    cfg.BoolOpt('backup_use_same_backend',
+    cfg.BoolOpt('backup_use_same_host',
                 default=False,
                 help='Backup services use same backend.')
 ]
@@ -200,6 +200,9 @@ class API(base.Base):
         # This snippet should go away in Newton. Note that volume_host
         # parameter will also be unnecessary then.
         if not self._is_scalable_only():
+            if volume_host:
+                volume_host = volume_utils.extract_host(volume_host,
+                                                        level='host')
             if volume_host and self._is_backup_service_enabled(az,
                                                                volume_host):
                 return volume_host
@@ -209,10 +212,10 @@ class API(base.Base):
                 raise exception.ServiceNotFound(service_id='cinder-backup')
 
         backup_host = None
-        if host and self._is_backup_service_enabled(az, host):
-            backup_host = host
-        if not backup_host and (not host or CONF.backup_use_same_backend):
+        if (not host or not CONF.backup_use_same_host):
             backup_host = self._get_any_available_backup_service(az)
+        elif self._is_backup_service_enabled(az, host):
+            backup_host = host
         if not backup_host:
             raise exception.ServiceNotFound(service_id='cinder-backup')
         return backup_host
@@ -243,6 +246,12 @@ class API(base.Base):
         if snapshot_id:
             snapshot = self.volume_api.get_snapshot(context, snapshot_id)
 
+            if volume_id != snapshot.volume_id:
+                msg = (_('Volume %(vol1)s does not match with '
+                         'snapshot.volume_id %(vol2)s.')
+                       % {'vol1': volume_id,
+                          'vol2': snapshot.volume_id})
+                raise exception.InvalidVolume(reason=msg)
         if volume['status'] not in ["available", "in-use"]:
             msg = (_('Volume to be backed up must be available '
                      'or in-use, but the current status is "%s".')
@@ -444,7 +453,7 @@ class API(base.Base):
         # Setting the status here rather than setting at start and unrolling
         # for each error condition, it should be a very small window
         backup.host = self._get_available_backup_service_host(
-            backup.host, backup.availability_zone)
+            backup.host, backup.availability_zone, volume_host=volume.host)
         backup.status = fields.BackupStatus.RESTORING
         backup.restore_volume_id = volume.id
         backup.save()

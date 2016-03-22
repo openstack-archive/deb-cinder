@@ -69,6 +69,8 @@ class QuotaSetsController(wsgi.Controller):
         if QUOTAS.using_nested_quotas():
             used += v.get('allocated', 0)
         if value < used:
+            # TODO(mc_nair): after N opens, update error message to include
+            # the current usage and requested limit
             msg = _("Quota %s limit must be equal or greater than existing "
                     "resources.") % key
             raise webob.exc.HTTPBadRequest(explanation=msg)
@@ -163,7 +165,7 @@ class QuotaSetsController(wsgi.Controller):
         a show.
 
         :param req: request
-        :param id: target project id that needs to be updated
+        :param id: target project id that needs to be shown
         """
         context = req.environ['cinder.context']
         authorize_show(context)
@@ -269,7 +271,7 @@ class QuotaSetsController(wsgi.Controller):
             if key in NON_QUOTA_KEYS:
                 continue
 
-            value = self.validate_integer(
+            value = utils.validate_integer(
                 body['quota_set'][key], key, min_value=-1,
                 max_value=db.MAX_INT)
 
@@ -352,7 +354,7 @@ class QuotaSetsController(wsgi.Controller):
         CLOUD admin are able to perform a delete.
 
         :param req: request
-        :param id: target project id that needs to be updated
+        :param id: target project id that needs to be deleted
         """
         context = req.environ['cinder.context']
         authorize_delete(context)
@@ -378,16 +380,6 @@ class QuotaSetsController(wsgi.Controller):
         target_project = quota_utils.get_project_hierarchy(
             ctxt, proj_id)
         parent_id = target_project.parent_id
-        # If the project which is being deleted has allocated part of its
-        # quota to its subprojects, then subprojects' quotas should be
-        # deleted first.
-        for res, value in project_quotas.items():
-            if 'allocated' in project_quotas[res].keys():
-                if project_quotas[res]['allocated'] != 0:
-                    msg = _("About to delete child projects having "
-                            "non-zero quota. This should not be performed")
-                    raise webob.exc.HTTPBadRequest(explanation=msg)
-
         if parent_id:
             # Get the children of the project which the token is scoped to
             # in order to know if the target_project is in its hierarchy.
@@ -397,16 +389,30 @@ class QuotaSetsController(wsgi.Controller):
                                              target_project.id,
                                              parent_id)
 
-            try:
-                db.quota_destroy_by_project(ctxt, target_project.id)
-            except exception.AdminRequired:
-                raise webob.exc.HTTPForbidden()
+        defaults = QUOTAS.get_defaults(ctxt, proj_id)
+        # If the project which is being deleted has allocated part of its
+        # quota to its subprojects, then subprojects' quotas should be
+        # deleted first.
+        for res, value in project_quotas.items():
+            if 'allocated' in project_quotas[res].keys():
+                if project_quotas[res]['allocated'] != 0:
+                    msg = _("About to delete child projects having "
+                            "non-zero quota. This should not be performed")
+                    raise webob.exc.HTTPBadRequest(explanation=msg)
+            # Ensure quota usage wouldn't exceed limit on a delete
+            self._validate_existing_resource(
+                res, defaults[res], project_quotas)
 
-            for res, limit in project_quotas.items():
-                # Update child limit to 0 so the parent hierarchy gets it's
-                # allocated values updated properly
-                self._update_nested_quota_allocated(
-                    ctxt, target_project, project_quotas, res, 0)
+        try:
+            db.quota_destroy_by_project(ctxt, target_project.id)
+        except exception.AdminRequired:
+            raise webob.exc.HTTPForbidden()
+
+        for res, limit in project_quotas.items():
+            # Update child limit to 0 so the parent hierarchy gets it's
+            # allocated values updated properly
+            self._update_nested_quota_allocated(
+                ctxt, target_project, project_quotas, res, 0)
 
     def validate_setup_for_nested_quota_use(self, req):
         """Validates that the setup supports using nested quotas.

@@ -36,12 +36,20 @@ LOG = logging.getLogger(__name__)
 class RestClient(object):
     """Common class for Huawei OceanStor storage system."""
 
-    def __init__(self, configuration, san_address, san_user, san_password):
+    def __init__(self, configuration, san_address, san_user, san_password,
+                 **kwargs):
         self.configuration = configuration
         self.san_address = san_address
         self.san_user = san_user
         self.san_password = san_password
         self.init_http_head()
+        self.storage_pools = kwargs.get('storage_pools',
+                                        self.configuration.storage_pools)
+        self.iscsi_info = kwargs.get('iscsi_info',
+                                     self.configuration.iscsi_info)
+        self.iscsi_default_target_ip = kwargs.get(
+            'iscsi_default_target_ip',
+            self.configuration.iscsi_default_target_ip)
 
     def init_http_head(self):
         self.cookie = http_cookiejar.CookieJar()
@@ -131,6 +139,12 @@ class RestClient(object):
             raise exception.VolumeBackendAPIException(data=msg)
 
         return device_id
+
+    def try_login(self):
+        try:
+            self.login()
+        except Exception as err:
+            LOG.warning(_LW('Login failed. Error: %s.'), err)
 
     @utils.synchronized('huawei_cinder_call')
     def call(self, url, data=None, method=None):
@@ -240,7 +254,7 @@ class RestClient(object):
         if not pool_info:
             # The following code is to keep compatibility with old version of
             # Huawei driver.
-            for pool_name in self.configuration.storage_pools:
+            for pool_name in self.storage_pools:
                 pool_info = self.get_pool_info(pool_name, pools)
                 if pool_info:
                     break
@@ -762,9 +776,9 @@ class RestClient(object):
                                      initiator_name,
                                      host_id):
         """Associate initiator with the host."""
-        chapinfo = self.find_chap_info(self.configuration.iscsi_info,
+        chapinfo = self.find_chap_info(self.iscsi_info,
                                        initiator_name)
-        multipath_type = self._find_alua_info(self.configuration.iscsi_info,
+        multipath_type = self._find_alua_info(self.iscsi_info,
                                               initiator_name)
         if chapinfo:
             LOG.info(_LI('Use CHAP when adding initiator to host.'))
@@ -1118,7 +1132,7 @@ class RestClient(object):
         data = {}
         data['pools'] = []
         result = self.get_all_pools()
-        for pool_name in self.configuration.storage_pools:
+        for pool_name in self.storage_pools:
             capacity = self._get_capacity(pool_name, result)
             pool = {}
             pool.update(dict(
@@ -1198,7 +1212,7 @@ class RestClient(object):
         target_iqns = []
         portgroup = None
         portgroup_id = None
-        for ini in self.configuration.iscsi_info:
+        for ini in self.iscsi_info:
             if ini['Name'] == initiator:
                 for key in ini:
                     if key == 'TargetPortGroup':
@@ -1212,7 +1226,7 @@ class RestClient(object):
 
         # If not specify target IP for some initiators, use default IP.
         if not target_ips:
-            default_target_ips = self.configuration.iscsi_default_target_ip
+            default_target_ips = self.iscsi_default_target_ip
             if default_target_ips:
                 target_ips.append(default_target_ips[0])
 
@@ -1515,24 +1529,40 @@ class RestClient(object):
         """"Find available QoS on the array."""
         qos_id = None
         lun_list = []
+        extra_qos = [i for i in constants.EXTRA_QOS_KEYS if i not in qos]
         result = self.get_qos()
 
         if 'data' in result:
-            for item in result['data']:
+            for items in result['data']:
                 qos_flag = 0
+                extra_flag = False
+                if 'LATENCY' not in qos and items['LATENCY'] != '0':
+                        extra_flag = True
+                else:
+                    for item in items:
+                        if item in extra_qos:
+                            extra_flag = True
+                            break
                 for key in qos:
-                    if key not in item:
+                    if key not in items:
                         break
-                    elif qos[key] != item[key]:
+                    elif qos[key] != items[key]:
                         break
                     qos_flag = qos_flag + 1
-                lun_num = len(item['LUNLIST'].split(","))
+                lun_num = len(items['LUNLIST'].split(","))
+                qos_name = items['NAME']
+                qos_status = items['RUNNINGSTATUS']
                 # We use this QoS only if the LUNs in it is less than 64,
+                # created by OpenStack and does not contain filesystem,
                 # else we cannot add LUN to this QoS any more.
                 if (qos_flag == len(qos)
-                        and lun_num < constants.MAX_LUN_NUM_IN_QOS):
-                    qos_id = item['ID']
-                    lun_list = item['LUNLIST']
+                        and not extra_flag
+                        and lun_num < constants.MAX_LUN_NUM_IN_QOS
+                        and qos_name.startswith(constants.QOS_NAME_PREFIX)
+                        and qos_status == constants.STATUS_QOS_ACTIVE
+                        and items['FSLIST'] == '[""]'):
+                    qos_id = items['ID']
+                    lun_list = items['LUNLIST']
                     break
 
         return (qos_id, lun_list)
@@ -2094,3 +2124,11 @@ class RestClient(object):
 
         msg = _('Set pair secondary access error.')
         self._assert_rest_result(result, msg)
+
+    def is_host_associated_to_hostgroup(self, host_id):
+        url = "/host/" + host_id
+        result = self.call(url, None, "GET")
+        data = result.get('data')
+        if data is not None:
+            return data.get('ISADD2HOSTGROUP') == 'true'
+        return False

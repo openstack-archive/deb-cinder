@@ -390,8 +390,8 @@ class API(base.Base):
 
         if not result:
             status = utils.build_or_str(expected.get('status'),
-                                        _(' status must be %s and '))
-            msg = _('Volume%s must not be migrating, attached, belong to a '
+                                        _('status must be %s and'))
+            msg = _('Volume %s must not be migrating, attached, belong to a '
                     'consistency group or have snapshots.') % status
             LOG.info(msg)
             raise exception.InvalidVolume(reason=msg)
@@ -425,8 +425,8 @@ class API(base.Base):
             try:
                 self.key_manager.delete_key(context, encryption_key_id)
             except Exception as e:
-                msg = _("Unable to delete encrypted volume: %s.") % e.msg
-                raise exception.InvalidVolume(reason=msg)
+                LOG.warning(_LW("Unable to delete encryption key for "
+                                "volume: %s."), e.msg, resource=volume)
 
         self.volume_rpcapi.delete_volume(context,
                                          volume,
@@ -942,8 +942,8 @@ class API(base.Base):
         result = snapshot.conditional_update({'status': 'deleting'}, expected)
         if not result:
             status = utils.build_or_str(expected.get('status'),
-                                        _(' status must be %s and '))
-            msg = (_('Snapshot%s must not be part of a consistency group.') %
+                                        _('status must be %s and'))
+            msg = (_('Snapshot %s must not be part of a consistency group.') %
                    status)
             LOG.error(msg)
             raise exception.InvalidSnapshot(reason=msg)
@@ -1524,13 +1524,18 @@ class API(base.Base):
             elevated = context.elevated()
             try:
                 svc_host = volume_utils.extract_host(host, 'backend')
-                service = objects.Service.get_by_host_and_topic(
-                    elevated, svc_host, CONF.volume_topic)
+                service = objects.Service.get_by_args(
+                    elevated, svc_host, 'cinder-volume')
             except exception.ServiceNotFound:
                 with excutils.save_and_reraise_exception():
                     LOG.error(_LE('Unable to find service: %(service)s for '
                                   'given host: %(host)s.'),
                               {'service': CONF.volume_topic, 'host': host})
+            if service.disabled:
+                LOG.error(_LE('Unable to manage_existing volume on a disabled '
+                              'service.'))
+                raise exception.ServiceUnavailable()
+
             availability_zone = service.get('availability_zone')
 
         manage_what = {
@@ -1569,13 +1574,19 @@ class API(base.Base):
                                  metadata=None):
         host = volume_utils.extract_host(volume['host'])
         try:
-            objects.Service.get_by_host_and_topic(context.elevated(), host,
-                                                  CONF.volume_topic)
+            # NOTE(jdg): We don't use this, we just make sure it's valid
+            # and exists before sending off the call
+            service = objects.Service.get_by_args(
+                context.elevated(), host, 'cinder-volume')
         except exception.ServiceNotFound:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Unable to find service: %(service)s for '
                               'given host: %(host)s.'),
                           {'service': CONF.volume_topic, 'host': host})
+        if service.disabled:
+            LOG.error(_LE('Unable to manage_existing snapshot on a disabled '
+                          'service.'))
+            raise exception.ServiceUnavailable()
 
         snapshot_object = self.create_snapshot_in_db(context, volume, name,
                                                      description, False,
@@ -1595,7 +1606,7 @@ class API(base.Base):
         svc_host = volume_utils.extract_host(host, 'backend')
 
         service = objects.Service.get_by_args(
-            ctxt, svc_host, CONF.volume_topic)
+            ctxt, svc_host, 'cinder-volume')
         expected = {'replication_status': [fields.ReplicationStatus.ENABLED,
                     fields.ReplicationStatus.FAILED_OVER]}
         result = service.conditional_update(
@@ -1608,19 +1619,15 @@ class API(base.Base):
                    % expected_status)
             LOG.error(msg)
             raise exception.InvalidInput(reason=msg)
-        active_backend_id = self.volume_rpcapi.failover_host(
-            ctxt, host,
-            secondary_id)
-        return active_backend_id
+        self.volume_rpcapi.failover_host(ctxt, host, secondary_id)
 
     def freeze_host(self, ctxt, host):
 
         ctxt = context.get_admin_context()
         svc_host = volume_utils.extract_host(host, 'backend')
 
-        # NOTE(jdg): get_by_host_and_topic filters out disabled
         service = objects.Service.get_by_args(
-            ctxt, svc_host, CONF.volume_topic)
+            ctxt, svc_host, 'cinder-volume')
         expected = {'frozen': False}
         result = service.conditional_update(
             {'frozen': True}, expected)
@@ -1639,9 +1646,8 @@ class API(base.Base):
         ctxt = context.get_admin_context()
         svc_host = volume_utils.extract_host(host, 'backend')
 
-        # NOTE(jdg): get_by_host_and_topic filters out disabled
         service = objects.Service.get_by_args(
-            ctxt, svc_host, CONF.volume_topic)
+            ctxt, svc_host, 'cinder-volume')
         expected = {'frozen': True}
         result = service.conditional_update(
             {'frozen': False}, expected)
@@ -1669,6 +1675,13 @@ class API(base.Base):
                         filters[k] = True
                     else:
                         filters[k] = bool(v)
+                elif k == 'display_name':
+                    # Use the raw value of display name as is for the filter
+                    # without passing it through ast.literal_eval(). If the
+                    # display name is a properly quoted string (e.g. '"foo"')
+                    # then literal_eval() strips the quotes (i.e. 'foo'), so
+                    # the filter becomes different from the user input.
+                    continue
                 else:
                     filters[k] = ast.literal_eval(v)
             except (ValueError, SyntaxError):

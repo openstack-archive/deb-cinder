@@ -914,6 +914,14 @@ class VolumeApiTest(test.TestCase):
                           self.controller.index,
                           req)
 
+        # Test that we get an exception HTTPBadRequest(400) with an offset
+        # greater than the maximum offset value.
+        url = '/v2/volumes?limit=2&offset=43543564546567575'
+        req = fakes.HTTPRequest.blank(url)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.index,
+                          req)
+
     def test_volume_detail_with_marker(self):
         def stub_volume_get_all_by_project(context, project_id, marker, limit,
                                            sort_keys=None, sort_dirs=None,
@@ -1001,6 +1009,12 @@ class VolumeApiTest(test.TestCase):
                           req)
 
         req = fakes.HTTPRequest.blank('/v2/volumes/detail?limit=a&offset=1')
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.detail,
+                          req)
+
+        url = '/v2/volumes/detail?limit=2&offset=4536546546546467'
+        req = fakes.HTTPRequest.blank(url)
         self.assertRaises(webob.exc.HTTPBadRequest,
                           self.controller.detail,
                           req)
@@ -1362,19 +1376,45 @@ class VolumeApiTest(test.TestCase):
         body = {'volume': 'string'}
         self._create_volume_bad_request(body=body)
 
-    @mock.patch('cinder.volume.api.API.get_all')
-    def test_get_volumes_filter_with_string(self, get_all):
+    def _test_get_volumes_by_name(self, get_all, display_name):
         req = mock.MagicMock()
         context = mock.Mock()
         req.environ = {'cinder.context': context}
-        req.params = {'display_name': 'Volume-573108026'}
+        req.params = {'display_name': display_name}
         self.controller._view_builder.detail_list = mock.Mock()
         self.controller._get_volumes(req, True)
         get_all.assert_called_once_with(
             context, None, CONF.osapi_max_limit,
             sort_keys=['created_at'], sort_dirs=['desc'],
-            filters={'display_name': 'Volume-573108026'},
+            filters={'display_name': display_name},
             viewable_admin_meta=True, offset=0)
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_string(self, get_all):
+        """Test to get a volume with an alpha-numeric display name."""
+        self._test_get_volumes_by_name(get_all, 'Volume-573108026')
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_double_quoted_string(self, get_all):
+        """Test to get a volume with a double-quoted display name."""
+        self._test_get_volumes_by_name(get_all, '"Volume-573108026"')
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_single_quoted_string(self, get_all):
+        """Test to get a volume with a single-quoted display name."""
+        self._test_get_volumes_by_name(get_all, "'Volume-573108026'")
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_quote_in_between_string(self, get_all):
+        """Test to get a volume with a quote in between the display name."""
+        self._test_get_volumes_by_name(get_all, 'Volu"me-573108026')
+
+    @mock.patch('cinder.volume.api.API.get_all')
+    def test_get_volumes_filter_with_mixed_quoted_string(self, get_all):
+        """Test to get a volume with a mix of single and double quotes. """
+        # The display name starts with a single quote and ends with a
+        # double quote
+        self._test_get_volumes_by_name(get_all, '\'Volume-573108026"')
 
     @mock.patch('cinder.volume.api.API.get_all')
     def test_get_volumes_filter_with_true(self, get_all):

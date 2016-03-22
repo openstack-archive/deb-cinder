@@ -40,6 +40,8 @@ except ImportError:
 STORAGEGROUPTYPE = 4
 POSTGROUPTYPE = 3
 CLONE_REPLICATION_TYPE = 10
+MAX_POOL_LENGTH = 16
+MAX_FASTPOLICY_LENGTH = 14
 
 EMC_ROOT = 'root/emc'
 CONCATENATED = 'concatenated'
@@ -62,6 +64,9 @@ class EMCVMAXUtils(object):
     This Utility class is for EMC volume drivers based on SMI-S.
     It supports VMAX arrays.
     """
+    SLO = 'storagetype:slo'
+    WORKLOAD = 'storagetype:workload'
+    POOL = 'storagetype:pool'
 
     def __init__(self, prtcl):
         if not pywbemAvailable:
@@ -405,18 +410,9 @@ class EMCVMAXUtils(object):
             :raises: VolumeBackendAPIException
             """
             retries = kwargs['retries']
-            maxJobRetries = self._get_max_job_retries(extraSpecs)
-            wait_for_sync_called = kwargs['wait_for_sync_called']
-            if self._is_sync_complete(conn, syncName):
-                raise loopingcall.LoopingCallDone()
-            if retries > maxJobRetries:
-                LOG.error(_LE("_wait_for_sync failed after %(retries)d "
-                              "tries."),
-                          {'retries': retries})
-                raise loopingcall.LoopingCallDone()
             try:
                 kwargs['retries'] = retries + 1
-                if not wait_for_sync_called:
+                if not kwargs['wait_for_sync_called']:
                     if self._is_sync_complete(conn, syncName):
                         kwargs['wait_for_sync_called'] = True
             except Exception:
@@ -425,11 +421,21 @@ class EMCVMAXUtils(object):
                 LOG.exception(exceptionMessage)
                 raise exception.VolumeBackendAPIException(exceptionMessage)
 
+            if kwargs['retries'] > maxJobRetries:
+                LOG.error(_LE("_wait_for_sync failed after %(retries)d "
+                              "tries."),
+                          {'retries': retries})
+                raise loopingcall.LoopingCallDone(retvalue=maxJobRetries)
+            if kwargs['wait_for_sync_called']:
+                raise loopingcall.LoopingCallDone()
+
+        maxJobRetries = self._get_max_job_retries(extraSpecs)
         kwargs = {'retries': 0,
                   'wait_for_sync_called': False}
         intervalInSecs = self._get_interval_in_secs(extraSpecs)
         timer = loopingcall.FixedIntervalLoopingCall(_wait_for_sync)
-        timer.start(interval=intervalInSecs).wait()
+        rc = timer.start(interval=intervalInSecs).wait()
+        return rc
 
     def _is_sync_complete(self, conn, syncName):
         """Check if the job is finished.
@@ -1526,16 +1532,6 @@ class EMCVMAXUtils(object):
                                'workload': workload})
         return storageGroupName
 
-    def strip_short_host_name(self, storageGroupName):
-        tempList = storageGroupName.split("-")
-        if len(tempList) == 6:
-            shorthostName = tempList.pop(1)
-            updatedStorageGroup = "-".join(tempList)
-            return updatedStorageGroup, shorthostName
-        else:
-            shorthostName = None
-            return storageGroupName, shorthostName
-
     def _get_fast_settings_from_storage_group(self, storageGroupInstance):
         """Get the emc FAST setting from the storage group.
 
@@ -2363,7 +2359,7 @@ class EMCVMAXUtils(object):
         :param poolName: long pool name
         :returns: truncated pool name
         """
-        if poolName and len(poolName) > 16:
+        if poolName and len(poolName) > MAX_POOL_LENGTH:
             return (
                 ("%(first)s_%(last)s"
                  % {'first': poolName[:8],
@@ -2377,7 +2373,7 @@ class EMCVMAXUtils(object):
         :param fastPolicyName: long fast policy name
         :returns: truncated fast policy name
         """
-        if fastPolicyName and len(fastPolicyName) > 14:
+        if fastPolicyName and len(fastPolicyName) > MAX_FASTPOLICY_LENGTH:
             return (
                 ("%(first)s_%(last)s"
                  % {'first': fastPolicyName[:7],
@@ -2436,3 +2432,137 @@ class EMCVMAXUtils(object):
                 cimProperties = properties[1]
                 foundIpAddress = cimProperties.value
         return foundIpAddress
+
+    def get_target_endpoints(self, conn, hardwareId):
+        """Given the hardwareId get the target endpoints.
+
+        :param conn: the connection to the ecom server
+        :param hardwareId: the hardware Id
+        :returns: targetEndpoints
+        :raises: VolumeBackendAPIException
+        """
+        protocolControllerInstanceName = self.get_protocol_controller(
+            conn, hardwareId)
+
+        targetEndpoints = conn.AssociatorNames(
+            protocolControllerInstanceName,
+            ResultClass='EMC_FCSCSIProtocolEndpoint')
+
+        return targetEndpoints
+
+    def get_protocol_controller(self, conn, hardwareinstancename):
+        """Get the front end protocol endpoints of a hardware instance
+
+        :param conn: the ecom connection
+        :param hardwareinstancename: the hardware instance name
+        :returns: protocolControllerInstanceName
+        :raises: VolumeBackendAPIException
+        """
+        protocolControllerInstanceName = None
+        protocol_controllers = conn.AssociatorNames(
+            hardwareinstancename,
+            ResultClass='EMC_FrontEndSCSIProtocolController')
+        if len(protocol_controllers) > 0:
+            protocolControllerInstanceName = protocol_controllers[0]
+        if protocolControllerInstanceName is None:
+            exceptionMessage = (_(
+                "Unable to get target endpoints for hardwareId "
+                "%(hardwareIdInstance)s.")
+                % {'hardwareIdInstance': hardwareinstancename})
+            LOG.error(exceptionMessage)
+            raise exception.VolumeBackendAPIException(data=exceptionMessage)
+        return protocolControllerInstanceName
+
+    def get_replication_setting_data(self, conn, repServiceInstanceName,
+                                     replication_type, extraSpecs):
+        """Get the replication setting data
+
+        :param conn: connection the ecom server
+        :param repServiceInstanceName: the storage group instance name
+        :param replication_type: the replication type
+        :param copy_methodology: the copy methodology
+        :returns: instance rsdInstance
+        """
+        repServiceCapabilityInstanceNames = conn.AssociatorNames(
+            repServiceInstanceName,
+            ResultClass='CIM_ReplicationServiceCapabilities',
+            AssocClass='CIM_ElementCapabilities')
+        repServiceCapabilityInstanceName = (
+            repServiceCapabilityInstanceNames[0])
+
+        rc, rsd = conn.InvokeMethod(
+            'GetDefaultReplicationSettingData',
+            repServiceCapabilityInstanceName,
+            ReplicationType=self.get_num(replication_type, '16'))
+
+        if rc != 0:
+            rc, errordesc = self.wait_for_job_complete(conn, rsd,
+                                                       extraSpecs)
+            if rc != 0:
+                exceptionMessage = (_(
+                    "Error getting ReplicationSettingData. "
+                    "Return code: %(rc)lu. "
+                    "Error: %(error)s.")
+                    % {'rc': rc,
+                       'error': errordesc})
+                LOG.error(exceptionMessage)
+                raise exception.VolumeBackendAPIException(
+                    data=exceptionMessage)
+        return rsd
+
+    def set_copy_methodology_in_rsd(self, conn, repServiceInstanceName,
+                                    replication_type, copy_methodology,
+                                    extraSpecs):
+        """Get the replication setting data
+
+        :param conn: connection the ecom server
+        :param repServiceInstanceName: the storage group instance name
+        :param replication_type: the replication type
+        :param copy_methodology: the copy methodology
+        :returns: instance rsdInstance
+        """
+        rsd = self.get_replication_setting_data(
+            conn, repServiceInstanceName, replication_type, extraSpecs)
+        rsdInstance = rsd['DefaultInstance']
+        rsdInstance['DesiredCopyMethodology'] = (
+            self.get_num(copy_methodology, '16'))
+        return rsdInstance
+
+    def set_target_element_supplier_in_rsd(
+            self, conn, repServiceInstanceName, replication_type,
+            target_type, extraSpecs):
+        """Get the replication setting data
+
+        :param conn: connection the ecom server
+        :param repServiceInstanceName: the storage group instance name
+        :param replication_type: the replication type
+        :param target_type: Use existing, Create new, Use and create
+        :returns: instance rsdInstance
+        """
+        rsd = self.get_replication_setting_data(
+            conn, repServiceInstanceName, replication_type, extraSpecs)
+        rsdInstance = rsd['DefaultInstance']
+        rsdInstance['TargetElementSupplier'] = (
+            self.get_num(target_type, '16'))
+
+        return rsdInstance
+
+    def get_v3_default_sg_instance_name(
+            self, conn, poolName, slo, workload, storageSystemName):
+        """Get the V3 default instance name
+
+        :param conn: the connection to the ecom server
+        :param poolName: the pool name
+        :param slo: the SLO
+        :param workload: the workload
+        :param storageSystemName: the storage system name
+        :returns: the storage group instance name
+        """
+        storageGroupName = self.get_v3_storage_group_name(
+            poolName, slo, workload)
+        controllerConfigService = (
+            self.find_controller_configuration_service(
+                conn, storageSystemName))
+        sgInstanceName = self.find_storage_masking_group(
+            conn, controllerConfigService, storageGroupName)
+        return storageGroupName, controllerConfigService, sgInstanceName

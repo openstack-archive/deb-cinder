@@ -36,6 +36,7 @@ Programming HowTos and Tutorials
     replication
     migration
     api.apache
+    rolling.upgrades
 
 Background Concepts for Cinder
 ------------------------------
@@ -43,6 +44,7 @@ Background Concepts for Cinder
    :maxdepth: 3
 
    architecture
+   attach_detach_conventions
    threading
    i18n
    rpc

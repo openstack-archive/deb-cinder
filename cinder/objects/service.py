@@ -22,7 +22,6 @@ from cinder.i18n import _
 from cinder import objects
 from cinder.objects import base
 from cinder.objects import fields as c_fields
-from cinder import utils
 
 LOG = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ class Service(base.CinderPersistentObject, base.CinderObject,
         'binary': fields.StringField(nullable=True),
         'topic': fields.StringField(nullable=True),
         'report_count': fields.IntegerField(default=0),
-        'disabled': fields.BooleanField(default=False),
+        'disabled': fields.BooleanField(default=False, nullable=True),
         'availability_zone': fields.StringField(nullable=True,
                                                 default='cinder'),
         'disabled_reason': fields.StringField(nullable=True),
@@ -57,10 +56,6 @@ class Service(base.CinderPersistentObject, base.CinderObject,
         'frozen': fields.BooleanField(default=False),
         'active_backend_id': fields.StringField(nullable=True),
     }
-
-    def obj_make_compatible(self, primitive, target_version):
-        """Make an object representation compatible with a target version."""
-        target_version = utils.convert_version_to_tuple(target_version)
 
     @staticmethod
     def _from_db_object(context, service, db_service):

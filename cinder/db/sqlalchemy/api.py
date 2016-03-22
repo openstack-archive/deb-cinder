@@ -84,7 +84,7 @@ def _create_facade_lazily():
             # which requires db.sqlalchemy.api, which requires service which
             # requires objects.base
             CONF.import_group("profiler", "cinder.service")
-            if CONF.profiler.profiler_enabled:
+            if CONF.profiler.enabled:
                 if CONF.profiler.trace_sqlalchemy:
                     osprofiler_sqlalchemy.add_tracing(sqlalchemy,
                                                       _FACADE.get_engine(),
@@ -438,7 +438,8 @@ def service_get_by_host_and_topic(context, host, topic):
         filter_by(topic=topic).\
         first()
     if not result:
-        raise exception.ServiceNotFound(service_id=None)
+        raise exception.ServiceNotFound(service_id=topic,
+                                        host=host)
     return result
 
 
@@ -453,7 +454,8 @@ def service_get_by_args(context, host, binary):
         if host == result['host']:
             return result
 
-    raise exception.HostBinaryNotFound(host=host, binary=binary)
+    raise exception.ServiceNotFound(service_id=binary,
+                                    host=host)
 
 
 @require_admin_context
@@ -824,6 +826,7 @@ def _get_quota_usages(context, session, project_id):
                        read_deleted="no",
                        session=session).\
         filter_by(project_id=project_id).\
+        order_by(models.QuotaUsage.id.asc()).\
         with_lockmode('update').\
         all()
     return {row.resource: row for row in rows}
@@ -834,6 +837,7 @@ def _get_quota_usages_by_resource(context, session, resource):
                        deleted="no",
                        session=session).\
         filter_by(resource=resource).\
+        order_by(models.QuotaUsage.id.asc()).\
         with_lockmode('update').\
         all()
     return rows
@@ -3662,7 +3666,9 @@ def volume_glance_metadata_delete_by_snapshot(context, snapshot_id):
 
 @require_context
 def backup_get(context, backup_id, read_deleted=None, project_only=True):
-    return _backup_get(context, backup_id)
+    return _backup_get(context, backup_id,
+                       read_deleted=read_deleted,
+                       project_only=project_only)
 
 
 def _backup_get(context, backup_id, session=None, read_deleted=None,

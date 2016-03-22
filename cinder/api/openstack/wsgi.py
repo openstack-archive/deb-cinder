@@ -68,7 +68,9 @@ VER_METHOD_ATTR = 'versioned_methods'
 
 # Name of header used by clients to request a specific version
 # of the REST API
-API_VERSION_REQUEST_HEADER = 'OpenStack-Volume-microversion'
+API_VERSION_REQUEST_HEADER = 'OpenStack-API-Version'
+
+VOLUME_SERVICE = 'volume'
 
 
 class Request(webob.Request):
@@ -298,11 +300,20 @@ class Request(webob.Request):
             hdr_string = self.headers[API_VERSION_REQUEST_HEADER]
             # 'latest' is a special keyword which is equivalent to requesting
             # the maximum version of the API supported
-            if hdr_string == 'latest':
+            hdr_string_list = hdr_string.split(",")
+            volume_version = None
+            for hdr in hdr_string_list:
+                if VOLUME_SERVICE in hdr:
+                    service, volume_version = hdr.split()
+                    break
+            if not volume_version:
+                raise exception.VersionNotFoundForAPIMethod(
+                    version=volume_version)
+            if volume_version == 'latest':
                 self.api_version_request = api_version.max_api_version()
             else:
                 self.api_version_request = api_version.APIVersionRequest(
-                    hdr_string)
+                    volume_version)
 
                 # Check that the version requested is within the global
                 # minimum/maximum of supported API versions
@@ -1049,6 +1060,10 @@ class Resource(wsgi.Application):
         return self._process_stack(request, action, action_args,
                                    content_type, body, accept)
 
+    def _is_legacy_endpoint(self, request):
+        version_str = request.api_version_request.get_string()
+        return '1.0' in version_str or '2.0' in version_str
+
     def _process_stack(self, request, action, action_args,
                        content_type, body, accept):
         """Implement the processing stack."""
@@ -1157,8 +1172,10 @@ class Resource(wsgi.Application):
                     # python 3.x
                     response.headers[hdr] = six.text_type(val)
 
-            if not request.api_version_request.is_null():
+            if (not request.api_version_request.is_null() and
+               not self._is_legacy_endpoint(request)):
                 response.headers[API_VERSION_REQUEST_HEADER] = (
+                    VOLUME_SERVICE + ' ' +
                     request.api_version_request.get_string())
                 response.headers['Vary'] = API_VERSION_REQUEST_HEADER
 
@@ -1478,33 +1495,6 @@ class Controller(object):
                                       max_length=max_length)
         except exception.InvalidInput as error:
             raise webob.exc.HTTPBadRequest(explanation=error.msg)
-
-    @staticmethod
-    def validate_integer(value, name, min_value=None, max_value=None):
-        """Make sure that value is a valid integer, potentially within range.
-
-        :param value: the value of the integer
-        :param name: the name of the integer
-        :param min_length: the min_length of the integer
-        :param max_length: the max_length of the integer
-        :returns: integer
-        """
-        try:
-            value = int(value)
-        except (TypeError, ValueError, UnicodeEncodeError):
-            raise webob.exc.HTTPBadRequest(explanation=(
-                _('%s must be an integer.') % name))
-
-        if min_value is not None and value < min_value:
-            raise webob.exc.HTTPBadRequest(
-                explanation=(_('%(value_name)s must be >= %(min_value)d') %
-                             {'value_name': name, 'min_value': min_value}))
-        if max_value is not None and value > max_value:
-            raise webob.exc.HTTPBadRequest(
-                explanation=(_('%(value_name)s must be <= %(max_value)d') %
-                             {'value_name': name, 'max_value': max_value}))
-
-        return value
 
 
 class Fault(webob.exc.HTTPException):

@@ -31,16 +31,18 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
     # Version 1.0: Initial version
     VERSION = '1.0'
 
-    DEFAULT_EXPECTED_ATTR = ('extra_specs', 'projects')
-
     fields = {
         'id': fields.UUIDField(),
         'name': fields.StringField(nullable=True),
         'description': fields.StringField(nullable=True),
-        'is_public': fields.BooleanField(default=True),
+        'is_public': fields.BooleanField(default=True, nullable=True),
         'projects': fields.ListOfStringsField(nullable=True),
         'extra_specs': fields.DictOfStringsField(nullable=True),
     }
+
+    @classmethod
+    def _get_expected_attrs(cls, context):
+        return 'extra_specs', 'projects'
 
     @staticmethod
     def _from_db_object(context, type, db_type, expected_attrs=None):
@@ -118,7 +120,7 @@ class VolumeTypeList(base.ObjectListBase, base.CinderObject):
                                            marker=marker, limit=limit,
                                            sort_keys=sort_keys,
                                            sort_dirs=sort_dirs, offset=offset)
-        expected_attrs = ['extra_specs', 'projects']
+        expected_attrs = VolumeType._get_expected_attrs(context)
         return base.obj_make_list(context, cls(context),
                                   objects.VolumeType, types.values(),
                                   expected_attrs=expected_attrs)

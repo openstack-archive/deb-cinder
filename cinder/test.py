@@ -51,13 +51,8 @@ from cinder.tests import fixtures as cinder_fixtures
 from cinder.tests.unit import conf_fixture
 from cinder.tests.unit import fake_notifier
 
-test_opts = [
-    cfg.StrOpt('sqlite_clean_db',
-               default='clean.sqlite',
-               help='File name of clean sqlite db'), ]
 
 CONF = cfg.CONF
-CONF.register_opts(test_opts)
 
 LOG = log.getLogger(__name__)
 
@@ -188,6 +183,14 @@ class TestCase(testtools.TestCase):
         self.useFixture(self.messaging_conf)
         rpc.init(CONF)
 
+        # NOTE(geguileo): This is required because _determine_obj_version_cap
+        # and _determine_rpc_version_cap functions in cinder.rpc.RPCAPI cache
+        # versions in LAST_RPC_VERSIONS and LAST_OBJ_VERSIONS so we may have
+        # weird interactions between tests if we don't clear them before each
+        # test.
+        rpc.LAST_OBJ_VERSIONS = {}
+        rpc.LAST_RPC_VERSIONS = {}
+
         conf_fixture.set_defaults(CONF)
         CONF([], default_config_files=[])
 
@@ -204,7 +207,7 @@ class TestCase(testtools.TestCase):
             _DB_CACHE = Database(sqla_api, migration,
                                  sql_connection=CONF.database.connection,
                                  sqlite_db=CONF.database.sqlite_db,
-                                 sqlite_clean_db=CONF.sqlite_clean_db)
+                                 sqlite_clean_db='clean.sqlite')
         self.useFixture(_DB_CACHE)
 
         # NOTE(danms): Make sure to reset us back to non-remote objects

@@ -22,6 +22,7 @@ from oslo_utils import units
 
 from cinder import exception
 from cinder import test
+from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_volume
 
 
@@ -284,30 +285,30 @@ REPLICATED_PGSNAPS = [
         "data_transferred": 318
     }]
 REPLICATED_VOLUME_OBJS = [
-    fake_volume.fake_volume_obj(None, id='repl-1'),
-    fake_volume.fake_volume_obj(None, id='repl-2'),
-    fake_volume.fake_volume_obj(None, id='repl-3'),
+    fake_volume.fake_volume_obj(None, id=fake.volume_id),
+    fake_volume.fake_volume_obj(None, id=fake.volume2_id),
+    fake_volume.fake_volume_obj(None, id=fake.volume3_id),
 ]
 REPLICATED_VOLUME_SNAPS = [
     {
-        "source": "array1:volume-repl-1-cinder",
+        "source": "array1:volume-%s-cinder" % fake.volume_id,
         "serial": "BBA481C01639104E0001D5F7",
         "created": "2014-12-04T22:59:38Z",
-        "name": "array1:cinder-repl-pg.2.volume-repl-1-cinder",
+        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.volume_id,
         "size": 1048576
     },
     {
-        "source": "array1:volume-repl-2-cinder",
+        "source": "array1:volume-%s-cinder" % fake.volume2_id,
         "serial": "BBA481C01639104E0001D5F8",
         "created": "2014-12-04T22:59:38Z",
-        "name": "array1:cinder-repl-pg.2.volume-repl-2-cinder",
+        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.volume2_id,
         "size": 1048576
     },
     {
-        "source": "array1:volume-repl-3-cinder",
+        "source": "array1:volume-%s-cinder" % fake.volume3_id,
         "serial": "BBA481C01639104E0001D5F9",
         "created": "2014-12-04T22:59:38Z",
-        "name": "array1:cinder-repl-pg.2.volume-repl-3-cinder",
+        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.volume3_id,
         "size": 1048576
     }
 ]
@@ -343,6 +344,8 @@ class PureDriverTestCase(test.TestCase):
         self.mock_config.volume_backend_name = VOLUME_BACKEND_NAME
         self.mock_config.safe_get.return_value = None
         self.mock_config.pure_eradicate_on_delete = False
+        self.mock_config.driver_ssl_cert_verify = False
+        self.mock_config.driver_ssl_cert_path = None
         self.array = mock.Mock()
         self.array.get.return_value = GET_ARRAY_PRIMARY
         self.array.array_name = GET_ARRAY_PRIMARY["array_name"]
@@ -352,6 +355,7 @@ class PureDriverTestCase(test.TestCase):
         self.array2.array_id = GET_ARRAY_SECONDARY["id"]
         self.array2.get.return_value = GET_ARRAY_SECONDARY
         self.purestorage_module = pure.purestorage
+        self.purestorage_module.VERSION = '1.4.0'
         self.purestorage_module.PureHTTPError = FakePureStorageHTTPError
 
     def fake_get_array(*args, **kwargs):
@@ -392,6 +396,7 @@ class PureBaseSharedDriverTestCase(PureDriverTestCase):
         super(PureBaseSharedDriverTestCase, self).tearDown()
 
 
+@ddt.ddt
 class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
     def setUp(self):
         super(PureBaseVolumeDriverTestCase, self).setUp()
@@ -491,8 +496,6 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
         self.assertEqual(self.array2,
                          self.driver._replication_target_arrays[0])
         calls = [
-            mock.call(self.array2, [self.array], 'cinder-group',
-                      REPLICATION_INTERVAL_IN_SEC, retention),
             mock.call(self.array, [self.array2], 'cinder-group',
                       REPLICATION_INTERVAL_IN_SEC, retention)
         ]
@@ -1883,6 +1886,62 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
         self.array.set_pgroup.assert_called_with(
             self.driver._replication_pg_name,
             remvollist=[VOLUME_PURITY_NAME]
+        )
+
+    @ddt.data(
+        dict(version='1.5.0'),
+        dict(version='2.0.0'),
+        dict(version='1.4.1'),
+    )
+    @ddt.unpack
+    def test_get_flasharray_verify_https(self, version):
+        self.purestorage_module.VERSION = version
+        san_ip = '1.2.3.4'
+        api_token = 'abcdef'
+        cert_path = '/my/ssl/certs'
+        self.purestorage_module.FlashArray.return_value = mock.MagicMock()
+
+        self.driver._get_flasharray(san_ip,
+                                    api_token,
+                                    verify_https=True,
+                                    ssl_cert_path=cert_path)
+        self.purestorage_module.FlashArray.assert_called_with(
+            san_ip,
+            api_token=api_token,
+            rest_version=None,
+            verify_https=True,
+            ssl_cert=cert_path
+        )
+
+    def test_get_flasharray_dont_verify_https_version_too_old(self):
+        self.purestorage_module.VERSION = '1.4.0'
+        san_ip = '1.2.3.4'
+        api_token = 'abcdef'
+        self.purestorage_module.FlashArray.return_value = mock.MagicMock()
+
+        self.driver._get_flasharray(san_ip,
+                                    api_token,
+                                    verify_https=False,
+                                    ssl_cert_path=None)
+        self.purestorage_module.FlashArray.assert_called_with(
+            san_ip,
+            api_token=api_token,
+            rest_version=None
+        )
+
+    def test_get_flasharray_verify_https_version_too_old(self):
+        self.purestorage_module.VERSION = '1.4.0'
+        san_ip = '1.2.3.4'
+        api_token = 'abcdef'
+        self.purestorage_module.FlashArray.return_value = mock.MagicMock()
+
+        self.assertRaises(
+            exception.PureDriverException,
+            self.driver._get_flasharray,
+            san_ip,
+            api_token,
+            verify_https=True,
+            ssl_cert_path='/my/ssl/certs'
         )
 
 

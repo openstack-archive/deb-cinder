@@ -26,8 +26,10 @@ from cinder import context
 from cinder import db
 from cinder.db.sqlalchemy import api as sqlalchemy_api
 from cinder import exception
+from cinder import objects
 from cinder import quota
 from cinder import test
+from cinder.tests.unit import fake_constants
 
 THREE = 3
 THREE_HUNDREDS = 300
@@ -240,7 +242,7 @@ class DBAPIServiceTestCase(BaseTest):
         self._assertEqualObjects(services[1], service2)
 
     def test_service_get_by_args_not_found_exception(self):
-        self.assertRaises(exception.HostBinaryNotFound,
+        self.assertRaises(exception.ServiceNotFound,
                           db.service_get_by_args,
                           self.ctxt, 'non-exists-host', 'a')
 
@@ -282,7 +284,7 @@ class DBAPIServiceTestCase(BaseTest):
         service2 = db.service_get_by_args(self.ctxt, 'HOST', 'a')
         self._assertEqualObjects(services[1], service2)
 
-        self.assertRaises(exception.HostBinaryNotFound,
+        self.assertRaises(exception.ServiceNotFound,
                           db.service_get_by_args,
                           self.ctxt, 'Host', 'a')
 
@@ -2009,6 +2011,18 @@ class DBAPIBackupTestCase(BaseTest):
         for backup in self.created:
             backup_get = db.backup_get(self.ctxt, backup['id'])
             self._assertEqualObjects(backup, backup_get)
+
+    def test_backup_get_deleted(self):
+        backup_dic = {'user_id': 'user',
+                      'project_id': 'project',
+                      'volume_id': fake_constants.volume_id,
+                      'size': 1,
+                      'object_count': 1}
+        backup = objects.Backup(self.ctxt, **backup_dic)
+        backup.create()
+        backup.destroy()
+        backup_get = db.backup_get(self.ctxt, backup.id, read_deleted='yes')
+        self.assertEqual(backup.id, backup_get.id)
 
     def tests_backup_get_all(self):
         all_backups = db.backup_get_all(self.ctxt)

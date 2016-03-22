@@ -12,6 +12,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import ddt
 import json
 import os
 import re
@@ -62,7 +63,7 @@ class EMCVNXCLIDriverTestData(object):
 
     base_lun_name = 'volume-1'
     replication_metadata = {'host': 'host@backendsec#unit_test_pool',
-                            'system': 'FNM11111'}
+                            'system': 'fake_serial'}
     test_volume = {
         'status': 'creating',
         'name': 'volume-1',
@@ -707,9 +708,9 @@ class EMCVNXCLIDriverTestData(object):
                 '-initialTier', tier,
                 '-tieringPolicy', policy)
 
-    def MIGRATION_CMD(self, src_id=1, dest_id=1):
+    def MIGRATION_CMD(self, src_id=1, dest_id=1, rate='high'):
         cmd = ("migrate", "-start", "-source", src_id, "-dest", dest_id,
-               "-rate", "high", "-o")
+               "-rate", rate, "-o")
         return cmd
 
     def MIGRATION_VERIFY_CMD(self, src_id):
@@ -1621,6 +1622,7 @@ class DriverTestCaseBase(test.TestCase):
         return _safe_get
 
 
+@ddt.ddt
 class EMCVNXCLIDriverISCSITestCase(DriverTestCaseBase):
     def generate_driver(self, conf):
         return emc_cli_iscsi.EMCCLIISCSIDriver(configuration=conf)
@@ -1924,6 +1926,7 @@ class EMCVNXCLIDriverISCSITestCase(DriverTestCaseBase):
             'max_over_subscription_ratio': 20.0,
             'consistencygroup_support': 'True',
             'replication_enabled': False,
+            'replication_targets': [],
             'pool_name': 'unit_test_pool',
             'fast_cache_enabled': True,
             'fast_support': 'True'}
@@ -2017,7 +2020,7 @@ Time Remaining:  0 second(s)
                     23)]]
         fake_cli = self.driverSetup(commands, results)
         fakehost = {'capabilities': {'location_info':
-                                     "unit_test_pool2|fake_serial",
+                                     'unit_test_pool2|fake_serial',
                                      'storage_protocol': 'iSCSI'}}
         ret = self.driver.migrate_volume(None, self.testData.test_volume,
                                          fakehost)[0]
@@ -2062,13 +2065,58 @@ Time Remaining:  0 second(s)
                      'currently migrating', 23)]]
         fake_cli = self.driverSetup(commands, results)
         fake_host = {'capabilities': {'location_info':
-                                      "unit_test_pool2|fake_serial",
+                                      'unit_test_pool2|fake_serial',
                                       'storage_protocol': 'iSCSI'}}
         ret = self.driver.migrate_volume(None, self.testData.test_volume,
                                          fake_host)[0]
         self.assertTrue(ret)
         # verification
         expect_cmd = [mock.call(*self.testData.MIGRATION_CMD(),
+                                retry_disable=True,
+                                poll=True),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=True),
+                      mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
+                                poll=False)]
+        fake_cli.assert_has_calls(expect_cmd)
+
+    @mock.patch("cinder.volume.drivers.emc.emc_vnx_cli."
+                "CommandLineHelper.create_lun_by_cmd",
+                mock.Mock(
+                    return_value={'lun_id': 1}))
+    @mock.patch(
+        "cinder.volume.drivers.emc.emc_vnx_cli.EMCVnxCliBase.get_lun_id",
+        mock.Mock(
+            side_effect=[1, 1]))
+    def test_volume_migration_with_rate(self):
+
+        test_volume_asap = self.testData.test_volume.copy()
+        test_volume_asap.update({'metadata': {'migrate_rate': 'asap'}})
+        commands = [self.testData.MIGRATION_CMD(rate="asap"),
+                    self.testData.MIGRATION_VERIFY_CMD(1)]
+        FAKE_MIGRATE_PROPERTY = """\
+Source LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d
+Source LU ID:  63950
+Dest LU Name:  volume-f6247ae1-8e1c-4927-aa7e-7f8e272e5c3d_dest
+Dest LU ID:  136
+Migration Rate:  ASAP
+Current State:  MIGRATED
+Percent Complete:  100
+Time Remaining:  0 second(s)
+"""
+        results = [SUCCEED,
+                   [(FAKE_MIGRATE_PROPERTY, 0),
+                    ('The specified source LUN is not '
+                     'currently migrating', 23)]]
+        fake_cli = self.driverSetup(commands, results)
+        fake_host = {'capabilities': {'location_info':
+                                      'unit_test_pool2|fake_serial',
+                                      'storage_protocol': 'iSCSI'}}
+        ret = self.driver.migrate_volume(None, test_volume_asap,
+                                         fake_host)[0]
+        self.assertTrue(ret)
+        # verification
+        expect_cmd = [mock.call(*self.testData.MIGRATION_CMD(rate='asap'),
                                 retry_disable=True,
                                 poll=True),
                       mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
@@ -2105,7 +2153,7 @@ Time Remaining:  0 second(s)
                      23)]]
         fake_cli = self.driverSetup(commands, results)
         fakehost = {'capabilities': {'location_info':
-                                     "unit_test_pool2|fake_serial",
+                                     'unit_test_pool2|fake_serial',
                                      'storage_protocol': 'iSCSI'}}
         ret = self.driver.migrate_volume(None, self.testData.test_volume5,
                                          fakehost)[0]
@@ -2133,7 +2181,7 @@ Time Remaining:  0 second(s)
         results = [FAKE_ERROR_RETURN]
         fake_cli = self.driverSetup(commands, results)
         fakehost = {'capabilities': {'location_info':
-                                     "unit_test_pool2|fake_serial",
+                                     'unit_test_pool2|fake_serial',
                                      'storage_protocol': 'iSCSI'}}
         ret = self.driver.migrate_volume(None, self.testData.test_volume,
                                          fakehost)[0]
@@ -2165,7 +2213,7 @@ Time Remaining:  0 second(s)
                    SUCCEED]
         fake_cli = self.driverSetup(commands, results)
         fake_host = {'capabilities': {'location_info':
-                                      "unit_test_pool2|fake_serial",
+                                      'unit_test_pool2|fake_serial',
                                       'storage_protocol': 'iSCSI'}}
 
         self.assertRaisesRegex(exception.VolumeBackendAPIException,
@@ -2218,7 +2266,7 @@ Time Remaining:  0 second(s)
                      'currently migrating', 23)]]
         fake_cli = self.driverSetup(commands, results)
         fake_host = {'capabilities': {'location_info':
-                                      "unit_test_pool2|fake_serial",
+                                      'unit_test_pool2|fake_serial',
                                       'storage_protocol': 'iSCSI'}}
 
         vol = EMCVNXCLIDriverTestData.convert_volume(
@@ -2743,18 +2791,20 @@ Time Remaining:  0 second(s)
 
         fake_cli.assert_has_calls(expect_cmd)
 
-    def test_create_volume_from_snapshot(self):
+    @ddt.data('high', 'asap', 'low', 'medium')
+    def test_create_volume_from_snapshot(self, migrate_rate):
         test_snapshot = EMCVNXCLIDriverTestData.convert_snapshot(
             self.testData.test_snapshot)
         test_volume = EMCVNXCLIDriverTestData.convert_volume(
             self.testData.test_volume2)
+        test_volume.metadata = {'migrate_rate': migrate_rate}
         cmd_dest = self.testData.LUN_PROPERTY_ALL_CMD(
             build_migration_dest_name(test_volume.name))
         cmd_dest_np = self.testData.LUN_PROPERTY_ALL_CMD(
             build_migration_dest_name(test_volume.name))
         output_dest = self.testData.LUN_PROPERTY(
             build_migration_dest_name(test_volume.name))
-        cmd_migrate = self.testData.MIGRATION_CMD(1, 1)
+        cmd_migrate = self.testData.MIGRATION_CMD(1, 1, rate=migrate_rate)
         output_migrate = ("", 0)
         cmd_migrate_verify = self.testData.MIGRATION_VERIFY_CMD(1)
         output_migrate_verify = (r'The specified source LUN '
@@ -2784,7 +2834,7 @@ Time Remaining:  0 second(s)
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD(
                       build_migration_dest_name(test_volume.name)),
                       poll=False),
-            mock.call(*self.testData.MIGRATION_CMD(1, 1),
+            mock.call(*self.testData.MIGRATION_CMD(1, 1, rate=migrate_rate),
                       retry_disable=True,
                       poll=True),
             mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
@@ -2944,7 +2994,8 @@ Time Remaining:  0 second(s)
             mock.call(*self.testData.LUN_DELETE_CMD('volume-2'))]
         fake_cli.assert_has_calls(expect_cmd)
 
-    def test_create_cloned_volume(self):
+    @ddt.data('high', 'asap', 'low', 'medium')
+    def test_create_cloned_volume(self, migrate_rate):
         cmd_dest = self.testData.LUN_PROPERTY_ALL_CMD(
             build_migration_dest_name('volume-2'))
         cmd_dest_p = self.testData.LUN_PROPERTY_ALL_CMD(
@@ -2953,7 +3004,7 @@ Time Remaining:  0 second(s)
             build_migration_dest_name('volume-2'))
         cmd_clone = self.testData.LUN_PROPERTY_ALL_CMD("volume-2")
         output_clone = self.testData.LUN_PROPERTY("volume-2")
-        cmd_migrate = self.testData.MIGRATION_CMD(1, 1)
+        cmd_migrate = self.testData.MIGRATION_CMD(1, 1, rate=migrate_rate)
         output_migrate = ("", 0)
         cmd_migrate_verify = self.testData.MIGRATION_VERIFY_CMD(1)
         output_migrate_verify = (r'The specified source LUN '
@@ -2967,6 +3018,9 @@ Time Remaining:  0 second(s)
         volume = self.testData.test_volume.copy()
         volume['id'] = '2'
         volume = EMCVNXCLIDriverTestData.convert_volume(volume)
+        # Make sure this size is used
+        volume.size = 10
+        volume.metadata = {'migrate_rate': migrate_rate}
         self.driver.create_cloned_volume(volume, self.testData.test_volume)
         tmp_snap = 'tmp-snap-' + volume.id
         expect_cmd = [
@@ -2981,13 +3035,13 @@ Time Remaining:  0 second(s)
                 *self.testData.SNAP_ATTACH_CMD(
                     name='volume-2', snapName=tmp_snap)),
             mock.call(*self.testData.LUN_CREATION_CMD(
-                build_migration_dest_name('volume-2'), 1,
+                build_migration_dest_name('volume-2'), 10,
                 'unit_test_pool', None, None)),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD(
                 build_migration_dest_name('volume-2')), poll=False),
             mock.call(*self.testData.LUN_PROPERTY_ALL_CMD(
                 build_migration_dest_name('volume-2')), poll=False),
-            mock.call(*self.testData.MIGRATION_CMD(1, 1),
+            mock.call(*self.testData.MIGRATION_CMD(1, 1, rate=migrate_rate),
                       poll=True,
                       retry_disable=True),
             mock.call(*self.testData.MIGRATION_VERIFY_CMD(1),
@@ -4992,6 +5046,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
             'thick_provisioning_support': True,
             'consistencygroup_support': 'True',
             'replication_enabled': False,
+            'replication_targets': [],
             'pool_name': 'unit_test_pool',
             'max_over_subscription_ratio': 20.0,
             'fast_cache_enabled': True,
@@ -5011,6 +5066,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
             'thick_provisioning_support': True,
             'consistencygroup_support': 'True',
             'replication_enabled': False,
+            'replication_targets': [],
             'pool_name': 'unit_test_pool2',
             'max_over_subscription_ratio': 20.0,
             'fast_cache_enabled': False,
@@ -5041,6 +5097,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
             'consistencygroup_support': 'False',
             'pool_name': 'unit_test_pool',
             'replication_enabled': False,
+            'replication_targets': [],
             'max_over_subscription_ratio': 20.0,
             'fast_cache_enabled': 'False',
             'fast_support': 'False'}
@@ -5059,6 +5116,7 @@ class EMCVNXCLIDArrayBasedDriverTestCase(DriverTestCaseBase):
             'thick_provisioning_support': True,
             'consistencygroup_support': 'False',
             'replication_enabled': False,
+            'replication_targets': [],
             'pool_name': 'unit_test_pool2',
             'max_over_subscription_ratio': 20.0,
             'fast_cache_enabled': 'False',
@@ -5589,6 +5647,7 @@ class EMCVNXCLIDriverFCTestCase(DriverTestCaseBase):
             'max_over_subscription_ratio': 20.0,
             'consistencygroup_support': 'True',
             'replication_enabled': False,
+            'replication_targets': [],
             'pool_name': 'unit_test_pool',
             'fast_cache_enabled': True,
             'fast_support': 'True'}
@@ -5939,17 +5998,18 @@ class EMCVNXCLIMultiPoolsTestCase(DriverTestCaseBase):
 class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
     def setUp(self):
         super(EMCVNXCLIDriverReplicationV2TestCase, self).setUp()
-        self.target_device_id = 'fake_serial'
+        self.backend_id = 'fake_serial'
         self.configuration.replication_device = [{
-            'target_device_id': self.target_device_id,
-            'managed_backend_name': 'host@backend#unit_test_pool',
+            'backend_id': self.backend_id,
             'san_ip': '192.168.1.2', 'san_login': 'admin',
             'san_password': 'admin', 'san_secondary_ip': '192.168.2.2',
             'storage_vnx_authentication_type': 'global',
             'storage_vnx_security_file_dir': None}]
 
-    def generate_driver(self, conf):
-        return emc_cli_iscsi.EMCCLIISCSIDriver(configuration=conf)
+    def generate_driver(self, conf, active_backend_id=None):
+        return emc_cli_iscsi.EMCCLIISCSIDriver(
+            configuration=conf,
+            active_backend_id=active_backend_id)
 
     def _build_mirror_name(self, volume_id):
         return 'mirror_' + volume_id
@@ -5976,8 +6036,7 @@ class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
             self.assertTrue(model_update['replication_status'] == 'enabled')
             self.assertTrue(model_update['replication_driver_data'] ==
                             build_replication_data(self.configuration))
-            self.assertDictMatch({'system': self.target_device_id,
-                                  'host': rep_volume.host,
+            self.assertDictMatch({'system': self.backend_id,
                                   'snapcopy': 'False'},
                                  model_update['metadata'])
         fake_cli.assert_has_calls(
@@ -6051,72 +6110,14 @@ class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
              mock.call(*self.testData.MIRROR_DESTROY_CMD(mirror_name),
                        poll=True)])
 
-    def test_enable_replication(self):
-        rep_volume = EMCVNXCLIDriverTestData.convert_volume(
-            self.testData.test_volume_replication)
-        mirror_name = self._build_mirror_name(rep_volume.id)
-        image_uid = '50:06:01:60:88:60:05:FE'
-        commands = [self.testData.MIRROR_LIST_CMD(mirror_name),
-                    self.testData.MIRROR_SYNC_IMAGE_CMD(
-                        mirror_name, image_uid)]
-        results = [[self.testData.MIRROR_LIST_RESULT(
-                    mirror_name, 'Administratively fractured'),
-                    self.testData.MIRROR_LIST_RESULT(
-                    mirror_name)],
-                   SUCCEED]
-        fake_cli = self.driverSetup(commands, results)
-        rep_volume.replication_driver_data = build_replication_data(
-            self.configuration)
-        self.driver.cli._mirror._secondary_client.command_execute = fake_cli
-        self.driver.replication_enable(None, rep_volume)
-        fake_cli.assert_has_calls([
-            mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
-                      poll=True),
-            mock.call(*self.testData.MIRROR_SYNC_IMAGE_CMD(
-                      mirror_name, image_uid), poll=False),
-            mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
-                      poll=False)])
-
-    def test_enable_already_synced(self):
-        rep_volume = EMCVNXCLIDriverTestData.convert_volume(
-            self.testData.test_volume_replication)
-        mirror_name = self._build_mirror_name(rep_volume.id)
-        commands = [self.testData.MIRROR_LIST_CMD(mirror_name)]
-        results = [self.testData.MIRROR_LIST_RESULT(mirror_name)]
-        fake_cli = self.driverSetup(commands, results)
-        rep_volume.replication_driver_data = build_replication_data(
-            self.configuration)
-        self.driver.cli._mirror._secondary_client.command_execute = fake_cli
-        self.driver.replication_enable(None, rep_volume)
-        fake_cli.assert_has_calls([
-            mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
-                      poll=True)])
-
-    def test_disable_replication(self):
-        rep_volume = EMCVNXCLIDriverTestData.convert_volume(
-            self.testData.test_volume_replication)
-        mirror_name = self._build_mirror_name(rep_volume.id)
-        image_uid = '50:06:01:60:88:60:05:FE'
-        commands = [self.testData.MIRROR_LIST_CMD(mirror_name),
-                    self.testData.MIRROR_FRACTURE_IMAGE_CMD(
-                        mirror_name, image_uid)]
-        results = [self.testData.MIRROR_LIST_RESULT(mirror_name),
-                   SUCCEED]
-        fake_cli = self.driverSetup(commands, results)
-        rep_volume.replication_driver_data = build_replication_data(
-            self.configuration)
-        self.driver.cli._mirror._secondary_client.command_execute = fake_cli
-        self.driver.replication_disable(None, rep_volume)
-        fake_cli.assert_has_calls([
-            mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
-                      poll=True),
-            mock.call(*self.testData.MIRROR_FRACTURE_IMAGE_CMD(mirror_name,
-                      image_uid), poll=False)])
-
     @mock.patch(
         "cinder.volume.drivers.emc.emc_vnx_cli.CommandLineHelper." +
         "get_lun_by_name",
         mock.Mock(return_value={'lun_id': 1}))
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'replication_enabled': '<is> True'}))
     def test_failover_replication_from_primary(self):
         rep_volume = EMCVNXCLIDriverTestData.convert_volume(
             self.testData.test_volume_replication)
@@ -6132,26 +6133,24 @@ class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
             self.configuration)
         rep_volume.metadata = self.testData.replication_metadata
         self.driver.cli._mirror._secondary_client.command_execute = fake_cli
-        model_update = self.driver.replication_failover(
-            None, rep_volume,
-            self.target_device_id)
+        back_id, model_update = self.driver.failover_host(
+            None, [rep_volume],
+            self.backend_id)
         fake_cli.assert_has_calls([
             mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
                       poll=True),
             mock.call(*self.testData.MIRROR_PROMOTE_IMAGE_CMD(mirror_name,
                       image_uid), poll=False)])
         self.assertEqual(
-            self.configuration.replication_device[0]['managed_backend_name'],
-            model_update['host'])
-        expected = build_provider_location('1', 'lun', rep_volume.name,
-                                           self.target_device_id)
-        provider_location = model_update['provider_location']
-        # Don't compare the exact string but the set of items: dictionary
-        # items are rendered in a random order because of the hash
-        # randomization
-        self.assertSetEqual(set(expected.split('|')),
-                            set(provider_location.split('|')))
+            build_provider_location(
+                '1', 'lun', rep_volume.name,
+                self.backend_id),
+            model_update[0]['updates']['provider_location'])
 
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'replication_enabled': '<is> True'}))
     def test_failover_replication_from_secondary(self):
         rep_volume = EMCVNXCLIDriverTestData.convert_volume(
             self.testData.test_volume_replication)
@@ -6174,14 +6173,49 @@ class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
                 'cinder.volume.drivers.emc.emc_vnx_cli.CommandLineHelper') \
                 as fake_remote:
             fake_remote.return_value = self.driver.cli._client
-            self.driver.replication_failover(None, rep_volume,
-                                             'FNM11111')
+            backend_id, data = self.driver.failover_host(
+                None, [rep_volume], 'default')
+        updates = data[0]['updates']
+        rep_status = updates['replication_status']
+        self.assertEqual('enabled', rep_status)
         fake_cli.assert_has_calls([
             mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
                       poll=True),
             mock.call(*self.testData.MIRROR_PROMOTE_IMAGE_CMD(mirror_name,
                       image_uid), poll=False)])
 
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'replication_enabled': '<is> True'}))
+    def test_failover_replication_invalid_backend_id(self):
+        rep_volume = EMCVNXCLIDriverTestData.convert_volume(
+            self.testData.test_volume_replication)
+        self._build_mirror_name(rep_volume.id)
+        fake_cli = self.driverSetup([], [])
+        rep_volume.replication_driver_data = build_replication_data(
+            self.configuration)
+        rep_volume.metadata = self.testData.replication_metadata
+        driver_data = json.loads(rep_volume.replication_driver_data)
+        driver_data['is_primary'] = False
+        rep_volume.replication_driver_data = json.dumps(driver_data)
+        self.driver.cli._mirror._secondary_client.command_execute = fake_cli
+        with mock.patch(
+                'cinder.volume.drivers.emc.emc_vnx_cli.CommandLineHelper') \
+                as fake_remote:
+            fake_remote.return_value = self.driver.cli._client
+            invalid = 'invalid_backend_id'
+            self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                   "Invalid secondary_backend_id specified",
+                                   self.driver.failover_host,
+                                   None,
+                                   [rep_volume],
+                                   invalid)
+
+    @mock.patch(
+        "cinder.volume.volume_types."
+        "get_volume_type_extra_specs",
+        mock.Mock(return_value={'replication_enabled': '<is> True'}))
     def test_failover_already_promoted(self):
         rep_volume = EMCVNXCLIDriverTestData.convert_volume(
             self.testData.test_volume_replication)
@@ -6197,11 +6231,12 @@ class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
             self.configuration)
         rep_volume.metadata = self.testData.replication_metadata
         self.driver.cli._mirror._secondary_client.command_execute = fake_cli
-        self.assertRaisesRegex(exception.EMCVnxCLICmdError,
-                               'UID of the secondary image '
-                               'to be promoted is not local',
-                               self.driver.replication_failover,
-                               None, rep_volume, self.target_device_id)
+        new_backend_id, model_updates = self.driver.failover_host(
+            None, [rep_volume], self.backend_id)
+        self.assertEqual(rep_volume.id, model_updates[0]['volume_id'])
+        self.assertEqual('error',
+                         model_updates[0]['updates']['replication_status'])
+
         fake_cli.assert_has_calls([
             mock.call(*self.testData.MIRROR_LIST_CMD(mirror_name),
                       poll=True),
@@ -6246,18 +6281,20 @@ class EMCVNXCLIDriverReplicationV2TestCase(DriverTestCaseBase):
                               poll=False)]
         fake_cli.assert_has_calls(expected)
 
-    def test_list_replication_targets(self):
-        rep_volume = EMCVNXCLIDriverTestData.convert_volume(
-            self.testData.test_volume_replication)
-        rep_volume.replication_driver_data = build_replication_data(
-            self.configuration)
-        expect_targets = {'volume_id': rep_volume.id,
-                          'targets':
-                              [{'type': 'managed',
-                                'target_device_id': self.target_device_id}]}
+    def test_build_client_with_invalid_id(self):
         self.driverSetup([], [])
-        data = self.driver.list_replication_targets(None, rep_volume)
-        self.assertDictMatch(expect_targets, data)
+        self.assertRaisesRegex(
+            exception.VolumeBackendAPIException,
+            'replication_device with backend_id .* is missing.',
+            self.driver.cli._build_client,
+            'invalid_backend_id')
+
+    def test_build_client_with_id(self):
+        self.driverSetup([], [])
+        cli_client = self.driver.cli._build_client(
+            active_backend_id='fake_serial')
+        self.assertEqual('192.168.1.2', cli_client.active_storage_ip)
+        self.assertEqual('192.168.1.2', cli_client.primary_storage_ip)
 
 VNXError = emc_vnx_cli.VNXError
 

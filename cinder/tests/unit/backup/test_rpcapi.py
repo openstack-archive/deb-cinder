@@ -25,12 +25,13 @@ from cinder import context
 from cinder import objects
 from cinder import test
 from cinder.tests.unit import fake_backup
+from cinder.tests.unit import fake_constants as fake
 
 
 class BackupRpcAPITestCase(test.TestCase):
     def setUp(self):
         super(BackupRpcAPITestCase, self).setUp()
-        self.context = context.RequestContext('fake_user', 'fake_project')
+        self.context = context.RequestContext(fake.user_id, fake.project_id)
         self.fake_backup_obj = fake_backup.fake_backup_obj(self.context)
 
     def _test_backup_api(self, method, rpc_method, server=None, fanout=False,
@@ -79,37 +80,83 @@ class BackupRpcAPITestCase(test.TestCase):
                     else:
                         self.assertEqual(expected_msg[kwarg], value)
 
-    def test_create_backup(self):
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_create_backup(self, can_send_version):
+        self._test_backup_api('create_backup',
+                              rpc_method='cast',
+                              server=self.fake_backup_obj.host,
+                              backup=self.fake_backup_obj,
+                              version='2.0')
+
+        can_send_version.return_value = False
         self._test_backup_api('create_backup',
                               rpc_method='cast',
                               server=self.fake_backup_obj.host,
                               backup=self.fake_backup_obj,
                               version='1.1')
 
-    def test_restore_backup(self):
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_restore_backup(self, can_send_version):
         self._test_backup_api('restore_backup',
                               rpc_method='cast',
                               server='fake_volume_host',
                               volume_host='fake_volume_host',
                               backup=self.fake_backup_obj,
                               volume_id='fake_volume_id',
+                              version='2.0')
+
+        can_send_version.return_value = False
+        self._test_backup_api('restore_backup',
+                              rpc_method='cast',
+                              server='fake_volume_host',
+                              volume_host='fake_volume_host',
+                              backup=self.fake_backup_obj,
+                              volume_id=fake.volume_id,
                               version='1.1')
 
-    def test_delete_backup(self):
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_delete_backup(self, can_send_version):
+        self._test_backup_api('delete_backup',
+                              rpc_method='cast',
+                              server=self.fake_backup_obj.host,
+                              backup=self.fake_backup_obj,
+                              version='2.0')
+
+        can_send_version.return_value = False
         self._test_backup_api('delete_backup',
                               rpc_method='cast',
                               server=self.fake_backup_obj.host,
                               backup=self.fake_backup_obj,
                               version='1.1')
 
-    def test_export_record(self):
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_export_record(self, can_send_version):
+        self._test_backup_api('export_record',
+                              rpc_method='call',
+                              server=self.fake_backup_obj.host,
+                              backup=self.fake_backup_obj,
+                              version='2.0')
+
+        can_send_version.return_value = False
         self._test_backup_api('export_record',
                               rpc_method='call',
                               server=self.fake_backup_obj.host,
                               backup=self.fake_backup_obj,
                               version='1.1')
 
-    def test_import_record(self):
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_import_record(self, can_send_version):
+        self._test_backup_api('import_record',
+                              rpc_method='cast',
+                              server='fake_volume_host',
+                              host='fake_volume_host',
+                              backup=self.fake_backup_obj,
+                              backup_service='fake_service',
+                              backup_url='fake_url',
+                              backup_hosts=['fake_host1', 'fake_host2'],
+                              version='2.0')
+
+        can_send_version.return_value = False
         self._test_backup_api('import_record',
                               rpc_method='cast',
                               server='fake_volume_host',
@@ -120,10 +167,34 @@ class BackupRpcAPITestCase(test.TestCase):
                               backup_hosts=['fake_host1', 'fake_host2'],
                               version='1.1')
 
-    def test_reset_status(self):
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_reset_status(self, can_send_version):
         self._test_backup_api('reset_status',
                               rpc_method='cast',
                               server=self.fake_backup_obj.host,
                               backup=self.fake_backup_obj,
                               status='error',
+                              version='2.0')
+
+        can_send_version.return_value = False
+        self._test_backup_api('reset_status',
+                              rpc_method='cast',
+                              server=self.fake_backup_obj.host,
+                              backup=self.fake_backup_obj,
+                              status='error',
+                              version='1.1')
+
+    @mock.patch('oslo_messaging.RPCClient.can_send_version', return_value=True)
+    def test_check_support_to_force_delete(self, can_send_version):
+        self._test_backup_api('check_support_to_force_delete',
+                              rpc_method='call',
+                              server='fake_volume_host',
+                              host='fake_volume_host',
+                              version='2.0')
+
+        can_send_version.return_value = False
+        self._test_backup_api('check_support_to_force_delete',
+                              rpc_method='call',
+                              server='fake_volume_host',
+                              host='fake_volume_host',
                               version='1.1')

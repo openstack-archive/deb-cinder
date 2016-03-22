@@ -75,7 +75,7 @@ class HttpClient(object):
     Helper for making the REST calls.
     """
 
-    def __init__(self, host, port, user, password, verify):
+    def __init__(self, host, port, user, password, verify, apiversion):
         """HttpClient handles the REST requests.
 
         :param host: IP address of the Dell Data Collector.
@@ -84,6 +84,7 @@ class HttpClient(object):
         :param password: Password.
         :param verify: Boolean indicating whether certificate verification
                        should be turned on or not.
+        :param apiversion: Dell API version.
         """
         self.baseUrl = 'https://%s:%s/api/rest/' % (host, port)
 
@@ -93,7 +94,7 @@ class HttpClient(object):
         self.header = {}
         self.header['Content-Type'] = 'application/json; charset=utf-8'
         self.header['Accept'] = 'application/json'
-        self.header['x-dell-api-version'] = '2.0'
+        self.header['x-dell-api-version'] = apiversion
         self.verify = verify
 
         # Verify is a configurable option.  So if this is false do not
@@ -158,8 +159,13 @@ class StorageCenterApiHelper(object):
     connection to the Dell REST API.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, active_backend_id):
         self.config = config
+        # Now that active_backend_id is set on failover.
+        # Use that if set.  Mark the backend as failed over.
+        self.active_backend_id = active_backend_id
+        self.ssn = self.config.dell_sc_ssn
+        self.apiversion = '2.0'
 
     def open_connection(self):
         """Creates the StorageCenterApi object.
@@ -168,24 +174,39 @@ class StorageCenterApiHelper(object):
         :raises: VolumeBackendAPIException
         """
         connection = None
-        ssn = self.config.dell_sc_ssn
         LOG.info(_LI('open_connection to %(ssn)s at %(ip)s'),
-                 {'ssn': ssn,
+                 {'ssn': self.ssn,
                   'ip': self.config.san_ip})
-        if ssn:
+        if self.ssn:
             """Open connection to REST API."""
             connection = StorageCenterApi(self.config.san_ip,
                                           self.config.dell_sc_api_port,
                                           self.config.san_login,
                                           self.config.san_password,
-                                          self.config.dell_sc_verify_cert)
+                                          self.config.dell_sc_verify_cert,
+                                          self.apiversion)
             # This instance is for a single backend.  That backend has a
             # few items of information we should save rather than passing them
             # about.
-            connection.ssn = ssn
             connection.vfname = self.config.dell_sc_volume_folder
             connection.sfname = self.config.dell_sc_server_folder
+            # Set appropriate ssn and failover state.
+            if self.active_backend_id:
+                # active_backend_id is a string.  Convert to int.
+                connection.ssn = int(self.active_backend_id)
+                connection.failed_over = True
+            else:
+
+                connection.ssn = self.ssn
+                connection.failed_over = False
+            # Open connection.
             connection.open_connection()
+            # Save our api version for next time.
+            if self.apiversion != connection.apiversion:
+                LOG.info(_LI('open_connection: Updating API version to %s'),
+                         connection.apiversion)
+                self.apiversion = connection.apiversion
+
         else:
             raise exception.VolumeBackendAPIException(
                 data=_('Configuration error: dell_sc_ssn not set.'))
@@ -208,10 +229,13 @@ class StorageCenterApi(object):
         2.3.0 - Added Legacy Port Mode Support
         2.3.1 - Updated error handling.
         2.4.0 - Added Replication V2 support.
+        2.4.1 - Updated Replication support to V2.1.
+        2.5.0 - ManageableSnapshotsVD implemented.
     """
-    APIVERSION = '2.4.0'
 
-    def __init__(self, host, port, user, password, verify):
+    APIDRIVERVERSION = '2.5.0'
+
+    def __init__(self, host, port, user, password, verify, apiversion):
         """This creates a connection to Dell SC or EM.
 
         :param host: IP address of the REST interface..
@@ -220,23 +244,22 @@ class StorageCenterApi(object):
         :param password: Password.
         :param verify: Boolean indicating whether certificate verification
                        should be turned on or not.
+        :param apiversion: Version used on login.
         """
         self.notes = 'Created by Dell Cinder Driver'
         self.repl_prefix = 'Cinder repl of '
-        self.failover_prefix = 'Cinder failover '
         self.ssn = None
+        self.failed_over = False
         self.vfname = 'openstack'
         self.sfname = 'openstack'
         self.legacypayloadfilters = False
         self.consisgroups = True
+        self.apiversion = apiversion
         # Nothing other than Replication should care if we are direct connect
         # or not.
         self.is_direct_connect = False
-        self.client = HttpClient(host,
-                                 port,
-                                 user,
-                                 password,
-                                 verify)
+        self.client = HttpClient(host, port, user, password,
+                                 verify, apiversion)
 
     def __enter__(self):
         return self
@@ -249,7 +272,6 @@ class StorageCenterApi(object):
         """Checks and logs API responses.
 
         :param rest_response: The result from a REST API call.
-        :param expected_response: The expected result.
         :returns: ``True`` if success, ``False`` otherwise.
         """
         if 200 <= rest_response.status_code < 300:
@@ -389,21 +411,48 @@ class StorageCenterApi(object):
             return LegacyPayloadFilter(filterType)
         return PayloadFilter(filterType)
 
+    def _check_version_fail(self, payload, response):
+        try:
+            # Is it even our error?
+            if response.text.startswith('Invalid API version specified, '
+                                        'the version must be in the range ['):
+                # We're looking for something very specific. The except
+                # will catch any errors.
+                # Update our version and update our header.
+                self.apiversion = response.text.split('[')[1].split(',')[0]
+                self.client.header['x-dell-api-version'] = self.apiversion
+                LOG.debug('API version updated to %s', self.apiversion)
+                # Give login another go.
+                r = self.client.post('ApiConnection/Login', payload)
+                return r
+        except Exception:
+            # We don't care what failed. The clues are already in the logs.
+            # Just log a parsing error and move on.
+            LOG.error(_LE('_check_version_fail: Parsing error.'))
+        # Just eat this if it isn't a version error.
+        return response
+
     def open_connection(self):
         """Authenticate with Dell REST interface.
 
         :raises: VolumeBackendAPIException.
         """
 
+        # Login
         payload = {}
         payload['Application'] = 'Cinder REST Driver'
-        payload['ApplicationVersion'] = self.APIVERSION
-        r = self.client.post('ApiConnection/Login',
-                             payload)
-
+        payload['ApplicationVersion'] = self.APIDRIVERVERSION
+        LOG.debug('open_connection %s',
+                  self.client.header['x-dell-api-version'])
+        r = self.client.post('ApiConnection/Login', payload)
         if not self._check_result(r):
-            raise exception.VolumeBackendAPIException(
-                data=_('Failed to connect to Dell REST API'))
+            # SC requires a specific version. See if we can get it.
+            r = self._check_version_fail(payload, r)
+            # Either we tried to login and have a new result or we are
+            # just checking the same result. Either way raise on fail.
+            if not self._check_result(r):
+                raise exception.VolumeBackendAPIException(
+                    data=_('Failed to connect to Dell REST API'))
 
         # We should be logged in.  Try to grab the api version out of the
         # response.
@@ -774,7 +823,8 @@ class StorageCenterApi(object):
                      This is the cinder volume ID.
         :param size: The size of the volume to be created in GB.
         :param storage_profile: Optional storage profile to set for the volume.
-        :param replay_profile: Optional replay profile to set for the volume.
+        :param replay_profile_string: Optional replay profile to set for
+                                      the volume.
         :returns: Dell Volume object or None.
         """
         LOG.debug('Create Volume %(name)s %(ssn)s %(folder)s %(profile)s',
@@ -877,6 +927,9 @@ class StorageCenterApi(object):
         for the volume first.  If not found it searches the entire array for
         the volume.
 
+        Remember that in the case of a failover we have already been switched
+        to our new SSN.  So the initial searches are valid.
+
         :param name: Name of the volume to search for.  This is the cinder
                      volume ID.
         :returns: Dell Volume object or None if not found.
@@ -899,19 +952,17 @@ class StorageCenterApi(object):
                       {'n': name,
                        'v': self.vfname})
             vollist = self._get_volume_list(name, None, False)
-        # Failover Check.
-        # If an empty list was returned then either there is no such volume
-        # or we are in a failover state.  Look for failover volume.
-        if not vollist:
+        # If we found nothing and are failed over then we might not have
+        # completed our replication failover. Look for the replication
+        # volume. We are already pointing at that SC.
+        if not vollist and self.failed_over:
             LOG.debug('Unable to locate volume. Checking for failover.')
-            # Get our failover name.
-            fn = self._failover_name(name)
+            # Get our replay name.
+            fn = self._repl_name(name)
             vollist = self._get_volume_list(fn, None, False)
             # Same deal as the rest of these.  If 0 not found.  If greater than
             # one we have multiple copies and cannot return a valid result.
             if len(vollist) == 1:
-                # So we are in failover.  Rename the volume and move it to our
-                # volume folder.
                 LOG.info(_LI('Found failover volume. Competing failover.'))
                 # Import our found volume.  This completes our failover.
                 scvolume = self._import_one(vollist[0], name)
@@ -920,7 +971,7 @@ class StorageCenterApi(object):
                              {'fail': fn,
                               'guid': name})
                     return scvolume
-                msg = _('Unable to complete import of %s.') % fn
+                msg = _('Unable to complete failover of %s.') % fn
                 raise exception.VolumeBackendAPIException(data=msg)
 
         # If multiple volumes of the same name are found we need to error.
@@ -1097,8 +1148,8 @@ class StorageCenterApi(object):
         # 201 expected.
         if self._check_result(r):
             # Server was created
-            LOG.info(_LI('SC server created %s'), scserver)
             scserver = self._first_result(r)
+            LOG.info(_LI('SC server created %s'), scserver)
 
             # Add hba to our server
             if scserver is not None:
@@ -1731,6 +1782,44 @@ class StorageCenterApi(object):
 
         return None
 
+    def manage_replay(self, screplay, replayid):
+        """Basically renames the screplay and sets it to never expire.
+
+        :param screplay: DellSC object.
+        :param replayid: New name for replay.
+        :return: True on success.  False on fail.
+        """
+        if screplay and replayid:
+            payload = {}
+            payload['description'] = replayid
+            payload['expireTime'] = 0
+            r = self.client.put('StorageCenter/ScReplay/%s' %
+                                self._get_id(screplay),
+                                payload)
+            if self._check_result(r):
+                return True
+            LOG.error(_LE('Error managing replay %s'),
+                      screplay.get('description'))
+        return False
+
+    def unmanage_replay(self, screplay):
+        """Basically sets the expireTime
+
+        :param screplay: DellSC object.
+        :return: True on success.  False on fail.
+        """
+        if screplay:
+            payload = {}
+            payload['expireTime'] = 1440
+            r = self.client.put('StorageCenter/ScReplay/%s' %
+                                self._get_id(screplay),
+                                payload)
+            if self._check_result(r):
+                return True
+            LOG.error(_LE('Error unmanaging replay %s'),
+                      screplay.get('description'))
+        return False
+
     def delete_replay(self, scvolume, replayid):
         """Finds a Dell replay by replayid string and expires it.
 
@@ -2264,7 +2353,8 @@ class StorageCenterApi(object):
                     ' for Consistency Group support')
             raise NotImplementedError(data=msg)
 
-    def _size_to_gb(self, spacestring):
+    @staticmethod
+    def size_to_gb(spacestring):
         """Splits a SC size string into GB and a remainder.
 
         Space is returned in a string like ...
@@ -2332,7 +2422,7 @@ class StorageCenterApi(object):
         if count == 1:
             # First thing to check is if the size is something we can
             # work with.
-            sz, rem = self._size_to_gb(vollist[0]['configuredSize'])
+            sz, rem = self.size_to_gb(vollist[0]['configuredSize'])
             if rem > 0:
                 raise exception.VolumeBackendAPIException(
                     data=_('Volume size must multiple of 1 GB.'))
@@ -2368,7 +2458,7 @@ class StorageCenterApi(object):
         count = len(vollist)
         # If we found one volume with that name we can work with it.
         if count == 1:
-            sz, rem = self._size_to_gb(vollist[0]['configuredSize'])
+            sz, rem = self.size_to_gb(vollist[0]['configuredSize'])
             if rem > 0:
                 raise exception.VolumeBackendAPIException(
                     data=_('Volume size must multiple of 1 GB.'))
@@ -2512,9 +2602,6 @@ class StorageCenterApi(object):
     def _repl_name(self, name):
         return self.repl_prefix + name
 
-    def _failover_name(self, name):
-        return self.failover_prefix + name
-
     def _get_disk_folder(self, ssn, foldername):
         # TODO(tswanson): Harden this.
         diskfolder = None
@@ -2586,27 +2673,14 @@ class StorageCenterApi(object):
                        'destsc': destssn})
         return screpl
 
-    def pause_replication(self, scvolume, destssn):
-        # destssn should probably be part of the object.
-        replication = self.get_screplication(scvolume, destssn)
-        if replication:
-            r = self.client.post('StorageCenter/ScReplication/%s/Pause' %
-                                 self._get_id(replication), {})
-            if self._check_result(r):
-                return True
-        return False
-
-    def resume_replication(self, scvolume, destssn):
-        # destssn should probably be part of the object.
-        replication = self.get_screplication(scvolume, destssn)
-        if replication:
-            r = self.client.post('StorageCenter/ScReplication/%s/Resume' %
-                                 self._get_id(replication), {})
-            if self._check_result(r):
-                return True
-        return False
-
     def find_repl_volume(self, guid, destssn, instance_id=None):
+        """Find our replay destination volume on the destssn.
+
+        :param guid: Volume ID.
+        :param destssn: Where to look for the volume.
+        :param instance_id: If we know our exact volume ID use that.
+        :return: SC Volume object or None
+        """
         # Do a normal volume search.
         pf = self._get_payload_filter()
         pf.append('scSerialNumber', destssn)
@@ -2616,7 +2690,7 @@ class StorageCenterApi(object):
             pf.append('instanceId', instance_id)
         else:
             # Try the name.
-            pf.append('Name', self.repl_prefix + guid)
+            pf.append('Name', self._repl_name(guid))
         r = self.client.post('StorageCenter/ScVolume/GetList',
                              pf.payload)
         if self._check_result(r):
@@ -2625,7 +2699,7 @@ class StorageCenterApi(object):
                 return volumes[0]
         return None
 
-    def _remove_mappings(self, scvol):
+    def remove_mappings(self, scvol):
         """Peels all the mappings off of scvol.
 
         :param scvol:
@@ -2636,7 +2710,7 @@ class StorageCenterApi(object):
                                  self._get_id(scvol),
                                  {})
             return self._check_result(r)
-        return None
+        return False
 
     def break_replication(self, volumename, destssn):
         """This just breaks the replication.
@@ -2646,8 +2720,7 @@ class StorageCenterApi(object):
         every time this goes south.
 
         :param volumename:
-        :param destssn:
-        :return: True False
+        :return:
         """
         ret = False
         replid = None
@@ -2661,14 +2734,11 @@ class StorageCenterApi(object):
         # stuffing it into the recycle bin.
         # Instead we try to unmap the destination volume which will break
         # the replication but leave the replication object on the SC.
-        ret = self._remove_mappings(screplvol)
+        ret = self.remove_mappings(screplvol)
         # If the volume is free of replication.
         if ret:
-            # Move and rename it.
-            ret = self.rename_volume(screplvol,
-                                     self._failover_name(volumename))
             # Try to kill mappings on the source.
             # We don't care that this succeeded or failed.  Just move on.
-            self._remove_mappings(scvolume)
+            self.remove_mappings(scvolume)
 
         return ret

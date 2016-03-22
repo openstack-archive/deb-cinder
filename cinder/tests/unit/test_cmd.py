@@ -14,6 +14,7 @@ import datetime
 import six
 import sys
 
+from cinder import rpc
 try:
     from unittest import mock
 except ImportError:
@@ -38,6 +39,7 @@ from cinder import context
 from cinder import exception
 from cinder.objects import fields
 from cinder import test
+from cinder.tests.unit import fake_constants
 from cinder.tests.unit import fake_volume
 from cinder import version
 
@@ -664,6 +666,34 @@ class TestCinderManageCmd(test.TestCase):
                                                    None, None, None)
             self.assertEqual(expected_out, fake_out.getvalue())
 
+    @mock.patch('cinder.db.backup_update')
+    @mock.patch('cinder.db.backup_get_all_by_host')
+    @mock.patch('cinder.context.get_admin_context')
+    def test_update_backup_host(self, get_admin_context,
+                                backup_get_by_host,
+                                backup_update):
+        ctxt = context.RequestContext('fake-user', 'fake-project')
+        get_admin_context.return_value = ctxt
+        backup = {'id': fake_constants.backup_id,
+                  'user_id': 'fake-user-id',
+                  'project_id': 'fake-project-id',
+                  'host': 'fake-host',
+                  'display_name': 'fake-display-name',
+                  'container': 'fake-container',
+                  'status': fields.BackupStatus.AVAILABLE,
+                  'size': 123,
+                  'object_count': 1,
+                  'volume_id': 'fake-volume-id',
+                  }
+        backup_get_by_host.return_value = [backup]
+        backup_cmds = cinder_manage.BackupCommands()
+        backup_cmds.update_backup_host('fake_host', 'fake_host2')
+
+        get_admin_context.assert_called_once_with()
+        backup_get_by_host.assert_called_once_with(ctxt, 'fake_host')
+        backup_update.assert_called_once_with(ctxt, fake_constants.backup_id,
+                                              {'host': 'fake_host2'})
+
     @mock.patch('cinder.utils.service_is_up')
     @mock.patch('cinder.db.service_get_all')
     @mock.patch('cinder.context.get_admin_context')
@@ -674,19 +704,29 @@ class TestCinderManageCmd(test.TestCase):
         service_get_all.return_value = [service]
         service_is_up.return_value = True
         with mock.patch('sys.stdout', new=six.StringIO()) as fake_out:
-            format = "%-16s %-36s %-16s %-10s %-5s %-10s"
+            format = "%-16s %-36s %-16s %-10s %-5s %-20s %-12s %-15s"
             print_format = format % ('Binary',
                                      'Host',
                                      'Zone',
                                      'Status',
                                      'State',
-                                     'Updated At')
+                                     'Updated At',
+                                     'RPC Version',
+                                     'Object Version')
+            rpc_version = service['rpc_current_version']
+            if not rpc_version:
+                rpc_version = rpc.LIBERTY_RPC_VERSIONS[service['binary']]
+            object_version = service['object_current_version']
+            if not object_version:
+                object_version = 'liberty'
             service_format = format % (service['binary'],
                                        service['host'].partition('.')[0],
                                        service['availability_zone'],
                                        'enabled',
                                        ':-)',
-                                       service['updated_at'])
+                                       service['updated_at'],
+                                       rpc_version,
+                                       object_version)
             expected_out = print_format + '\n' + service_format + '\n'
 
             service_cmds = cinder_manage.ServiceCommands()
@@ -701,16 +741,24 @@ class TestCinderManageCmd(test.TestCase):
                    'host': 'fake-host.fake-domain',
                    'availability_zone': 'fake-zone',
                    'updated_at': '2014-06-30 11:22:33',
-                   'disabled': False}
-        self._test_service_commands_list(service)
+                   'disabled': False,
+                   'rpc_current_version': '1.1',
+                   'object_current_version': '1.1'}
+        for binary in ('volume', 'scheduler', 'backup'):
+            service['binary'] = 'cinder-%s' % binary
+            self._test_service_commands_list(service)
 
     def test_service_commands_list_no_updated_at(self):
         service = {'binary': 'cinder-binary',
                    'host': 'fake-host.fake-domain',
                    'availability_zone': 'fake-zone',
                    'updated_at': None,
-                   'disabled': False}
-        self._test_service_commands_list(service)
+                   'disabled': False,
+                   'rpc_current_version': None,
+                   'object_current_version': None}
+        for binary in ('volume', 'scheduler', 'backup'):
+            service['binary'] = 'cinder-%s' % binary
+            self._test_service_commands_list(service)
 
     def test_get_arg_string(self):
         args1 = "foobar"
