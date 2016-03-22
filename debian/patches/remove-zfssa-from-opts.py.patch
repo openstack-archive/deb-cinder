@@ -7,7 +7,7 @@ Index: cinder/cinder/opts.py
 ===================================================================
 --- cinder.orig/cinder/opts.py
 +++ cinder/cinder/opts.py
-@@ -158,10 +158,6 @@ from cinder.volume.drivers import vzstor
+@@ -157,10 +157,6 @@ from cinder.volume.drivers import vzstor
  from cinder.volume.drivers.windows import windows as \
      cinder_volume_drivers_windows_windows
  from cinder.volume.drivers import xio as cinder_volume_drivers_xio
@@ -18,7 +18,7 @@ Index: cinder/cinder/opts.py
  from cinder.volume import manager as cinder_volume_manager
  from cinder.wsgi import eventlet_server as cinder_wsgi_eventletserver
  from cinder.zonemanager.drivers.brocade import brcd_fabric_opts as \
-@@ -263,7 +259,6 @@ def list_opts():
+@@ -266,7 +262,6 @@ def list_opts():
                  cinder_volume_drivers_xio.XIO_OPTS,
                  cinder_volume_drivers_ibm_storwize_svc_storwizesvcfc.
                  storwize_svc_fc_opts,
@@ -26,7 +26,7 @@ Index: cinder/cinder/opts.py
                  cinder_volume_driver.volume_opts,
                  cinder_volume_driver.iser_opts,
                  cinder_api_views_versions.versions_opts,
-@@ -305,7 +300,6 @@ def list_opts():
+@@ -308,7 +303,6 @@ def list_opts():
                  cinder_volume_drivers_blockbridge.blockbridge_opts,
                  [cinder_scheduler_scheduleroptions.
                      scheduler_json_config_location_opt],
