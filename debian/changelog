@@ -1,3 +1,9 @@
+cinder (2:8.0.0~rc1-2) experimental; urgency=medium
+
+  * Do not use Keystone admin auth token to register API endpoint.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 29 Mar 2016 12:24:55 +0000
+
 cinder (2:8.0.0~rc1-1) experimental; urgency=medium
 
   * New upstream release.

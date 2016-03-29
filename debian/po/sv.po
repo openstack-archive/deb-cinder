@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2012-11-28 11:58+0000\n"
+"POT-Creation-Date: 2016-03-29 12:24+0000\n"
 "PO-Revision-Date: 2014-01-08 16:52+0100\n"
 "Last-Translator: Martin Bagge / brother <brother@bsnet.se>\n"
 "Language-Team: Swedish <debian-l10n-swedish@lists.debian.org>\n"
@@ -19,20 +19,6 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-common.templates:1001
-msgid "Start cinder services at boot?"
-msgstr "Ska cinder-tjänster startas vid systemets uppstart?"
-
-#. Type: boolean
-#. Description
-#: ../cinder-common.templates:1001
-msgid ""
-"Please choose whether you want to start Cinder services when the machine is "
-"booted up."
-msgstr "Ange om du vill att Cinder-tjänster ska starta när maskinen startar."
-
-#. Type: boolean
-#. Description
 #: ../cinder-common.templates:2001
 msgid "Set up a database for Cinder?"
 msgstr "Ska en databas installeras för Cinder?"
@@ -40,9 +26,13 @@ msgstr "Ska en databas installeras för Cinder?"
 #. Type: boolean
 #. Description
 #: ../cinder-common.templates:2001
+#, fuzzy
+#| msgid ""
+#| "No database has been set up for Cinder to use. If you want to set one up "
+#| "now, please make sure you have all needed information:"
 msgid ""
-"No database has been set up for Cinder to use. If you want to set one up "
-"now, please make sure you have all needed information:"
+"No database has been set up for Cinder to use. Before continuing, you should "
+"make sure you have the following information:"
 msgstr ""
 "Ingen databas har installerats för Cinder. Innan du fortsätter behöver "
 "följande finnas tillgängligt:"
@@ -50,11 +40,18 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../cinder-common.templates:2001
+#, fuzzy
+#| msgid ""
+#| " * the host name of the database server (which must allow TCP\n"
+#| "   connections from this machine);\n"
+#| " * a username and password to access the database;\n"
+#| " * the type of database management software you want to use."
 msgid ""
-" * the host name of the database server (which must allow TCP\n"
-"   connections from this machine);\n"
-" * a username and password to access the database;\n"
-" * the type of database management software you want to use."
+" * the type of database that you want to use;\n"
+" * the database server hostname (that server must allow TCP connections from "
+"this\n"
+"   machine);\n"
+" * a username and password to access the database."
 msgstr ""
 " * serverns värdnamn (som måste kunna ta emot TCP-anslutningar\n"
 "   från den här maskinen)\n"
@@ -65,18 +62,20 @@ msgstr ""
 #. Description
 #: ../cinder-common.templates:2001
 msgid ""
-"If you don't choose this option, no database will be set up and Cinder will "
-"use regular SQLite support."
+"If some of these requirements are missing, do not choose this option and run "
+"with regular SQLite support."
 msgstr ""
-"Om något av dessa krav saknar bör du avböja detta alternativ och fortsätta "
-"använda sqlite-stödet."
 
 #. Type: boolean
 #. Description
 #: ../cinder-common.templates:2001
+#, fuzzy
+#| msgid ""
+#| "You can change this setting later on by running \"dpkg-reconfigure -plow "
+#| "cinder-common\"."
 msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
-"cinder-common\"."
+"cinder\"."
 msgstr ""
 "Denna inställning kan ändras senare genom att köra \"dpkg-reconfigure -plow "
 "cinder-common\"."
@@ -84,36 +83,80 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../cinder-common.templates:3001
-msgid "Auth server hostname:"
+#, fuzzy
+#| msgid "Auth server hostname:"
+msgid "Authentication server hostname:"
 msgstr "Värdnamn för identifieringsserver:"
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:3001
+#, fuzzy
+#| msgid ""
+#| "Please specify the URL of your Cinder authentication server. Typically  "
+#| "this is also the URL of your OpenStack Identity Service (Keystone)."
 msgid ""
-"Please specify the URL of your Cinder authentication server. Typically  this "
-"is also the URL of your OpenStack Identity Service (Keystone)."
+"Please specify the hostname of the authentication server. Typically this is "
+"also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
 "Ange URL till din Cinder-identifieringsserver. Detta är vanligtvis samma URL "
 "som till din OpenStack-identitetstjänst (Keystone)."
 
 #. Type: string
 #. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it aside with your translation. Example for French:
+#. proprietaire ("tenant")
 #: ../cinder-common.templates:4001
-msgid "Auth server tenant name:"
+#, fuzzy
+#| msgid "Auth server tenant name:"
+msgid "Authentication server tenant name:"
 msgstr "Namn för \"tenant\" (administratör) på identifieringsservern:"
 
 #. Type: string
 #. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it aside with your translation. Example for French:
+#. proprietaire ("tenant")
+#: ../cinder-common.templates:4001
+msgid "Please specify the authentication server tenant name."
+msgstr ""
+
+#. Type: string
+#. Description
 #: ../cinder-common.templates:5001
-msgid "Auth server username:"
+#, fuzzy
+#| msgid "Auth server username:"
+msgid "Authentication server username:"
 msgstr "Användarnamn på identifieringsservern:"
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:5001
+msgid "Please specify the username to use with the authentication server."
+msgstr ""
 
 #. Type: password
 #. Description
 #: ../cinder-common.templates:6001
-msgid "Auth server password:"
+#, fuzzy
+#| msgid "Auth server password:"
+msgid "Authentication server password:"
 msgstr "Lösenord på identifieringsservern:"
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:6001
+msgid "Please specify the password to use with the authentication server."
+msgstr ""
 
 #. Type: string
 #. Description
@@ -124,25 +167,85 @@ msgstr "Volymgrupp för Cinder:"
 #. Type: string
 #. Description
 #: ../cinder-common.templates:7001
+#, fuzzy
+#| msgid ""
+#| "Please specify the name of the LVM volume group (vg) on which Cinder will "
+#| "create partitions."
 msgid ""
-"Please specify the name of the LVM volume group (vg) on which Cinder will "
-"create partitions."
+"Please specify the name of the LVM volume group on which Cinder will create "
+"partitions."
 msgstr ""
 "Ange namnet för LVM-volym-grupp (vg) där Cinder ska skapa sina partitioner."
 
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "IP address of your RabbitMQ host:"
+msgstr ""
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../cinder-common.templates:8001 ../cinder-common.templates:9001
+#: ../cinder-common.templates:10001
+msgid ""
+"In order to interoperate with other components of OpenStack, this package "
+"needs to connect to a central RabbitMQ server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:8001
+msgid "Please specify the IP address of that server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Username for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-common.templates:9001
+msgid "Please specify the username used to connect to the RabbitMQ server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Password for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-common.templates:10001
+msgid "Please specify the password used to connect to the RabbitMQ server."
+msgstr ""
+
 #. Type: boolean
 #. Description
-#: ../cinder-api.templates:1001
-msgid "Register Cinder in the keystone endpoint catalog?"
+#: ../cinder-api.templates:2001
+#, fuzzy
+#| msgid "Register Cinder in the keystone endpoint catalog?"
+msgid "Register Cinder in the Keystone endpoint catalog?"
 msgstr "Ska Cinder registreras i keystones katalog med ändpunkter?"
 
 #. Type: boolean
 #. Description
-#: ../cinder-api.templates:1001
+#: ../cinder-api.templates:2001
+#, fuzzy
+#| msgid ""
+#| "Each Openstack services (each API) should be registered in order to be "
+#| "accessible. This is done using \"keystone service-create\" and \"keystone "
+#| "endpoint-create\". Select if you want to run these commands now."
 msgid ""
-"Each Openstack services (each API) should be registered in order to be "
+"Each OpenStack service (each API) should be registered in order to be "
 "accessible. This is done using \"keystone service-create\" and \"keystone "
-"endpoint-create\". Select if you want to run these commands now."
+"endpoint-create\". This can be done automatically now."
 msgstr ""
 "Alla OpenStack-tjänster (varje API) ska registreras för att kunna användas. "
 "Detta görs med kommandona \"keystone service-create\" och \"keystone "
@@ -150,61 +253,92 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../cinder-api.templates:1001
+#: ../cinder-api.templates:2001
+#, fuzzy
+#| msgid ""
+#| "Note that you will need to have an up and running keystone server on "
+#| "which to connect using the Keystone auth token."
 msgid ""
-"Note that you will need to have an up and running keystone server on which "
-"to connect using the Keystone auth token."
+"Note that you will need to have an up and running Keystone server on which "
+"to connect using the Keystone authentication token."
 msgstr "OBS. Du behöver ha en fungerande keystone-server att ansluta till."
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:2001
-msgid "Keystone IP address:"
+#: ../cinder-api.templates:3001
+#, fuzzy
+#| msgid "Keystone IP address:"
+msgid "Keystone server IP address:"
 msgstr "IP-adress till Keystone:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:2001
+#: ../cinder-api.templates:3001
+#, fuzzy
+#| msgid ""
+#| "Enter the IP address of your keystone server, so that cinder-api can "
+#| "contact Keystone to do the Cinder service and endpoint creation."
 msgid ""
-"Enter the IP address of your keystone server, so that cinder-api can contact "
-"Keystone to do the Cinder service and endpoint creation."
+"Please enter the IP address of the Keystone server, so that cinder-api can "
+"contact Keystone to do the Cinder service and endpoint creation."
 msgstr ""
 "Ange IP-adressen till din keystone-server så att cinder-api kan kontakta "
 "Keystone för att lägga till Cinder-tjänsten som en ändpunkt."
 
-#. Type: password
-#. Description
-#: ../cinder-api.templates:3001
-msgid "Keystone Auth Token:"
-msgstr "Autetiseringsvärde för Keystone:"
-
-#. Type: password
-#. Description
-#: ../cinder-api.templates:3001
-msgid ""
-"To configure its endpoint in Keystone, cinder-api needs the Keystone auth "
-"token."
-msgstr ""
-"För att lägga till ändpunkt i Keystone behöver cinder-api ett "
-"autentiseringsvärde för Keystone."
-
 #. Type: string
 #. Description
 #: ../cinder-api.templates:4001
+#, fuzzy
+#| msgid "Keystone IP address:"
+msgid "Keystone admin name:"
+msgstr "IP-adress till Keystone:"
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../cinder-api.templates:4001 ../cinder-api.templates:5001
+#: ../cinder-api.templates:6001
+msgid ""
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:5001
+msgid "Keystone admin project name:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:6001
+#, fuzzy
+#| msgid "Keystone IP address:"
+msgid "Keystone admin password:"
+msgstr "IP-adress till Keystone:"
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:7001
 msgid "Cinder endpoint IP address:"
 msgstr "IP-adress för Cinder-ändpunkt:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:4001
-msgid ""
-"Enter the IP address that will be used to contact Cinder (eg: the Cinder "
-"endpoint IP address)."
+#: ../cinder-api.templates:7001
+#, fuzzy
+#| msgid ""
+#| "Enter the IP address that will be used to contact Cinder (eg: the Cinder "
+#| "endpoint IP address)."
+msgid "Please enter the IP address that will be used to contact Cinder."
 msgstr "Ange den IP-adress som ska användas för att kontakta Cinder."
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:4001
+#: ../cinder-api.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -216,17 +350,48 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:8001
 msgid "Name of the region to register:"
 msgstr "Regionnamn:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:8001
+#, fuzzy
+#| msgid ""
+#| "Openstack can be used using availability zones, with each region "
+#| "representing a location. Please enter the zone that you wish to use when "
+#| "registering the endpoint."
 msgid ""
-"Openstack can be used using availability zones, with each region "
-"representing a location. Please enter the zone that you wish to use when "
-"registering the endpoint."
+"OpenStack supports using availability zones, with each region representing a "
+"location. Please enter the zone that you wish to use when registering the "
+"endpoint."
 msgstr ""
 "OpenStack kan användas med tillgänglighetszoner. Varje region representerar "
 "en plats. Ange zonen som ska användas när ändpunkten registreras."
+
+#~ msgid "Start cinder services at boot?"
+#~ msgstr "Ska cinder-tjänster startas vid systemets uppstart?"
+
+#~ msgid ""
+#~ "Please choose whether you want to start Cinder services when the machine "
+#~ "is booted up."
+#~ msgstr ""
+#~ "Ange om du vill att Cinder-tjänster ska starta när maskinen startar."
+
+#~ msgid ""
+#~ "If you don't choose this option, no database will be set up and Cinder "
+#~ "will use regular SQLite support."
+#~ msgstr ""
+#~ "Om något av dessa krav saknar bör du avböja detta alternativ och "
+#~ "fortsätta använda sqlite-stödet."
+
+#~ msgid "Keystone Auth Token:"
+#~ msgstr "Autetiseringsvärde för Keystone:"
+
+#~ msgid ""
+#~ "To configure its endpoint in Keystone, cinder-api needs the Keystone auth "
+#~ "token."
+#~ msgstr ""
+#~ "För att lägga till ändpunkt i Keystone behöver cinder-api ett "
+#~ "autentiseringsvärde för Keystone."

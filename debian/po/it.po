@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-12-19 16:02+0800\n"
+"POT-Creation-Date: 2016-03-29 12:24+0000\n"
 "PO-Revision-Date: 2014-04-06 15:15+0200\n"
 "Last-Translator: Beatrice Torracca <beatricet@libero.it>\n"
 "Language-Team: Italian <debian-l10n-italian@lists.debian.org>\n"
@@ -176,7 +176,6 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../cinder-common.templates:8001
-#| msgid "Please enter the IP address that will be used to contact Cinder."
 msgid "Please specify the IP address of that server."
 msgstr "Inserire l'indirizzo IP di tale server."
 
@@ -190,7 +189,8 @@ msgstr "Nome utente per la connessione al server RabbitMQ:"
 #. Description
 #: ../cinder-common.templates:9001
 msgid "Please specify the username used to connect to the RabbitMQ server."
-msgstr "Specificare il nome utente da usare per connettersi al server RabbitMQ."
+msgstr ""
+"Specificare il nome utente da usare per connettersi al server RabbitMQ."
 
 #. Type: password
 #. Description
@@ -250,31 +250,48 @@ msgstr ""
 "possa contattare Keystone per effettuare la creazione del servizio e del "
 "punto terminale Cinder."
 
-#. Type: password
+#. Type: string
 #. Description
 #: ../cinder-api.templates:4001
-msgid "Keystone authentication token:"
+#, fuzzy
+#| msgid "Keystone authentication token:"
+msgid "Keystone admin name:"
 msgstr "Token di autenticazione Keystone:"
 
+#. Type: string
+#. Description
+#. Type: string
+#. Description
 #. Type: password
 #. Description
-#: ../cinder-api.templates:4001
+#: ../cinder-api.templates:4001 ../cinder-api.templates:5001
+#: ../cinder-api.templates:6001
 msgid ""
-"To configure its endpoint in Keystone, cinder-api needs the Keystone "
-"authentication token."
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
 msgstr ""
-"Per configurare il proprio punto terminale in Keystone, cinder-api ha "
-"bisogno del token di autenticazione Keystone."
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
+msgid "Keystone admin project name:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:6001
+msgid "Keystone admin password:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:7001
 msgid "Cinder endpoint IP address:"
 msgstr "Indirizzo IP del punto terminale Cinder:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid "Please enter the IP address that will be used to contact Cinder."
 msgstr ""
 "Inserire l'indirizzo IP che verrà usato per contattare Cinder (es.: "
@@ -282,7 +299,7 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -294,13 +311,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid "Name of the region to register:"
 msgstr "Nome della regione da registrare:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid ""
 "OpenStack supports using availability zones, with each region representing a "
 "location. Please enter the zone that you wish to use when registering the "
@@ -309,6 +326,13 @@ msgstr ""
 "OpenStack può essere usato utilizzando le zone di disponibilità, con ogni "
 "regione che rappresenta una posizione. Inserire la zona che si desidera "
 "usare durante la registrazione del punto terminale."
+
+#~ msgid ""
+#~ "To configure its endpoint in Keystone, cinder-api needs the Keystone "
+#~ "authentication token."
+#~ msgstr ""
+#~ "Per configurare il proprio punto terminale in Keystone, cinder-api ha "
+#~ "bisogno del token di autenticazione Keystone."
 
 #~ msgid "Start Cinder services at boot?"
 #~ msgstr "Far partire i servizi cinder all'avvio?"

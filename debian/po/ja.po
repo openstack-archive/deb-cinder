@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-12-19 16:02+0800\n"
+"POT-Creation-Date: 2016-03-29 12:24+0000\n"
 "PO-Revision-Date: 2013-09-02 14:02+0900\n"
 "Last-Translator: victory <victory.deb@gmail.com>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
@@ -248,37 +248,54 @@ msgstr ""
 "Keystone サーバの IP アドレスを入力してください。それにより cinder-api は "
 "Keystone と通信し、Cinder サービスや端末の作成ができるようになります。"
 
-#. Type: password
+#. Type: string
 #. Description
 #: ../cinder-api.templates:4001
-msgid "Keystone authentication token:"
+#, fuzzy
+#| msgid "Keystone authentication token:"
+msgid "Keystone admin name:"
 msgstr "Keystone 認証文字列:"
 
+#. Type: string
+#. Description
+#. Type: string
+#. Description
 #. Type: password
 #. Description
-#: ../cinder-api.templates:4001
+#: ../cinder-api.templates:4001 ../cinder-api.templates:5001
+#: ../cinder-api.templates:6001
 msgid ""
-"To configure its endpoint in Keystone, cinder-api needs the Keystone "
-"authentication token."
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
 msgstr ""
-"Keystone で端末を設定するには、cinder-api は Keystone 認証文字列を必要としま"
-"す。"
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
+msgid "Keystone admin project name:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:6001
+msgid "Keystone admin password:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:7001
 msgid "Cinder endpoint IP address:"
 msgstr "Cinder 端末の IP アドレス:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid "Please enter the IP address that will be used to contact Cinder."
 msgstr "Cinder への通信に利用する IP アドレスを入力してください。"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -290,13 +307,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid "Name of the region to register:"
 msgstr "登録する領域の名前:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid ""
 "OpenStack supports using availability zones, with each region representing a "
 "location. Please enter the zone that you wish to use when registering the "
@@ -304,6 +321,13 @@ msgid ""
 msgstr ""
 "OpenStack は位置を示す各領域による利用可能区分を利用することができます。端末"
 "の登録時に利用したい区分を入力してください。"
+
+#~ msgid ""
+#~ "To configure its endpoint in Keystone, cinder-api needs the Keystone "
+#~ "authentication token."
+#~ msgstr ""
+#~ "Keystone で端末を設定するには、cinder-api は Keystone 認証文字列を必要とし"
+#~ "ます。"
 
 #~ msgid "Start Cinder services at boot?"
 #~ msgstr "ブート時に Cinder サービスを開始しますか?"
