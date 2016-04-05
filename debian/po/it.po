@@ -176,7 +176,6 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../cinder-common.templates:8001
-#| msgid "Please enter the IP address that will be used to contact Cinder."
 msgid "Please specify the IP address of that server."
 msgstr "Inserire l'indirizzo IP di tale server."
 
@@ -190,7 +189,8 @@ msgstr "Nome utente per la connessione al server RabbitMQ:"
 #. Description
 #: ../cinder-common.templates:9001
 msgid "Please specify the username used to connect to the RabbitMQ server."
-msgstr "Specificare il nome utente da usare per connettersi al server RabbitMQ."
+msgstr ""
+"Specificare il nome utente da usare per connettersi al server RabbitMQ."
 
 #. Type: password
 #. Description

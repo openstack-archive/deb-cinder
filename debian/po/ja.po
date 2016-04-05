@@ -2,25 +2,28 @@
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the cinder package.
 # victory <victory.deb@gmail.com>, 2013.
-# 
+# Takuma Yamada <tyamada@takumayamada.com>, 2016.
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
 "POT-Creation-Date: 2013-12-19 16:02+0800\n"
-"PO-Revision-Date: 2013-09-02 14:02+0900\n"
-"Last-Translator: victory <victory.deb@gmail.com>\n"
+"PO-Revision-Date: 2016-02-23 15:56+0900\n"
+"Last-Translator: Takuma Yamada <tyamada@takumayamada.com>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
 "Language: ja\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Gtranslator 2.91.6\n"
 
 #. Type: boolean
 #. Description
 #: ../cinder-common.templates:2001
 msgid "Set up a database for Cinder?"
-msgstr "Cinder 用のデータベースを用意しますか?"
+msgstr "Cinder 用のデータベースを設定しますか?"
 
 #. Type: boolean
 #. Description
@@ -29,8 +32,8 @@ msgid ""
 "No database has been set up for Cinder to use. Before continuing, you should "
 "make sure you have the following information:"
 msgstr ""
-"Cinder で利用するデータベースが用意されていません。続ける前に以下の情報が揃っ"
-"ていることを確認してください:"
+"Cinder で使用するために設定されたデータベースがありません。続行する前に、以下"
+"の情報が揃っていることを確認してください:"
 
 #. Type: boolean
 #. Description
@@ -42,10 +45,10 @@ msgid ""
 "   machine);\n"
 " * a username and password to access the database."
 msgstr ""
-" - 使いたいデータベースの種類\n"
-" - データベースサーバのホスト名 (このサーバはこのマシンからの\n"
-"   TCP 接続を許可しなければなりません)\n"
-" - データベースにアクセスするためのユーザ名とパスワード"
+" * 使用するデータベースの種類\n"
+" * データベースサーバのホスト名 (そのサーバは、このマシンからの\n"
+"   TCP 接続を許可する必要があります)\n"
+" * データベースにアクセスするためのユーザ名とパスワード"
 
 #. Type: boolean
 #. Description
@@ -54,8 +57,8 @@ msgid ""
 "If some of these requirements are missing, do not choose this option and run "
 "with regular SQLite support."
 msgstr ""
-"必要な情報が欠けている場合このオプションを却下して標準の SQLite を利用しま"
-"す。"
+"これらの要件が欠落している場合は、このオプションを選択しないでください。そし"
+"て、標準 SQLite サポートで実行してください。"
 
 #. Type: boolean
 #. Description
@@ -64,8 +67,8 @@ msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "cinder\"."
 msgstr ""
-"この設定は後で「dpkg-reconfigure -plow cinder」を実行することにより変更できま"
-"す。"
+"「dpkg-reconfigure -plow cinder」の実行により、この設定を後で変更することがで"
+"きます。"
 
 #. Type: string
 #. Description
@@ -80,8 +83,8 @@ msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"認証サーバのホスト名を指定してください。これは通常 OpenStack Identity "
-"Service (Keystone) のホスト名にもなります。"
+"認証サーバのホスト名を指定してください。通常これは OpenStack Identity "
+"Service (Keystone) のホスト名と同じです。"
 
 #. Type: string
 #. Description
@@ -94,7 +97,7 @@ msgstr ""
 #. proprietaire ("tenant")
 #: ../cinder-common.templates:4001
 msgid "Authentication server tenant name:"
-msgstr "認証サーバの管理用アカウント (tenant) 名"
+msgstr "認証サーバのテナント (tenant) 名:"
 
 #. Type: string
 #. Description
@@ -107,7 +110,7 @@ msgstr "認証サーバの管理用アカウント (tenant) 名"
 #. proprietaire ("tenant")
 #: ../cinder-common.templates:4001
 msgid "Please specify the authentication server tenant name."
-msgstr "認証サーバの管理用アカウント (tenant) 名を指定してください。"
+msgstr "認証サーバのテナント (tenant) 名を指定してください。"
 
 #. Type: string
 #. Description
@@ -119,7 +122,7 @@ msgstr "認証サーバのユーザ名:"
 #. Description
 #: ../cinder-common.templates:5001
 msgid "Please specify the username to use with the authentication server."
-msgstr "認証サーバで利用するユーザ名を指定してください。"
+msgstr "認証サーバで使用するユーザ名を指定してください。"
 
 #. Type: password
 #. Description
@@ -131,7 +134,7 @@ msgstr "認証サーバのパスワード:"
 #. Description
 #: ../cinder-common.templates:6001
 msgid "Please specify the password to use with the authentication server."
-msgstr "認証サーバで利用するパスワードを指定してください。"
+msgstr "認証サーバで使用するパスワードを指定してください。"
 
 #. Type: string
 #. Description
@@ -146,14 +149,14 @@ msgid ""
 "Please specify the name of the LVM volume group on which Cinder will create "
 "partitions."
 msgstr ""
-"Cinder にパーティションを作成させる LVM ボリュームグループの名前を指定してく"
-"ださい。"
+"Cinder がパーティションを作成する LVM ボリュームグループの名前を指定してくだ"
+"さい。"
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:8001
 msgid "IP address of your RabbitMQ host:"
-msgstr ""
+msgstr "RabbitMQ ホストの IP アドレス:"
 
 #. Type: string
 #. Description
@@ -167,48 +170,44 @@ msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
 msgstr ""
+"OpenStack のほかのコンポーネントと相互運用するためには、このパッケージは中央 "
+"RabbitMQ サーバに接続する必要があります。"
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:8001
-#, fuzzy
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please specify the IP address of that server."
-msgstr "認証サーバで利用するパスワードを指定してください。"
+msgstr "そのサーバの IP アドレスを指定してください。"
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:9001
 msgid "Username for connection to the RabbitMQ server:"
-msgstr ""
+msgstr "RabbitMQ サーバ接続用のユーザ名"
 
 #. Type: string
 #. Description
 #: ../cinder-common.templates:9001
-#, fuzzy
-#| msgid "Please specify the username to use with the authentication server."
 msgid "Please specify the username used to connect to the RabbitMQ server."
-msgstr "認証サーバで利用するユーザ名を指定してください。"
+msgstr "RabbitMQ サーバ接続用のユーザ名を指定してください。"
 
 #. Type: password
 #. Description
 #: ../cinder-common.templates:10001
 msgid "Password for connection to the RabbitMQ server:"
-msgstr ""
+msgstr "RabbitMQ サーバ接続用のパスワード:"
 
 #. Type: password
 #. Description
 #: ../cinder-common.templates:10001
-#, fuzzy
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please specify the password used to connect to the RabbitMQ server."
-msgstr "認証サーバで利用するパスワードを指定してください。"
+msgstr "RabbitMQ サーバの接続に使用するパスワードを指定してください。"
 
 #. Type: boolean
 #. Description
 #: ../cinder-api.templates:2001
 msgid "Register Cinder in the Keystone endpoint catalog?"
-msgstr "Cinder を Keystone の端末リストに登録しますか?"
+msgstr "Cinder を Keystone のエンドポイントのカタログに登録しますか?"
 
 #. Type: boolean
 #. Description
@@ -218,9 +217,9 @@ msgid ""
 "accessible. This is done using \"keystone service-create\" and \"keystone "
 "endpoint-create\". This can be done automatically now."
 msgstr ""
-"OpenStack のサービスごと (API ごと) に、アクセスできるようにするため登録すべ"
-"きです。「keystone service-create」と「keystone endpoint-create」を使って登録"
-"することができます。ここで自動的に行うことができます。"
+"各 OpenStack のサービス (各 API ) がアクセスできるようにするために登録する必"
+"要があります。これは「keystone service-create」と「keystone endpoint-create」"
+"を使用して行われます。これは自動的に行うことができます。"
 
 #. Type: boolean
 #. Description
@@ -229,8 +228,8 @@ msgid ""
 "Note that you will need to have an up and running Keystone server on which "
 "to connect using the Keystone authentication token."
 msgstr ""
-"Keystone 認証文字列を使って接続する先の Keystone サーバが必要なことに注意して"
-"ください。"
+"Keystone 認証トークンを使って接続するには、Keystone サーバの起動および実行が"
+"必要になりますので注意してください。"
 
 #. Type: string
 #. Description
@@ -245,14 +244,15 @@ msgid ""
 "Please enter the IP address of the Keystone server, so that cinder-api can "
 "contact Keystone to do the Cinder service and endpoint creation."
 msgstr ""
-"Keystone サーバの IP アドレスを入力してください。それにより cinder-api は "
-"Keystone と通信し、Cinder サービスや端末の作成ができるようになります。"
+"Keystone サーバの IP アドレスを入力してください。その結果 ceilometer-api は、"
+"Ceilometer サービスやエンドポイント作成を行うために Keystone へ通信することが"
+"できます。"
 
 #. Type: password
 #. Description
 #: ../cinder-api.templates:4001
 msgid "Keystone authentication token:"
-msgstr "Keystone 認証文字列:"
+msgstr "Keystone 認証トークン:"
 
 #. Type: password
 #. Description
@@ -261,20 +261,20 @@ msgid ""
 "To configure its endpoint in Keystone, cinder-api needs the Keystone "
 "authentication token."
 msgstr ""
-"Keystone で端末を設定するには、cinder-api は Keystone 認証文字列を必要としま"
-"す。"
+"Keystone でエンドポイントを設定するには、cinder-api は Keystone 認証トークン"
+"を必要とします。"
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
 msgid "Cinder endpoint IP address:"
-msgstr "Cinder 端末の IP アドレス:"
+msgstr "Cinder エンドポイントの IP アドレス:"
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
 msgid "Please enter the IP address that will be used to contact Cinder."
-msgstr "Cinder への通信に利用する IP アドレスを入力してください。"
+msgstr "Cinder への通信に使用する IP アドレスを入力してください。"
 
 #. Type: string
 #. Description
@@ -284,15 +284,15 @@ msgid ""
 "service, so if you are installing a public cloud, this should be a public IP "
 "address."
 msgstr ""
-"この IP アドレスはこのサービスを利用するクライアントからアクセスできないとい"
-"けないので、パブリッククラウドをインストールしている場合、これは公開 IP アド"
-"レスを使うようにしてください。"
+"この IP アドレスは、このサービスを利用するクライアントからアクセス可能でなけ"
+"ればならないので、パブリッククラウドをインストールしている場合、これはパブ"
+"リック IP アドレスでなければなりません。"
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:6001
 msgid "Name of the region to register:"
-msgstr "登録する領域の名前:"
+msgstr "登録するリージョンの名前:"
 
 #. Type: string
 #. Description
@@ -302,8 +302,9 @@ msgid ""
 "location. Please enter the zone that you wish to use when registering the "
 "endpoint."
 msgstr ""
-"OpenStack は位置を示す各領域による利用可能区分を利用することができます。端末"
-"の登録時に利用したい区分を入力してください。"
+"OpenStack は、場所を表すリージョン毎に、アベイラビリティーゾーンの使用をサ"
+"ポートします。エンドポイントを登録する際に、使用するゾーンを入力してくださ"
+"い。"
 
 #~ msgid "Start Cinder services at boot?"
 #~ msgstr "ブート時に Cinder サービスを開始しますか?"
