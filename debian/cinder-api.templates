@@ -24,11 +24,25 @@ _Description: Keystone server IP address:
  Please enter the IP address of the Keystone server, so that cinder-api can
  contact Keystone to do the Cinder service and endpoint creation.
 
-Template: cinder/keystone-auth-token
+Template: cinder/keystone-admin-name
+Type: string
+Default: admin
+_Description: Keystone admin name:
+ To register the service endpoint, this package needs to know the Admin login,
+ name, project name, and password to the Keystone server.
+
+Template: cinder/keystone-project-name
+Type: string
+Default: admin
+_Description: Keystone admin project name:
+ To register the service endpoint, this package needs to know the Admin login,
+ name, project name, and password to the Keystone server.
+
+Template: cinder/keystone-admin-password
 Type: password
-_Description: Keystone authentication token:
- To configure its endpoint in Keystone, cinder-api needs the Keystone
- authentication token.
+_Description: Keystone admin password:
+ To register the service endpoint, this package needs to know the Admin login,
+ name, project name, and password to the Keystone server.
 
 Template: cinder/endpoint-ip
 Type: string

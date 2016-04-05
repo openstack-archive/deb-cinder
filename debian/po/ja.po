@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-12-19 16:02+0800\n"
+"POT-Creation-Date: 2016-03-29 12:24+0000\n"
 "PO-Revision-Date: 2016-02-23 15:56+0900\n"
 "Last-Translator: Takuma Yamada <tyamada@takumayamada.com>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
@@ -248,18 +248,25 @@ msgstr ""
 "Ceilometer サービスやエンドポイント作成を行うために Keystone へ通信することが"
 "できます。"
 
-#. Type: password
+#. Type: string
 #. Description
 #: ../cinder-api.templates:4001
-msgid "Keystone authentication token:"
-msgstr "Keystone 認証トークン:"
+#, fuzzy
+#| msgid "Keystone authentication token:"
+msgid "Keystone admin name:"
+msgstr "Keystone 認証文字列:"
 
+#. Type: string
+#. Description
+#. Type: string
+#. Description
 #. Type: password
 #. Description
-#: ../cinder-api.templates:4001
+#: ../cinder-api.templates:4001 ../cinder-api.templates:5001
+#: ../cinder-api.templates:6001
 msgid ""
-"To configure its endpoint in Keystone, cinder-api needs the Keystone "
-"authentication token."
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
 msgstr ""
 "Keystone でエンドポイントを設定するには、cinder-api は Keystone 認証トークン"
 "を必要とします。"
@@ -267,18 +274,30 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
+msgid "Keystone admin project name:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:6001
+msgid "Keystone admin password:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:7001
 msgid "Cinder endpoint IP address:"
 msgstr "Cinder エンドポイントの IP アドレス:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid "Please enter the IP address that will be used to contact Cinder."
 msgstr "Cinder への通信に使用する IP アドレスを入力してください。"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -290,13 +309,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid "Name of the region to register:"
 msgstr "登録するリージョンの名前:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid ""
 "OpenStack supports using availability zones, with each region representing a "
 "location. Please enter the zone that you wish to use when registering the "
@@ -305,11 +324,3 @@ msgstr ""
 "OpenStack は、場所を表すリージョン毎に、アベイラビリティーゾーンの使用をサ"
 "ポートします。エンドポイントを登録する際に、使用するゾーンを入力してくださ"
 "い。"
-
-#~ msgid "Start Cinder services at boot?"
-#~ msgstr "ブート時に Cinder サービスを開始しますか?"
-
-#~ msgid ""
-#~ "Please choose whether you want to start Cinder services when the machine "
-#~ "is booted up."
-#~ msgstr "マシン起動後に Cinder サービスを開始するかどうか選択してください。"

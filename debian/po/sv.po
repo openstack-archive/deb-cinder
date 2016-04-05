@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
-"POT-Creation-Date: 2013-12-19 16:02+0800\n"
+"POT-Creation-Date: 2016-03-29 12:24+0000\n"
 "PO-Revision-Date: 2014-01-08 16:52+0100\n"
 "Last-Translator: Martin Bagge / brother <brother@bsnet.se>\n"
 "Language-Team: Swedish <debian-l10n-swedish@lists.debian.org>\n"
@@ -285,37 +285,50 @@ msgstr ""
 "Ange IP-adressen till din keystone-server så att cinder-api kan kontakta "
 "Keystone för att lägga till Cinder-tjänsten som en ändpunkt."
 
-#. Type: password
+#. Type: string
 #. Description
 #: ../cinder-api.templates:4001
 #, fuzzy
-#| msgid "Keystone Auth Token:"
-msgid "Keystone authentication token:"
-msgstr "Autetiseringsvärde för Keystone:"
+#| msgid "Keystone IP address:"
+msgid "Keystone admin name:"
+msgstr "IP-adress till Keystone:"
 
+#. Type: string
+#. Description
+#. Type: string
+#. Description
 #. Type: password
 #. Description
-#: ../cinder-api.templates:4001
-#, fuzzy
-#| msgid ""
-#| "To configure its endpoint in Keystone, cinder-api needs the Keystone auth "
-#| "token."
+#: ../cinder-api.templates:4001 ../cinder-api.templates:5001
+#: ../cinder-api.templates:6001
 msgid ""
-"To configure its endpoint in Keystone, cinder-api needs the Keystone "
-"authentication token."
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
 msgstr ""
-"För att lägga till ändpunkt i Keystone behöver cinder-api ett "
-"autentiseringsvärde för Keystone."
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
+msgid "Keystone admin project name:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../cinder-api.templates:6001
+#, fuzzy
+#| msgid "Keystone IP address:"
+msgid "Keystone admin password:"
+msgstr "IP-adress till Keystone:"
+
+#. Type: string
+#. Description
+#: ../cinder-api.templates:7001
 msgid "Cinder endpoint IP address:"
 msgstr "IP-adress för Cinder-ändpunkt:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 #, fuzzy
 #| msgid ""
 #| "Enter the IP address that will be used to contact Cinder (eg: the Cinder "
@@ -325,7 +338,7 @@ msgstr "Ange den IP-adress som ska användas för att kontakta Cinder."
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:5001
+#: ../cinder-api.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -337,13 +350,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 msgid "Name of the region to register:"
 msgstr "Regionnamn:"
 
 #. Type: string
 #. Description
-#: ../cinder-api.templates:6001
+#: ../cinder-api.templates:8001
 #, fuzzy
 #| msgid ""
 #| "Openstack can be used using availability zones, with each region "
