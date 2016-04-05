@@ -1,5 +1,6 @@
-cinder (2:8.0.0~rc1-3) unstable; urgency=medium
+cinder (2:8.0.0~rc2-1) unstable; urgency=medium
 
+  * New upstream release.
   * Uploading to unstable.
   * Updated ja.po debconf translation (Closes: #816343).
   * Ran debconf-updatepo.
