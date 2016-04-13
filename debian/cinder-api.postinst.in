@@ -14,33 +14,43 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 		# Setup the v1 endpoint
 		db_get ${PKG_NAME}/keystone-ip
 		KEYSTONE_ENDPOINT_IP=`echo ${RET} | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'`
-		db_get ${PKG_NAME}/keystone-auth-token
-		AUTH_TOKEN=${RET}
 		db_get ${PKG_NAME}/endpoint-ip
 		PKG_ENDPOINT_IP=`echo ${RET} | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'`
 		db_get ${PKG_NAME}/region-name
 		REGION_NAME=${RET}
+		db_get ${PKG_NAME}/keystone-project-name
+		KEYSTONE_PROJECT_NAME=${RET}
+		db_get ${PKG_NAME}/keystone-admin-name
+		KEYSTONE_ADMIN_NAME=${RET}
+		db_get ${PKG_NAME}/keystone-admin-password
+		KEYSTONE_ADMIN_PASSWORD=${RET}
 
-		if [ -n "${KEYSTONE_ENDPOINT_IP}" ] && [ -n "${PKG_ENDPOINT_IP}" ] && [ -n "${REGION_NAME}" ] && [ -n "${AUTH_TOKEN}" ] ; then
+		if [ -n "${KEYSTONE_ENDPOINT_IP}" ] && [ -n "${PKG_ENDPOINT_IP}" ] && [ -n "${REGION_NAME}" ] && [ -n "${KEYSTONE_PROJECT_NAME}" ] && [ -n "${KEYSTONE_ADMIN_NAME}" ]  && [ -n "${KEYSTONE_ADMIN_PASSWORD}" ] ; then
+			export OS_PROJECT_DOMAIN_ID=default
+			export OS_USER_DOMAIN_ID=default
+			export OS_TENANT_NAME=${KEYSTONE_PROJECT_NAME}
+			export OS_PROJECT_NAME=${KEYSTONE_PROJECT_NAME}
+			export OS_USERNAME=${KEYSTONE_ADMIN_NAME}
+			export OS_PASSWORD=${KEYSTONE_ADMIN_PASSWORD}
+			export OS_AUTH_URL=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/
+			export OS_IDENTITY_API_VERSION=3
+			export OS_AUTH_VERSION=3
+			export OS_PROJECT_DOMAIN_ID=default
+			export OS_USER_DOMAIN_ID=default
+			export OS_NO_CACHE=1
+
 		        SERVICE_NAME=cinder
 		        SERVICE_TYPE=volume
 			SERVICE_DESC="OpenStack Block Storage"
 			SERVICE_PORT=8776
 			SERVICE_URL=/v1/'%(tenant_id)s'
 			echo "Registering service and endpoints for ${SERVICE_NAME} with type ${SERVICE_TYPE} at http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}"
-			NUM_LINES=$(openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service list --format=csv | q -d , -H 'SELECT ID FROM - WHERE `Type`="'${SERVICE_TYPE}'"' | wc -l)
+			NUM_LINES=$(openstack service list --format=csv | q -d , -H 'SELECT ID FROM - WHERE `Type`="'${SERVICE_TYPE}'"' | wc -l)
 			if [ "${NUM_LINES}" = "0" ] ; then
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service create \
-					--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
-
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
-					--region "${REGION_NAME}" ${SERVICE_NAME} public http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
-
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
-					--region "${REGION_NAME}" ${SERVICE_NAME} internal http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
-
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
-					--region "${REGION_NAME}" ${SERVICE_NAME} admin http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+				openstack service create --name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
+				openstack endpoint create --region "${REGION_NAME}" ${SERVICE_NAME} public   http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+				openstack endpoint create --region "${REGION_NAME}" ${SERVICE_NAME} internal http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+				openstack endpoint create --region "${REGION_NAME}" ${SERVICE_NAME} admin    http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
 			fi
 
 		        SERVICE_NAME=cinderv2
@@ -49,19 +59,12 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 			SERVICE_PORT=8776
 			SERVICE_URL=/v2/'%(tenant_id)s'
 			echo "Registering service and endpoints for ${SERVICE_NAME} with type ${SERVICE_TYPE} at http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}"
-			NUM_LINES=$(openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service list --format=csv | q -d , -H 'SELECT ID FROM - WHERE `Type`="'${SERVICE_TYPE}'"' | wc -l)
+			NUM_LINES=$(openstack service list --format=csv | q -d , -H 'SELECT ID FROM - WHERE `Type`="'${SERVICE_TYPE}'"' | wc -l)
 			if [ "${NUM_LINES}" = "0" ] ; then
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 service create \
-					--name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
-
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
-					--region "${REGION_NAME}" ${SERVICE_NAME} public http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
-
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
-					--region "${REGION_NAME}" ${SERVICE_NAME} internal http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
-
-				openstack --os-token ${AUTH_TOKEN} --os-url=http://${KEYSTONE_ENDPOINT_IP}:35357/v3/ --os-domain-name default --os-identity-api-version=3 endpoint create \
-					--region "${REGION_NAME}" ${SERVICE_NAME} admin http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+				openstack service create --name=${SERVICE_NAME} --description="${SERVICE_DESC}" ${SERVICE_TYPE}
+				openstack endpoint create --region "${REGION_NAME}" ${SERVICE_NAME} public   http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+				openstack endpoint create --region "${REGION_NAME}" ${SERVICE_NAME} internal http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
+				openstack endpoint create --region "${REGION_NAME}" ${SERVICE_NAME} admin    http://${PKG_ENDPOINT_IP}:${SERVICE_PORT}${SERVICE_URL}
 			fi
 #			pkgos_register_endpoint_postinst cinder cinder volume "Cinder Volume Service" 8776 /v1/'%(tenant_id)s'
 #			pkgos_register_endpoint_postinst cinder cinderv2 volumev2 "Cinder Volume Service" 8776 /v2/'%(tenant_id)s'
@@ -72,7 +75,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	else
 		echo "Will not register "${SERVICE_NAME}" endpoint this time (no user request for it)."
 	fi
-	db_unregister ${PKG_NAME}/keystone-auth-token
+	db_unregister ${PKG_NAME}/keystone-admin-password
 	db_stop
 fi
 
