@@ -1,3 +1,10 @@
+cinder (2:8.0.0-3) unstable; urgency=medium
+
+  * Also blacklist test_create_delete_cgsnapshot which is non-deterministically
+    failing (Closes: #824595).
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 18 May 2016 10:20:47 +0200
+
 cinder (2:8.0.0-2) unstable; urgency=medium
 
   [ Ondřej Nový ]
