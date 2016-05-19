@@ -1,3 +1,11 @@
+cinder (2:8.0.0-4) UNRELEASED; urgency=medium
+
+  * Updated Japanese debconf templates (Closes: #820761).
+  * Updated Dutch debconf templates (Closes: #822967).
+  * Added Brazilian Portuguese debconf templates (Closes: #824287).
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 19 May 2016 10:51:12 +0200
+
 cinder (2:8.0.0-3) unstable; urgency=medium
 
   * Also blacklist test_create_delete_cgsnapshot which is non-deterministically
