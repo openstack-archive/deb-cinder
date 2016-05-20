@@ -1,4 +1,4 @@
-cinder (2:8.0.0-4) UNRELEASED; urgency=medium
+cinder (2:8.0.0-4) unstable; urgency=medium
 
   [ Thomas Goirand ]
   * Updated Japanese debconf templates (Closes: #820761).
