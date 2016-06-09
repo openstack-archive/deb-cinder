@@ -19,8 +19,6 @@
 WSGI middleware for OpenStack Volume API.
 """
 
-from oslo_log import log as logging
-
 from cinder.api import extensions
 import cinder.api.openstack
 from cinder.api.v2 import limits
@@ -28,11 +26,9 @@ from cinder.api.v2 import snapshot_metadata
 from cinder.api.v2 import snapshots
 from cinder.api.v2 import types
 from cinder.api.v2 import volume_metadata
-from cinder.api.v2 import volumes
+from cinder.api.v3 import messages
+from cinder.api.v3 import volumes
 from cinder.api import versions
-
-
-LOG = logging.getLogger(__name__)
 
 
 class APIRouter(cinder.api.openstack.APIRouter):
@@ -52,6 +48,11 @@ class APIRouter(cinder.api.openstack.APIRouter):
                         controller=self.resources['volumes'],
                         collection={'detail': 'GET'},
                         member={'action': 'POST'})
+
+        self.resources['messages'] = messages.create_resource(ext_mgr)
+        mapper.resource("message", "messages",
+                        controller=self.resources['messages'],
+                        collection={'detail': 'GET'})
 
         self.resources['types'] = types.create_resource()
         mapper.resource("type", "types",

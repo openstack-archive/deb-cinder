@@ -12,14 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
 from oslo_versionedobjects import fields
 
 from cinder import db
 from cinder import objects
 from cinder.objects import base
-
-LOG = logging.getLogger(__name__)
 
 
 @base.CinderObjectRegistry.register
@@ -77,21 +74,24 @@ class VolumeAttachmentList(base.ObjectListBase, base.CinderObject):
 
     @base.remotable_classmethod
     def get_all_by_volume_id(cls, context, volume_id):
-        attachments = db.volume_attachment_get_used_by_volume_id(context,
-                                                                 volume_id)
-        return base.obj_make_list(context, cls(context),
-                                  objects.VolumeAttachment, attachments)
+        attachments = db.volume_attachment_get_all_by_volume_id(context,
+                                                                volume_id)
+        return base.obj_make_list(context,
+                                  cls(context),
+                                  objects.VolumeAttachment,
+                                  attachments)
 
     @base.remotable_classmethod
     def get_all_by_host(cls, context, volume_id, host):
-        attachments = db.volume_attachment_get_by_host(context, volume_id,
-                                                       host)
+        attachments = db.volume_attachment_get_all_by_host(context,
+                                                           volume_id,
+                                                           host)
         return base.obj_make_list(context, cls(context),
                                   objects.VolumeAttachment, attachments)
 
     @base.remotable_classmethod
     def get_all_by_instance_uuid(cls, context, volume_id, instance_uuid):
-        attachments = db.volume_attachment_get_by_instance_uuid(
+        attachments = db.volume_attachment_get_all_by_instance_uuid(
             context, volume_id, instance_uuid)
         return base.obj_make_list(context, cls(context),
                                   objects.VolumeAttachment, attachments)

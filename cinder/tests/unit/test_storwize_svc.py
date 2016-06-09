@@ -18,6 +18,7 @@
 Tests for the IBM Storwize family and SVC volume driver.
 """
 
+import ddt
 import paramiko
 import random
 import re
@@ -33,6 +34,7 @@ import six
 from cinder import context
 from cinder import exception
 from cinder.i18n import _
+from cinder import objects
 from cinder.objects import fields
 from cinder import ssh_utils
 from cinder import test
@@ -81,6 +83,7 @@ class StorwizeSVCManagementSimulator(object):
             'rmfcmap': '',
             'lslicense': '',
             'lsguicapabilities': '',
+            'lshost': '',
         }
         self._errors = {
             'CMMVC5701E': ('', 'CMMVC5701E No object ID was specified.'),
@@ -1009,6 +1012,9 @@ port_speed!N/A
             else:
                 return ('', '')
         else:
+            if self._next_cmd_error['lshost'] == 'missing_host':
+                self._next_cmd_error['lshost'] == ''
+                return self._errors['CMMVC5754E']
             host_name = kwargs['obj'].strip('\'\"')
             if host_name not in self._hosts_list:
                 return self._errors['CMMVC5754E']
@@ -1915,6 +1921,48 @@ class StorwizeSVCISCSIDriverTestCase(test.TestCase):
         self.iscsi_driver.initialize_connection(volume_iSCSI, connector)
         self.iscsi_driver.terminate_connection(volume_iSCSI, connector)
 
+    @mock.patch.object(storwize_svc_iscsi.StorwizeSVCISCSIDriver,
+                       '_do_terminate_connection')
+    @mock.patch.object(storwize_svc_iscsi.StorwizeSVCISCSIDriver,
+                       '_do_initialize_connection')
+    def test_storwize_do_terminate_iscsi_connection(self, init_conn,
+                                                    term_conn):
+        # create a iSCSI volume
+        volume_iSCSI = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> iSCSI'}
+        vol_type_iSCSI = volume_types.create(self.ctxt, 'iSCSI', extra_spec)
+        volume_iSCSI['volume_type_id'] = vol_type_iSCSI['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+
+        self.iscsi_driver.initialize_connection(volume_iSCSI, connector)
+        self.iscsi_driver.terminate_connection(volume_iSCSI, connector)
+        init_conn.assert_called_once_with(volume_iSCSI, connector)
+        term_conn.assert_called_once_with(volume_iSCSI, connector)
+
+    @mock.patch.object(storwize_svc_iscsi.StorwizeSVCISCSIDriver,
+                       '_do_terminate_connection')
+    def test_storwize_initialize_iscsi_connection_failure(self, term_conn):
+        # create a iSCSI volume
+        volume_iSCSI = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> iSCSI'}
+        vol_type_iSCSI = volume_types.create(self.ctxt, 'iSCSI', extra_spec)
+        volume_iSCSI['volume_type_id'] = vol_type_iSCSI['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+
+        self.iscsi_driver._state['storage_nodes'] = {}
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.iscsi_driver.initialize_connection,
+                          volume_iSCSI, connector)
+        term_conn.assert_called_once_with(volume_iSCSI, connector)
+
     def test_storwize_svc_iscsi_host_maps(self):
         # Create two volumes to be used in mappings
 
@@ -2237,6 +2285,19 @@ class StorwizeSVCFcDriverTestCase(test.TestCase):
 
         self.assertIsNotNone(host_name)
 
+    def test_storwize_get_host_from_connector_with_lshost_failure(self):
+        # Create a FC host
+        del self._connector['initiator']
+        helper = self.fc_driver._helpers
+        host_name = helper.create_host(self._connector)
+
+        # tell lshost to fail while calling get_host_from_connector
+        if self.USESIM:
+            self.sim.error_injection('lshost', 'missing_host')
+        host_name = helper.get_host_from_connector(self._connector)
+
+        self.assertIsNotNone(host_name)
+
     def test_storwize_initiator_multiple_wwpns_connected(self):
 
         # Generate us a test volume
@@ -2306,6 +2367,48 @@ class StorwizeSVCFcDriverTestCase(test.TestCase):
 
         self.fc_driver.initialize_connection(volume_fc, connector)
         self.fc_driver.terminate_connection(volume_fc, connector)
+
+    @mock.patch.object(storwize_svc_fc.StorwizeSVCFCDriver,
+                       '_do_terminate_connection')
+    @mock.patch.object(storwize_svc_fc.StorwizeSVCFCDriver,
+                       '_do_initialize_connection')
+    def test_storwize_do_terminate_fc_connection(self, init_conn,
+                                                 term_conn):
+        # create a FC volume
+        volume_fc = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type_fc = volume_types.create(self.ctxt, 'FC', extra_spec)
+        volume_fc['volume_type_id'] = vol_type_fc['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+
+        self.fc_driver.initialize_connection(volume_fc, connector)
+        self.fc_driver.terminate_connection(volume_fc, connector)
+        init_conn.assert_called_once_with(volume_fc, connector)
+        term_conn.assert_called_once_with(volume_fc, connector)
+
+    @mock.patch.object(storwize_svc_fc.StorwizeSVCFCDriver,
+                       '_do_terminate_connection')
+    def test_storwize_initialize_fc_connection_failure(self, term_conn):
+        # create a FC volume
+        volume_fc = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type_fc = volume_types.create(self.ctxt, 'FC', extra_spec)
+        volume_fc['volume_type_id'] = vol_type_fc['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+
+        self.fc_driver._state['storage_nodes'] = {}
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.fc_driver.initialize_connection,
+                          volume_fc, connector)
+        term_conn.assert_called_once_with(volume_fc, connector)
 
     def test_storwize_initiator_target_map(self):
         # Generate us a test volume
@@ -2578,17 +2681,13 @@ class StorwizeSVCFcDriverTestCase(test.TestCase):
         self.fc_driver.add_vdisk_copy(volume['name'], 'fake-pool', None)
 
 
+@ddt.ddt
 class StorwizeSVCCommonDriverTestCase(test.TestCase):
     @mock.patch.object(time, 'sleep')
     def setUp(self, mock_sleep):
         super(StorwizeSVCCommonDriverTestCase, self).setUp()
         self.USESIM = True
         if self.USESIM:
-            self.driver = StorwizeSVCISCSIFakeDriver(
-                configuration=conf.Configuration(None))
-            self._driver = storwize_svc_iscsi.StorwizeSVCISCSIDriver(
-                configuration=conf.Configuration(None))
-
             self._def_flags = {'san_ip': 'hostname',
                                'storwize_san_secondary_ip': 'secondaryname',
                                'san_login': 'user',
@@ -2598,6 +2697,13 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
                                'storwize_svc_flashcopy_timeout': 20,
                                'storwize_svc_flashcopy_rate': 49,
                                'storwize_svc_allow_tenant_qos': True}
+            config = conf.Configuration(None)
+            # Override any configs that may get set in __init__
+            self._reset_flags(config)
+            self.driver = StorwizeSVCISCSIFakeDriver(
+                configuration=config)
+            self._driver = storwize_svc_iscsi.StorwizeSVCISCSIDriver(
+                configuration=config)
             wwpns = [
                 six.text_type(random.randint(0, 9999999999999999)).zfill(16),
                 six.text_type(random.randint(0, 9999999999999999)).zfill(16)]
@@ -2612,7 +2718,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
             self.driver.set_fake_storage(self.sim)
             self.ctxt = context.get_admin_context()
 
-        self._reset_flags()
+        else:
+            self._reset_flags()
         self.ctxt = context.get_admin_context()
         db_driver = self.driver.configuration.db_driver
         self.db = importutils.import_module(db_driver)
@@ -2621,14 +2728,18 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
         self.driver.check_for_setup_error()
         self.driver._helpers.check_fcmapping_interval = 0
 
-    def _set_flag(self, flag, value):
-        group = self.driver.configuration.config_group
-        self.driver.configuration.set_override(flag, value, group)
+    def _set_flag(self, flag, value, configuration=None):
+        if not configuration:
+            configuration = self.driver.configuration
+        group = configuration.config_group
+        configuration.set_override(flag, value, group)
 
-    def _reset_flags(self):
-        self.driver.configuration.local_conf.reset()
+    def _reset_flags(self, configuration=None):
+        if not configuration:
+            configuration = self.driver.configuration
+        configuration.local_conf.reset()
         for k, v in self._def_flags.items():
-            self._set_flag(k, v)
+            self._set_flag(k, v, configuration)
 
     def _assert_vol_exists(self, name, exists):
         is_vol_defined = self.driver._helpers.is_vdisk_defined(name)
@@ -2782,6 +2893,49 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
             min_size=self._driver.configuration.ssh_min_pool_conn,
             max_size=self._driver.configuration.ssh_max_pool_conn)
 
+    @mock.patch.object(ssh_utils, 'SSHPool')
+    @mock.patch.object(processutils, 'ssh_execute')
+    def test_run_ssh_both_ip_set_failure(self, mock_ssh_execute,
+                                         mock_ssh_pool):
+        mock_ssh_pool.side_effect = [
+            paramiko.SSHException,
+            mock.MagicMock(),
+            mock.MagicMock()]
+        mock_ssh_execute.side_effect = [processutils.ProcessExecutionError,
+                                        processutils.ProcessExecutionError]
+        ssh_cmd = ['svcinfo']
+        self.assertRaises(processutils.ProcessExecutionError,
+                          self._driver._run_ssh, ssh_cmd)
+
+    @mock.patch.object(ssh_utils, 'SSHPool')
+    @mock.patch.object(processutils, 'ssh_execute')
+    def test_run_ssh_second_ip_not_set_failure(self, mock_ssh_execute,
+                                               mock_ssh_pool):
+        mock_ssh_execute.side_effect = [processutils.ProcessExecutionError,
+                                        mock.MagicMock()]
+        self._set_flag('storwize_san_secondary_ip', None)
+        ssh_cmd = ['svcinfo']
+        self.assertRaises(processutils.ProcessExecutionError,
+                          self._driver._run_ssh, ssh_cmd)
+
+    @mock.patch.object(random, 'randint', mock.Mock(return_value=0))
+    @mock.patch.object(ssh_utils, 'SSHPool')
+    @mock.patch.object(processutils, 'ssh_execute')
+    def test_run_ssh_consistent_active_ip(self, mock_ssh_execute,
+                                          mock_ssh_pool):
+        ssh_cmd = ['svcinfo']
+        self._driver._run_ssh(ssh_cmd)
+        self._driver._run_ssh(ssh_cmd)
+        self._driver._run_ssh(ssh_cmd)
+        self.assertEqual(self._driver.configuration.san_ip,
+                         self._driver.active_ip)
+        mock_ssh_execute.side_effect = [paramiko.SSHException,
+                                        mock.MagicMock(), mock.MagicMock()]
+        self._driver._run_ssh(ssh_cmd)
+        self._driver._run_ssh(ssh_cmd)
+        self.assertEqual(self._driver.configuration.storwize_san_secondary_ip,
+                         self._driver.active_ip)
+
     def _generate_vol_info(self, vol_name, vol_id):
         pool = _get_test_pool()
         rand_id = six.text_type(random.randint(10000, 99999))
@@ -2833,6 +2987,7 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
                                                   consistencygroup_id= cg_id,
                                                   **kwargs)
 
+        snapshots = []
         cg_id = cg_snapshot['consistencygroup_id']
         volumes = self.db.volume_get_all_by_group(self.ctxt.elevated(), cg_id)
 
@@ -2842,29 +2997,27 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
             raise exception.InvalidConsistencyGroup(reason=msg)
 
         for volume in volumes:
-            testutils.create_snapshot(self.ctxt,
-                                      volume['id'],
-                                      cg_snapshot.id,
-                                      cg_snapshot.name,
-                                      cg_snapshot.id,
-                                      "creating")
+            snapshots.append(testutils.create_snapshot(
+                self.ctxt, volume['id'],
+                cg_snapshot.id,
+                cg_snapshot.name,
+                cg_snapshot.id,
+                fields.SnapshotStatus.CREATING))
 
-        return cg_snapshot
+        return cg_snapshot, snapshots
 
     def _create_cgsnapshot(self, cg_id, **kwargs):
-        cg_snapshot = self._create_cgsnapshot_in_db(cg_id, **kwargs)
+        cg_snapshot, snapshots = self._create_cgsnapshot_in_db(cg_id, **kwargs)
 
-        model_update, snapshots = (
-            self.driver.create_cgsnapshot(self.ctxt, cg_snapshot, []))
+        model_update, snapshots_model = (
+            self.driver.create_cgsnapshot(self.ctxt, cg_snapshot, snapshots))
         self.assertEqual('available',
                          model_update['status'],
                          "CGSnapshot created failed")
 
-        for snapshot in snapshots:
-            self.assertEqual('available', snapshot['status'])
-        snapshots = (
-            self.db.snapshot_get_all_for_cgsnapshot(self.ctxt.elevated(),
-                                                    cg_snapshot['id']))
+        for snapshot in snapshots_model:
+            self.assertEqual(fields.SnapshotStatus.AVAILABLE,
+                             snapshot['status'])
         return cg_snapshot, snapshots
 
     def _create_test_vol(self, opts):
@@ -3332,17 +3485,27 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
         self.driver.delete_volume(clone)
         self._assert_vol_exists(clone['name'], False)
 
-    def test_storwize_svc_get_volume_stats(self):
+    @ddt.data((True, None), (True, 5), (False, -1), (False, 100))
+    @ddt.unpack
+    def test_storwize_svc_get_volume_stats(
+            self, is_thin_provisioning_enabled, rsize):
         self._set_flag('reserved_percentage', 25)
+        self._set_flag('storwize_svc_multihostmap_enabled', True)
+        self._set_flag('storwize_svc_vol_rsize', rsize)
         stats = self.driver.get_volume_stats()
         for each_pool in stats['pools']:
             self.assertIn(each_pool['pool_name'],
                           self._def_flags['storwize_svc_volpool_name'])
+            self.assertTrue(each_pool['multiattach'])
             self.assertLessEqual(each_pool['free_capacity_gb'],
                                  each_pool['total_capacity_gb'])
             self.assertLessEqual(each_pool['allocated_capacity_gb'],
                                  each_pool['total_capacity_gb'])
             self.assertEqual(25, each_pool['reserved_percentage'])
+            self.assertEqual(is_thin_provisioning_enabled,
+                             each_pool['thin_provisioning_support'])
+            self.assertEqual(not is_thin_provisioning_enabled,
+                             each_pool['thick_provisioning_support'])
         if self.USESIM:
             expected = 'storwize-svc-sim'
             self.assertEqual(expected, stats['volume_backend_name'])
@@ -3353,6 +3516,9 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
                 self.assertAlmostEqual(3287.5, each_pool['free_capacity_gb'])
                 self.assertAlmostEqual(25.0,
                                        each_pool['allocated_capacity_gb'])
+                if is_thin_provisioning_enabled:
+                    self.assertAlmostEqual(
+                        1576.96, each_pool['provisioned_capacity_gb'])
 
     def test_get_pool(self):
         ctxt = testutils.get_test_admin_context()
@@ -4068,8 +4234,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
                 new=testutils.ZeroIntervalLoopingCall)
     def test_storwize_consistency_group_snapshot(self):
         cg_type = self._create_consistency_group_volume_type()
-        self.ctxt.user_id = fake.user_id
-        self.ctxt.project_id = fake.project_id
+        self.ctxt.user_id = fake.USER_ID
+        self.ctxt.project_id = fake.PROJECT_ID
         cg = self._create_consistencygroup_in_db(volume_type_id=cg_type['id'])
 
         model_update = self.driver.create_consistencygroup(self.ctxt, cg)
@@ -4077,25 +4243,32 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
         self.assertEqual(fields.ConsistencyGroupStatus.AVAILABLE,
                          model_update['status'],
                          "CG created failed")
-        # Add volumes to CG
-        self._create_volume(volume_type_id=cg_type['id'],
-                            consistencygroup_id=cg['id'])
-        self._create_volume(volume_type_id=cg_type['id'],
-                            consistencygroup_id=cg['id'])
-        self._create_volume(volume_type_id=cg_type['id'],
-                            consistencygroup_id=cg['id'])
-        cg_snapshot = self._create_cgsnapshot_in_db(cg['id'])
 
+        volumes = [
+            self._create_volume(volume_type_id=cg_type['id'],
+                                consistencygroup_id=cg['id']),
+            self._create_volume(volume_type_id=cg_type['id'],
+                                consistencygroup_id=cg['id']),
+            self._create_volume(volume_type_id=cg_type['id'],
+                                consistencygroup_id=cg['id'])
+        ]
+
+        cg_snapshot, snapshots = self._create_cgsnapshot_in_db(cg['id'])
+
+        snapshots = objects.SnapshotList.get_all_for_cgsnapshot(
+            self.ctxt, cg_snapshot.id)
         model_update = self.driver.create_cgsnapshot(self.ctxt, cg_snapshot,
-                                                     [])
+                                                     snapshots)
         self.assertEqual('available',
                          model_update[0]['status'],
                          "CGSnapshot created failed")
 
         for snapshot in model_update[1]:
-            self.assertEqual('available', snapshot['status'])
+            self.assertEqual(fields.SnapshotStatus.AVAILABLE,
+                             snapshot['status'])
 
-        model_update = self.driver.delete_consistencygroup(self.ctxt, cg, [])
+        model_update = self.driver.delete_consistencygroup(self.ctxt,
+                                                           cg, volumes)
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4107,8 +4280,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
     def test_storwize_consistency_group_from_src_invalid(self):
         # Invalid input case for create cg from src
         cg_type = self._create_consistency_group_volume_type()
-        self.ctxt.user_id = fake.user_id
-        self.ctxt.project_id = fake.project_id
+        self.ctxt.user_id = fake.USER_ID
+        self.ctxt.project_id = fake.PROJECT_ID
         # create cg in db
         cg = self._create_consistencygroup_in_db(volume_type_id=cg_type['id'])
 
@@ -4159,7 +4332,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
                           self.ctxt, cg, volumes, None, snapshots,
                           None, None)
 
-        model_update = self.driver.delete_consistencygroup(self.ctxt, cg, [])
+        model_update = self.driver.delete_consistencygroup(self.ctxt,
+                                                           cg, volumes)
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4167,7 +4341,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
             self.assertEqual('deleted', volume['status'])
 
         model_update = (
-            self.driver.delete_consistencygroup(self.ctxt, source_cg, []))
+            self.driver.delete_consistencygroup(self.ctxt,
+                                                source_cg, source_vols))
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4175,7 +4350,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
             self.assertEqual('deleted', volume['status'])
 
         model_update = (
-            self.driver.delete_consistencygroup(self.ctxt, cgsnapshot, []))
+            self.driver.delete_consistencygroup(self.ctxt,
+                                                cgsnapshot, snapshots))
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4187,8 +4363,8 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
     def test_storwize_consistency_group_from_src(self):
         # Valid case for create cg from src
         cg_type = self._create_consistency_group_volume_type()
-        self.ctxt.user_id = fake.user_id
-        self.ctxt.project_id = fake.project_id
+        self.ctxt.user_id = fake.USER_ID
+        self.ctxt.project_id = fake.PROJECT_ID
         pool = _get_test_pool()
         # Create cg in db
         cg = self._create_consistencygroup_in_db(volume_type_id=cg_type['id'])
@@ -4232,7 +4408,7 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
             self.assertEqual('available', each_vol['status'])
         model_update = self.driver.delete_consistencygroup(self.ctxt,
                                                            cg,
-                                                           [])
+                                                           volumes)
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4251,11 +4427,11 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
                          model_update['status'],
                          "CG create from src created failed")
 
-        for each_vol in volumes:
+        for each_vol in volumes_model_update:
             self.assertEqual('available', each_vol['status'])
 
         model_update = self.driver.delete_consistencygroup(self.ctxt,
-                                                           cg, [])
+                                                           cg, volumes)
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4264,7 +4440,7 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
 
         model_update = self.driver.delete_consistencygroup(self.ctxt,
                                                            cgsnapshot,
-                                                           [])
+                                                           snapshots)
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])
@@ -4273,7 +4449,7 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
 
         model_update = self.driver.delete_consistencygroup(self.ctxt,
                                                            source_cg,
-                                                           [])
+                                                           source_vols)
 
         self.assertEqual(fields.ConsistencyGroupStatus.DELETED,
                          model_update[0]['status'])

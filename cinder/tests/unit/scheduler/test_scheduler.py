@@ -23,12 +23,13 @@ from oslo_config import cfg
 from cinder import context
 from cinder import db
 from cinder import exception
+from cinder.message import defined_messages
 from cinder.objects import fields
 from cinder.scheduler import driver
 from cinder.scheduler import filter_scheduler
 from cinder.scheduler import manager
 from cinder import test
-from cinder.tests.unit import fake_consistencygroup
+from cinder.tests.unit.consistencygroup import fake_consistencygroup
 from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import utils as tests_utils
@@ -70,9 +71,11 @@ class SchedulerManagerTestCase(test.TestCase):
         sleep_mock.assert_called_once_with(CONF.periodic_interval)
         self.assertFalse(self.manager._startup_delay)
 
+    @mock.patch('cinder.objects.service.Service.get_minimum_rpc_version')
+    @mock.patch('cinder.objects.service.Service.get_minimum_obj_version')
     @mock.patch('cinder.rpc.LAST_RPC_VERSIONS', {'cinder-volume': '1.3'})
     @mock.patch('cinder.rpc.LAST_OBJ_VERSIONS', {'cinder-volume': '1.5'})
-    def test_reset(self):
+    def test_reset(self, get_min_obj, get_min_rpc):
         mgr = self.manager_cls()
 
         volume_rpcapi = mgr.driver.volume_rpcapi
@@ -82,8 +85,10 @@ class SchedulerManagerTestCase(test.TestCase):
         mgr.reset()
 
         volume_rpcapi = mgr.driver.volume_rpcapi
-        self.assertIsNone(volume_rpcapi.client.version_cap)
-        self.assertIsNone(volume_rpcapi.client.serializer._base.version_cap)
+        self.assertEqual(get_min_rpc.return_value,
+                         volume_rpcapi.client.version_cap)
+        self.assertEqual(get_min_obj.return_value,
+                         volume_rpcapi.client.serializer._base.version_cap)
 
     @mock.patch('cinder.scheduler.driver.Scheduler.'
                 'update_service_capabilities')
@@ -112,9 +117,11 @@ class SchedulerManagerTestCase(test.TestCase):
         _mock_update_cap.assert_called_once_with(service, host, capabilities)
 
     @mock.patch('cinder.scheduler.driver.Scheduler.schedule_create_volume')
+    @mock.patch('cinder.message.api.API.create')
     @mock.patch('cinder.db.volume_update')
     def test_create_volume_exception_puts_volume_in_error_state(
-            self, _mock_volume_update, _mock_sched_create):
+            self, _mock_volume_update, _mock_message_create,
+            _mock_sched_create):
         # Test NoValidHost exception behavior for create_volume.
         # Puts the volume in 'error' state and eats the exception.
         _mock_sched_create.side_effect = exception.NoValidHost(reason="")
@@ -131,6 +138,11 @@ class SchedulerManagerTestCase(test.TestCase):
                                                     {'status': 'error'})
         _mock_sched_create.assert_called_once_with(self.context, request_spec,
                                                    {})
+
+        _mock_message_create.assert_called_once_with(
+            self.context, defined_messages.UNABLE_TO_ALLOCATE,
+            self.context.project_id, resource_type='VOLUME',
+            resource_uuid=volume.id)
 
     @mock.patch('cinder.scheduler.driver.Scheduler.schedule_create_volume')
     @mock.patch('eventlet.sleep')
@@ -234,7 +246,8 @@ class SchedulerManagerTestCase(test.TestCase):
         self.manager.migrate_volume_to_host(self.context, topic,
                                             fake_volume_id, 'host', True,
                                             request_spec=request_spec,
-                                            filter_properties={})
+                                            filter_properties={},
+                                            volume=volume)
         _mock_volume_update.assert_called_once_with(self.context,
                                                     fake_volume_id,
                                                     fake_updates)
@@ -242,7 +255,7 @@ class SchedulerManagerTestCase(test.TestCase):
                                                   request_spec, {})
 
     @mock.patch('cinder.db.volume_update')
-    @mock.patch('cinder.db.volume_attachment_get_used_by_volume_id')
+    @mock.patch('cinder.db.volume_attachment_get_all_by_volume_id')
     def test_retype_volume_exception_returns_volume_state(
             self, _mock_vol_attachment_get, _mock_vol_update):
         # Test NoValidHost exception behavior for retype.
@@ -288,7 +301,7 @@ class SchedulerManagerTestCase(test.TestCase):
 
             ex = exception.CinderException('test')
             mock_cg.side_effect = ex
-            group_id = fake.consistency_group_id
+            group_id = fake.CONSISTENCY_GROUP_ID
             self.assertRaises(exception.CinderException,
                               self.manager.create_consistencygroup,
                               self.context,
@@ -324,7 +337,7 @@ class SchedulerTestCase(test.TestCase):
     def setUp(self):
         super(SchedulerTestCase, self).setUp()
         self.driver = self.driver_cls()
-        self.context = context.RequestContext(fake.user_id, fake.project_id)
+        self.context = context.RequestContext(fake.USER_ID, fake.PROJECT_ID)
         self.topic = 'fake_topic'
 
     @mock.patch('cinder.scheduler.driver.Scheduler.'
@@ -367,7 +380,7 @@ class SchedulerDriverModuleTestCase(test.TestCase):
 
     def setUp(self):
         super(SchedulerDriverModuleTestCase, self).setUp()
-        self.context = context.RequestContext(fake.user_id, fake.project_id)
+        self.context = context.RequestContext(fake.USER_ID, fake.PROJECT_ID)
 
     @mock.patch('cinder.db.volume_update')
     @mock.patch('cinder.objects.volume.Volume.get_by_id')

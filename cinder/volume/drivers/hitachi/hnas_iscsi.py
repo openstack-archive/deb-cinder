@@ -167,15 +167,20 @@ def _read_config(xml_config_file):
 class HDSISCSIDriver(driver.ISCSIDriver):
     """HDS HNAS volume driver.
 
-    Version 1.0.0: Initial driver version
-    Version 2.2.0: Added support to SSH authentication
-    Version 3.2.0: Added pool aware scheduling
-                   Fixed concurrency errors
-    Version 3.3.0: Fixed iSCSI target limitation error
-    Version 4.0.0: Added manage/unmanage features
-    Version 4.1.0: Fixed XML parser checks on blank options
-    Version 4.2.0: Fixed SSH and cluster_admin_ip0 verification
-    Version 4.3.0: Fixed attachment with os-brick 1.0.0
+    Version history:
+
+    .. code-block:: none
+
+        1.0.0: Initial driver version
+        2.2.0: Added support to SSH authentication
+        3.2.0: Added pool aware scheduling
+               Fixed concurrency errors
+        3.3.0: Fixed iSCSI target limitation error
+        4.0.0: Added manage/unmanage features
+        4.1.0: Fixed XML parser checks on blank options
+        4.2.0: Fixed SSH and cluster_admin_ip0 verification
+        4.3.0: Fixed attachment with os-brick 1.0.0
+
     """
 
     def __init__(self, *args, **kwargs):
@@ -313,7 +318,7 @@ class HDSISCSIDriver(driver.ISCSIDriver):
         # If we've got here and found_tgt is not True, we run out of targets,
         # raise and go away.
         if not found_tgt:
-            LOG.error(_LE("No more targets avaliable."))
+            LOG.error(_LE("No more targets available."))
             raise exception.NoMoreTargets(param=tgt_alias)
 
         LOG.info(_LI("Using target label: %s."), tgt_alias)
@@ -579,9 +584,10 @@ class HDSISCSIDriver(driver.ISCSIDriver):
         :param src: ditctionary source volume reference
         """
 
-        if src['size'] != dst['size']:
-            msg = 'clone volume size mismatch'
+        if src['size'] > dst['size']:
+            msg = 'Clone volume size must not be smaller than source volume'
             raise exception.VolumeBackendAPIException(data=msg)
+
         hdp = self._get_service(dst)
         size = int(src['size']) * units.Ki
         source_vol = self._id_to_vol(src['id'])
@@ -594,7 +600,12 @@ class HDSISCSIDriver(driver.ISCSIDriver):
                                    dst['name'])
 
         lun = self.arid + '.' + out.split()[1]
-        size = int(out.split()[5])
+
+        if src['size'] < dst['size']:
+            size = dst['size']
+            self.extend_volume(dst, size)
+        else:
+            size = int(out.split()[5])
 
         LOG.debug("LUN %(lun)s of size %(size)s MB is cloned.",
                   {'lun': lun, 'size': size})

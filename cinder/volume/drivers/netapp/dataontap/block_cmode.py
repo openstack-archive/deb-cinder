@@ -38,6 +38,7 @@ from cinder.volume.drivers.netapp.dataontap import block_base
 from cinder.volume.drivers.netapp.dataontap.client import client_cmode
 from cinder.volume.drivers.netapp.dataontap.performance import perf_cmode
 from cinder.volume.drivers.netapp.dataontap import ssc_cmode
+from cinder.volume.drivers.netapp.dataontap.utils import capabilities
 from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 
@@ -77,10 +78,11 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
         self.stale_vols = set()
         self.perf_library = perf_cmode.PerformanceCmodeLibrary(
             self.zapi_client)
+        self.ssc_library = capabilities.CapabilitiesLibrary(self.zapi_client)
 
     def check_for_setup_error(self):
         """Check that the driver is working and can communicate."""
-        ssc_cmode.check_ssc_api_permissions(self.zapi_client)
+        self.ssc_library.check_api_permissions()
         ssc_cmode.refresh_cluster_ssc(self, self.zapi_client.get_connection(),
                                       self.vserver, synchronous=True)
         if not self._get_filtered_pools():
@@ -228,14 +230,15 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
             pool['max_over_subscription_ratio'] = (
                 self.max_over_subscription_ratio)
 
-            # convert sizes to GB
-            total = float(vol.space['size_total_bytes'])
-            total /= units.Gi
-            pool['total_capacity_gb'] = na_utils.round_down(total, '0.01')
+            # Get capacity info and convert to GB
+            capacity = self.zapi_client.get_flexvol_capacity(
+                flexvol_name=pool_name)
 
-            free = float(vol.space['size_avl_bytes'])
-            free /= units.Gi
-            pool['free_capacity_gb'] = na_utils.round_down(free, '0.01')
+            size_total_gb = capacity['size-total'] / units.Gi
+            pool['total_capacity_gb'] = na_utils.round_down(size_total_gb)
+
+            size_available_gb = capacity['size-available'] / units.Gi
+            pool['free_capacity_gb'] = na_utils.round_down(size_available_gb)
 
             pool['provisioned_capacity_gb'] = (round(
                 pool['total_capacity_gb'] - pool['free_capacity_gb'], 2))
@@ -344,30 +347,6 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
         if netapp_vol:
             self._update_stale_vols(
                 volume=ssc_cmode.NetAppVolume(netapp_vol, self.vserver))
-
-    def _check_volume_type_for_lun(self, volume, lun, existing_ref,
-                                   extra_specs):
-        """Check if LUN satisfies volume type."""
-        def scan_ssc_data():
-            volumes = ssc_cmode.get_volumes_for_specs(self.ssc_vols,
-                                                      extra_specs)
-            for vol in volumes:
-                if lun.get_metadata_property('Volume') == vol.id['name']:
-                    return True
-            return False
-
-        match_read = scan_ssc_data()
-        if not match_read:
-            ssc_cmode.get_cluster_latest_ssc(
-                self, self.zapi_client.get_connection(), self.vserver)
-            match_read = scan_ssc_data()
-
-        if not match_read:
-            raise exception.ManageExistingVolumeTypeMismatch(
-                reason=(_("LUN with given ref %(ref)s does not satisfy volume"
-                          " type. Ensure LUN volume with ssc features is"
-                          " present on vserver %(vs)s.")
-                        % {'ref': existing_ref, 'vs': self.vserver}))
 
     def _get_preferred_target_from_list(self, target_details_list,
                                         filter=None):

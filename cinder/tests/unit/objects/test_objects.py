@@ -15,6 +15,7 @@
 from oslo_versionedobjects import fixture
 
 from cinder import db
+from cinder import objects
 from cinder.objects import base
 from cinder import test
 
@@ -22,18 +23,18 @@ from cinder import test
 # NOTE: The hashes in this list should only be changed if they come with a
 # corresponding version bump in the affected objects.
 object_data = {
-    'Backup': '1.4-cae44fe34d5a870110ba93adebc1edca',
-    'BackupImport': '1.4-cae44fe34d5a870110ba93adebc1edca',
+    'Backup': '1.4-bcd1797dc2f3e17a46571525e9dbec30',
+    'BackupImport': '1.4-bcd1797dc2f3e17a46571525e9dbec30',
     'BackupList': '1.0-24591dabe26d920ce0756fe64cd5f3aa',
-    'CGSnapshot': '1.0-78b91e76cb4c56e9cf5c9c41e208c05a',
+    'CGSnapshot': '1.0-de2586a31264d7647f40c762dece9d58',
     'CGSnapshotList': '1.0-e8c3f4078cd0ee23487b34d173eec776',
-    'ConsistencyGroup': '1.2-3aeb6b25664057e8078bd6d45bf23e0a',
+    'ConsistencyGroup': '1.2-5365b1c670adc3973f0faa54a66af243',
     'ConsistencyGroupList': '1.1-73916823b697dfa0c7f02508d87e0f28',
     'Service': '1.3-66c8e1683f58546c54551e9ff0a3b111',
     'ServiceList': '1.1-cb758b200f0a3a90efabfc5aa2ffb627',
-    'Snapshot': '1.0-404c1a8b48a808aa0b7cc92cd3ec1e57',
+    'Snapshot': '1.1-ac41f2fe2fb0e34127155d1ec6e4c7e0',
     'SnapshotList': '1.0-71661e7180ef6cc51501704a9bea4bf1',
-    'Volume': '1.3-264388ec57bc4c3353c89f93bebf9482',
+    'Volume': '1.3-049e3e5dc411b1a4deb7d6ee4f1ad5ef',
     'VolumeAttachment': '1.0-8fc9a9ac6f554fdf2a194d25dbf28a3b',
     'VolumeAttachmentList': '1.0-307d2b6c8dd55ef854f6386898e9e98e',
     'VolumeList': '1.1-03ba6cb8c546683e64e15c50042cb1a3',
@@ -88,3 +89,15 @@ class TestObjectVersions(test.TestCase):
             if not issubclass(cls[0], base.ObjectListBase):
                 db_model = db.get_model_for_versioned_object(cls[0])
                 _check_table_matched(db_model, cls[0])
+
+    def test_obj_make_compatible(self):
+        # Go through all of the object classes and run obj_to_primitive() with
+        # a target version of all previous minor versions. It doesn't test
+        # the converted data, but at least ensures the method doesn't blow
+        # up on something simple.
+        init_args = {}
+        init_kwargs = {objects.Snapshot: {'context': 'ctxt'}}
+        checker = fixture.ObjectVersionChecker(
+            base.CinderObjectRegistry.obj_classes())
+        checker.test_compatibility_routines(init_args=init_args,
+                                            init_kwargs=init_kwargs)

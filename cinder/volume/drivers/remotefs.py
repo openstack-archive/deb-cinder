@@ -30,6 +30,7 @@ import six
 from cinder import compute
 from cinder import db
 from cinder import exception
+from cinder.objects import fields
 from cinder import utils
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
@@ -37,11 +38,12 @@ from cinder.volume import driver
 
 LOG = logging.getLogger(__name__)
 
+
 nas_opts = [
-    # TODO(eharney): deprecate nas_ip and change this to nas_host
-    cfg.StrOpt('nas_ip',
+    cfg.StrOpt('nas_host',
                default='',
-               help='IP address or Hostname of NAS system.'),
+               help='IP address or Hostname of NAS system.',
+               deprecated_name='nas_ip'),
     cfg.StrOpt('nas_login',
                default='admin',
                help='User name to connect to NAS system.'),
@@ -435,19 +437,19 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
     def _load_shares_config(self, share_file=None):
         self.shares = {}
 
-        if all((self.configuration.nas_ip,
+        if all((self.configuration.nas_host,
                 self.configuration.nas_share_path)):
-            LOG.debug('Using nas_ip and nas_share_path configuration.')
+            LOG.debug('Using nas_host and nas_share_path configuration.')
 
-            nas_ip = self.configuration.nas_ip
+            nas_host = self.configuration.nas_host
             nas_share_path = self.configuration.nas_share_path
 
-            share_address = '%s:%s' % (nas_ip, nas_share_path)
+            share_address = '%s:%s' % (nas_host, nas_share_path)
 
             if not re.match(self.SHARE_FORMAT_REGEX, share_address):
                 msg = (_("Share %s ignored due to invalid format. Must "
                          "be of form address:/export. Please check the "
-                         "nas_ip and nas_share_path settings."),
+                         "nas_host and nas_share_path settings."),
                        share_address)
                 raise exception.InvalidConfigurationValue(msg)
 
@@ -556,7 +558,7 @@ class RemoteFSDriver(driver.LocalVD, driver.TransferVD, driver.BaseVD):
         NAS file operations. This base method will set the NAS security
         options to false.
         """
-        doc_html = "http://docs.openstack.org/admin-guide-cloud" \
+        doc_html = "http://docs.openstack.org/admin-guide" \
                    "/blockstorage_nfs_backend.html"
         self.configuration.nas_secure_file_operations = 'false'
         LOG.warning(_LW("The NAS file operations will be run as root: "
@@ -631,6 +633,8 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
          _local_volume_dir(self, volume)
     """
 
+    _VALID_IMAGE_EXTENSIONS = []
+
     def __init__(self, *args, **kwargs):
         self._remotefsclient = None
         self.base = None
@@ -689,11 +693,18 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
         if info.image:
             info.image = os.path.basename(info.image)
         if info.backing_file:
+            if self._VALID_IMAGE_EXTENSIONS:
+                valid_ext = r'(\.(%s))?' % '|'.join(
+                    self._VALID_IMAGE_EXTENSIONS)
+            else:
+                valid_ext = ''
+
             backing_file_template = \
                 "(%(basedir)s/[0-9a-f]+/)?%" \
-                "(volname)s(.(tmp-snap-)?[0-9a-f-]+)?$" % {
+                "(volname)s(.(tmp-snap-)?[0-9a-f-]+)?%(valid_ext)s$" % {
                     'basedir': basedir,
-                    'volname': volume_name
+                    'volname': volume_name,
+                    'valid_ext': valid_ext,
                 }
             if not re.match(backing_file_template, info.backing_file):
                 msg = _("File %(path)s has invalid backing file "
@@ -1291,20 +1302,21 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
                       {'id': snapshot['id'],
                        'status': s['status']})
 
-            if s['status'] == 'creating':
+            if s['status'] == fields.SnapshotStatus.CREATING:
                 if s['progress'] == '90%':
                     # Nova tasks completed successfully
                     break
 
                 time.sleep(increment)
                 seconds_elapsed += increment
-            elif s['status'] == 'error':
+            elif s['status'] == fields.SnapshotStatus.ERROR:
 
                 msg = _('Nova returned "error" status '
                         'while creating snapshot.')
                 raise exception.RemoteFSException(msg)
 
-            elif s['status'] == 'deleting' or s['status'] == 'error_deleting':
+            elif (s['status'] == fields.SnapshotStatus.DELETING or
+                  s['status'] == fields.SnapshotStatus.ERROR_DELETING):
                 msg = _('Snapshot %(id)s has been asked to be deleted while '
                         'waiting for it to become available. Perhaps a '
                         'concurrent request was made.') % {'id':
@@ -1326,7 +1338,7 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
     def _delete_snapshot_online(self, context, snapshot, info):
         # Update info over the course of this method
         # active file never changes
-        info_path = self._local_path_volume(snapshot['volume']) + '.info'
+        info_path = self._local_path_volume_info(snapshot['volume'])
         snap_info = self._read_info_file(info_path)
 
         if info['active_file'] == info['snapshot_file']:
@@ -1379,7 +1391,7 @@ class RemoteFSSnapDriver(RemoteFSDriver, driver.SnapshotVD):
         while True:
             s = db.snapshot_get(context, snapshot['id'])
 
-            if s['status'] == 'deleting':
+            if s['status'] == fields.SnapshotStatus.DELETING:
                 if s['progress'] == '90%':
                     # Nova tasks completed successfully
                     break

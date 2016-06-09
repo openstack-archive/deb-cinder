@@ -47,8 +47,7 @@ class NetAppVolume(object):
        state - status, vserver_root, cluster_volume,
        inconsistent, invalid, junction_active
        qos - qos_policy_group
-       space - space-guarantee-enabled, space-guarantee,
-       thin_provisioned, size_avl_bytes, size_total_bytes
+       space - space-guarantee-enabled, space-guarantee, thin_provisioned
        mirror - mirrored i.e. dp mirror
        export - path
     """
@@ -73,23 +72,6 @@ class NetAppVolume(object):
     def __hash__(self):
         """Computes hash for the object."""
         return hash(self.id['name'])
-
-    def __cmp__(self, other):
-        """Implements comparison logic for volumes."""
-        self_size_avl = self.space.get('size_avl_bytes')
-        other_size_avl = other.space.get('size_avl_bytes')
-        if self_size_avl is None and other_size_avl is not None:
-            return -1
-        elif self_size_avl is not None and other_size_avl is None:
-            return 1
-        elif self_size_avl is None and other_size_avl is None:
-            return 0
-        elif int(self_size_avl) < int(other_size_avl):
-            return -1
-        elif int(self_size_avl) > int(other_size_avl):
-            return 1
-        else:
-            return 0
 
     def __str__(self):
         """Returns human readable form for object."""
@@ -231,11 +213,6 @@ def create_vol_list(vol_attrs):
             # aggr attributes mandatory.
             vol.aggr['name'] =\
                 v['volume-id-attributes']['containing-aggregate-name']
-            # space attributes mandatory.
-            vol.space['size_avl_bytes'] =\
-                v['volume-space-attributes']['size-available']
-            vol.space['size_total_bytes'] =\
-                v['volume-space-attributes']['size-total']
             vol.space['space-guarantee-enabled'] =\
                 na_utils.to_bool(
                     v['volume-space-attributes'].get_child_content(
@@ -615,30 +592,3 @@ def get_volumes_for_specs(ssc_vols, specs):
                 if disk_type.lower() != vol_dtype:
                     result.discard(vol)
     return result
-
-
-@utils.trace_method
-def check_ssc_api_permissions(client_cmode):
-    """Checks backend SSC API permissions for the user."""
-    api_map = {'storage-disk-get-iter': ['netapp:disk_type'],
-               'snapmirror-get-iter': ['netapp_mirrored',
-                                       'netapp_unmirrored'],
-               'sis-get-iter': ['netapp_dedup', 'netapp_nodedup',
-                                'netapp_compression',
-                                'netapp_nocompression'],
-               'aggr-options-list-info': ['netapp:raid_type'],
-               'volume-get-iter': []}
-    failed_apis = client_cmode.check_apis_on_cluster(api_map.keys())
-    if failed_apis:
-        if 'volume-get-iter' in failed_apis:
-            msg = _("Fatal error: User not permitted"
-                    " to query NetApp volumes.")
-            raise exception.VolumeBackendAPIException(data=msg)
-        else:
-            unsupp_ssc_features = []
-            for fail in failed_apis:
-                unsupp_ssc_features.extend(api_map[fail])
-            LOG.warning(_LW("The user does not have access or sufficient "
-                            "privileges to use all netapp APIs. The "
-                            "following extra_specs will fail or be ignored: "
-                            "%s"), unsupp_ssc_features)

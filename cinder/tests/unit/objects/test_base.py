@@ -13,10 +13,10 @@
 #    under the License.
 
 import datetime
-import mock
 import uuid
 
 from iso8601 import iso8601
+import mock
 from oslo_utils import versionutils
 from oslo_versionedobjects import fields
 from sqlalchemy import sql
@@ -24,6 +24,7 @@ from sqlalchemy import sql
 from cinder import context
 from cinder import db
 from cinder.db.sqlalchemy import models
+from cinder import exception
 from cinder import objects
 from cinder import test
 from cinder.tests.unit import fake_constants as fake
@@ -102,8 +103,8 @@ class TestCinderObject(test_objects.BaseObjectsTestCase):
             fields = {'id': fields.UUIDField(),
                       'name': fields.StringField()}
 
-        test_obj = MyTestObject(id=fake.object_id, name='foo')
-        refresh_obj = MyTestObject(id=fake.object_id, name='bar')
+        test_obj = MyTestObject(id=fake.OBJECT_ID, name='foo')
+        refresh_obj = MyTestObject(id=fake.OBJECT_ID, name='bar')
         with mock.patch(
                 'cinder.objects.base.CinderObject.get_by_id') as get_by_id:
             get_by_id.return_value = refresh_obj
@@ -118,7 +119,7 @@ class TestCinderObject(test_objects.BaseObjectsTestCase):
                                objects.base.CinderComparableObject):
             fields = {'uuid': fields.UUIDField()}
 
-        test_obj = MyTestObjectNoId(uuid=fake.object_id, name='foo')
+        test_obj = MyTestObjectNoId(uuid=fake.OBJECT_ID, name='foo')
         self.assertRaises(NotImplementedError, test_obj.refresh)
 
 
@@ -577,6 +578,116 @@ class TestCinderObjectConditionalUpdate(test.TestCase):
 
         # Check that the volume in the DB has also been updated
         self._check_volume(volume, 'deleting', expected_size, True)
+
+    def test_conditional_update_auto_order(self):
+        volume = self._create_volume()
+
+        has_snapshot_filter = sql.exists().where(
+            models.Snapshot.volume_id == models.Volume.id)
+
+        case_values = volume.Case([(has_snapshot_filter, 'has-snapshot')],
+                                  else_='no-snapshot')
+
+        values = {'status': 'deleting',
+                  'previous_status': volume.model.status,
+                  'migration_status': case_values}
+
+        with mock.patch('cinder.db.sqlalchemy.api.model_query') as model_query:
+            update = model_query.return_value.filter.return_value.update
+            update.return_value = 0
+            self.assertFalse(volume.conditional_update(
+                values, {'status': 'available'}))
+
+        # We check that we are passing values to update to SQLAlchemy in the
+        # right order
+        self.assertEqual(1, update.call_count)
+        self.assertListEqual(
+            [('previous_status', volume.model.status),
+             ('migration_status', mock.ANY),
+             ('status', 'deleting')],
+            list(update.call_args[0][0]))
+        self.assertDictEqual(
+            {'synchronize_session': False,
+             'update_args': {'preserve_parameter_order': True}},
+            update.call_args[1])
+
+    def test_conditional_update_force_order(self):
+        volume = self._create_volume()
+
+        has_snapshot_filter = sql.exists().where(
+            models.Snapshot.volume_id == models.Volume.id)
+
+        case_values = volume.Case([(has_snapshot_filter, 'has-snapshot')],
+                                  else_='no-snapshot')
+
+        values = {'status': 'deleting',
+                  'previous_status': volume.model.status,
+                  'migration_status': case_values}
+
+        order = ['status']
+
+        with mock.patch('cinder.db.sqlalchemy.api.model_query') as model_query:
+            update = model_query.return_value.filter.return_value.update
+            update.return_value = 0
+            self.assertFalse(volume.conditional_update(
+                values, {'status': 'available'}, order=order))
+
+        # We check that we are passing values to update to SQLAlchemy in the
+        # right order
+        self.assertEqual(1, update.call_count)
+        self.assertListEqual(
+            [('status', 'deleting'),
+             ('previous_status', volume.model.status),
+             ('migration_status', mock.ANY)],
+            list(update.call_args[0][0]))
+        self.assertDictEqual(
+            {'synchronize_session': False,
+             'update_args': {'preserve_parameter_order': True}},
+            update.call_args[1])
+
+    def test_conditional_update_no_order(self):
+        volume = self._create_volume()
+
+        values = {'status': 'deleting',
+                  'previous_status': 'available',
+                  'migration_status': None}
+
+        with mock.patch('cinder.db.sqlalchemy.api.model_query') as model_query:
+            update = model_query.return_value.filter.return_value.update
+            update.return_value = 0
+            self.assertFalse(volume.conditional_update(
+                values, {'status': 'available'}))
+
+        # Check that arguments passed to SQLAlchemy's update are correct (order
+        # is not relevant).
+        self.assertEqual(1, update.call_count)
+        arg = update.call_args[0][0]
+        self.assertTrue(isinstance(arg, dict))
+        self.assertEqual(set(values.keys()), set(arg.keys()))
+
+    def test_conditional_update_multitable_fail(self):
+        volume = self._create_volume()
+        self.assertRaises(exception.ProgrammingError,
+                          volume.conditional_update,
+                          {'status': 'deleting',
+                           objects.Snapshot.model.status: 'available'},
+                          {'status': 'available'})
+
+    def test_conditional_update_multitable_fail_fields_different_models(self):
+        volume = self._create_volume()
+        self.assertRaises(exception.ProgrammingError,
+                          volume.conditional_update,
+                          {objects.Backup.model.status: 'available',
+                           objects.Snapshot.model.status: 'available'})
+
+    def test_conditional_update_not_multitable(self):
+        volume = self._create_volume()
+        with mock.patch('cinder.db.sqlalchemy.api._create_facade_lazily') as m:
+            res = volume.conditional_update(
+                {objects.Volume.model.status: 'deleting',
+                 objects.Volume.model.size: 12}, reflect_changes=False)
+            self.assertTrue(res)
+            self.assertTrue(m.called)
 
 
 class TestCinderDictObject(test_objects.BaseObjectsTestCase):

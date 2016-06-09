@@ -46,15 +46,21 @@ REST_API_VERSION_HISTORY = """
 
     * 3.0 - Includes all V2 APIs and extensions. V1 API is still supported.
     * 3.0 - Versions API updated to reflect beginning of microversions epoch.
+    * 3.1 - Adds visibility and protected to _volume_upload_image parameters.
+    * 3.2 - Bootable filters in volume GET call no longer treats all values
+            passed to it as true.
+    * 3.3 - Add user messages APIs.
+    * 3.4 - Adds glance_metadata filter to list/detail volumes in _get_volumes.
+    * 3.5 - Add pagination support to messages API.
 
 """
 
 # The minimum and maximum versions of the API supported
 # The default api version request is defined to be the
-# the minimum version of the API supported.
+# minimum version of the API supported.
 # Explicitly using /v1 or /v2 enpoints will still work
 _MIN_API_VERSION = "3.0"
-_MAX_API_VERSION = "3.0"
+_MAX_API_VERSION = "3.5"
 _LEGACY_API_VERSION1 = "1.0"
 _LEGACY_API_VERSION2 = "2.0"
 
@@ -124,7 +130,7 @@ class APIVersionRequest(utils.ComparableMixin):
                             method.end_version,
                             method.experimental)
 
-    def matches(self, min_version, max_version, experimental=False):
+    def matches(self, min_version, max_version=None, experimental=False):
         """Compares this version to the specified min/max range.
 
         Returns whether the version object represents a version

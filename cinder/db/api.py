@@ -37,7 +37,7 @@ these objects be simple dictionaries.
 """
 
 from oslo_config import cfg
-from oslo_db import concurrency as db_concurrency
+from oslo_db import api as oslo_db_api
 from oslo_db import options as db_options
 
 from cinder.api import common
@@ -67,7 +67,9 @@ CONF.set_default('sqlite_db', 'cinder.sqlite', group='database')
 _BACKEND_MAPPING = {'sqlalchemy': 'cinder.db.sqlalchemy.api'}
 
 
-IMPL = db_concurrency.TpoolDbapiWrapper(CONF, _BACKEND_MAPPING)
+IMPL = oslo_db_api.DBAPI.from_config(conf=CONF,
+                                     backend_mapping=_BACKEND_MAPPING,
+                                     lazy=True)
 
 # The maximum value a signed INT type may have
 MAX_INT = constants.DB_MAX_INT
@@ -234,17 +236,19 @@ def volume_attachment_get(context, attachment_id, session=None):
     return IMPL.volume_attachment_get(context, attachment_id, session)
 
 
-def volume_attachment_get_used_by_volume_id(context, volume_id):
-    return IMPL.volume_attachment_get_used_by_volume_id(context, volume_id)
+def volume_attachment_get_all_by_volume_id(context, volume_id):
+    return IMPL.volume_attachment_get_all_by_volume_id(context, volume_id)
 
 
-def volume_attachment_get_by_host(context, volume_id, host):
-    return IMPL.volume_attachment_get_by_host(context, volume_id, host)
+def volume_attachment_get_all_by_host(context, volume_id, host):
+    return IMPL.volume_attachment_get_all_by_host(context, volume_id, host)
 
 
-def volume_attachment_get_by_instance_uuid(context, volume_id, instance_uuid):
-    return IMPL.volume_attachment_get_by_instance_uuid(context, volume_id,
-                                                       instance_uuid)
+def volume_attachment_get_all_by_instance_uuid(context,
+                                               volume_id,
+                                               instance_uuid):
+    return IMPL.volume_attachment_get_all_by_instance_uuid(context, volume_id,
+                                                           instance_uuid)
 
 
 def volume_update_status_based_on_attachment(context, volume_id):
@@ -262,6 +266,14 @@ def volume_has_undeletable_snapshots_filter():
 
 def volume_has_attachments_filter():
     return IMPL.volume_has_attachments_filter()
+
+
+def volume_has_same_encryption_type(new_vol_type):
+    return IMPL.volume_has_same_encryption_type(new_vol_type)
+
+
+def volume_qos_allows_retype(new_vol_type):
+    return IMPL.volume_qos_allows_retype(new_vol_type)
 
 
 ####################
@@ -1119,6 +1131,31 @@ def image_volume_cache_get_all_for_host(context, host):
 ###################
 
 
+def message_get(context, message_id):
+    """Return a message with the specified ID."""
+    return IMPL.message_get(context, message_id)
+
+
+def message_get_all(context, filters=None, marker=None, limit=None,
+                    offset=None, sort_keys=None, sort_dirs=None):
+    return IMPL.message_get_all(context, filters=filters, marker=marker,
+                                limit=limit, offset=offset,
+                                sort_keys=sort_keys, sort_dirs=sort_dirs)
+
+
+def message_create(context, values):
+    """Creates a new message with the specified values."""
+    return IMPL.message_create(context, values)
+
+
+def message_destroy(context, message_id):
+    """Deletes message with the specified ID."""
+    return IMPL.message_destroy(context, message_id)
+
+
+###################
+
+
 def get_model_for_versioned_object(versioned_object):
     return IMPL.get_model_for_versioned_object(versioned_object)
 
@@ -1183,55 +1220,57 @@ def is_orm_value(obj):
 
 
 def conditional_update(context, model, values, expected_values, filters=(),
-                       include_deleted='no', project_only=False):
+                       include_deleted='no', project_only=False, order=None):
     """Compare-and-swap conditional update.
 
-       Update will only occur in the DB if conditions are met.
+    Update will only occur in the DB if conditions are met.
 
-       We have 4 different condition types we can use in expected_values:
-        - Equality:  {'status': 'available'}
-        - Inequality: {'status': vol_obj.Not('deleting')}
-        - In range: {'status': ['available', 'error']
-        - Not in range: {'status': vol_obj.Not(['in-use', 'attaching'])
+    We have 4 different condition types we can use in expected_values:
+     - Equality:  {'status': 'available'}
+     - Inequality: {'status': vol_obj.Not('deleting')}
+     - In range: {'status': ['available', 'error']
+     - Not in range: {'status': vol_obj.Not(['in-use', 'attaching'])
 
-       Method accepts additional filters, which are basically anything that
-       can be passed to a sqlalchemy query's filter method, for example:
-       [~sql.exists().where(models.Volume.id == models.Snapshot.volume_id)]
+    Method accepts additional filters, which are basically anything that can be
+    passed to a sqlalchemy query's filter method, for example:
 
-       We can select values based on conditions using Case objects in the
-       'values' argument. For example:
-       has_snapshot_filter = sql.exists().where(
-           models.Snapshot.volume_id == models.Volume.id)
-       case_values = db.Case([(has_snapshot_filter, 'has-snapshot')],
-                             else_='no-snapshot')
-       db.conditional_update(context, models.Volume, {'status': case_values},
-                             {'status': 'available'})
+    .. code-block:: python
 
-       And we can use DB fields for example to store previous status in the
-       corresponding field even though we don't know which value is in the db
-       from those we allowed:
-       db.conditional_update(context, models.Volume,
-                             {'status': 'deleting',
-                              'previous_status': models.Volume.status},
-                             {'status': ('available', 'error')})
+     [~sql.exists().where(models.Volume.id == models.Snapshot.volume_id)]
 
-       WARNING: SQLAlchemy does not allow selecting order of SET clauses, so
-       for now we cannot do things like
-           {'previous_status': model.status, 'status': 'retyping'}
-       because it will result in both previous_status and status being set to
-       'retyping'.  Issue has been reported [1] and a patch to fix it [2] has
-       been submitted.
-       [1]: https://bitbucket.org/zzzeek/sqlalchemy/issues/3541/
-       [2]: https://github.com/zzzeek/sqlalchemy/pull/200
+    We can select values based on conditions using Case objects in the 'values'
+    argument. For example:
 
-       :param values: Dictionary of key-values to update in the DB.
-       :param expected_values: Dictionary of conditions that must be met
-                               for the update to be executed.
-       :param filters: Iterable with additional filters
-       :param include_deleted: Should the update include deleted items, this
-                               is equivalent to read_deleted
-       :param project_only: Should the query be limited to context's project.
-       :returns number of db rows that were updated
+    .. code-block:: python
+
+     has_snapshot_filter = sql.exists().where(
+         models.Snapshot.volume_id == models.Volume.id)
+     case_values = db.Case([(has_snapshot_filter, 'has-snapshot')],
+                           else_='no-snapshot')
+     db.conditional_update(context, models.Volume, {'status': case_values},
+                           {'status': 'available'})
+
+    And we can use DB fields for example to store previous status in the
+    corresponding field even though we don't know which value is in the db from
+    those we allowed:
+
+    .. code-block:: python
+
+     db.conditional_update(context, models.Volume,
+                           {'status': 'deleting',
+                            'previous_status': models.Volume.status},
+                           {'status': ('available', 'error')})
+
+    :param values: Dictionary of key-values to update in the DB.
+    :param expected_values: Dictionary of conditions that must be met for the
+                            update to be executed.
+    :param filters: Iterable with additional filters.
+    :param include_deleted: Should the update include deleted items, this is
+                            equivalent to read_deleted.
+    :param project_only: Should the query be limited to context's project.
+    :param order: Specific order of fields in which to update the values
+    :returns number of db rows that were updated.
     """
     return IMPL.conditional_update(context, model, values, expected_values,
-                                   filters, include_deleted, project_only)
+                                   filters, include_deleted, project_only,
+                                   order)

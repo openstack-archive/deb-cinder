@@ -58,21 +58,28 @@ class FlashSystemFCDriver(fscommon.FlashSystemDriver,
     """IBM FlashSystem FC volume driver.
 
     Version history:
-    1.0.0 - Initial driver
-    1.0.1 - Code clean up
-    1.0.2 - Add lock into vdisk map/unmap, connection
-            initialize/terminate
-    1.0.3 - Initial driver for iSCSI
-    1.0.4 - Split Flashsystem driver into common and FC
-    1.0.5 - Report capability of volume multiattach
-    1.0.6 - Fix bug #1469581, add I/T mapping check in
-            terminate_connection
-    1.0.7 - Fix bug #1505477, add host name check in
-            _find_host_exhaustive for FC
+
+    .. code-block:: none
+
+        1.0.0 - Initial driver
+        1.0.1 - Code clean up
+        1.0.2 - Add lock into vdisk map/unmap, connection
+                initialize/terminate
+        1.0.3 - Initial driver for iSCSI
+        1.0.4 - Split Flashsystem driver into common and FC
+        1.0.5 - Report capability of volume multiattach
+        1.0.6 - Fix bug #1469581, add I/T mapping check in
+                terminate_connection
+        1.0.7 - Fix bug #1505477, add host name check in
+                _find_host_exhaustive for FC
+        1.0.8 - Fix bug #1572743, multi-attach attribute
+                should not be hardcoded, only in iSCSI
+        1.0.9 - Fix bug #1570574, Cleanup host resource
+                leaking, changes only in iSCSI
 
     """
 
-    VERSION = "1.0.7"
+    VERSION = "1.0.9"
 
     def __init__(self, *args, **kwargs):
         super(FlashSystemFCDriver, self).__init__(*args, **kwargs)

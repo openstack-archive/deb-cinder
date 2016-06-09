@@ -1386,6 +1386,27 @@ class VolumeOpsTestCase(test.TestCase):
         self.assertEqual(exp_factory_create_calls,
                          self.session.vim.client.factory.create.call_args_list)
 
+    @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
+                '_get_extra_config_option_values')
+    @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
+                '_reconfigure_backing')
+    def test_update_backing_extra_config(self,
+                                         reconfigure_backing,
+                                         get_extra_config_option_values):
+        reconfig_spec = mock.Mock()
+        self.session.vim.client.factory.create.return_value = reconfig_spec
+
+        option_values = mock.sentinel.option_values
+        get_extra_config_option_values.return_value = option_values
+
+        backing = mock.sentinel.backing
+        extra_config = mock.sentinel.extra_config
+        self.vops.update_backing_extra_config(backing, extra_config)
+
+        get_extra_config_option_values.assert_called_once_with(extra_config)
+        self.assertEqual(option_values, reconfig_spec.extraConfig)
+        reconfigure_backing.assert_called_once_with(backing, reconfig_spec)
+
     def test_change_backing_profile(self):
         # Test change to empty profile.
         reconfig_spec = mock.Mock()
@@ -1958,6 +1979,8 @@ class VirtualDiskAdapterTypeTest(test.TestCase):
         self.assertTrue(volumeops.VirtualDiskAdapterType.is_valid("busLogic"))
         self.assertTrue(volumeops.VirtualDiskAdapterType.is_valid(
                         "lsiLogicsas"))
+        self.assertTrue(
+            volumeops.VirtualDiskAdapterType.is_valid("paraVirtual"))
         self.assertTrue(volumeops.VirtualDiskAdapterType.is_valid("ide"))
         self.assertFalse(volumeops.VirtualDiskAdapterType.is_valid("pvscsi"))
 
@@ -1965,6 +1988,7 @@ class VirtualDiskAdapterTypeTest(test.TestCase):
         volumeops.VirtualDiskAdapterType.validate("lsiLogic")
         volumeops.VirtualDiskAdapterType.validate("busLogic")
         volumeops.VirtualDiskAdapterType.validate("lsiLogicsas")
+        volumeops.VirtualDiskAdapterType.validate("paraVirtual")
         volumeops.VirtualDiskAdapterType.validate("ide")
         self.assertRaises(vmdk_exceptions.InvalidAdapterTypeException,
                           volumeops.VirtualDiskAdapterType.validate,
@@ -1980,6 +2004,9 @@ class VirtualDiskAdapterTypeTest(test.TestCase):
         self.assertEqual("lsiLogic",
                          volumeops.VirtualDiskAdapterType.get_adapter_type(
                              "lsiLogicsas"))
+        self.assertEqual("lsiLogic",
+                         volumeops.VirtualDiskAdapterType.get_adapter_type(
+                             "paraVirtual"))
         self.assertEqual("ide",
                          volumeops.VirtualDiskAdapterType.get_adapter_type(
                              "ide"))
@@ -2001,6 +2028,9 @@ class ControllerTypeTest(test.TestCase):
         self.assertEqual(volumeops.ControllerType.LSI_LOGIC_SAS,
                          volumeops.ControllerType.get_controller_type(
                              'lsiLogicsas'))
+        self.assertEqual(volumeops.ControllerType.PARA_VIRTUAL,
+                         volumeops.ControllerType.get_controller_type(
+                             'paraVirtual'))
         self.assertEqual(volumeops.ControllerType.IDE,
                          volumeops.ControllerType.get_controller_type(
                              'ide'))
@@ -2015,5 +2045,7 @@ class ControllerTypeTest(test.TestCase):
             volumeops.ControllerType.BUS_LOGIC))
         self.assertTrue(volumeops.ControllerType.is_scsi_controller(
             volumeops.ControllerType.LSI_LOGIC_SAS))
+        self.assertTrue(volumeops.ControllerType.is_scsi_controller(
+            volumeops.ControllerType.PARA_VIRTUAL))
         self.assertFalse(volumeops.ControllerType.is_scsi_controller(
             volumeops.ControllerType.IDE))

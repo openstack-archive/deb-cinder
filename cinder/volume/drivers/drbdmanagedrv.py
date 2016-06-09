@@ -17,7 +17,7 @@
 """
 
 This driver connects Cinder to an installed DRBDmanage instance, see
-  http://drbd.linbit.com/users-guide-9.0/ch-openstack.html
+http://drbd.linbit.com/users-guide-9.0/ch-openstack.html
 for more details.
 
 """
@@ -585,23 +585,25 @@ class DrbdManageBaseDriver(driver.VolumeDriver):
                        {'res': new_res, 'vol': volume['id']})
             raise exception.VolumeBackendAPIException(data=message)
 
+        if (('size' in volume) and (volume['size'] > snapshot['volume_size'])):
+            LOG.debug("resize volume '%(dst_vol)s' from %(src_size)d to "
+                      "%(dst_size)d",
+                      {'dst_vol': volume['id'],
+                       'src_size': snapshot['volume_size'],
+                       'dst_size': volume['size']})
+            self.extend_volume(volume, volume['size'])
+
     def create_cloned_volume(self, volume, src_vref):
         temp_id = self._clean_uuid()
         snapshot = {'id': temp_id}
 
-        self.create_snapshot({'id': temp_id, 'volume_id': src_vref['id']})
+        self.create_snapshot({'id': temp_id,
+                              'volume_id': src_vref['id']})
 
+        snapshot['volume_size'] = src_vref['size']
         self.create_volume_from_snapshot(volume, snapshot)
 
         self.delete_snapshot(snapshot)
-
-        if (('size' in volume) and (volume['size'] > src_vref['size'])):
-            LOG.debug("resize volume '%(dst_vol)s' from %(src_size)d to "
-                      "%(dst_size)d",
-                      {'dst_vol': volume['id'],
-                       'src_size': src_vref['size'],
-                       'dst_size': volume['size']})
-            self.extend_volume(volume, volume['size'])
 
     def _update_volume_stats(self):
         data = {}
@@ -782,7 +784,6 @@ class DrbdManageIscsiDriver(DrbdManageBaseDriver):
         return self.target_driver.terminate_connection(volume,
                                                        connector,
                                                        **kwargs)
-        return None
 
 # for backwards compatibility keep the old class name, too
 DrbdManageDriver = DrbdManageIscsiDriver

@@ -15,6 +15,7 @@
 
 
 import datetime
+import itertools
 
 import glanceclient.exc
 import mock
@@ -40,7 +41,8 @@ class NullWriter(object):
 class TestGlanceSerializer(test.TestCase):
     def test_serialize(self):
         metadata = {'name': 'image1',
-                    'is_public': True,
+                    'visibility': 'public',
+                    'protected': True,
                     'foo': 'bar',
                     'properties': {
                         'prop1': 'propvalue1',
@@ -53,7 +55,8 @@ class TestGlanceSerializer(test.TestCase):
 
         converted_expected = {
             'name': 'image1',
-            'is_public': True,
+            'visibility': 'public',
+            'protected': True,
             'foo': 'bar',
             'properties': {
                 'prop1': 'propvalue1',
@@ -94,8 +97,12 @@ class TestGlanceImageService(test.TestCase):
         super(TestGlanceImageService, self).setUp()
 
         client = glance_stubs.StubGlanceClient()
+        service_catalog = [{u'type': u'image', u'name': u'glance',
+                            u'endpoints': [{
+                                u'publicURL': u'http://example.com:9292'}]}]
         self.service = self._create_image_service(client)
         self.context = context.RequestContext('fake', 'fake', auth_token=True)
+        self.context.service_catalog = service_catalog
         self.stubs.Set(glance.time, 'sleep', lambda s: None)
 
     def _create_image_service(self, client):
@@ -114,7 +121,8 @@ class TestGlanceImageService(test.TestCase):
         fixture = {'name': None,
                    'properties': {},
                    'status': None,
-                   'is_public': None}
+                   'visibility': None,
+                   'protected': None}
         fixture.update(kwargs)
         return fixture
 
@@ -123,10 +131,26 @@ class TestGlanceImageService(test.TestCase):
                                   updated_at=self.NOW_GLANCE_FORMAT,
                                   deleted_at=self.NOW_GLANCE_FORMAT)
 
+    def test_get_api_servers(self):
+        result = glance.get_api_servers(self.context)
+        expected = (u'example.com:9292', False)
+        self.assertEqual(expected, next(result))
+
+    def test_get_api_servers_not_mounted_at_root_and_ssl(self):
+        service_catalog = [{u'type': u'image', u'name': u'glance',
+                            u'endpoints': [{
+                                u'publicURL': u'https://example.com/image'}]}]
+        self.context = context.RequestContext('fake', 'fake', auth_token=True)
+        self.context.service_catalog = service_catalog
+        result = glance.get_api_servers(self.context)
+        expected = (u'example.com/image', True)
+        self.assertEqual(expected, next(result))
+
     def test_create_with_instance_id(self):
         """Ensure instance_id is persisted as an image-property."""
         fixture = {'name': 'test image',
                    'is_public': False,
+                   'protected': False,
                    'properties': {'instance_id': '42', 'user_id': 'fake'}}
 
         image_id = self.service.create(self.context, fixture)['id']
@@ -135,6 +159,7 @@ class TestGlanceImageService(test.TestCase):
             'id': image_id,
             'name': 'test image',
             'is_public': False,
+            'protected': False,
             'size': None,
             'min_disk': None,
             'min_ram': None,
@@ -161,13 +186,15 @@ class TestGlanceImageService(test.TestCase):
         instance_id. Public images are an example of an image not tied to an
         instance.
         """
-        fixture = {'name': 'test image', 'is_public': False}
+        fixture = {'name': 'test image', 'is_public': False,
+                   'protected': False}
         image_id = self.service.create(self.context, fixture)['id']
 
         expected = {
             'id': image_id,
             'name': 'test image',
             'is_public': False,
+            'protected': False,
             'size': None,
             'min_disk': None,
             'min_ram': None,
@@ -206,7 +233,8 @@ class TestGlanceImageService(test.TestCase):
 
     def test_detail_private_image(self):
         fixture = self._make_fixture(name='test image')
-        fixture['is_public'] = False
+        fixture['visibility'] = 'private'
+        fixture['protected'] = False
         properties = {'owner_id': 'proj1'}
         fixture['properties'] = properties
 
@@ -222,6 +250,25 @@ class TestGlanceImageService(test.TestCase):
         self.assertEqual(1, len(image_metas))
         self.assertEqual('test image', image_metas[0]['name'])
         self.assertFalse(image_metas[0]['is_public'])
+
+    def test_detail_v1(self):
+        """Confirm we send is_public = None as default when using Glance v1."""
+        self.override_config('glance_api_version', 1)
+        with mock.patch.object(self.service, '_client') as client_mock:
+            client_mock.return_value = []
+            result = self.service.detail(self.context)
+        self.assertListEqual([], result)
+        client_mock.call.assert_called_once_with(self.context, 'list',
+                                                 filters={'is_public': 'none'})
+
+    def test_detail_v2(self):
+        """Check we don't send is_public key by default with Glance v2."""
+        self.override_config('glance_api_version', 2)
+        with mock.patch.object(self.service, '_client') as client_mock:
+            client_mock.return_value = []
+            result = self.service.detail(self.context)
+        self.assertListEqual([], result)
+        client_mock.call.assert_called_once_with(self.context, 'list')
 
     def test_detail_marker(self):
         fixtures = []
@@ -239,6 +286,7 @@ class TestGlanceImageService(test.TestCase):
                 'id': ids[i],
                 'status': None,
                 'is_public': None,
+                'protected': None,
                 'name': 'TestImage %d' % (i),
                 'properties': {},
                 'size': None,
@@ -296,6 +344,7 @@ class TestGlanceImageService(test.TestCase):
                 'id': ids[i],
                 'status': None,
                 'is_public': None,
+                'protected': None,
                 'name': 'TestImage %d' % (i),
                 'properties': {},
                 'size': None,
@@ -382,6 +431,7 @@ class TestGlanceImageService(test.TestCase):
             'id': image_id,
             'name': 'image1',
             'is_public': True,
+            'protected': None,
             'size': None,
             'min_disk': None,
             'min_ram': None,
@@ -401,6 +451,7 @@ class TestGlanceImageService(test.TestCase):
     def test_show_raises_when_no_authtoken_in_the_context(self):
         fixture = self._make_fixture(name='image1',
                                      is_public=False,
+                                     protected=False,
                                      properties={'one': 'two'})
         image_id = self.service.create(self.context, fixture)['id']
         self.context.auth_token = False
@@ -418,6 +469,7 @@ class TestGlanceImageService(test.TestCase):
                 'id': image_id,
                 'name': 'image10',
                 'is_public': True,
+                'protected': None,
                 'size': None,
                 'min_disk': None,
                 'min_ram': None,
@@ -533,7 +585,10 @@ class TestGlanceImageService(test.TestCase):
 
     @mock.patch('six.moves.builtins.open')
     @mock.patch('shutil.copyfileobj')
-    def test_download_from_direct_file(self, mock_copyfileobj, mock_open):
+    @mock.patch('cinder.image.glance.get_api_servers',
+                return_value=itertools.cycle([(False, 'localhost:9292')]))
+    def test_download_from_direct_file(self, api_servers,
+                                       mock_copyfileobj, mock_open):
         fixture = self._make_fixture(name='test image',
                                      locations=[{'url': 'file:///tmp/test'}])
         image_id = self.service.create(self.context, fixture)['id']
@@ -545,7 +600,9 @@ class TestGlanceImageService(test.TestCase):
 
     @mock.patch('six.moves.builtins.open')
     @mock.patch('shutil.copyfileobj')
-    def test_download_from_direct_file_non_file(self,
+    @mock.patch('cinder.image.glance.get_api_servers',
+                return_value=itertools.cycle([(False, 'localhost:9292')]))
+    def test_download_from_direct_file_non_file(self, api_servers,
                                                 mock_copyfileobj, mock_open):
         fixture = self._make_fixture(name='test image',
                                      direct_url='swift+http://test/image')
@@ -590,7 +647,8 @@ class TestGlanceImageService(test.TestCase):
                 IMAGE_ATTRIBUTES = ['size', 'disk_format', 'owner',
                                     'container_format', 'id', 'created_at',
                                     'updated_at', 'deleted', 'status',
-                                    'min_disk', 'min_ram', 'is_public']
+                                    'min_disk', 'min_ram', 'is_public',
+                                    'visibility', 'protected']
                 raw = dict.fromkeys(IMAGE_ATTRIBUTES)
                 raw.update(metadata)
                 self.__dict__['raw'] = raw
@@ -606,6 +664,7 @@ class TestGlanceImageService(test.TestCase):
             'id': 1,
             'name': None,
             'is_public': None,
+            'protected': None,
             'size': None,
             'min_disk': None,
             'min_ram': None,
@@ -620,6 +679,46 @@ class TestGlanceImageService(test.TestCase):
             'properties': {},
             'owner': None,
         }
+        self.assertEqual(expected, actual)
+
+    @mock.patch('cinder.image.glance.CONF')
+    def test_v2_passes_visibility_param(self, config):
+
+        config.glance_api_version = 2
+        config.glance_num_retries = 0
+
+        metadata = {
+            'id': 1,
+            'size': 2,
+            'visibility': 'public',
+        }
+
+        image = glance_stubs.FakeImage(metadata)
+        client = glance_stubs.StubGlanceClient()
+
+        service = self._create_image_service(client)
+        service._image_schema = glance_stubs.FakeSchema()
+
+        actual = service._translate_from_glance('fake_context', image)
+        expected = {
+            'id': 1,
+            'name': None,
+            'visibility': 'public',
+            'protected': None,
+            'size': 2,
+            'min_disk': None,
+            'min_ram': None,
+            'disk_format': None,
+            'container_format': None,
+            'checksum': None,
+            'deleted': None,
+            'status': None,
+            'properties': {},
+            'owner': None,
+            'created_at': None,
+            'updated_at': None
+        }
+
         self.assertEqual(expected, actual)
 
     @mock.patch('cinder.image.glance.CONF')
@@ -647,7 +746,8 @@ class TestGlanceImageService(test.TestCase):
         expected = {
             'id': 1,
             'name': None,
-            'is_public': None,
+            'visibility': None,
+            'protected': None,
             'size': 2,
             'min_disk': 2,
             'min_ram': 2,
@@ -734,12 +834,28 @@ class TestGlanceClientVersion(test.TestCase):
         self.assertEqual('2', _mockglanceclient.call_args[0][0])
 
     @mock.patch('cinder.image.glance.glanceclient.Client')
-    def test_call_glance_version_by_arg(self, _mockglanceclient):
+    @mock.patch('cinder.image.glance.get_api_servers',
+                return_value=itertools.cycle([(False, 'localhost:9292')]))
+    def test_call_glance_version_by_arg(self, api_servers, _mockglanceclient):
         """Test glance version set by arg to GlanceClientWrapper"""
         glance_wrapper = glance.GlanceClientWrapper()
         glance_wrapper.call('fake_context', 'method', version=2)
 
         self.assertEqual('2', _mockglanceclient.call_args[0][0])
+
+    @mock.patch('cinder.image.glance.glanceclient.Client')
+    @mock.patch('cinder.image.glance.get_api_servers',
+                return_value=itertools.cycle([(False, 'localhost:9292')]))
+    def test_call_glance_over_quota(self, api_servers, _mockglanceclient):
+        """Test glance version set by arg to GlanceClientWrapper"""
+        glance_wrapper = glance.GlanceClientWrapper()
+        fake_client = mock.Mock()
+        fake_client.images.method = mock.Mock(
+            side_effect=glanceclient.exc.HTTPOverLimit)
+        self.mock_object(glance_wrapper, 'client', fake_client)
+        self.assertRaises(exception.ImageLimitExceeded,
+                          glance_wrapper.call, 'fake_context', 'method',
+                          version=2)
 
 
 def _create_failing_glance_client(info):

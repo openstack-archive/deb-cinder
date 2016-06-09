@@ -33,7 +33,6 @@ from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_config import fixture as config_fixture
 from oslo_log.fixture import logging_error as log_fixture
-from oslo_log import log
 from oslo_messaging import conffixture as messaging_conffixture
 from oslo_utils import strutils
 from oslo_utils import timeutils
@@ -53,8 +52,6 @@ from cinder.tests.unit import fake_notifier
 
 
 CONF = cfg.CONF
-
-LOG = log.getLogger(__name__)
 
 _DB_CACHE = None
 
@@ -99,29 +96,6 @@ class Database(fixtures.Fixture):
             shutil.copyfile(
                 os.path.join(CONF.state_path, self.sqlite_clean_db),
                 os.path.join(CONF.state_path, self.sqlite_db))
-
-
-def _patch_mock_to_raise_for_invalid_assert_calls():
-    def raise_for_invalid_assert_calls(wrapped):
-        def wrapper(_self, name):
-            valid_asserts = [
-                'assert_called_with',
-                'assert_called_once_with',
-                'assert_has_calls',
-                'assert_any_call']
-
-            if name.startswith('assert') and name not in valid_asserts:
-                raise AttributeError('%s is not a valid mock assert method'
-                                     % name)
-
-            return wrapped(_self, name)
-        return wrapper
-    mock.Mock.__getattr__ = raise_for_invalid_assert_calls(
-        mock.Mock.__getattr__)
-
-# NOTE(gibi): needs to be called only once at import time
-# to patch the mock lib
-_patch_mock_to_raise_for_invalid_assert_calls()
 
 
 class TestCase(testtools.TestCase):
@@ -250,6 +224,7 @@ class TestCase(testtools.TestCase):
                              group='oslo_policy')
 
         self._disable_osprofiler()
+        self._disallow_invalid_uuids()
 
         # NOTE(geguileo): This is required because common get_by_id method in
         # cinder.db.sqlalchemy.api caches get methods and if we use a mocked
@@ -271,6 +246,17 @@ class TestCase(testtools.TestCase):
         mock_decorator = mock.MagicMock(side_effect=side_effect)
         p = mock.patch("osprofiler.profiler.trace_cls",
                        return_value=mock_decorator)
+        p.start()
+
+    def _disallow_invalid_uuids(self):
+        def catch_uuid_warning(message, *args, **kwargs):
+            ovo_message = "invalid UUID. Using UUIDFields with invalid UUIDs " \
+                          "is no longer supported"
+            if ovo_message in message:
+                raise AssertionError(message)
+
+        p = mock.patch("warnings.warn",
+                       side_effect=catch_uuid_warning)
         p.start()
 
     def _common_cleanup(self):

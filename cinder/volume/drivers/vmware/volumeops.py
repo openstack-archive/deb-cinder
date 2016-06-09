@@ -183,6 +183,7 @@ class VirtualDiskAdapterType(object):
     LSI_LOGIC = "lsiLogic"
     BUS_LOGIC = "busLogic"
     LSI_LOGIC_SAS = "lsiLogicsas"
+    PARA_VIRTUAL = "paraVirtual"
     IDE = "ide"
 
     @staticmethod
@@ -195,6 +196,7 @@ class VirtualDiskAdapterType(object):
         return adapter_type in [VirtualDiskAdapterType.LSI_LOGIC,
                                 VirtualDiskAdapterType.BUS_LOGIC,
                                 VirtualDiskAdapterType.LSI_LOGIC_SAS,
+                                VirtualDiskAdapterType.PARA_VIRTUAL,
                                 VirtualDiskAdapterType.IDE]
 
     @staticmethod
@@ -212,20 +214,23 @@ class VirtualDiskAdapterType(object):
                 invalid_type=extra_spec_adapter_type)
 
     @staticmethod
-    def get_adapter_type(extra_spec_adapter_type):
+    def get_adapter_type(extra_spec_adapter):
         """Get the adapter type to be used in VirtualDiskSpec.
 
-        :param extra_spec_adapter_type: adapter type in the extra_spec
+        :param extra_spec_adapter: adapter type in the extra_spec
         :return: adapter type to be used in VirtualDiskSpec
         """
-        VirtualDiskAdapterType.validate(extra_spec_adapter_type)
-        # We set the adapter type as lsiLogic for lsiLogicsas since it is not
-        # supported by VirtualDiskManager APIs. This won't be a problem because
-        # we attach the virtual disk to the correct controller type and the
-        # disk adapter type is always resolved using its controller key.
-        if extra_spec_adapter_type == VirtualDiskAdapterType.LSI_LOGIC_SAS:
+        VirtualDiskAdapterType.validate(extra_spec_adapter)
+        # We set the adapter type as lsiLogic for lsiLogicsas/paraVirtual
+        # since it is not supported by VirtualDiskManager APIs. This won't
+        # be a problem because we attach the virtual disk to the correct
+        # controller type and the disk adapter type is always resolved using
+        # its controller key.
+        if (extra_spec_adapter == VirtualDiskAdapterType.LSI_LOGIC_SAS or
+                extra_spec_adapter == VirtualDiskAdapterType.PARA_VIRTUAL):
             return VirtualDiskAdapterType.LSI_LOGIC
-        return extra_spec_adapter_type
+        else:
+            return extra_spec_adapter
 
 
 class ControllerType(object):
@@ -234,12 +239,14 @@ class ControllerType(object):
     LSI_LOGIC = 'VirtualLsiLogicController'
     BUS_LOGIC = 'VirtualBusLogicController'
     LSI_LOGIC_SAS = 'VirtualLsiLogicSASController'
+    PARA_VIRTUAL = 'ParaVirtualSCSIController'
     IDE = 'VirtualIDEController'
 
     CONTROLLER_TYPE_DICT = {
         VirtualDiskAdapterType.LSI_LOGIC: LSI_LOGIC,
         VirtualDiskAdapterType.BUS_LOGIC: BUS_LOGIC,
         VirtualDiskAdapterType.LSI_LOGIC_SAS: LSI_LOGIC_SAS,
+        VirtualDiskAdapterType.PARA_VIRTUAL: PARA_VIRTUAL,
         VirtualDiskAdapterType.IDE: IDE}
 
     @staticmethod
@@ -264,7 +271,8 @@ class ControllerType(object):
         """
         return controller_type in [ControllerType.LSI_LOGIC,
                                    ControllerType.BUS_LOGIC,
-                                   ControllerType.LSI_LOGIC_SAS]
+                                   ControllerType.LSI_LOGIC_SAS,
+                                   ControllerType.PARA_VIRTUAL]
 
 
 class VMwareVolumeOps(object):
@@ -366,6 +374,7 @@ class VMwareVolumeOps(object):
         self._session.invoke_api(vim_util, 'cancel_retrieval',
                                  self._session.vim, retrieve_result)
 
+    # TODO(vbala): move this method to datastore module
     def _is_usable(self, mount_info):
         """Check if a datastore is usable as per the given mount info.
 
@@ -419,6 +428,7 @@ class VMwareVolumeOps(object):
         hosts = self.get_connected_hosts(datastore)
         return host.value in hosts
 
+    # TODO(vbala): move this method to datastore module
     def _in_maintenance(self, summary):
         """Check if a datastore is entering maintenance or in maintenance.
 
@@ -625,7 +635,7 @@ class VMwareVolumeOps(object):
         :param path: Datastore path of the virtual disk to extend
         :param dc_ref: Reference to datacenter
         :param eager_zero: Boolean determining if the free space
-        is zeroed out
+                           is zeroed out
         """
         LOG.debug("Extending virtual disk: %(path)s to %(size)s GB.",
                   {'path': path, 'size': requested_size_in_gb})
@@ -1325,6 +1335,17 @@ class VMwareVolumeOps(object):
                   "%(disk_uuid)s.",
                   {'backing': backing,
                    'disk_uuid': disk_uuid})
+
+    def update_backing_extra_config(self, backing, extra_config):
+        cf = self._session.vim.client.factory
+        reconfig_spec = cf.create('ns0:VirtualMachineConfigSpec')
+        reconfig_spec.extraConfig = self._get_extra_config_option_values(
+            extra_config)
+        self._reconfigure_backing(backing, reconfig_spec)
+        LOG.debug("Backing: %(backing)s reconfigured with extra config: "
+                  "%(extra_config)s.",
+                  {'backing': backing,
+                   'extra_config': extra_config})
 
     def delete_file(self, file_path, datacenter=None):
         """Delete file or folder on the datastore.

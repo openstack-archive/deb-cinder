@@ -56,21 +56,28 @@ class FlashSystemISCSIDriver(fscommon.FlashSystemDriver,
     """IBM FlashSystem iSCSI volume driver.
 
     Version history:
-    1.0.0 - Initial driver
-    1.0.1 - Code clean up
-    1.0.2 - Add lock into vdisk map/unmap, connection
-            initialize/terminate
-    1.0.3 - Initial driver for iSCSI
-    1.0.4 - Split Flashsystem driver into common and FC
-    1.0.5 - Report capability of volume multiattach
-    1.0.6 - Fix bug #1469581, add I/T mapping check in
-            terminate_connection
-    1.0.7 - Fix bug #1505477, add host name check in
-            _find_host_exhaustive for FC
+
+    .. code-block:: none
+
+        1.0.0 - Initial driver
+        1.0.1 - Code clean up
+        1.0.2 - Add lock into vdisk map/unmap, connection
+                initialize/terminate
+        1.0.3 - Initial driver for iSCSI
+        1.0.4 - Split Flashsystem driver into common and FC
+        1.0.5 - Report capability of volume multiattach
+        1.0.6 - Fix bug #1469581, add I/T mapping check in
+                terminate_connection
+        1.0.7 - Fix bug #1505477, add host name check in
+                _find_host_exhaustive for FC
+        1.0.8 - Fix bug #1572743, multi-attach attribute
+                should not be hardcoded, only in iSCSI
+        1.0.9 - Fix bug #1570574, Cleanup host resource
+                leaking, changes only in iSCSI
 
     """
 
-    VERSION = "1.0.7"
+    VERSION = "1.0.9"
 
     def __init__(self, *args, **kwargs):
         super(FlashSystemISCSIDriver, self).__init__(*args, **kwargs)
@@ -218,7 +225,7 @@ class FlashSystemISCSIDriver(fscommon.FlashSystemDriver,
         2. Create new host on the storage system if it does not yet exist
         3. Map the volume to the host if it is not already done
         4. Return the connection information for relevant nodes (in the
-           proper I/O group)
+        proper I/O group)
 
         """
 
@@ -268,7 +275,7 @@ class FlashSystemISCSIDriver(fscommon.FlashSystemDriver,
         1. Translate the given connector to a host name
         2. Remove the volume-to-host mapping if it exists
         3. Delete the host if it has no more mappings (hosts are created
-           automatically by this driver when mappings are created)
+        automatically by this driver when mappings are created)
         """
         LOG.debug(
             'enter: terminate_connection: volume %(vol)s with '
@@ -277,7 +284,12 @@ class FlashSystemISCSIDriver(fscommon.FlashSystemDriver,
 
         vdisk_name = volume['name']
         self._wait_vdisk_copy_completed(vdisk_name)
-        self._unmap_vdisk_from_host(vdisk_name, connector)
+        host_name = self._unmap_vdisk_from_host(vdisk_name, connector)
+        # checking if host_name none, if not then, check if the host has
+        # any mappings, if not the host gets deleted.
+        if host_name:
+            if not self._get_hostvdisk_mappings(host_name):
+                self._delete_host(host_name)
 
         LOG.debug(
             'leave: terminate_connection: volume %(vol)s with '

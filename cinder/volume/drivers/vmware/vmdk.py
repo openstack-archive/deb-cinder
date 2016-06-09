@@ -67,6 +67,9 @@ EXTRA_CONFIG_VOLUME_ID_KEY = "cinder.volume.id"
 vmdk_opts = [
     cfg.StrOpt('vmware_host_ip',
                help='IP address for connecting to VMware vCenter server.'),
+    cfg.PortOpt('vmware_host_port',
+                default=443,
+                help='Port number for connecting to VMware vCenter server.'),
     cfg.StrOpt('vmware_host_username',
                help='Username for authenticating with VMware vCenter '
                     'server.'),
@@ -83,7 +86,7 @@ vmdk_opts = [
                help='Number of times VMware vCenter server API must be '
                     'retried upon connection related issues.'),
     cfg.FloatOpt('vmware_task_poll_interval',
-                 default=0.5,
+                 default=2.0,
                  help='The interval (in seconds) for polling remote tasks '
                       'invoked on VMware vCenter server.'),
     cfg.StrOpt('vmware_volume_folder',
@@ -244,8 +247,10 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
     @property
     def ds_sel(self):
         if not self._ds_sel:
+            max_objects = self.configuration.vmware_max_objects_retrieval
             self._ds_sel = hub.DatastoreSelector(self.volumeops,
-                                                 self.session)
+                                                 self.session,
+                                                 max_objects)
         return self._ds_sel
 
     def _validate_params(self):
@@ -255,7 +260,8 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                            'vmware_host_password']
         for param in required_params:
             if not getattr(self.configuration, param, None):
-                raise exception.InvalidInput(_("%s not set.") % param)
+                reason = _("%s not set.") % param
+                raise exception.InvalidInput(reason=reason)
 
     def check_for_setup_error(self):
         pass
@@ -548,11 +554,15 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         """Allow connection to connector and return connection info.
 
         The implementation returns the following information:
-        {'driver_volume_type': 'vmdk'
-         'data': {'volume': $VOLUME_MOREF_VALUE
-                  'volume_id': $VOLUME_ID
-                 }
-        }
+
+        .. code-block:: json
+
+            {
+                'driver_volume_type': 'vmdk'
+                'data': {'volume': $VOLUME_MOREF_VALUE
+                         'volume_id': $VOLUME_ID
+                        }
+            }
 
         :param volume: Volume object
         :param connector: Connector information
@@ -665,6 +675,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
 
         timeout = self.configuration.vmware_image_transfer_timeout_secs
         host_ip = self.configuration.vmware_host_ip
+        port = self.configuration.vmware_host_port
         ca_file = self.configuration.vmware_ca_file
         insecure = self.configuration.vmware_insecure
         cookies = self.session.vim.client.options.transport.cookiejar
@@ -673,7 +684,6 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         LOG.debug("Copying image: %(image_id)s to %(path)s.",
                   {'image_id': image_id,
                    'path': upload_file_path})
-        # TODO(vbala): add config option to override non-default port
 
         # ca_file is used for verifying vCenter certificate if it is set.
         # If ca_file is unset and insecure is False, the default CA truststore
@@ -687,7 +697,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                                            image_id,
                                            image_size=image_size_in_bytes,
                                            host=host_ip,
-                                           port=443,
+                                           port=port,
                                            data_center_name=dc_name,
                                            datastore_name=ds_name,
                                            cookies=cookies,
@@ -1016,6 +1026,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
             # fetching image from glance will also create the backing
             timeout = self.configuration.vmware_image_transfer_timeout_secs
             host_ip = self.configuration.vmware_host_ip
+            port = self.configuration.vmware_host_port
             LOG.debug("Fetching glance image: %(id)s to server: %(host)s.",
                       {'id': image_id, 'host': host_ip})
             backing = image_transfer.download_stream_optimized_image(
@@ -1025,7 +1036,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                 image_id,
                 session=self.session,
                 host=host_ip,
-                port=443,
+                port=port,
                 resource_pool=rp,
                 vm_folder=folder,
                 vm_import_spec=vm_import_spec,
@@ -1141,15 +1152,14 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         has a vmdk disk type of "streamOptimized" that can only be downloaded
         using the HttpNfc API.
         Steps followed are:
-        1. Get the name of the vmdk file which the volume points to right now.
-           Can be a chain of snapshots, so we need to know the last in the
-           chain.
+        1. Get the name of the vmdk file which the volume points to right
+        now. Can be a chain of snapshots, so we need to know the last in the
+        chain.
         2. Use Nfc APIs to upload the contents of the vmdk file to glance.
         """
 
         # if volume is attached raise exception
-        if (volume['volume_attachment'] and
-                len(volume['volume_attachment']) > 0):
+        if self._in_use(volume):
             msg = _("Upload to glance of attached volume is not supported.")
             LOG.error(msg)
             raise exception.InvalidVolume(msg)
@@ -1169,6 +1179,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         # Upload image from vmdk
         timeout = self.configuration.vmware_image_transfer_timeout_secs
         host_ip = self.configuration.vmware_host_ip
+        port = self.configuration.vmware_host_port
 
         image_transfer.upload_image(context,
                                     timeout,
@@ -1177,7 +1188,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                                     volume['project_id'],
                                     session=self.session,
                                     host=host_ip,
-                                    port=443,
+                                    port=port,
                                     vm=backing,
                                     vmdk_file_path=vmdk_file_path,
                                     vmdk_size=volume['size'] * units.Gi,
@@ -1432,6 +1443,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         """Download virtual disk in streamOptimized format."""
         timeout = self.configuration.vmware_image_transfer_timeout_secs
         host_ip = self.configuration.vmware_host_ip
+        port = self.configuration.vmware_host_port
         vmdk_ds_file_path = self.volumeops.get_vmdk_path(backing)
 
         with open(tmp_file_path, "wb") as tmp_file:
@@ -1441,7 +1453,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                 tmp_file,
                 session=self.session,
                 host=host_ip,
-                port=443,
+                port=port,
                 vm=backing,
                 vmdk_file_path=vmdk_ds_file_path,
                 vmdk_size=volume['size'] * units.Gi)
@@ -1506,6 +1518,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
 
         timeout = self.configuration.vmware_image_transfer_timeout_secs
         host_ip = self.configuration.vmware_host_ip
+        port = self.configuration.vmware_host_port
         try:
             with open(tmp_file_path, "rb") as tmp_file:
                 vm_ref = image_transfer.download_stream_optimized_data(
@@ -1514,7 +1527,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                     tmp_file,
                     session=self.session,
                     host=host_ip,
-                    port=443,
+                    port=port,
                     resource_pool=rp,
                     vm_folder=folder,
                     vm_import_spec=vm_import_spec,
@@ -1692,7 +1705,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
 
         :param volume: Cinder volume to manage
         :param existing_ref: Driver-specific information used to identify a
-        volume
+                             volume
         """
         (_vm, disk) = self._get_existing(existing_ref)
         return int(math.ceil(disk.capacityInKB * units.Ki / float(units.Gi)))
@@ -1705,7 +1718,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
 
         :param volume: Cinder volume to manage
         :param existing_ref: Driver-specific information used to identify a
-        volume
+                             volume
         """
         (vm, disk) = self._get_existing(existing_ref)
 
@@ -1736,10 +1749,19 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
             dest_path.get_descriptor_ds_file_path())
         self.volumeops.update_backing_disk_uuid(backing, volume['id'])
 
+    def unmanage(self, volume):
+        backing = self.volumeops.get_backing(volume['name'])
+        if backing:
+            extra_config = self._get_extra_config(volume)
+            for key in extra_config:
+                extra_config[key] = ''
+            self.volumeops.update_backing_extra_config(backing, extra_config)
+
     @property
     def session(self):
         if not self._session:
             ip = self.configuration.vmware_host_ip
+            port = self.configuration.vmware_host_port
             username = self.configuration.vmware_host_username
             password = self.configuration.vmware_host_password
             api_retry_count = self.configuration.vmware_api_retry_count
@@ -1753,6 +1775,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                                                  task_poll_interval,
                                                  wsdl_loc=wsdl_loc,
                                                  pbm_wsdl_loc=pbm_wsdl,
+                                                 port=port,
                                                  cacert=ca_file,
                                                  insecure=insecure)
         return self._session
@@ -1811,7 +1834,8 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         # TODO(vbala) remove properties: session, volumeops and ds_sel
         max_objects = self.configuration.vmware_max_objects_retrieval
         self._volumeops = volumeops.VMwareVolumeOps(self.session, max_objects)
-        self._ds_sel = hub.DatastoreSelector(self.volumeops, self.session)
+        self._ds_sel = hub.DatastoreSelector(
+            self.volumeops, self.session, max_objects)
 
         # Get clusters to be used for backing VM creation.
         cluster_names = self.configuration.vmware_cluster_name

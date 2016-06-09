@@ -66,18 +66,6 @@ class ExecuteTestCase(test.TestCase):
 
 
 class GenericUtilsTestCase(test.TestCase):
-
-    @mock.patch('os.path.exists', return_value=True)
-    def test_find_config(self, mock_exists):
-        path = '/etc/cinder/cinder.conf'
-        cfgpath = utils.find_config(path)
-        self.assertEqual(path, cfgpath)
-
-        mock_exists.return_value = False
-        self.assertRaises(exception.ConfigNotFound,
-                          utils.find_config,
-                          path)
-
     def test_as_int(self):
         test_obj_int = '2'
         test_obj_float = '2.2'
@@ -363,15 +351,6 @@ class GenericUtilsTestCase(test.TestCase):
         mock_conf.rootwrap_config = '/path/to/conf'
         self.assertEqual('sudo cinder-rootwrap /path/to/conf',
                          utils.get_root_helper())
-
-    def test_list_of_dicts_to_dict(self):
-        a = {'id': '1', 'color': 'orange'}
-        b = {'id': '2', 'color': 'blue'}
-        c = {'id': '3', 'color': 'green'}
-        lst = [a, b, c]
-
-        resp = utils.list_of_dicts_to_dict(lst, 'id')
-        self.assertEqual(c['id'], resp['3']['id'])
 
 
 class TemporaryChownTestCase(test.TestCase):
@@ -818,8 +797,7 @@ class BrickUtils(test.TestCase):
         self.assertEqual(mock_factory.return_value, output)
         mock_factory.assert_called_once_with(
             'protocol', mock_helper.return_value, driver=None,
-            execute=putils.execute, use_multipath=False,
-            device_scan_attempts=3)
+            use_multipath=False, device_scan_attempts=3)
 
 
 class StringLengthTestCase(test.TestCase):
@@ -835,6 +813,9 @@ class StringLengthTestCase(test.TestCase):
         self.assertRaises(exception.InvalidInput,
                           utils.check_string_length,
                           'a' * 256, 'name', max_length=255)
+        self.assertRaises(exception.InvalidInput,
+                          utils.check_string_length,
+                          dict(), 'name', max_length=255)
 
 
 class AddVisibleAdminMetadataTestCase(test.TestCase):

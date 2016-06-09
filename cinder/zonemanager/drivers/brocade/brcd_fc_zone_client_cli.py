@@ -62,13 +62,16 @@ class BrcdFCZoneClientCLI(object):
         are active then it will return empty map.
 
         :returns: Map -- active zone set map in the following format
-        {
-            'zones':
-                {'openstack50060b0000c26604201900051ee8e329':
-                    ['50060b0000c26604', '201900051ee8e329']
-                },
-            'active_zone_config': 'OpenStack_Cfg'
-        }
+
+        .. code-block:: python
+
+            {
+                'zones':
+                    {'openstack50060b0000c26604201900051ee8e329':
+                        ['50060b0000c26604', '201900051ee8e329']
+                    },
+                'active_zone_config': 'OpenStack_Cfg'
+            }
         """
         zone_set = {}
         zone = {}
@@ -119,17 +122,27 @@ class BrcdFCZoneClientCLI(object):
         """Add zone configuration.
 
         This method will add the zone configuration passed by user.
-            input params:
-            zones - zone names mapped to members.
-            zone members are colon separated but case-insensitive
-            {   zonename1:[zonememeber1,zonemember2,...],
+
+        :param zones: zone names mapped to members. Zone members
+                      are colon separated but case-insensitive
+
+        .. code-block:: python
+
+            {   zonename1:[zonememeber1, zonemember2,...],
                 zonename2:[zonemember1, zonemember2,...]...}
-            e.g: {'openstack50060b0000c26604201900051ee8e329':
-                    ['50:06:0b:00:00:c2:66:04', '20:19:00:05:1e:e8:e3:29']
-                }
-            activate - True/False
-            active_zone_set - active zone set dict retrieved from
-                              get_active_zone_set method
+
+            e.g:
+
+            {
+                'openstack50060b0000c26604201900051ee8e329':
+                        ['50:06:0b:00:00:c2:66:04',
+                         '20:19:00:05:1e:e8:e3:29']
+            }
+
+        :param activate: True/False
+        :param active_zone_set: active zone set dict retrieved from
+                                get_active_zone_set method
+
         """
         LOG.debug("Add Zones - Zones passed: %s", zones)
         cfg_name = None
@@ -139,6 +152,7 @@ class BrcdFCZoneClientCLI(object):
             active_zone_set = self.get_active_zone_set()
             LOG.debug("Active zone set: %s", active_zone_set)
         zone_list = active_zone_set[zone_constant.CFG_ZONES]
+        zone_updated = []
         LOG.debug("zone list: %s", zone_list)
         for zone in zones.keys():
             # If zone exists, its an update. Delete & insert
@@ -150,6 +164,7 @@ class BrcdFCZoneClientCLI(object):
                     break
                 try:
                     self.delete_zones(zone, activate, active_zone_set)
+                    zone_updated.append(zone)
                 except exception.BrocadeZoningCliException:
                     with excutils.save_and_reraise_exception():
                         LOG.error(_LE("Deleting zone failed %s"), zone)
@@ -170,10 +185,12 @@ class BrcdFCZoneClientCLI(object):
         if not zone_with_sep:
             return
         try:
-            # Get active zone set from device, as some of the zones
-            # could be deleted.
-            active_zone_set = self.get_active_zone_set()
-            cfg_name = active_zone_set[zone_constant.ACTIVE_ZONE_CONFIG]
+            # If all existing zones are to be updated, the active zone config
+            # will require a recreate, since all zones have been deleted.
+            if len(zone_list) == len(zone_updated):
+                cfg_name = None
+            else:
+                cfg_name = active_zone_set[zone_constant.ACTIVE_ZONE_CONFIG]
             cmd = None
             if not cfg_name:
                 cfg_name = zone_constant.OPENSTACK_CFG_NAME

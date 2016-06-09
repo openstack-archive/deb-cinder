@@ -62,6 +62,9 @@ class HPE3PARISCSIDriver(driver.TransferVD,
     """OpenStack iSCSI driver to enable 3PAR storage array.
 
     Version history:
+
+    .. code-block:: none
+
         1.0   - Initial driver
         1.1   - QoS, extend volume, multiple iscsi ports, remove domain,
                 session changes, faster clone, requires 3.1.2 MU2 firmware.
@@ -110,10 +113,11 @@ class HPE3PARISCSIDriver(driver.TransferVD,
         3.0.7 - Optimize array ID retrieval
         3.0.8 - Update replication to version 2.1
         3.0.9 - Use same LUN ID for each VLUN path #1551994
+        3.0.10 - Remove metadata that tracks the instance ID. bug #1572665
 
     """
 
-    VERSION = "3.0.9"
+    VERSION = "3.0.10"
 
     def __init__(self, *args, **kwargs):
         super(HPE3PARISCSIDriver, self).__init__(*args, **kwargs)
@@ -307,6 +311,8 @@ class HPE3PARISCSIDriver(driver.TransferVD,
         The format of the driver data is defined in _get_iscsi_properties.
         Example return value:
 
+        .. code-block:: json
+
             {
                 'driver_volume_type': 'iscsi'
                 'data': {
@@ -424,7 +430,7 @@ class HPE3PARISCSIDriver(driver.TransferVD,
                 if least_used_nsp is None:
                     LOG.warning(_LW("Least busy iSCSI port not found, "
                                     "using first iSCSI port in list."))
-                    iscsi_ip = iscsi_ips.keys()[0]
+                    iscsi_ip = list(iscsi_ips)[0]
                 else:
                     iscsi_ip = self._get_ip_using_nsp(least_used_nsp, common)
 
@@ -871,21 +877,6 @@ class HPE3PARISCSIDriver(driver.TransferVD,
         finally:
             self._logout(common)
 
-    def attach_volume(self, context, volume, instance_uuid, host_name,
-                      mountpoint):
-        common = self._login()
-        try:
-            common.attach_volume(volume, instance_uuid)
-        finally:
-            self._logout(common)
-
-    def detach_volume(self, context, volume, attachment=None):
-        common = self._login()
-        try:
-            common.detach_volume(volume, attachment)
-        finally:
-            self._logout(common)
-
     def retype(self, context, volume, new_type, diff, host):
         """Convert the volume to be of the new type."""
         common = self._login()
@@ -929,13 +920,13 @@ class HPE3PARISCSIDriver(driver.TransferVD,
         finally:
             self._logout(common)
 
-    def failover_host(self, context, volumes, secondary_backend_id):
+    def failover_host(self, context, volumes, secondary_id=None):
         """Force failover to a secondary replication target."""
         common = self._login(timeout=30)
         try:
             # Update the active_backend_id in the driver and return it.
             active_backend_id, volume_updates = common.failover_host(
-                context, volumes, secondary_backend_id)
+                context, volumes, secondary_id)
             self._active_backend_id = active_backend_id
             return active_backend_id, volume_updates
         finally:

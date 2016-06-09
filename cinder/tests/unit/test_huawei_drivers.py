@@ -22,8 +22,6 @@ import tempfile
 import time
 from xml.dom import minidom
 
-from oslo_log import log as logging
-
 from cinder import exception
 from cinder import test
 from cinder.tests.unit import utils
@@ -38,7 +36,6 @@ from cinder.volume.drivers.huawei import replication
 from cinder.volume.drivers.huawei import rest_client
 from cinder.volume.drivers.huawei import smartx
 
-LOG = logging.getLogger(__name__)
 
 hypermetro_devices = """{
     "remote_device": {
@@ -250,6 +247,20 @@ fake_fabric_mapping = {
     }
 }
 
+fake_fabric_mapping_no_ports = {
+    'swd1': {
+        'target_port_wwn_list': [],
+        'initiator_port_wwn_list': ['10000090fa0d6754']
+    }
+}
+
+fake_fabric_mapping_no_wwn = {
+    'swd1': {
+        'target_port_wwn_list': ['2000643e8c4c5f66'],
+        'initiator_port_wwn_list': []
+    }
+}
+
 CHANGE_OPTS = {'policy': ('1', '2'),
                'partitionid': (['1', 'partition001'], ['2', 'partition002']),
                'cacheid': (['1', 'cache001'], ['2', 'cache002']),
@@ -269,6 +280,17 @@ FAKE_CREATE_HOST_RESPONSE = """
     },
     "data":{"NAME": "ubuntuc001",
             "ID": "1"}
+}
+"""
+
+FAKE_GET_HOST_RESPONSE = """
+{
+    "error": {
+        "code": 0
+    },
+    "data":{"NAME": "ubuntuc001",
+            "ID": "1",
+            "ISADD2HOSTGROUP": "true"}
 }
 """
 
@@ -1028,7 +1050,7 @@ FAKE_GET_FC_PORT_RESPONSE = """
     },
     {
         "RUNNINGSTATUS":"10",
-        "WWN":"2009643e8c4c5f67",
+        "WWN":"2000643e8c4c5f67",
         "PARENTID":"0A.1",
         "ID": "1114369",
         "RUNSPEED": "16000"
@@ -1235,6 +1257,10 @@ MAP_COMMAND_TO_FAKE_RESPONSE['/iscsi_initiator/POST'] = (
 MAP_COMMAND_TO_FAKE_RESPONSE['/iscsi_initiator/PUT'] = (
     FAKE_ISCSI_INITIATOR_RESPONSE)
 
+MAP_COMMAND_TO_FAKE_RESPONSE['/iscsi_initiator?PARENTTYPE=21&PARENTID'
+                             '=1/GET'] = (
+    FAKE_ISCSI_INITIATOR_RESPONSE)
+
 MAP_COMMAND_TO_FAKE_RESPONSE['/iscsi_initiator/remove_iscsi_from_host/PUT'] = (
     FAKE_COMMON_SUCCESS_RESPONSE)
 
@@ -1247,6 +1273,9 @@ MAP_COMMAND_TO_FAKE_RESPONSE['/host?range=[0-65535]/GET'] = (
 
 MAP_COMMAND_TO_FAKE_RESPONSE['/host/1/DELETE'] = (
     FAKE_COMMON_SUCCESS_RESPONSE)
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/host/1/GET'] = (
+    FAKE_GET_HOST_RESPONSE)
 
 MAP_COMMAND_TO_FAKE_RESPONSE['/host'] = (
     FAKE_CREATE_HOST_RESPONSE)
@@ -1310,6 +1339,9 @@ MAP_COMMAND_TO_FAKE_RESPONSE['/MAPPINGVIEW/1/GET'] = (
 MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/1/DELETE'] = (
     FAKE_COMMON_SUCCESS_RESPONSE)
 
+MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/REMOVE_ASSOCIATE/PUT'] = (
+    FAKE_COMMON_SUCCESS_RESPONSE)
+
 MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/associate/lungroup?TYPE=256&'
                              'ASSOCIATEOBJTYPE=245&ASSOCIATEOBJID=1/GET'] = (
     FAKE_GET_MAPPING_VIEW_RESPONSE)
@@ -1323,8 +1355,27 @@ MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/associate?TYPE=245&'
     FAKE_GET_MAPPING_VIEW_RESPONSE)
 
 MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/associate?TYPE=245&'
+                             'ASSOCIATEOBJTYPE=257&ASSOCIATEOBJID=0/GET'] = (
+    FAKE_GET_MAPPING_VIEW_RESPONSE)
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/associate?TYPE=245&'
                              'ASSOCIATEOBJTYPE=257&ASSOCIATEOBJID=11/GET'] = (
     FAKE_GET_MAPPING_VIEW_RESPONSE)
+
+FAKE_GET_ENGINES_RESPONSE = """
+{
+    "error":{
+        "code": 0
+    },
+    "data":[{
+        "NODELIST": "[]",
+        "ID": "0"
+    }]
+}
+"""
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/storageengine/GET'] = (
+    FAKE_GET_ENGINES_RESPONSE)
 
 MAP_COMMAND_TO_FAKE_RESPONSE['/portgroup/associate?ASSOCIATEOBJTYPE=245&'
                              'ASSOCIATEOBJID=1&range=[0-8191]/GET'] = (
@@ -1501,6 +1552,8 @@ FAKE_CREATE_PORTG = """
 
 MAP_COMMAND_TO_FAKE_RESPONSE['/PortGroup/POST'] = FAKE_CREATE_PORTG
 
+MAP_COMMAND_TO_FAKE_RESPONSE['/PortGroup/1/DELETE'] = (
+    FAKE_COMMON_SUCCESS_RESPONSE)
 
 FAKE_GET_PORTG_FROM_PORT = """
 {
@@ -1745,6 +1798,39 @@ FAKE_SWITCH_PAIR_RESPONSE = """
 """
 MAP_COMMAND_TO_FAKE_RESPONSE['/REPLICATIONPAIR/switch/PUT'] = (
     FAKE_SWITCH_PAIR_RESPONSE)
+
+FAKE_PORTS_IN_PG_RESPONSE = """
+{
+    "data": [{
+        "ID": "1114114",
+        "WWN": "2002643e8c4c5f66"
+    },
+    {
+        "ID": "1114113",
+        "WWN": "2001643e8c4c5f66"
+    }],
+    "error": {
+        "code": 0,
+        "description": "0"
+    }
+}
+"""
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/fc_port/associate?TYPE=213&ASSOCIATEOBJTYPE='
+                             '257&ASSOCIATEOBJID=0/GET'] = (
+    FAKE_PORTS_IN_PG_RESPONSE)
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/portgroup/associate/fc_port?TYPE=257&ASSOCIA'
+                             'TEOBJTYPE=212&ASSOCIATEOBJID=1114369/GET'] = (
+    FAKE_PORTS_IN_PG_RESPONSE)
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/associate/portgroup?TYPE=245&ASSOC'
+                             'IATEOBJTYPE=257&ASSOCIATEOBJID=1114114/GET'] = (
+    FAKE_SWITCH_PAIR_RESPONSE)
+
+MAP_COMMAND_TO_FAKE_RESPONSE['/mappingview/associate/portgroup?TYPE=245&ASSOC'
+                             'IATEOBJTYPE=257&ASSOCIATEOBJID=1114113/GET'] = (
+    FAKE_COMMON_SUCCESS_RESPONSE)
 
 
 def Fake_sleep(time):
@@ -3261,6 +3347,23 @@ class HuaweiISCSIDriverTestCase(test.TestCase):
             side_effect=exception.VolumeBackendAPIException(data='err')))
         common_driver.split(replica_id)
 
+    @mock.patch.object(replication.PairOp, 'split')
+    @ddt.data(constants.REPLICA_RUNNING_STATUS_SPLIT,
+              constants.REPLICA_RUNNING_STATUS_INVALID,
+              constants.REPLICA_RUNNING_STATUS_ERRUPTED)
+    def test_replication_driver_split_already_disabled(self, mock_status,
+                                                       mock_op_split):
+        replica_id = TEST_PAIR_ID
+        op = replication.PairOp(self.driver.client)
+        common_driver = replication.ReplicaCommonDriver(self.configuration, op)
+
+        pair_info = json.loads(FAKE_GET_PAIR_NORMAL_RESPONSE)['data']
+        pair_info['RUNNINGSTATUS'] = mock_status
+        self.mock_object(rest_client.RestClient, 'get_pair_by_id', mock.Mock(
+            return_value=pair_info))
+        common_driver.split(replica_id)
+        self.assertFalse(mock_op_split.called)
+
     def test_replication_base_op(self):
         replica_id = '1'
         op = replication.AbsReplicaOp(None)
@@ -3328,6 +3431,7 @@ class FCSanLookupService(object):
         return fake_fabric_mapping
 
 
+@ddt.ddt
 class HuaweiFCDriverTestCase(test.TestCase):
 
     def setUp(self):
@@ -3377,6 +3481,27 @@ class HuaweiFCDriverTestCase(test.TestCase):
                                                              FakeConnector)
         self.assertEqual(1, iscsi_properties['data']['target_lun'])
 
+    def test_initialize_connection_fail_no_online_wwns_in_host(self):
+        self.mock_object(rest_client.RestClient, 'get_online_free_wwns',
+                         mock.Mock(return_value=[]))
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.initialize_connection,
+                          test_volume, FakeConnector)
+
+    def test_initialize_connection_no_local_ini_tgt_map(self):
+        self.mock_object(rest_client.RestClient, 'get_init_targ_map',
+                         mock.Mock(return_value=('', '')))
+        self.mock_object(huawei_driver.HuaweiFCDriver, '_get_same_hostid',
+                         mock.Mock(return_value=''))
+        self.mock_object(rest_client.RestClient, 'change_hostlun_id',
+                         mock.Mock(return_value=None))
+        self.mock_object(rest_client.RestClient, 'do_mapping',
+                         mock.Mock(return_value={'lun_id': '1',
+                                                 'view_id': '1',
+                                                 'aval_luns': '[1]'}))
+
+        self.driver.initialize_connection(hyper_volume, FakeConnector)
+
     def test_hypermetro_connection_success(self):
         self.mock_object(rest_client.RestClient, 'find_array_version',
                          mock.Mock(return_value='V300R003C00'))
@@ -3388,6 +3513,21 @@ class HuaweiFCDriverTestCase(test.TestCase):
         self.driver.client.terminateFlag = True
         self.driver.terminate_connection(test_volume, FakeConnector)
         self.assertTrue(self.driver.client.terminateFlag)
+
+    def test_terminate_connection_portgroup_associated(self):
+        self.mock_object(rest_client.RestClient,
+                         'is_portgroup_associated_to_view',
+                         mock.Mock(return_value=True))
+        self.mock_object(huawei_driver.HuaweiFCDriver,
+                         '_delete_zone_and_remove_fc_initiators',
+                         mock.Mock(return_value=({}, 1)))
+        self.driver.terminate_connection(test_volume, FakeConnector)
+
+    def test_terminate_connection_fc_initiators_exist_in_host(self):
+        self.mock_object(rest_client.RestClient,
+                         'check_fc_initiators_exist_in_host',
+                         mock.Mock(return_value=True))
+        self.driver.terminate_connection(test_volume, FakeConnector)
 
     def test_terminate_connection_hypermetro_in_metadata(self):
         self.driver.terminate_connection(hyper_volume, FakeConnector)
@@ -3650,18 +3790,32 @@ class HuaweiFCDriverTestCase(test.TestCase):
         self.assertEqual(target_port_wwns, tgt_wwns)
         self.assertEqual({}, init_targ_map)
 
+    @ddt.data(fake_fabric_mapping_no_ports, fake_fabric_mapping_no_wwn)
+    def test_filter_by_fabric_fail(self, ddt_map):
+        self.mock_object(
+            FCSanLookupService, 'get_device_mapping_from_network',
+            mock.Mock(return_value=ddt_map))
+        fake_lookup_service = FCSanLookupService()
+        zone_helper = fc_zone_helper.FCZoneHelper(
+            fake_lookup_service, self.driver.client)
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          zone_helper._filter_by_fabric, ['10000090fa0d6754'],
+                          None)
+
     @mock.patch.object(rest_client.RestClient, 'get_all_engines',
                        return_value=[{'NODELIST': '["0A"]', 'ID': '0'},
                                      {'NODELIST': '["0B"]', 'ID': '1'}])
-    def test_build_ini_targ_map_engie_not_recorded(self, mock_engines):
+    @mock.patch.object(fc_zone_helper.FCZoneHelper, '_build_contr_port_map',
+                       return_value={'0B': ['2000643e8c4c5f67']})
+    def test_build_ini_targ_map_engie_not_recorded(self, mock_engines, map):
         fake_lookup_service = FCSanLookupService()
 
         zone_helper = fc_zone_helper.FCZoneHelper(
             fake_lookup_service, self.driver.client)
         (tgt_wwns, portg_id, init_targ_map) = zone_helper.build_ini_targ_map(
             ['10000090fa0d6754'], '1', '11')
-        expected_wwns = ['2000643e8c4c5f66']
-        expected_map = {'10000090fa0d6754': ['2000643e8c4c5f66']}
+        expected_wwns = ['2000643e8c4c5f67', '2000643e8c4c5f66']
+        expected_map = {'10000090fa0d6754': expected_wwns}
         self.assertEqual(expected_wwns, tgt_wwns)
         self.assertEqual(expected_map, init_targ_map)
 
@@ -3680,6 +3834,25 @@ class HuaweiFCDriverTestCase(test.TestCase):
         self.assertEqual(expected_wwns, tgt_wwns)
         self.assertEqual(expected_map, init_targ_map)
 
+    @mock.patch.object(rest_client.RestClient, 'get_all_engines',
+                       return_value=[{'NODELIST': '["0A", "0B"]', 'ID': '0'}])
+    @mock.patch.object(rest_client.RestClient, 'get_tgt_port_group',
+                       return_value='0')
+    @mock.patch.object(rest_client.RestClient, 'delete_portgroup')
+    def test_build_ini_targ_map_exist_portg(self, delete, engines, portg):
+        fake_lookup_service = FCSanLookupService()
+
+        zone_helper = fc_zone_helper.FCZoneHelper(
+            fake_lookup_service, self.driver.client)
+        # Host with id '5' has no map on the array.
+        (tgt_wwns, portg_id, init_targ_map) = zone_helper.build_ini_targ_map(
+            ['10000090fa0d6754'], '5', '11')
+        expected_wwns = ['2000643e8c4c5f66']
+        expected_map = {'10000090fa0d6754': ['2000643e8c4c5f66']}
+        self.assertEqual(expected_wwns, tgt_wwns)
+        self.assertEqual(expected_map, init_targ_map)
+        self.assertEqual(1, delete.call_count)
+
     def test_get_init_targ_map(self):
         fake_lookup_service = FCSanLookupService()
 
@@ -3691,6 +3864,16 @@ class HuaweiFCDriverTestCase(test.TestCase):
         expected_map = {'10000090fa0d6754': ['2000643e8c4c5f66']}
         self.assertEqual(expected_wwns, tgt_wwns)
         self.assertEqual(expected_map, init_targ_map)
+
+    def test_get_init_targ_map_no_host(self):
+        fake_lookup_service = FCSanLookupService()
+
+        zone_helper = fc_zone_helper.FCZoneHelper(
+            fake_lookup_service, self.driver.client)
+        ret = zone_helper.get_init_targ_map(
+            ['10000090fa0d6754'], None)
+        expected_ret = ([], None, {})
+        self.assertEqual(expected_ret, ret)
 
     def test_multi_resturls_success(self):
         self.driver.client.test_multi_url_flag = True

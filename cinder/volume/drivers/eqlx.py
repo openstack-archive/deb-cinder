@@ -117,18 +117,27 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
             - modify volume access records;
 
     The access credentials to the SAN are provided by means of the following
-    flags
+    flags:
+
+    .. code-block:: ini
+
         san_ip=<ip_address>
         san_login=<user name>
         san_password=<user password>
         san_private_key=<file containing SSH private key>
 
     Thin provision of volumes is enabled by default, to disable it use:
+
+    .. code-block:: ini
+
         san_thin_provision=false
 
     In order to use target CHAP authentication (which is disabled by default)
     SAN administrator must create a local CHAP user and specify the following
     flags for the driver:
+
+    .. code-block:: ini
+
         use_chap_auth=True
         chap_login=<chap_login>
         chap_password=<chap_password>
@@ -138,6 +147,9 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
     parameter must be set to 'group-0'
 
     Version history:
+
+    .. code-block:: none
+
         1.0   - Initial driver
         1.1.0 - Misc fixes
         1.2.0 - Deprecated eqlx_cli_timeout infavor of ssh_conn_timeout
@@ -477,6 +489,15 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
                                     snapshot['volume_name'], 'snapshot',
                                     'select', snapshot['name'],
                                     'clone', volume['name'])
+            # Extend Volume if needed
+            if out and volume['size'] > snapshot['volume_size']:
+                out = self.extend_volume(out, volume['size'])
+                LOG.debug('Volume from snapshot %(name)s resized from '
+                          '%(current_size)sGB to %(new_size)sGB.',
+                          {'name': volume['name'],
+                           'current_size': snapshot['volume_size'],
+                           'new_size': volume['size']})
+
             self.add_multihost_access(volume)
             return self._get_volume_data(out)
         except Exception:
@@ -490,6 +511,11 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
             src_volume_name = src_vref['name']
             out = self._eql_execute('volume', 'select', src_volume_name,
                                     'clone', volume['name'])
+
+            # Extend Volume if needed
+            if out and volume['size'] > src_vref['size']:
+                out = self.extend_volume(out, volume['size'])
+
             self.add_multihost_access(volume)
             return self._get_volume_data(out)
         except Exception:
@@ -583,6 +609,11 @@ class DellEQLSanISCSIDriver(san.SanISCSIDriver):
         try:
             self._eql_execute('volume', 'select', volume['name'],
                               'size', "%sG" % new_size)
+            LOG.info(_LI('Volume %(name)s resized from '
+                         '%(current_size)sGB to %(new_size)sGB.'),
+                     {'name': volume['name'],
+                      'current_size': volume['size'],
+                      'new_size': new_size})
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Failed to extend_volume %(name)s from '

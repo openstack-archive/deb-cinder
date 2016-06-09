@@ -28,15 +28,18 @@ Programming HowTos and Tutorials
 
     development.environment
     api_microversion_dev
+    api_conditional_updates
     api_microversion_history
     unit_tests
     addmethod.openstackapi
     drivers
     gmr
     replication
+    user_messages
     migration
     api.apache
     rolling.upgrades
+    genconfig
 
 Background Concepts for Cinder
 ------------------------------

@@ -38,6 +38,7 @@ from cinder import utils
 
 LOG = logging.getLogger(__name__)
 
+EAPIPRIVILEGE = '13003'
 EAPINOTFOUND = '13005'
 ESIS_CLONE_NOT_LICENSED = '14956'
 ESNAPSHOTNOTALLOWED = '13023'
@@ -494,26 +495,42 @@ class NaElement(object):
         """Convert list, tuple, dict to NaElement and appends.
 
            Example usage:
+
            1.
-           <root>
-               <elem1>vl1</elem1>
-               <elem2>vl2</elem2>
-               <elem3>vl3</elem3>
-           </root>
+
+           .. code-block:: xml
+
+                <root>
+                    <elem1>vl1</elem1>
+                    <elem2>vl2</elem2>
+                    <elem3>vl3</elem3>
+                </root>
+
            The above can be achieved by doing
-           root = NaElement('root')
-           root.translate_struct({'elem1': 'vl1', 'elem2': 'vl2',
-                                  'elem3': 'vl3'})
+
+           .. code-block:: python
+
+                root = NaElement('root')
+                root.translate_struct({'elem1': 'vl1', 'elem2': 'vl2',
+                                       'elem3': 'vl3'})
+
            2.
-           <root>
-               <elem1>vl1</elem1>
-               <elem2>vl2</elem2>
-               <elem1>vl3</elem1>
-           </root>
+
+           .. code-block:: xml
+
+                <root>
+                    <elem1>vl1</elem1>
+                    <elem2>vl2</elem2>
+                    <elem1>vl3</elem1>
+                </root>
+
            The above can be achieved by doing
-           root = NaElement('root')
-           root.translate_struct([{'elem1': 'vl1', 'elem2': 'vl2'},
-                                  {'elem1': 'vl3'}])
+
+           .. code-block:: python
+
+                root = NaElement('root')
+                root.translate_struct([{'elem1': 'vl1', 'elem2': 'vl2'},
+                                       {'elem1': 'vl3'}])
         """
         if isinstance(data_struct, (list, tuple)):
             for el in data_struct:
@@ -543,11 +560,6 @@ class NaApiError(Exception):
 
     def __str__(self, *args, **kwargs):
         return 'NetApp API failed. Reason - %s:%s' % (self.code, self.message)
-
-
-NaErrors = {'API_NOT_FOUND': NaApiError('13005', 'Unable to find API'),
-            'INSUFFICIENT_PRIVS': NaApiError('13003',
-                                             'Insufficient privileges')}
 
 
 def invoke_api(na_server, api_name, api_family='cm', query=None,

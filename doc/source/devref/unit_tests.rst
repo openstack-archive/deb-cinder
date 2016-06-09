@@ -11,6 +11,7 @@ Running the tests
 There are a number of ways to run unit tests currently, and there's a combination
 of frameworks used depending on what commands you use.  The preferred method
 is to use tox, which calls ostestr via the tox.ini file.  To run all tests simply run::
+
     tox
 
 This will create a virtual environment, load all the packages from test-requirements.txt
@@ -44,7 +45,7 @@ This script is a wrapper around the testr testrunner and the flake8 checker. Not
 there has been talk around deprecating this wrapper and this method of testing, it's currently
 available still but it may be good to get used to using tox or even ostestr directly.
 
-Documenation is left in place for those that still use it.
+Documentation is left in place for those that still use it.
 
 Flags
 -----
@@ -76,6 +77,7 @@ Because ``run_tests.sh`` is a wrapper around testr, it also accepts the same
 flags as testr. See the `testr documentation`_ for details about
 these additional flags.
 
+.. _testr documentation: https://testrepository.readthedocs.org/en/latest/
 .. _nose options documentation: http://readthedocs.org/docs/nose/en/latest/usage.html#options
 
 Running a subset of tests
@@ -102,20 +104,6 @@ To run the `ToPrimitiveTestCase.test_dict` test method in
 
     ./run_tests.sh test_utils.ToPrimitiveTestCase.test_dict
 
-
-Suppressing logging output when tests fail
-------------------------------------------
-
-By default, when one or more unit test fails, all of the data sent to the
-logger during the failed tests will appear on standard output, which typically
-consists of many lines of texts. The logging output can make it difficult to
-identify which specific tests have failed, unless your terminal has a large
-scrollback buffer or you have redirected output to a file.
-
-You can suppress the logging output by calling ``run_tests.sh`` with the nose
-flag::
-
-    --nologcapture
 
 Virtualenv
 ----------
@@ -148,7 +136,7 @@ If you do not wish to use a virtualenv at all, use the flag::
 Database
 --------
 
-Some of the unit tests make queries against an sqlite database [#f3]_. By
+Some of the unit tests make queries against an sqlite database. By
 default, the test database (``tests.sqlite``) is deleted and recreated each
 time ``run_tests.sh`` is invoked (This is equivalent to using the
 ``-r, --recreate-db`` flag). To reduce testing time if a database already
@@ -166,7 +154,7 @@ Gotchas
 **Running Tests from Shared Folders**
 
 If you are running the unit tests from a shared folder, you may see tests start
-to fail or stop completely as a result of Python lockfile issues [#f4]_. You
+to fail or stop completely as a result of Python lockfile issues. You
 can get around this by manually setting or updating the following line in
 ``cinder/tests/conf_fixture.py``::
 
@@ -181,3 +169,41 @@ a shared folder.
 
 .. [#f2] See :doc:`development.environment` for more details about the use of
    virtualenv.
+
+**Running py34 tests**
+
+You will need to install:
+python3-dev
+in order to get py34 tests to run. If you do not have this, you will get the following::
+
+	netifaces.c:1:20: fatal error: Python.h: No such file or directory
+	     #include <Python.h>
+				^
+	    compilation terminated.
+	    error: command 'x86_64-linux-gnu-gcc' failed with exit status 1
+
+	    ----------------------------------------
+        <snip>
+	ERROR: could not install deps [-r/opt/stack/cinder/test-requirements.txt,
+        oslo.versionedobjects[fixtures]]; v = InvocationError('/opt/stack/cinder/
+        .tox/py34/bin/pip install -r/opt/stack/cinder/test-requirements.txt
+         oslo.versionedobjects[fixtures] (see /opt/stack/cinder/.tox/py34/log/py34-1.log)', 1)
+	_______________________________________________________________ summary _______________________________________________________________
+	ERROR:   py34: could not install deps [-r/opt/stack/cinder/test-requirements.txt,
+        oslo.versionedobjects[fixtures]]; v = InvocationError('/opt/stack/cinder/
+        .tox/py34/bin/pip install -r/opt/stack/cinder/test-requirements.txt
+        oslo.versionedobjects[fixtures] (see /opt/stack/cinder/.tox/py34/log/py34-1.log)', 1)
+
+To Fix:
+
+- On Ubuntu/Debian::
+
+    sudo apt-get install python3-dev
+
+- On Fedora 21/RHEL7/CentOS7::
+
+    sudo yum install python3-devel
+
+- On Fedora 22 and higher::
+
+    sudo dnf install python3-devel

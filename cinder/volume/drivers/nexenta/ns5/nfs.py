@@ -12,12 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-"""
-:mod:`nexenta.nfs` -- Driver to store volumes on NexentaStor Appliance.
-=======================================================================
-
-.. automodule:: nexenta.nfs
-"""
 
 import hashlib
 import os
@@ -67,7 +61,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         self.sparsed_volumes = self.configuration.nexenta_sparsed_volumes
         self.nef = None
         self.nef_protocol = self.configuration.nexenta_rest_protocol
-        self.nef_host = self.configuration.nas_ip
+        self.nef_host = self.configuration.nas_host
         self.share = self.configuration.nas_share_path
         self.nef_port = self.configuration.nexenta_rest_port
         self.nef_user = self.configuration.nexenta_user
@@ -181,7 +175,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
 
         except exception.NexentaException:
             try:
-                url = 'storage/pools/%s/filesystems/%s/%s' % (
+                url = 'storage/pools/%s/filesystems/%s' % (
                     pool, '%2F'.join([fs, volume['name']]))
                 self.nef.delete(url)
             except exception.NexentaException:

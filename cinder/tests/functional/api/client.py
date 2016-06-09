@@ -18,6 +18,7 @@ import requests
 from six.moves import urllib
 
 from cinder.i18n import _
+from cinder.tests.unit import fake_constants as fake
 
 
 class OpenStackApiException(Exception):
@@ -72,7 +73,7 @@ class TestOpenStackClient(object):
         self.auth_key = auth_key
         self.auth_uri = auth_uri
         # default project_id
-        self.project_id = 'openstack'
+        self.project_id = fake.PROJECT_ID
 
     def request(self, url, method='GET', body=None, headers=None,
                 ssl_verify=True, stream=False):
@@ -202,3 +203,10 @@ class TestOpenStackClient(object):
 
     def put_volume(self, volume_id, volume):
         return self.api_put('/volumes/%s' % volume_id, volume)['volume']
+
+    def create_type(self, type_name, extra_specs=None):
+        type = {"volume_type": {"name": type_name}}
+        if extra_specs:
+            type['extra_specs'] = extra_specs
+
+        return self.api_post('/types', type)['volume_type']

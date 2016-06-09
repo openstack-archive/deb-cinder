@@ -97,7 +97,7 @@ class CohoDriverTest(test.TestCase):
         self.configuration.nfs_sparsed_volumes = True
         self.configuration.nfs_mount_point_base = '/opt/stack/cinder/mnt'
         self.configuration.nfs_mount_options = None
-        self.configuration.nas_ip = None
+        self.configuration.nas_host = None
         self.configuration.nas_share_path = None
         self.configuration.nas_mount_options = None
 
@@ -252,7 +252,11 @@ class CohoDriverTest(test.TestCase):
         mock_get_volume_location.assert_has_calls(
             [mock.call(INVALID_SNAPSHOT['volume_id'])])
 
-    def test_snapshot_failure_when_remote_is_unreachable(self):
+    @mock.patch('cinder.volume.drivers.coho.Client.init_socket',
+                side_effect=exception.CohoException(
+                    "Failed to establish connection."))
+    def test_snapshot_failure_when_remote_is_unreachable(self,
+                                                         mock_init_socket):
         drv = coho.CohoDriver(configuration=self.configuration)
 
         mock_get_volume_location = self.mock_object(coho.CohoDriver,
@@ -356,7 +360,6 @@ class CohoDriverTest(test.TestCase):
 
     def test_rpc_client_error_in_receive_fragment(self):
         """Ensure exception is raised when malformed packet is recieved."""
-
         mock_sendrcd = self.mock_object(coho.Client, '_sendrecord')
         mock_socket = self.mock_object(socket, 'socket')
         mock_socket.return_value.recv.return_value = INVALID_HEADER_BIN
@@ -372,3 +375,33 @@ class CohoDriverTest(test.TestCase):
              mock.call().bind(('', 0)),
              mock.call().connect((ADDR, RPC_PORT)),
              mock.call().recv(4)])
+
+    def test_rpc_client_recovery_on_broken_pipe(self):
+        """Ensure RPC retry on broken pipe error.
+
+        When the cluster closes the TCP socket, try reconnecting
+        and retrying the command before returing error for the operation.
+        """
+        mock_socket = self.mock_object(socket, 'socket')
+        mock_make_call = self.mock_object(coho.Client, '_make_call')
+        socket_error = socket.error('[Errno 32] Broken pipe')
+        socket_error.errno = errno.EPIPE
+        mock_make_call.side_effect = socket_error
+        rpc_client = coho.CohoRPCClient(ADDR, RPC_PORT)
+
+        with self.assertRaisesRegex(exception.CohoException,
+                                    "Failed to establish.*"):
+            rpc_client.create_snapshot('src', 'dest', 0)
+
+        self.assertEqual(mock_make_call.call_count, coho.COHO_MAX_RETRIES)
+        self.assertEqual(mock_socket.call_count, coho.COHO_MAX_RETRIES + 1)
+
+        # assert that on a none EPIPE error it only tries once
+        socket_error.errno = errno.EINVAL
+        mock_make_call.side_effect = socket_error
+        with self.assertRaisesRegex(exception.CohoException,
+                                    "Unable to send request.*"):
+            rpc_client.delete_snapshot('src')
+
+        self.assertEqual(mock_make_call.call_count, coho.COHO_MAX_RETRIES + 1)
+        self.assertEqual(mock_socket.call_count, coho.COHO_MAX_RETRIES + 1)

@@ -34,6 +34,7 @@ from cinder.objects import fields
 from cinder import quota
 from cinder import quota_utils
 from cinder import test
+from cinder.tests.unit import fake_constants as fake
 import cinder.tests.unit.image.fake
 from cinder import volume
 
@@ -61,8 +62,8 @@ class QuotaIntegrationTestCase(test.TestCase):
                    quota_backups=2,
                    quota_backup_gigabytes=20)
 
-        self.user_id = 'admin'
-        self.project_id = 'admin'
+        self.user_id = fake.USER_ID
+        self.project_id = fake.PROJECT_ID
         self.context = context.RequestContext(self.user_id,
                                               self.project_id,
                                               is_admin=True)
@@ -90,12 +91,12 @@ class QuotaIntegrationTestCase(test.TestCase):
 
     def _create_snapshot(self, volume):
         snapshot = objects.Snapshot(self.context)
-        snapshot.user_id = self.user_id or 'fake_user_id'
-        snapshot.project_id = self.project_id or 'fake_project_id'
+        snapshot.user_id = self.user_id or fake.USER_ID
+        snapshot.project_id = self.project_id or fake.PROJECT_ID
         snapshot.volume_id = volume['id']
         snapshot.volume_size = volume['size']
         snapshot.host = volume['host']
-        snapshot.status = 'available'
+        snapshot.status = fields.SnapshotStatus.AVAILABLE
         snapshot.create()
         return snapshot
 
@@ -1062,6 +1063,24 @@ class DbQuotaDriverTestCase(DbQuotaDriverBaseTestCase):
                                                         reserved= 0)
                               ), result)
 
+    @mock.patch('cinder.quota.db.quota_get_all_by_project')
+    @mock.patch('cinder.quota.db.quota_class_get_default')
+    def test_get_project_quotas_lazy_load_defaults(
+            self, mock_defaults, mock_quotas):
+        mock_quotas.return_value = self._default_quotas_non_child
+        self.driver.get_project_quotas(
+            FakeContext('test_project', None),
+            quota.QUOTAS.resources, 'test_project', usages=False)
+        # Shouldn't load a project's defaults if all the quotas are already
+        # defined in the DB
+        self.assertFalse(mock_defaults.called)
+
+        mock_quotas.return_value = {}
+        self.driver.get_project_quotas(
+            FakeContext('test_project', None),
+            quota.QUOTAS.resources, 'test_project', usages=False)
+        self.assertTrue(mock_defaults.called)
+
     def test_get_root_project_with_subprojects_quotas(self):
         self._stub_get_by_project()
         self._stub_volume_type_get_all()
@@ -1170,8 +1189,7 @@ class DbQuotaDriverTestCase(DbQuotaDriverBaseTestCase):
 
         self.assertEqual(['quota_get_all_by_project',
                           'quota_usage_get_all_by_project',
-                          'quota_class_get_all_by_name',
-                          'quota_class_get_default', ], self.calls)
+                          'quota_class_get_all_by_name'], self.calls)
         self.assertEqual(dict(backups=dict(limit=10,
                                            in_use=2,
                                            reserved=0, ),

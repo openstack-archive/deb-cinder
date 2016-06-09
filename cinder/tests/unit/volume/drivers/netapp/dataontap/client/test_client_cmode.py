@@ -15,8 +15,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
 import uuid
 
+import ddt
 from lxml import etree
 import mock
 import paramiko
@@ -41,6 +43,7 @@ CONNECTION_INFO = {'hostname': 'hostname',
                    'vserver': 'fake_vserver'}
 
 
+@ddt.ddt
 class NetAppCmodeClientTestCase(test.TestCase):
 
     def setUp(self):
@@ -80,6 +83,135 @@ class NetAppCmodeClientTestCase(test.TestCase):
             netapp_api.NaElement(fake_client.NO_RECORDS_RESPONSE))
 
         self.assertFalse(result)
+
+    @ddt.data((fake_client.AGGR_GET_ITER_RESPONSE, 2),
+              (fake_client.NO_RECORDS_RESPONSE, 0))
+    @ddt.unpack
+    def test_get_record_count(self, response, expected):
+
+        api_response = netapp_api.NaElement(response)
+
+        result = self.client._get_record_count(api_response)
+
+        self.assertEqual(expected, result)
+
+    def test_get_records_count_invalid(self):
+
+        api_response = netapp_api.NaElement(
+            fake_client.INVALID_GET_ITER_RESPONSE_NO_RECORDS)
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.client._get_record_count,
+                          api_response)
+
+    @ddt.data(True, False)
+    def test_send_iter_request(self, enable_tunneling):
+
+        api_responses = [
+            netapp_api.NaElement(
+                fake_client.STORAGE_DISK_GET_ITER_RESPONSE_PAGE_1),
+            netapp_api.NaElement(
+                fake_client.STORAGE_DISK_GET_ITER_RESPONSE_PAGE_2),
+            netapp_api.NaElement(
+                fake_client.STORAGE_DISK_GET_ITER_RESPONSE_PAGE_3),
+        ]
+        mock_send_request = self.mock_object(
+            self.client, 'send_request',
+            mock.Mock(side_effect=copy.deepcopy(api_responses)))
+
+        storage_disk_get_iter_args = {
+            'desired-attributes': {
+                'storage-disk-info': {
+                    'disk-name': None,
+                }
+            }
+        }
+        result = self.client.send_iter_request(
+            'storage-disk-get-iter', api_args=storage_disk_get_iter_args,
+            enable_tunneling=enable_tunneling, max_page_length=10)
+
+        num_records = result.get_child_content('num-records')
+        self.assertEqual('28', num_records)
+        next_tag = result.get_child_content('next-tag')
+        self.assertEqual('', next_tag)
+
+        args1 = copy.deepcopy(storage_disk_get_iter_args)
+        args1['max-records'] = 10
+        args2 = copy.deepcopy(storage_disk_get_iter_args)
+        args2['max-records'] = 10
+        args2['tag'] = 'next_tag_1'
+        args3 = copy.deepcopy(storage_disk_get_iter_args)
+        args3['max-records'] = 10
+        args3['tag'] = 'next_tag_2'
+
+        mock_send_request.assert_has_calls([
+            mock.call('storage-disk-get-iter', args1,
+                      enable_tunneling=enable_tunneling),
+            mock.call('storage-disk-get-iter', args2,
+                      enable_tunneling=enable_tunneling),
+            mock.call('storage-disk-get-iter', args3,
+                      enable_tunneling=enable_tunneling),
+        ])
+
+    def test_send_iter_request_single_page(self):
+
+        api_response = netapp_api.NaElement(
+            fake_client.STORAGE_DISK_GET_ITER_RESPONSE)
+        mock_send_request = self.mock_object(
+            self.client, 'send_request',
+            mock.Mock(return_value=api_response))
+
+        storage_disk_get_iter_args = {
+            'desired-attributes': {
+                'storage-disk-info': {
+                    'disk-name': None,
+                }
+            }
+        }
+        result = self.client.send_iter_request(
+            'storage-disk-get-iter', api_args=storage_disk_get_iter_args,
+            max_page_length=10)
+
+        num_records = result.get_child_content('num-records')
+        self.assertEqual('1', num_records)
+
+        args = copy.deepcopy(storage_disk_get_iter_args)
+        args['max-records'] = 10
+
+        mock_send_request.assert_has_calls([
+            mock.call('storage-disk-get-iter', args, enable_tunneling=True),
+        ])
+
+    def test_send_iter_request_not_found(self):
+
+        api_response = netapp_api.NaElement(fake_client.NO_RECORDS_RESPONSE)
+        mock_send_request = self.mock_object(
+            self.client, 'send_request',
+            mock.Mock(return_value=api_response))
+
+        result = self.client.send_iter_request('storage-disk-get-iter')
+
+        num_records = result.get_child_content('num-records')
+        self.assertEqual('0', num_records)
+
+        args = {'max-records': client_cmode.DEFAULT_MAX_PAGE_LENGTH}
+
+        mock_send_request.assert_has_calls([
+            mock.call('storage-disk-get-iter', args, enable_tunneling=True),
+        ])
+
+    @ddt.data(fake_client.INVALID_GET_ITER_RESPONSE_NO_ATTRIBUTES,
+              fake_client.INVALID_GET_ITER_RESPONSE_NO_RECORDS)
+    def test_send_iter_request_invalid(self, fake_response):
+
+        api_response = netapp_api.NaElement(fake_response)
+        self.mock_object(self.client,
+                         'send_request',
+                         mock.Mock(return_value=api_response))
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.client.send_iter_request,
+                          'storage-disk-get-iter')
 
     def test_get_iscsi_target_details_no_targets(self):
         response = netapp_api.NaElement(
@@ -925,6 +1057,122 @@ class NetAppCmodeClientTestCase(test.TestCase):
 
         self.assertEqual(expected_bytes, actual_bytes)
 
+    def test_check_cluster_api(self):
+
+        self.client.features.USER_CAPABILITY_LIST = True
+        mock_check_cluster_api_legacy = self.mock_object(
+            self.client, '_check_cluster_api_legacy')
+        mock_check_cluster_api = self.mock_object(
+            self.client, '_check_cluster_api', mock.Mock(return_value=True))
+
+        result = self.client.check_cluster_api('object', 'operation', 'api')
+
+        self.assertTrue(result)
+        self.assertFalse(mock_check_cluster_api_legacy.called)
+        mock_check_cluster_api.assert_called_once_with(
+            'object', 'operation', 'api')
+
+    def test_check_cluster_api_legacy(self):
+
+        self.client.features.USER_CAPABILITY_LIST = False
+        mock_check_cluster_api_legacy = self.mock_object(
+            self.client, '_check_cluster_api_legacy',
+            mock.Mock(return_value=True))
+        mock_check_cluster_api = self.mock_object(
+            self.client, '_check_cluster_api')
+
+        result = self.client.check_cluster_api('object', 'operation', 'api')
+
+        self.assertTrue(result)
+        self.assertFalse(mock_check_cluster_api.called)
+        mock_check_cluster_api_legacy.assert_called_once_with('api')
+
+    def test__check_cluster_api(self):
+
+        api_response = netapp_api.NaElement(
+            fake_client.SYSTEM_USER_CAPABILITY_GET_ITER_RESPONSE)
+        self.mock_send_request.return_value = api_response
+
+        result = self.client._check_cluster_api('object', 'operation', 'api')
+
+        system_user_capability_get_iter_args = {
+            'query': {
+                'capability-info': {
+                    'object-name': 'object',
+                    'operation-list': {
+                        'operation-info': {
+                            'name': 'operation',
+                        },
+                    },
+                },
+            },
+            'desired-attributes': {
+                'capability-info': {
+                    'operation-list': {
+                        'operation-info': {
+                            'api-name': None,
+                        },
+                    },
+                },
+            },
+        }
+        self.mock_send_request.assert_called_once_with(
+            'system-user-capability-get-iter',
+            system_user_capability_get_iter_args,
+            False)
+
+        self.assertTrue(result)
+
+    @ddt.data(fake_client.SYSTEM_USER_CAPABILITY_GET_ITER_RESPONSE,
+              fake_client.NO_RECORDS_RESPONSE)
+    def test__check_cluster_api_not_found(self, response):
+
+        api_response = netapp_api.NaElement(response)
+        self.mock_send_request.return_value = api_response
+
+        result = self.client._check_cluster_api('object', 'operation', 'api4')
+
+        self.assertFalse(result)
+
+    @ddt.data('volume-get-iter', 'volume-get', 'aggr-options-list-info')
+    def test__check_cluster_api_legacy(self, api):
+
+        api_response = netapp_api.NaElement(fake_client.NO_RECORDS_RESPONSE)
+        self.mock_send_request.return_value = api_response
+
+        result = self.client._check_cluster_api_legacy(api)
+
+        self.assertTrue(result)
+        self.mock_send_request.assert_called_once_with(api,
+                                                       enable_tunneling=False)
+
+    @ddt.data(netapp_api.EAPIPRIVILEGE, netapp_api.EAPINOTFOUND)
+    def test__check_cluster_api_legacy_insufficient_privileges(self, code):
+
+        self.mock_send_request.side_effect = netapp_api.NaApiError(code=code)
+
+        result = self.client._check_cluster_api_legacy('volume-get-iter')
+
+        self.assertFalse(result)
+        self.mock_send_request.assert_called_once_with('volume-get-iter',
+                                                       enable_tunneling=False)
+
+    def test__check_cluster_api_legacy_api_error(self):
+
+        self.mock_send_request.side_effect = netapp_api.NaApiError()
+
+        result = self.client._check_cluster_api_legacy('volume-get-iter')
+
+        self.assertTrue(result)
+        self.mock_send_request.assert_called_once_with('volume-get-iter',
+                                                       enable_tunneling=False)
+
+    def test__check_cluster_api_legacy_invalid_api(self):
+
+        self.assertRaises(ValueError,
+                          self.client._check_cluster_api_legacy,
+                          'fake_api')
+
     def test_get_operational_network_interface_addresses(self):
         expected_result = ['1.2.3.4', '99.98.97.96']
         api_response = netapp_api.NaElement(
@@ -936,31 +1184,53 @@ class NetAppCmodeClientTestCase(test.TestCase):
 
         self.assertEqual(expected_result, address_list)
 
-    def test_get_flexvol_capacity(self):
-        expected_total_size = 1000
-        expected_available_size = 750
-        fake_flexvol_path = '/fake/vol'
-        api_response = netapp_api.NaElement(
-            etree.XML("""
-            <results status="passed">
-                <attributes-list>
-                    <volume-attributes>
-                        <volume-space-attributes>
-                            <size-available>%(available_size)s</size-available>
-                            <size-total>%(total_size)s</size-total>
-                        </volume-space-attributes>
-                    </volume-attributes>
-                </attributes-list>
-            </results>""" % {'available_size': expected_available_size,
-                             'total_size': expected_total_size}))
+    @ddt.data({'flexvol_path': '/fake/vol'},
+              {'flexvol_name': 'fake_volume'},
+              {'flexvol_path': '/fake/vol', 'flexvol_name': 'fake_volume'})
+    def test_get_flexvol_capacity(self, kwargs):
 
+        api_response = netapp_api.NaElement(
+            fake_client.VOLUME_GET_ITER_RESPONSE)
         self.mock_send_request.return_value = api_response
 
-        total_size, available_size = (
-            self.client.get_flexvol_capacity(fake_flexvol_path))
+        capacity = self.client.get_flexvol_capacity(**kwargs)
 
-        self.assertEqual(expected_total_size, total_size)
-        self.assertEqual(expected_available_size, available_size)
+        volume_id_attributes = {}
+        if 'flexvol_path' in kwargs:
+            volume_id_attributes['junction-path'] = kwargs['flexvol_path']
+        if 'flexvol_name' in kwargs:
+            volume_id_attributes['name'] = kwargs['flexvol_name']
+
+        volume_get_iter_args = {
+            'query': {
+                'volume-attributes': {
+                    'volume-id-attributes': volume_id_attributes,
+                }
+            },
+            'desired-attributes': {
+                'volume-attributes': {
+                    'volume-space-attributes': {
+                        'size-available': None,
+                        'size-total': None,
+                    }
+                }
+            },
+        }
+        self.mock_send_request.assert_called_once_with(
+            'volume-get-iter', volume_get_iter_args)
+
+        self.assertEqual(fake_client.VOLUME_SIZE_TOTAL, capacity['size-total'])
+        self.assertEqual(fake_client.VOLUME_SIZE_AVAILABLE,
+                         capacity['size-available'])
+
+    def test_get_flexvol_capacity_not_found(self):
+
+        self.mock_send_request.return_value = netapp_api.NaElement(
+            fake_client.NO_RECORDS_RESPONSE)
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.client.get_flexvol_capacity,
+                          flexvol_path='fake_path')
 
     def test_get_aggregates(self):
 

@@ -727,7 +727,18 @@ class StorwizeHelpers(object):
         hosts_info = self.ssh.lshost()
         found = False
         for name in hosts_info.select('name'):
-            resp = self.ssh.lshost(host=name)
+            try:
+                resp = self.ssh.lshost(host=name)
+            except processutils.ProcessExecutionError as ex:
+                if 'CMMVC5754E' in ex.stderr:
+                    # CMMVC5754E: The specified object does not exist
+                    # The host has been deleted while walking the list.
+                    # This is a result of a host change on the SVC that
+                    # is out of band to this request.
+                    continue
+                # unexpected error so reraise it
+                with excutils.save_and_reraise_exception():
+                    pass
             if 'initiator' in connector:
                 for iscsi in resp.select('iscsi_name'):
                     if iscsi == connector['initiator']:
@@ -1194,7 +1205,8 @@ class StorwizeHelpers(object):
 
     def run_consistgrp_snapshots(self, fc_consistgrp, snapshots, state,
                                  config, timeout):
-        cgsnapshot = {'status': 'available'}
+        model_update = {'status': fields.ConsistencyGroupStatus.AVAILABLE}
+        snapshots_model_update = []
         try:
             for snapshot in snapshots:
                 opts = self.get_vdisk_params(config, state,
@@ -1203,7 +1215,6 @@ class StorwizeHelpers(object):
                                                     snapshot['name'],
                                                     fc_consistgrp,
                                                     config, opts)
-                snapshot['status'] = 'available'
 
             self.prepare_fc_consistgrp(fc_consistgrp, timeout)
             self.start_fc_consistgrp(fc_consistgrp)
@@ -1212,31 +1223,40 @@ class StorwizeHelpers(object):
             # Cinder general will maintain the CG and snapshots relationship.
             self.delete_fc_consistgrp(fc_consistgrp)
         except exception.VolumeBackendAPIException as err:
-            for snapshot in snapshots:
-                snapshot['status'] = 'error'
-            cgsnapshot['status'] = 'error'
+            model_update['status'] = fields.ConsistencyGroupStatus.ERROR
             # Release cg
             self.delete_fc_consistgrp(fc_consistgrp)
             LOG.error(_LE("Failed to create CGSnapshot. "
                           "Exception: %s."), err)
 
-        return cgsnapshot, snapshots
+        for snapshot in snapshots:
+            snapshots_model_update.append(
+                {'id': snapshot['id'],
+                 'status': model_update['status']})
+
+        return model_update, snapshots_model_update
 
     def delete_consistgrp_snapshots(self, fc_consistgrp, snapshots):
         """Delete flashcopy maps and consistent group."""
-        cgsnapshot = {'status': 'available'}
+        model_update = {'status': fields.ConsistencyGroupStatus.DELETED}
+        snapshots_model_update = []
+
         try:
             for snapshot in snapshots:
                 self.ssh.rmvdisk(snapshot['name'], True)
-                snapshot['status'] = 'deleted'
         except exception.VolumeBackendAPIException as err:
-            for snapshot in snapshots:
-                snapshot['status'] = 'error_deleting'
-            cgsnapshot['status'] = 'error_deleting'
+            model_update['status'] = (
+                fields.ConsistencyGroupStatus.ERROR_DELETING)
             LOG.error(_LE("Failed to delete the snapshot %(snap)s of "
                           "CGSnapshot. Exception: %(exception)s."),
                       {'snap': snapshot['name'], 'exception': err})
-        return cgsnapshot, snapshots
+
+        for snapshot in snapshots:
+            snapshots_model_update.append(
+                {'id': snapshot['id'],
+                 'status': model_update['status']})
+
+        return model_update, snapshots_model_update
 
     def prepare_fc_consistgrp(self, fc_consistgrp, timeout):
         """Prepare FC Consistency Group."""
@@ -1809,26 +1829,29 @@ class StorwizeSVCCommonDriver(san.SanDriver,
     """IBM Storwize V7000 SVC abstract base class for iSCSI/FC volume drivers.
 
     Version history:
-    1.0 - Initial driver
-    1.1 - FC support, create_cloned_volume, volume type support,
-          get_volume_stats, minor bug fixes
-    1.2.0 - Added retype
-    1.2.1 - Code refactor, improved exception handling
-    1.2.2 - Fix bug #1274123 (races in host-related functions)
-    1.2.3 - Fix Fibre Channel connectivity: bug #1279758 (add delim to
-            lsfabric, clear unused data from connections, ensure matching
-            WWPNs by comparing lower case
-    1.2.4 - Fix bug #1278035 (async migration/retype)
-    1.2.5 - Added support for manage_existing (unmanage is inherited)
-    1.2.6 - Added QoS support in terms of I/O throttling rate
-    1.3.1 - Added support for volume replication
-    1.3.2 - Added support for consistency group
-    1.3.3 - Update driver to use ABC metaclasses
-    2.0 - Code refactor, split init file and placed shared methods for
-          FC and iSCSI within the StorwizeSVCCommonDriver class
-    2.1 - Added replication V2 support to the global/metro mirror
-          mode
-    2.1.1 - Update replication to version 2.1
+
+    .. code-block:: none
+
+        1.0 - Initial driver
+        1.1 - FC support, create_cloned_volume, volume type support,
+              get_volume_stats, minor bug fixes
+        1.2.0 - Added retype
+        1.2.1 - Code refactor, improved exception handling
+        1.2.2 - Fix bug #1274123 (races in host-related functions)
+        1.2.3 - Fix Fibre Channel connectivity: bug #1279758 (add delim
+                to lsfabric, clear unused data from connections, ensure
+                matching WWPNs by comparing lower case
+        1.2.4 - Fix bug #1278035 (async migration/retype)
+        1.2.5 - Added support for manage_existing (unmanage is inherited)
+        1.2.6 - Added QoS support in terms of I/O throttling rate
+        1.3.1 - Added support for volume replication
+        1.3.2 - Added support for consistency group
+        1.3.3 - Update driver to use ABC metaclasses
+        2.0 - Code refactor, split init file and placed shared methods
+              for FC and iSCSI within the StorwizeSVCCommonDriver class
+        2.1 - Added replication V2 support to the global/metro mirror
+              mode
+        2.1.1 - Update replication to version 2.1
     """
 
     VERSION = "2.1.1"
@@ -1843,6 +1866,8 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         super(StorwizeSVCCommonDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(storwize_svc_opts)
         self._backend_name = self.configuration.safe_get('volume_backend_name')
+        self.active_ip = self.configuration.san_ip
+        self.inactive_ip = self.configuration.storwize_san_secondary_ip
         self._helpers = StorwizeHelpers(self._run_ssh)
         self._vdiskcopyops = {}
         self._vdiskcopyops_loop = None
@@ -2008,14 +2033,13 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         command = ' '.join(cmd_list)
         if not self.sshpool:
             try:
-                self.sshpool = self._set_up_sshpool(self.configuration.san_ip)
+                self.sshpool = self._set_up_sshpool(self.active_ip)
             except paramiko.SSHException:
                 LOG.warning(_LW('Unable to use san_ip to create SSHPool. Now '
                                 'attempting to use storwize_san_secondary_ip '
                                 'to create SSHPool.'))
-                if self.configuration.storwize_san_secondary_ip is not None:
-                    self.sshpool = self._set_up_sshpool(
-                        self.configuration.storwize_san_secondary_ip)
+                if self._toggle_ip():
+                    self.sshpool = self._set_up_sshpool(self.active_ip)
                 else:
                     LOG.warning(_LW('Unable to create SSHPool using san_ip '
                                     'and not able to use '
@@ -2029,32 +2053,22 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         except Exception:
             # Need to check if creating an SSHPool storwize_san_secondary_ip
             # before raising an error.
-
-            if self.configuration.storwize_san_secondary_ip is not None:
-                if (self.sshpool.ip ==
-                        self.configuration.storwize_san_secondary_ip):
+            try:
+                if self._toggle_ip():
                     LOG.warning(_LW("Unable to execute SSH command with "
-                                    "storwize_san_secondary_ip. "
-                                    "Attempting to switch IP back "
-                                    "to san_ip %s."),
-                                self.configuration.san_ip)
-                    self.sshpool = self._set_up_sshpool(
-                        self.configuration.san_ip)
+                                    "%(inactive)s. Attempting to execute SSH "
+                                    "command with %(active)s."),
+                                {'inactive': self.inactive_ip,
+                                 'active': self.active_ip})
+                    self.sshpool = self._set_up_sshpool(self.active_ip)
                     return self._ssh_execute(self.sshpool, command,
                                              check_exit_code, attempts)
                 else:
-                    LOG.warning(_LW("Unable to execute SSH command. "
-                                    "Attempting to switch IP to %s."),
-                                self.configuration.storwize_san_secondary_ip)
-                    self.sshpool = self._set_up_sshpool(
-                        self.configuration.storwize_san_secondary_ip)
-                    return self._ssh_execute(self.sshpool, command,
-                                             check_exit_code, attempts)
-            else:
-                LOG.warning(_LW('Unable to execute SSH command. '
-                                'Not able to use '
-                                'storwize_san_secondary_ip since it is '
-                                'not configured.'))
+                    LOG.warning(_LW('Not able to use '
+                                    'storwize_san_secondary_ip since it is '
+                                    'not configured.'))
+                    raise
+            except Exception:
                 with excutils.save_and_reraise_exception():
                     LOG.error(_LE("Error running SSH command: %s"),
                               command)
@@ -2107,6 +2121,18 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("Error running SSH command: %s"), command)
+
+    def _toggle_ip(self):
+        # Change active_ip if storwize_san_secondary_ip is set.
+        if self.configuration.storwize_san_secondary_ip is None:
+            return False
+
+        self.inactive_ip, self.active_ip = self.active_ip, self.inactive_ip
+        LOG.info(_LI('Toggle active_ip from %(old)s to '
+                     '%(new)s.'),
+                 {'old': self.inactive_ip,
+                  'new': self.active_ip})
+        return True
 
     def ensure_export(self, ctxt, volume):
         """Check that the volume exists on the storage.
@@ -2979,22 +3005,24 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         IBM Storwize will delete the volumes of the CG.
         """
         LOG.debug("Deleting consistency group.")
-        model_update = {}
-        model_update['status'] = fields.ConsistencyGroupStatus.DELETED
-        volumes = self.db.volume_get_all_by_group(context, group['id'])
+        model_update = {'status': fields.ConsistencyGroupStatus.DELETED}
+        volumes_model_update = []
 
         for volume in volumes:
             try:
                 self._helpers.delete_vdisk(volume['name'], True)
-                volume['status'] = 'deleted'
+                volumes_model_update.append(
+                    {'id': volume['id'], 'status': 'deleted'})
             except exception.VolumeBackendAPIException as err:
-                volume['status'] = 'error_deleting'
-                if model_update['status'] != 'error_deleting':
-                    model_update['status'] = 'error_deleting'
+                model_update['status'] = (
+                    fields.ConsistencyGroupStatus.ERROR_DELETING)
                 LOG.error(_LE("Failed to delete the volume %(vol)s of CG. "
                               "Exception: %(exception)s."),
                           {'vol': volume['name'], 'exception': err})
-        return model_update, volumes
+                volumes_model_update.append(
+                    {'id': volume['id'], 'status': 'error_deleting'})
+
+        return model_update, volumes_model_update
 
     def update_consistencygroup(self, ctxt, group, add_volumes,
                                 remove_volumes):
@@ -3015,7 +3043,7 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         :param snapshots: a list of snapshot dictionaries in the cgsnapshot.
         :param source_cg: the dictionary of a consistency group as source.
         :param source_vols: a list of volume dictionaries in the source_cg.
-        :return model_update, volumes_model_update
+        :returns: model_update, volumes_model_update
         """
         LOG.debug('Enter: create_consistencygroup_from_src.')
         if cgsnapshot and snapshots:
@@ -3049,12 +3077,10 @@ class StorwizeSVCCommonDriver(san.SanDriver,
     def create_cgsnapshot(self, ctxt, cgsnapshot, snapshots):
         """Creates a cgsnapshot."""
         # Use cgsnapshot id as cg name
-        cg_name = 'cg_snap-' + cgsnapshot['id']
+        cg_name = 'cg_snap-' + cgsnapshot.id
         # Create new cg as cg_snapshot
         self._helpers.create_fc_consistgrp(cg_name)
 
-        snapshots = self.db.snapshot_get_all_for_cgsnapshot(
-            ctxt, cgsnapshot['id'])
         timeout = self.configuration.storwize_svc_flashcopy_timeout
 
         model_update, snapshots_model = (
@@ -3070,9 +3096,6 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         """Deletes a cgsnapshot."""
         cgsnapshot_id = cgsnapshot['id']
         cg_name = 'cg_snap-' + cgsnapshot_id
-
-        snapshots = self.db.snapshot_get_all_for_cgsnapshot(context,
-                                                            cgsnapshot_id)
 
         model_update, snapshots_model = (
             self._helpers.delete_consistgrp_snapshots(cg_name,
@@ -3102,9 +3125,6 @@ class StorwizeSVCCommonDriver(san.SanDriver,
         data['storage_protocol'] = self.protocol
         data['pools'] = []
 
-        data['multiattach'] = (self.configuration.
-                               storwize_svc_multihostmap_enabled)
-
         backend_name = self.configuration.safe_get('volume_backend_name')
         data['volume_backend_name'] = (backend_name or
                                        self._state['system_name'])
@@ -3129,21 +3149,37 @@ class StorwizeSVCCommonDriver(san.SanDriver,
                 free_capacity_gb = float(pool_data['free_capacity']) / units.Gi
                 allocated_capacity_gb = (float(pool_data['used_capacity']) /
                                          units.Gi)
+                provisioned_capacity_gb = float(
+                    pool_data['virtual_capacity']) / units.Gi
+
+                rsize = self.configuration.safe_get(
+                    'storwize_svc_vol_rsize')
+                # rsize of -1 or 100 means fully allocate the mdisk
+                use_thick_provisioning = rsize == -1 or rsize == 100
+                over_sub_ratio = self.configuration.safe_get(
+                    'max_over_subscription_ratio')
                 location_info = ('StorwizeSVCDriver:%(sys_id)s:%(pool)s' %
                                  {'sys_id': self._state['system_id'],
                                   'pool': pool_data['name']})
+                multiattach = (self.configuration.
+                               storwize_svc_multihostmap_enabled)
                 pool_stats = {
                     'pool_name': pool_data['name'],
                     'total_capacity_gb': total_capacity_gb,
                     'free_capacity_gb': free_capacity_gb,
                     'allocated_capacity_gb': allocated_capacity_gb,
+                    'provisioned_capacity_gb': provisioned_capacity_gb,
                     'compression_support': self._state['compression_enabled'],
                     'reserved_percentage':
                         self.configuration.reserved_percentage,
                     'QoS_support': QoS_support,
                     'consistencygroup_support': True,
                     'location_info': location_info,
-                    'easytier_support': easy_tier
+                    'easytier_support': easy_tier,
+                    'multiattach': multiattach,
+                    'thin_provisioning_support': not use_thick_provisioning,
+                    'thick_provisioning_support': use_thick_provisioning,
+                    'max_over_subscription_ratio': over_sub_ratio,
                 }
             if self._replication_enabled:
                 pool_stats.update({

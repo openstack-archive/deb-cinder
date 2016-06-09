@@ -33,6 +33,9 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
         volume_driver=cinder.volume.drivers.dell.DellStorageCenterISCSIDriver
 
     Version history:
+
+    .. code-block:: none
+
         1.0.0 - Initial driver
         1.1.0 - Added extra spec support for Storage Profile selection
         1.2.0 - Added consistency group support.
@@ -46,9 +49,11 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
         2.4.0 - Added Replication V2 support.
         2.4.1 - Updated Replication support to V2.1.
         2.5.0 - ManageableSnapshotsVD implemented.
+        3.0.0 - ProviderID utilized.
+
     """
 
-    VERSION = '2.5.0'
+    VERSION = '3.0.0'
 
     def __init__(self, *args, **kwargs):
         super(DellStorageCenterISCSIDriver, self).__init__(*args, **kwargs)
@@ -72,6 +77,7 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
         # We use id to name the volume name as it is a
         # known unique name.
         volume_name = volume.get('id')
+        provider_id = volume.get('provider_id')
         initiator_name = connector.get('initiator')
         multipath = connector.get('multipath', False)
         LOG.info(_LI('initialize_ connection: %(vol)s:%(initiator)s'),
@@ -86,7 +92,7 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
                 if server is None:
                     server = api.create_server(initiator_name)
                 # Find the volume on the storage center.
-                scvolume = api.find_volume(volume_name)
+                scvolume = api.find_volume(volume_name, provider_id)
 
                 # if we have a server and a volume lets bring them together.
                 if server is not None and scvolume is not None:
@@ -95,7 +101,7 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
                     if mapping is not None:
                         # Since we just mapped our volume we had best update
                         # our sc volume object.
-                        scvolume = api.find_volume(volume_name)
+                        scvolume = api.get_volume(provider_id)
                         # Our return.
                         iscsiprops = {}
                         ip = None
@@ -146,6 +152,7 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
         # Grab some initial info.
         initiator_name = connector.get('initiator')
         volume_name = volume.get('id')
+        provider_id = volume.get('provider_id')
         LOG.debug('Terminate connection: %(vol)s:%(initiator)s',
                   {'vol': volume_name,
                    'initiator': initiator_name})
@@ -153,7 +160,7 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
             try:
                 scserver = api.find_server(initiator_name)
                 # Find the volume on the storage center.
-                scvolume = api.find_volume(volume_name)
+                scvolume = api.find_volume(volume_name, provider_id)
 
                 # If we have a server and a volume lets pull them apart.
                 if (scserver is not None and

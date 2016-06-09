@@ -26,7 +26,9 @@ from oslo_config import cfg
 
 from cinder import context
 from cinder import exception
+from cinder.objects import fields
 from cinder import test
+from cinder.tests.unit.backup import fake_backup
 from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_snapshot
 from cinder.tests.unit import fake_volume
@@ -118,22 +120,22 @@ class NotifyUsageTestCase(test.TestCase):
     @mock.patch('cinder.objects.Volume.get_by_id')
     def test_usage_from_snapshot(self, volume_get_by_id):
         raw_volume = {
-            'id': fake.volume_id,
+            'id': fake.VOLUME_ID,
             'availability_zone': 'nova'
         }
         ctxt = context.get_admin_context()
         volume_obj = fake_volume.fake_volume_obj(ctxt, **raw_volume)
         volume_get_by_id.return_value = volume_obj
         raw_snapshot = {
-            'project_id': fake.project_id,
-            'user_id': fake.user_id,
+            'project_id': fake.PROJECT_ID,
+            'user_id': fake.USER_ID,
             'volume': volume_obj,
-            'volume_id': fake.volume_id,
+            'volume_id': fake.VOLUME_ID,
             'volume_size': 1,
-            'id': fake.snapshot_id,
+            'id': fake.SNAPSHOT_ID,
             'display_name': '11',
             'created_at': '2014-12-11T10:10:00',
-            'status': 'pause',
+            'status': fields.SnapshotStatus.ERROR,
             'deleted': '',
             'snapshot_metadata': [{'key': 'fake_snap_meta_key',
                                    'value': 'fake_snap_meta_value'}],
@@ -143,15 +145,15 @@ class NotifyUsageTestCase(test.TestCase):
         snapshot_obj = fake_snapshot.fake_snapshot_obj(ctxt, **raw_snapshot)
         usage_info = volume_utils._usage_from_snapshot(snapshot_obj)
         expected_snapshot = {
-            'tenant_id': fake.project_id,
-            'user_id': fake.user_id,
+            'tenant_id': fake.PROJECT_ID,
+            'user_id': fake.USER_ID,
             'availability_zone': 'nova',
-            'volume_id': fake.volume_id,
+            'volume_id': fake.VOLUME_ID,
             'volume_size': 1,
-            'snapshot_id': fake.snapshot_id,
+            'snapshot_id': fake.SNAPSHOT_ID,
             'display_name': '11',
             'created_at': 'DONTCARE',
-            'status': 'pause',
+            'status': fields.SnapshotStatus.ERROR,
             'deleted': '',
             'metadata': six.text_type({'fake_snap_meta_key':
                                       u'fake_snap_meta_value'}),
@@ -159,7 +161,7 @@ class NotifyUsageTestCase(test.TestCase):
         self.assertDictMatch(expected_snapshot, usage_info)
 
     @mock.patch('cinder.db.volume_glance_metadata_get')
-    @mock.patch('cinder.db.volume_attachment_get_used_by_volume_id')
+    @mock.patch('cinder.db.volume_attachment_get_all_by_volume_id')
     def test_usage_from_volume(self, mock_attachment, mock_image_metadata):
         mock_image_metadata.return_value = {'image_id': 'fake_image_id'}
         mock_attachment.return_value = [{'instance_uuid': 'fake_instance_id'}]
@@ -289,31 +291,36 @@ class NotifyUsageTestCase(test.TestCase):
 
     def test_usage_from_backup(self):
         raw_backup = {
-            'project_id': '12b0330ec2584a',
-            'user_id': '158cba1b8c2bb6008e',
+            'project_id': fake.PROJECT_ID,
+            'user_id': fake.USER_ID,
             'availability_zone': 'nova',
-            'id': 'fake_id',
+            'id': fake.BACKUP_ID,
             'host': 'fake_host',
             'display_name': 'test_backup',
-            'created_at': '2014-12-11T10:10:00',
+            'created_at': datetime.datetime(2015, 1, 1, 1, 1, 1),
             'status': 'available',
-            'volume_id': 'fake_volume_id',
+            'volume_id': fake.VOLUME_ID,
             'size': 1,
             'service_metadata': None,
             'service': 'cinder.backup.drivers.swift',
             'fail_reason': None,
-            'parent_id': 'fake_parent_id',
+            'parent_id': fake.BACKUP2_ID,
             'num_dependent_backups': 0,
             'snapshot_id': None,
         }
+
+        ctxt = context.get_admin_context()
+        backup_obj = fake_backup.fake_backup_obj(ctxt, **raw_backup)
 
         # Make it easier to find out differences between raw and expected.
         expected_backup = raw_backup.copy()
         expected_backup['tenant_id'] = expected_backup.pop('project_id')
         expected_backup['backup_id'] = expected_backup.pop('id')
+        expected_backup['created_at'] = (
+            six.text_type(expected_backup['created_at']) + '+00:00')
 
-        usage_info = volume_utils._usage_from_backup(raw_backup)
-        self.assertEqual(expected_backup, usage_info)
+        usage_info = volume_utils._usage_from_backup(backup_obj)
+        self.assertDictMatch(expected_backup, usage_info)
 
 
 class LVMVolumeDriverTestCase(test.TestCase):

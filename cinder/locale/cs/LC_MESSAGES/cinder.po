@@ -5,14 +5,12 @@
 # Translators:
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011
 # Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2015
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2015. #zanata
-# Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2016. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.0rc2.dev10\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-17 18:05+0000\n"
+"Project-Id-Version: cinder 8.0.1.dev161\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-23 16:54+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -341,12 +339,24 @@ msgstr "Stav svazku je neplatný. (Stav: %(status)s)"
 msgid "API %(name)s failed with error string %(err)s"
 msgstr "API %(name)s selhalo s chybovým řetězcem %(err)s"
 
+#, python-format
+msgid ""
+"API Version String %(version)s is of invalid format. Must be of format "
+"MajorNum.MinorNum."
+msgstr ""
+"Řetězec verze API %(version)s je v neplatném formátu- Musí být ve formátu "
+"Hlavní číslo verze a Vedlejší číslo verze"
+
 msgid "API key is missing for CloudByte driver."
 msgstr "Ovladači CloudByte chybí klíč API."
 
 #, python-format
 msgid "API response: %s"
 msgstr "Odpověď API: %s"
+
+#, python-format
+msgid "API version %(version)s is not supported on this method."
+msgstr "API s verzí %(version)s není v této metodě podporován."
 
 msgid "API version could not be determined."
 msgstr "Nelze zjistit verzi API."
@@ -3427,10 +3437,6 @@ msgid "Failure getting LUN info for %s."
 msgstr "Nelze získat informace LUN pro %s."
 
 #, python-format
-msgid "Failure in update_volume_key_value_pair:%s"
-msgstr "Selhání v aktualizaci páru klíč-hodnota svazku:%s"
-
-#, python-format
 msgid "Failure moving new cloned LUN to %s."
 msgstr "Nelze přesunout nově klonovaný LUN do %s."
 
@@ -4409,6 +4415,12 @@ msgstr "Při čekání na úkol se vyskytl problém."
 
 msgid "Issue encountered waiting for synchronization."
 msgstr "Při čekání na synchronizaci se vyskytl problém."
+
+msgid ""
+"Issuing a fail-over failed because replication is not properly configured."
+msgstr ""
+"Vyvolání zavedení záložního systému, protože replikace není správně "
+"nastavena."
 
 msgid "Item not found"
 msgstr "Položka nenalezena"
@@ -5725,10 +5737,6 @@ msgid "SSH Command failed after '%(total_attempts)r' attempts : '%(command)s'"
 msgstr "Příkaz SSH selhal po '%(total_attempts)r' pokusech : '%(command)s'"
 
 #, python-format
-msgid "SSH Command failed with error: '%(err)s', Command: '%(command)s'"
-msgstr "Příkaz SSH selhal s chybou: '%(err)s', příkaz: '%(command)s'"
-
-#, python-format
 msgid "SSH command injection detected: %(command)s"
 msgstr "Zjištěno vložení příkazů SSH: %(command)s"
 
@@ -5798,14 +5806,6 @@ msgid ""
 msgstr ""
 "Nastavení souboru skupiny zásad QoS není podporováno u tohoto druhu úložišť "
 "a verze ONTAP."
-
-#, python-format
-msgid ""
-"Share %s ignored due to invalid format. Must be of form address:/export. "
-"Please check the nas_ip and nas_share_path settings."
-msgstr ""
-"Sdílení %s je ignorováno kvůli špatnému formátu. Musí mít formátu adresa:/"
-"export. Prosím zkontrolujte nastavení IP NAS a cesty ke sdílení NAS."
 
 #, python-format
 msgid ""
@@ -6026,10 +6026,6 @@ msgstr "Přesun za pomocí úložiště selhal během správy svazku."
 msgid "StorageSystem %(array)s is not found."
 msgstr "Systém úložiště %(array)s nebyl nalezen."
 
-#, python-format
-msgid "String with params: %s"
-msgstr "Řetězec s parametry: %s"
-
 msgid "Synchronizing secondary volume to primary failed."
 msgstr "Synchronizace druhotného svazku na hlavní selhala."
 
@@ -6055,12 +6051,6 @@ msgstr ""
 
 msgid "Target volume type is still in use."
 msgstr "Cílový typ svazku se stále používá."
-
-#, python-format
-msgid ""
-"Template tree mismatch; adding slave %(slavetag)s to master %(mastertag)s"
-msgstr ""
-"Neshoda stromu šablony; přidávání sluhy %(slavetag)s k pánovi %(mastertag)s"
 
 #, python-format
 msgid "Tenant ID: %s does not exist."
@@ -6837,9 +6827,6 @@ msgstr "Nelze mapovat svazek"
 msgid "Unable to map volume."
 msgstr "Nelze mapovat svazek."
 
-msgid "Unable to parse XML request. Please provide XML in correct format."
-msgstr "Nelze zpracovat žádost XML. Zadejte prosím XML ve správném formátu."
-
 msgid "Unable to parse attributes."
 msgstr "Nelze zpracovat vlastnosti."
 
@@ -7125,6 +7112,14 @@ msgstr "Chyba hodnoty: %s"
 #, python-format
 msgid "Vdisk %(name)s not involved in mapping %(src)s -> %(tgt)s."
 msgstr "Virtuální disk %(name)s není součástí mapování %(src)s -> %(tgt)s."
+
+#, python-format
+msgid ""
+"Version %(req_ver)s is not supported by the API. Minimum is %(min_ver)s and "
+"maximum is %(max_ver)s."
+msgstr ""
+"Verze  %(req_ver)s není API podporována. Minimální verze je %(min_ver)s a "
+"maximální %(max_ver)s."
 
 #, python-format
 msgid "VersionedObject %s cannot retrieve object by id."
@@ -7626,9 +7621,6 @@ msgstr "Špatná syntaxe volání zdroje"
 msgid "X-IO Volume Driver exception!"
 msgstr "Výjimka ovladače svazku X-IO!"
 
-msgid "XML support has been deprecated and will be removed in the N release."
-msgstr "Podpora XML je zastaralá a bude odebrána ve verzi N."
-
 msgid "XtremIO not configured correctly, no iscsi portals found"
 msgstr "XtremIO není správně nastaveno, nenalezeny žádné portály iscsi"
 
@@ -7858,9 +7850,6 @@ msgstr "v žádosti nelze zpracovat jak název tak index najednou"
 msgid "cannot understand JSON"
 msgstr "JSON nelze porozumět"
 
-msgid "cannot understand XML"
-msgstr "XML nelze porozumět"
-
 #, python-format
 msgid "cg-%s"
 msgstr "skupinajednotnosti-%s"
@@ -8008,9 +7997,6 @@ msgstr "odpojit snímek ze vzdáleného uzle"
 
 msgid "do_setup: No configured nodes."
 msgstr "Zavedení: Nenastaveny žádné uzly."
-
-msgid "element is not a child"
-msgstr "prvek není podřazený"
 
 msgid "eqlx_cli_max_retries must be greater than or equal to 0"
 msgstr "eqlx_cli_max_retries musí být větší nebo rovno 0"
@@ -8329,9 +8315,6 @@ msgstr ""
 "obnovení zálohy zrušeno, současný seznam objektů neodpovídá seznamu "
 "uloženého v popisných datech."
 
-msgid "root element selecting a list"
-msgstr "kořenový prvek volí seznam"
-
 #, python-format
 msgid "rtslib_fb is missing member %s: You may need a newer python-rtslib-fb."
 msgstr ""
@@ -8389,9 +8372,6 @@ msgstr "stav musí být dostupný"
 
 msgid "stop_hypermetro error."
 msgstr "Chyba při zastavování hypermetra."
-
-msgid "subclasses must implement construct()!"
-msgstr "podtřídy musí zavádět construct()!"
 
 msgid "sudo failed, continuing as if nothing happened"
 msgstr "sudo selhalo, pokračuje se, jako by se nic nestalo"

@@ -49,6 +49,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.zapi_client = mock.Mock()
         self.zapi_client = self.library.zapi_client
         self.library.perf_library = mock.Mock()
+        self.library.ssc_library = mock.Mock()
         self.library.vserver = mock.Mock()
         self.library.ssc_vols = None
         self.fake_lun = block_base.NetAppLun(fake.LUN_HANDLE, fake.LUN_NAME,
@@ -93,8 +94,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
     def test_check_for_setup_error(self):
         super_check_for_setup_error = self.mock_object(
             block_base.NetAppBlockStorageLibrary, 'check_for_setup_error')
-        mock_check_ssc_api_permissions = self.mock_object(
-            ssc_cmode, 'check_ssc_api_permissions')
+        mock_check_api_permissions = self.mock_object(
+            self.library.ssc_library, 'check_api_permissions')
         mock_start_periodic_tasks = self.mock_object(
             self.library, '_start_periodic_tasks')
         self.mock_object(ssc_cmode, 'refresh_cluster_ssc')
@@ -104,14 +105,14 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         self.library.check_for_setup_error()
 
         self.assertEqual(1, super_check_for_setup_error.call_count)
-        mock_check_ssc_api_permissions.assert_called_once_with(
-            self.library.zapi_client)
+        mock_check_api_permissions.assert_called_once_with()
         self.assertEqual(1, mock_start_periodic_tasks.call_count)
 
     def test_check_for_setup_error_no_filtered_pools(self):
         self.mock_object(block_base.NetAppBlockStorageLibrary,
                          'check_for_setup_error')
-        self.mock_object(ssc_cmode, 'check_ssc_api_permissions')
+        mock_check_api_permissions = self.mock_object(
+            self.library.ssc_library, 'check_api_permissions')
         self.mock_object(self.library, '_start_periodic_tasks')
         self.mock_object(ssc_cmode, 'refresh_cluster_ssc')
         self.mock_object(self.library, '_get_filtered_pools',
@@ -119,6 +120,8 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
 
         self.assertRaises(exception.NetAppDriverException,
                           self.library.check_for_setup_error)
+
+        mock_check_api_permissions.assert_called_once_with()
 
     def test_find_mapped_lun_igroup(self):
         igroups = [fake.IGROUP1]
@@ -280,22 +283,6 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
             None)
         self.assertEqual(1, self.library._update_stale_vols.call_count)
 
-    @mock.patch.object(ssc_cmode, 'get_volumes_for_specs')
-    @mock.patch.object(ssc_cmode, 'get_cluster_latest_ssc')
-    def test_check_volume_type_for_lun_fail(self, get_ssc, get_vols):
-        self.library.ssc_vols = ['vol']
-        fake_extra_specs = {'specs': 's'}
-        get_vols.return_value = [ssc_cmode.NetAppVolume(name='name',
-                                                        vserver='vs')]
-        mock_lun = block_base.NetAppLun('handle', 'name', '1',
-                                        {'Volume': 'fake', 'Path': '/vol/lun'})
-        self.assertRaises(exception.ManageExistingVolumeTypeMismatch,
-                          self.library._check_volume_type_for_lun,
-                          {'vol': 'vol'}, mock_lun, {'ref': 'ref'},
-                          fake_extra_specs)
-        get_vols.assert_called_with(['vol'], {'specs': 's'})
-        self.assertEqual(1, get_ssc.call_count)
-
     def test_get_preferred_target_from_list(self):
         target_details_list = fake.ISCSI_TARGET_DETAILS_LIST
         operational_addresses = [
@@ -338,9 +325,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
             'raid_type': 'raiddp'
         }
         test_volume.space = {
-            'size_total_bytes': '10737418240',
             'space-guarantee': 'file',
-            'size_avl_bytes': '2147483648',
             'space-guarantee-enabled': False,
             'thin_provisioned': False
         }
@@ -366,6 +351,13 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
             netapp_lun_space_reservation)
         self.library.perf_library.get_node_utilization_for_pool = (
             mock.Mock(return_value=30.0))
+        mock_capacities = {
+            'size-total': 10737418240.0,
+            'size-available': 2147483648.0,
+        }
+        self.mock_object(
+            self.zapi_client, 'get_flexvol_capacity',
+            mock.Mock(return_value=mock_capacities))
 
         netapp_thin = 'true' if thin else 'false'
         netapp_thick = 'false' if thin else 'true'
@@ -677,6 +669,13 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
                          mock.Mock(return_value=[fake.FAKE_CMODE_VOL1]))
         self.library.perf_library.get_node_utilization_for_pool = (
             mock.Mock(return_value=30.0))
+        mock_capacities = {
+            'size-total': 5000000000.0,
+            'size-available': 4000000000.0,
+        }
+        self.mock_object(
+            self.zapi_client, 'get_flexvol_capacity',
+            mock.Mock(return_value=mock_capacities))
 
         pools = self.library._get_pool_stats(filter_function='filter',
                                              goodness_function='goodness')

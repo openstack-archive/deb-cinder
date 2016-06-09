@@ -11,12 +11,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-"""
-:mod:`nexenta.iscsi` -- Driver to store volumes on Nexenta Appliance
-=====================================================================
 
-.. automodule:: nexenta.iscsi
-"""
 import six
 
 from oslo_log import log as logging
@@ -38,6 +33,9 @@ class NexentaISCSIDriver(driver.ISCSIDriver):
     """Executes volume driver commands on Nexenta Appliance.
 
     Version history:
+
+    .. code-block:: none
+
         1.0.0 - Initial driver version.
         1.0.1 - Fixed bug #1236626: catch "does not exist" exception of
                 lu_exists.
@@ -264,7 +262,8 @@ class NexentaISCSIDriver(driver.ISCSIDriver):
         :param src_vref: source volume reference
         """
         snapshot = {'volume_name': src_vref['name'],
-                    'name': self._get_clone_snapshot_name(volume)}
+                    'name': self._get_clone_snapshot_name(volume),
+                    'volume_size': src_vref['size']}
         LOG.debug('Creating temp snapshot of the original volume: '
                   '%(volume_name)s@%(name)s', snapshot)
         # We don't delete this snapshot, because this snapshot will be origin
@@ -480,6 +479,9 @@ class NexentaISCSIDriver(driver.ISCSIDriver):
             '%s@%s' % (self._get_zvol_name(snapshot['volume_name']),
                        snapshot['name']),
             self._get_zvol_name(volume['name']))
+        if (('size' in volume) and (
+                volume['size'] > snapshot['volume_size'])):
+            self.extend_volume(volume, volume['size'])
 
     def delete_snapshot(self, snapshot):
         """Delete volume's snapshot on appliance.

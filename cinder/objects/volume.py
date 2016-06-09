@@ -13,7 +13,6 @@
 #    under the License.
 
 from oslo_config import cfg
-from oslo_log import log as logging
 from oslo_utils import versionutils
 from oslo_versionedobjects import fields
 
@@ -23,8 +22,8 @@ from cinder.i18n import _
 from cinder import objects
 from cinder.objects import base
 
+
 CONF = cfg.CONF
-LOG = logging.getLogger(__name__)
 
 
 class MetadataObject(dict):
@@ -66,8 +65,8 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         'id': fields.UUIDField(),
         '_name_id': fields.UUIDField(nullable=True),
         'ec2_id': fields.UUIDField(nullable=True),
-        'user_id': fields.UUIDField(nullable=True),
-        'project_id': fields.UUIDField(nullable=True),
+        'user_id': fields.StringField(nullable=True),
+        'project_id': fields.StringField(nullable=True),
 
         'snapshot_id': fields.UUIDField(nullable=True),
 
@@ -85,7 +84,7 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         'display_name': fields.StringField(nullable=True),
         'display_description': fields.StringField(nullable=True),
 
-        'provider_id': fields.UUIDField(nullable=True),
+        'provider_id': fields.StringField(nullable=True),
         'provider_location': fields.StringField(nullable=True),
         'provider_auth': fields.StringField(nullable=True),
         'provider_geometry': fields.StringField(nullable=True),
@@ -395,7 +394,7 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
         # end of migration because we want to keep the original volume id
         # in the DB but now pointing to the migrated volume.
         skip = ({'id', 'provider_location', 'glance_metadata',
-                 'volume_type_id', 'volume_type'} | set(self.obj_extra_fields))
+                 'volume_type'} | set(self.obj_extra_fields))
         for key in set(dest_volume.fields.keys()) - skip:
             # Only swap attributes that are already set.  We do not want to
             # unexpectedly trigger a lazy-load.
@@ -418,6 +417,14 @@ class Volume(base.CinderPersistentObject, base.CinderObject,
                 value_to_dst = 'migration src for ' + self.id
             elif key == 'status':
                 value_to_dst = 'deleting'
+            # Because dest_volume will be deleted soon, we can
+            # skip to copy volume_type_id and volume_type which
+            # are not keys for volume deletion.
+            elif key == 'volume_type_id':
+                # Initialize volume_type of source volume using
+                # new volume_type_id.
+                self.update({'volume_type_id': value})
+                continue
 
             setattr(self, key, value)
             setattr(dest_volume, key, value_to_dst)

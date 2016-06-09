@@ -638,8 +638,7 @@ class NetAppBlockStorageLibrary(object):
 
     def _check_volume_type_for_lun(self, volume, lun, existing_ref,
                                    extra_specs):
-        """Checks if lun satifies the volume type."""
-        raise NotImplementedError()
+        """Checks if LUN satisfies the volume type."""
 
     def manage_existing(self, volume, existing_ref):
         """Brings an existing storage object under Cinder management.
@@ -689,30 +688,33 @@ class NetAppBlockStorageLibrary(object):
 
     def _get_existing_vol_with_manage_ref(self, existing_ref):
         """Get the corresponding LUN from the storage server."""
+
         uuid = existing_ref.get('source-id')
         path = existing_ref.get('source-name')
-        if not (uuid or path):
-            reason = _('Reference must contain either source-id'
-                       ' or source-name element.')
+
+        lun_info = {}
+        if path:
+            lun_info['path'] = path
+        elif uuid:
+            if not hasattr(self, 'vserver'):
+                reason = _('Volume manage identifier with source-id is only '
+                           'supported with clustered Data ONTAP.')
+                raise exception.ManageExistingInvalidReference(
+                    existing_ref=existing_ref, reason=reason)
+            lun_info['uuid'] = uuid
+        else:
+            reason = _('Volume manage identifier must contain either '
+                       'source-id or source-name element.')
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref, reason=reason)
-        lun_info = {}
-        lun_info.setdefault('path', path if path else None)
-        if hasattr(self, 'vserver') and uuid:
-            lun_info['uuid'] = uuid
+
         luns = self.zapi_client.get_lun_by_args(**lun_info)
-        if luns:
-            for lun in luns:
-                netapp_lun = self._extract_lun_info(lun)
-                storage_valid = self._is_lun_valid_on_storage(netapp_lun)
-                uuid_valid = True
-                if uuid:
-                    if netapp_lun.get_metadata_property('UUID') == uuid:
-                        uuid_valid = True
-                    else:
-                        uuid_valid = False
-                if storage_valid and uuid_valid:
-                    return netapp_lun
+
+        for lun in luns:
+            netapp_lun = self._extract_lun_info(lun)
+            if self._is_lun_valid_on_storage(netapp_lun):
+                return netapp_lun
+
         raise exception.ManageExistingInvalidReference(
             existing_ref=existing_ref,
             reason=(_('LUN not found with given ref %s.') % existing_ref))
@@ -842,6 +844,9 @@ class NetAppBlockStorageLibrary(object):
         The target_wwn can be a single entry or a list of wwns that
         correspond to the list of remote wwn(s) that will export the volume.
         Example return values:
+
+        .. code-block:: json
+
             {
                 'driver_volume_type': 'fibre_channel'
                 'data': {
@@ -872,6 +877,7 @@ class NetAppBlockStorageLibrary(object):
                     }
                 }
             }
+
         """
 
         initiators = [fczm_utils.get_formatted_wwn(wwpn)
@@ -998,7 +1004,7 @@ class NetAppBlockStorageLibrary(object):
         """Driver entry point for deleting a consistency group.
 
         :return: Updated consistency group model and list of volume models
-        for the volumes that were deleted.
+                 for the volumes that were deleted.
         """
         model_update = {'status': 'deleted'}
         volumes_model_update = []
@@ -1040,7 +1046,8 @@ class NetAppBlockStorageLibrary(object):
         backing the Cinder volumes in the Cinder CG.
 
         :return: An implicit update for cgsnapshot and snapshots models that
-        is interpreted by the manager to set their models to available.
+                 is interpreted by the manager to set their models to
+                 available.
         """
         flexvols = set()
         for snapshot in snapshots:
@@ -1084,7 +1091,7 @@ class NetAppBlockStorageLibrary(object):
         """Delete LUNs backing each snapshot in the cgsnapshot.
 
         :return: An implicit update for snapshots models that is interpreted
-        by the manager to set their models to deleted.
+                 by the manager to set their models to deleted.
         """
         for snapshot in snapshots:
             self._delete_lun(snapshot['name'])
@@ -1098,7 +1105,7 @@ class NetAppBlockStorageLibrary(object):
         """Creates a CG from a either a cgsnapshot or group of cinder vols.
 
         :return: An implicit update for the volumes model that is
-        interpreted by the manager as a successful operation.
+                 interpreted by the manager as a successful operation.
         """
         LOG.debug("VOLUMES %s ", [dict(vol) for vol in volumes])
 

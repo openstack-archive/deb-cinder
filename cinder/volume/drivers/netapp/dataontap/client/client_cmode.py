@@ -18,6 +18,7 @@
 
 import copy
 import math
+import re
 
 from oslo_log import log as logging
 import six
@@ -34,6 +35,7 @@ from oslo_utils import strutils
 
 LOG = logging.getLogger(__name__)
 DELETED_PREFIX = 'deleted_cinder_'
+DEFAULT_MAX_PAGE_LENGTH = 50
 
 
 @six.add_metaclass(utils.TraceWrapperMetaclass)
@@ -55,8 +57,12 @@ class Client(client_base.Client):
 
         ontapi_version = self.get_ontapi_version()   # major, minor
 
+        ontapi_1_20 = ontapi_version >= (1, 20)
         ontapi_1_2x = (1, 20) <= ontapi_version < (1, 30)
         ontapi_1_30 = ontapi_version >= (1, 30)
+
+        self.features.add_feature('USER_CAPABILITY_LIST',
+                                  supported=ontapi_1_20)
         self.features.add_feature('SYSTEM_METRICS', supported=ontapi_1_2x)
         self.features.add_feature('FAST_CLONE_DELETE', supported=ontapi_1_30)
         self.features.add_feature('SYSTEM_CONSTITUENT_METRICS',
@@ -72,8 +78,61 @@ class Client(client_base.Client):
         num_records = api_result_element.get_child_content('num-records')
         return bool(num_records and '0' != num_records)
 
+    def _get_record_count(self, api_result_element):
+        try:
+            return int(api_result_element.get_child_content('num-records'))
+        except TypeError:
+            msg = _('Missing record count for NetApp iterator API invocation.')
+            raise exception.NetAppDriverException(msg)
+
     def set_vserver(self, vserver):
         self.connection.set_vserver(vserver)
+
+    def send_iter_request(self, api_name, api_args=None, enable_tunneling=True,
+                          max_page_length=DEFAULT_MAX_PAGE_LENGTH):
+        """Invoke an iterator-style getter API."""
+
+        if not api_args:
+            api_args = {}
+
+        api_args['max-records'] = max_page_length
+
+        # Get first page
+        result = self.send_request(
+            api_name, api_args, enable_tunneling=enable_tunneling)
+
+        # Most commonly, we can just return here if there is no more data
+        next_tag = result.get_child_content('next-tag')
+        if not next_tag:
+            return result
+
+        # Ensure pagination data is valid and prepare to store remaining pages
+        num_records = self._get_record_count(result)
+        attributes_list = result.get_child_by_name('attributes-list')
+        if not attributes_list:
+            msg = _('Missing attributes list for API %s.') % api_name
+            raise exception.NetAppDriverException(msg)
+
+        # Get remaining pages, saving data into first page
+        while next_tag is not None:
+            next_api_args = copy.deepcopy(api_args)
+            next_api_args['tag'] = next_tag
+            next_result = self.send_request(
+                api_name, next_api_args, enable_tunneling=enable_tunneling)
+
+            next_attributes_list = next_result.get_child_by_name(
+                'attributes-list') or netapp_api.NaElement('none')
+
+            for record in next_attributes_list.get_children():
+                attributes_list.add_child_elem(record)
+
+            num_records += self._get_record_count(next_result)
+            next_tag = next_result.get_child_content('next-tag')
+
+        result.get_child_by_name('num-records').set_content(
+            six.text_type(num_records))
+        result.get_child_by_name('next-tag').set_content('')
+        return result
 
     def get_iscsi_target_details(self):
         """Gets the iSCSI target portal details."""
@@ -606,67 +665,89 @@ class Client(client_base.Client):
                 if_list.extend(ifs)
         return if_list
 
-    def check_apis_on_cluster(self, api_list=None):
-        """Checks API availability and permissions on cluster.
+    def check_cluster_api(self, object_name, operation_name, api):
+        """Checks the availability of a cluster API.
 
-        Checks API availability and permissions for executing user.
-        Returns a list of failed apis.
+        Returns True if the specified cluster API exists and may be called by
+        the current user. The API is *called* on Data ONTAP versions prior to
+        8.2, while versions starting with 8.2 utilize an API designed for
+        this purpose.
         """
-        api_list = api_list or []
-        failed_apis = []
-        if api_list:
-            api_version = self.connection.get_api_version()
-            if api_version:
-                major, minor = api_version
-                if major == 1 and minor < 20:
-                    for api_name in api_list:
-                        na_el = netapp_api.NaElement(api_name)
-                        try:
-                            self.connection.invoke_successfully(na_el)
-                        except Exception as e:
-                            if isinstance(e, netapp_api.NaApiError):
-                                if (e.code == netapp_api.NaErrors
-                                        ['API_NOT_FOUND'].code or
-                                    e.code == netapp_api.NaErrors
-                                        ['INSUFFICIENT_PRIVS'].code):
-                                    failed_apis.append(api_name)
-                elif major == 1 and minor >= 20:
-                    failed_apis = copy.copy(api_list)
-                    result = netapp_api.invoke_api(
-                        self.connection,
-                        api_name='system-user-capability-get-iter',
-                        api_family='cm',
-                        additional_elems=None,
-                        is_iter=True)
-                    for res in result:
-                        attr_list = res.get_child_by_name('attributes-list')
-                        if attr_list:
-                            capabilities = attr_list.get_children()
-                            for capability in capabilities:
-                                op_list = capability.get_child_by_name(
-                                    'operation-list')
-                                if op_list:
-                                    ops = op_list.get_children()
-                                    for op in ops:
-                                        apis = op.get_child_content(
-                                            'api-name')
-                                        if apis:
-                                            api_list = apis.split(',')
-                                            for api_name in api_list:
-                                                if (api_name and
-                                                        api_name.strip()
-                                                        in failed_apis):
-                                                    failed_apis.remove(
-                                                        api_name)
-                                        else:
-                                            continue
-                else:
-                    msg = _("Unsupported Clustered Data ONTAP version.")
-                    raise exception.VolumeBackendAPIException(data=msg)
-            else:
-                msg = _("Data ONTAP API version could not be determined.")
-                raise exception.VolumeBackendAPIException(data=msg)
-        return failed_apis
+
+        if not self.features.USER_CAPABILITY_LIST:
+            return self._check_cluster_api_legacy(api)
+        else:
+            return self._check_cluster_api(object_name, operation_name, api)
+
+    def _check_cluster_api(self, object_name, operation_name, api):
+        """Checks the availability of a cluster API.
+
+        Returns True if the specified cluster API exists and may be called by
+        the current user.  This method assumes Data ONTAP 8.2 or higher.
+        """
+
+        api_args = {
+            'query': {
+                'capability-info': {
+                    'object-name': object_name,
+                    'operation-list': {
+                        'operation-info': {
+                            'name': operation_name,
+                        },
+                    },
+                },
+            },
+            'desired-attributes': {
+                'capability-info': {
+                    'operation-list': {
+                        'operation-info': {
+                            'api-name': None,
+                        },
+                    },
+                },
+            },
+        }
+        result = self.send_request(
+            'system-user-capability-get-iter', api_args, False)
+
+        if not self._has_records(result):
+            return False
+
+        capability_info_list = result.get_child_by_name(
+            'attributes-list') or netapp_api.NaElement('none')
+
+        for capability_info in capability_info_list.get_children():
+
+            operation_list = capability_info.get_child_by_name(
+                'operation-list') or netapp_api.NaElement('none')
+
+            for operation_info in operation_list.get_children():
+                api_name = operation_info.get_child_content('api-name') or ''
+                api_names = api_name.split(',')
+                if api in api_names:
+                    return True
+
+        return False
+
+    def _check_cluster_api_legacy(self, api):
+        """Checks the availability of a cluster API.
+
+        Returns True if the specified cluster API exists and may be called by
+        the current user.  This method should only be used for Data ONTAP 8.1,
+        and only getter APIs may be tested because the API is actually called
+        to perform the check.
+        """
+
+        if not re.match(".*-get$|.*-get-iter$|.*-list-info$", api):
+            raise ValueError(_('Non-getter API passed to API test method.'))
+
+        try:
+            self.send_request(api, enable_tunneling=False)
+        except netapp_api.NaApiError as ex:
+            if ex.code in (netapp_api.EAPIPRIVILEGE, netapp_api.EAPINOTFOUND):
+                return False
+
+        return True
 
     def get_operational_network_interface_addresses(self):
         """Gets the IP addresses of operational LIFs on the vserver."""
@@ -691,15 +772,19 @@ class Client(client_base.Client):
         return [lif_info.get_child_content('address') for lif_info in
                 lif_info_list.get_children()]
 
-    def get_flexvol_capacity(self, flexvol_path):
+    def get_flexvol_capacity(self, flexvol_path=None, flexvol_name=None):
         """Gets total capacity and free capacity, in bytes, of the flexvol."""
+
+        volume_id_attributes = {}
+        if flexvol_path:
+            volume_id_attributes['junction-path'] = flexvol_path
+        if flexvol_name:
+            volume_id_attributes['name'] = flexvol_name
 
         api_args = {
             'query': {
                 'volume-attributes': {
-                    'volume-id-attributes': {
-                        'junction-path': flexvol_path
-                    }
+                    'volume-id-attributes': volume_id_attributes,
                 }
             },
             'desired-attributes': {
@@ -713,6 +798,10 @@ class Client(client_base.Client):
         }
 
         result = self.send_request('volume-get-iter', api_args)
+        if self._get_record_count(result) != 1:
+            msg = _('Volume %s not found.')
+            msg_args = flexvol_path or flexvol_name
+            raise exception.NetAppDriverException(msg % msg_args)
 
         attributes_list = result.get_child_by_name('attributes-list')
         volume_attributes = attributes_list.get_child_by_name(
@@ -725,7 +814,10 @@ class Client(client_base.Client):
         size_total = float(
             volume_space_attributes.get_child_content('size-total'))
 
-        return size_total, size_available
+        return {
+            'size-total': size_total,
+            'size-available': size_available,
+        }
 
     @utils.trace_method
     def delete_file(self, path_to_file):
@@ -935,7 +1027,7 @@ class Client(client_base.Client):
                 'reason': error_reason,
             }
             if error_code == netapp_api.ESNAPSHOTNOTALLOWED:
-                raise exception.SnapshotUnavailable(msg % msg_args)
+                raise exception.SnapshotUnavailable(data=msg % msg_args)
             else:
                 raise exception.VolumeBackendAPIException(data=msg % msg_args)
 

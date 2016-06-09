@@ -94,7 +94,7 @@ class PairOp(AbsReplicaOp):
             "REMOTERESID": rmt_lun_id,
             "REPLICATIONMODEL": replica_model,
             # recovery policy. 1: auto, 2: manual
-            "RECOVERYPOLICY": '2',
+            "RECOVERYPOLICY": '1',
             "SPEED": speed,
         }
 
@@ -186,7 +186,8 @@ class ReplicaCommonDriver(object):
 
     def split(self, replica_id):
         running_status = (constants.REPLICA_RUNNING_STATUS_SPLIT,
-                          constants.REPLICA_RUNNING_STATUS_INVALID)
+                          constants.REPLICA_RUNNING_STATUS_INVALID,
+                          constants.REPLICA_RUNNING_STATUS_ERRUPTED)
         info = self.op.get_replica_info(replica_id)
         if self.op.is_running_status(running_status, info):
             return

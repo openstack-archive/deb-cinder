@@ -70,29 +70,6 @@ TRACE_API = False
 synchronized = lockutils.synchronized_with_prefix('cinder-')
 
 
-def find_config(config_path):
-    """Find a configuration file using the given hint.
-
-    :param config_path: Full or relative path to the config.
-    :returns: Full path of the config, if it exists.
-    :raises: `cinder.exception.ConfigNotFound`
-
-    """
-    possible_locations = [
-        config_path,
-        os.path.join(CONF.state_path, "etc", "cinder", config_path),
-        os.path.join(CONF.state_path, "etc", config_path),
-        os.path.join(CONF.state_path, config_path),
-        "/etc/cinder/%s" % config_path,
-    ]
-
-    for path in possible_locations:
-        if os.path.exists(path):
-            return os.path.abspath(path)
-
-    raise exception.ConfigNotFound(path=os.path.abspath(config_path))
-
-
 def as_int(obj, quiet=True):
     # Try "2" -> 2
     try:
@@ -183,11 +160,6 @@ def check_ssh_injection(cmd_list):
                     raise exception.SSHInjectionThreat(command=cmd_list)
 
 
-def cinderdir():
-    import cinder
-    return os.path.abspath(cinder.__file__).split('cinder/__init__.py')[0]
-
-
 def last_completed_audit_period(unit=None):
     """This method gives you the most recently *completed* audit period.
 
@@ -273,24 +245,6 @@ def last_completed_audit_period(unit=None):
         begin = end - datetime.timedelta(hours=1)
 
     return (begin, end)
-
-
-def list_of_dicts_to_dict(seq, key):
-    """Convert list of dicts to an indexed dict.
-
-    Takes a list of dicts, and converts it to a nested dict
-    indexed by <key>
-
-    :param seq: list of dicts
-    :parm key: key in dicts to index by
-
-    example:
-      lst = [{'id': 1, ...}, {'id': 2, ...}...]
-      key = 'id'
-      returns {1:{'id': 1, ...}, 2:{'id':2, ...}
-
-    """
-    return {d[key]: dict(d, index=d[key]) for (i, d) in enumerate(seq)}
 
 
 class ProtectedExpatParser(expatreader.ExpatParser):
@@ -562,7 +516,6 @@ def brick_get_connector_properties(multipath=False, enforce_multipath=False):
 
 
 def brick_get_connector(protocol, driver=None,
-                        execute=processutils.execute,
                         use_multipath=False,
                         device_scan_attempts=3,
                         *args, **kwargs):
@@ -575,7 +528,6 @@ def brick_get_connector(protocol, driver=None,
     root_helper = get_root_helper()
     return connector.InitiatorConnector.factory(protocol, root_helper,
                                                 driver=driver,
-                                                execute=execute,
                                                 use_multipath=use_multipath,
                                                 device_scan_attempts=
                                                 device_scan_attempts,
@@ -673,7 +625,8 @@ def get_blkdev_major_minor(path, lookup_for_file=True):
         raise exception.Error(msg)
 
 
-def check_string_length(value, name, min_length=0, max_length=None):
+def check_string_length(value, name, min_length=0, max_length=None,
+                        allow_all_spaces=True):
     """Check the length of specified string.
 
     :param value: the value of the string
@@ -681,19 +634,17 @@ def check_string_length(value, name, min_length=0, max_length=None):
     :param min_length: the min_length of the string
     :param max_length: the max_length of the string
     """
-    if not isinstance(value, six.string_types):
-        msg = _("%s is not a string or unicode") % name
-        raise exception.InvalidInput(message=msg)
+    try:
+        strutils.check_string_length(value, name=name,
+                                     min_length=min_length,
+                                     max_length=max_length)
+    except(ValueError, TypeError) as exc:
+        raise exception.InvalidInput(reason=exc)
 
-    if len(value) < min_length:
-        msg = _("%(name)s has a minimum character requirement of "
-                "%(min_length)s.") % {'name': name, 'min_length': min_length}
-        raise exception.InvalidInput(message=msg)
+    if not allow_all_spaces and str.isspace(value):
+        msg = _('%(name)s cannot be all spaces.')
+        raise exception.InvalidInput(reason=msg)
 
-    if max_length and len(value) > max_length:
-        msg = _("%(name)s has more than %(max_length)s "
-                "characters.") % {'name': name, 'max_length': max_length}
-        raise exception.InvalidInput(message=msg)
 
 _visible_admin_metadata_keys = ['readonly', 'attached_mode']
 
@@ -854,7 +805,7 @@ def convert_str(text):
     * convert to Unicode on Python 3: decode bytes from UTF-8
     """
     if six.PY2:
-        return encodeutils.safe_encode(text)
+        return encodeutils.to_utf8(text)
     else:
         if isinstance(text, bytes):
             return text.decode('utf-8')

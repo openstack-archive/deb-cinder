@@ -800,9 +800,9 @@ class NetAppNfsDriver(driver.ManageableVD,
             self.max_over_subscription_ratio)
         total_size, total_available = self._get_capacity_info(nfs_share)
         capacity['total_capacity_gb'] = na_utils.round_down(
-            total_size / units.Gi, '0.01')
+            total_size / units.Gi)
         capacity['free_capacity_gb'] = na_utils.round_down(
-            total_available / units.Gi, '0.01')
+            total_available / units.Gi)
         capacity['provisioned_capacity_gb'] = (round(
             capacity['total_capacity_gb'] - capacity['free_capacity_gb'], 2))
 
@@ -811,11 +811,12 @@ class NetAppNfsDriver(driver.ManageableVD,
     def _get_capacity_info(self, nfs_share):
         """Get total capacity and free capacity in bytes for an nfs share."""
         export_path = nfs_share.rsplit(':', 1)[1]
-        return self.zapi_client.get_flexvol_capacity(export_path)
+        capacity = self.zapi_client.get_flexvol_capacity(
+            flexvol_path=export_path)
+        return capacity['size-total'], capacity['size-available']
 
     def _check_volume_type(self, volume, share, file_name, extra_specs):
         """Match volume type for share file."""
-        raise NotImplementedError()
 
     def _convert_vol_ref_share_name_to_share_ip(self, vol_ref):
         """Converts the share point name to an IP address
@@ -895,7 +896,7 @@ class NetAppNfsDriver(driver.ManageableVD,
         new Cinder volume name. It is expected that the existing volume
         reference is an NFS share point and some [/path]/volume;
         e.g., 10.10.32.1:/openstack/vol_to_manage
-           or 10.10.32.1:/openstack/some_directory/vol_to_manage
+        or 10.10.32.1:/openstack/some_directory/vol_to_manage
 
         :param volume:           Cinder volume to manage
         :param existing_vol_ref: Driver-specific information used to identify a

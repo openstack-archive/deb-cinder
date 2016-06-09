@@ -13,7 +13,6 @@
 #    under the License.
 
 from oslo_config import cfg
-from oslo_log import log as logging
 from oslo_utils import versionutils
 from oslo_versionedobjects import fields
 
@@ -22,16 +21,18 @@ from cinder import exception
 from cinder.i18n import _
 from cinder import objects
 from cinder.objects import base
+from cinder.objects import fields as c_fields
+
 
 CONF = cfg.CONF
-LOG = logging.getLogger(__name__)
 
 
 @base.CinderObjectRegistry.register
 class Snapshot(base.CinderPersistentObject, base.CinderObject,
                base.CinderObjectDictCompat):
     # Version 1.0: Initial version
-    VERSION = '1.0'
+    # Version 1.1: Changed 'status' field to use SnapshotStatusField
+    VERSION = '1.1'
 
     # NOTE(thangp): OPTIONAL_FIELDS are fields that would be lazy-loaded. They
     # are typically the relationship in the sqlalchemy object.
@@ -40,12 +41,12 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
     fields = {
         'id': fields.UUIDField(),
 
-        'user_id': fields.UUIDField(nullable=True),
-        'project_id': fields.UUIDField(nullable=True),
+        'user_id': fields.StringField(nullable=True),
+        'project_id': fields.StringField(nullable=True),
 
         'volume_id': fields.UUIDField(nullable=True),
         'cgsnapshot_id': fields.UUIDField(nullable=True),
-        'status': fields.StringField(nullable=True),
+        'status': c_fields.SnapshotStatusField(nullable=True),
         'progress': fields.StringField(nullable=True),
         'volume_size': fields.IntegerField(nullable=True),
 
@@ -56,7 +57,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         'volume_type_id': fields.UUIDField(nullable=True),
 
         'provider_location': fields.StringField(nullable=True),
-        'provider_id': fields.UUIDField(nullable=True),
+        'provider_id': fields.StringField(nullable=True),
         'metadata': fields.DictOfStringsField(),
         'provider_auth': fields.StringField(nullable=True),
 

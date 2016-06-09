@@ -12,8 +12,8 @@ the API without breaking users who don't specifically ask for it. This
 is done with an HTTP header ``OpenStack-API-Version`` which
 is a monotonically increasing semantic version number starting from
 ``3.0``. Each service that uses microversions will share this header, so
-the Volume service will need to specifiy ``volume``:
-    ``OpenStack-API-Version: volume 3.0``
+the Volume service will need to specify ``volume``:
+``OpenStack-API-Version: volume 3.0``
 
 If a user makes a request without specifying a version, they will get
 the ``DEFAULT_API_VERSION`` as defined in
@@ -173,8 +173,9 @@ In the controller class::
         ....
 
 This method would only be available if the caller had specified an
-``OpenStack-API-Version`` of <= ``3.4``. If ``3.5`` or later
-is specified the server will respond with ``HTTP/404``.
+``OpenStack-API-Version`` of <= ``3.4``, and >= ``3.1``. If ``3.5`` or later
+is specified or if ``3.0`` or earlier (/v2 or /v1 endpoint), the server will
+respond with ``HTTP/404``
 
 Changing a method's behaviour
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

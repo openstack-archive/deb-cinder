@@ -149,6 +149,10 @@ class GlanceConnectionFailed(CinderException):
     message = _("Connection to glance failed: %(reason)s")
 
 
+class ProgrammingError(CinderException):
+    message = _('Programming error in Cinder: %(reason)s')
+
+
 class NotAuthorized(CinderException):
     message = _("Not authorized.")
     code = 403
@@ -239,6 +243,10 @@ class DeviceUnavailable(Invalid):
     message = _("The device in the path %(path)s is unavailable: %(reason)s")
 
 
+class SnapshotUnavailable(VolumeBackendAPIException):
+    message = _("The snapshot is unavailable: %(data)s")
+
+
 class InvalidUUID(Invalid):
     message = _("Expected a uuid but received %(uuid)s.")
 
@@ -284,6 +292,10 @@ class NotFound(CinderException):
 
 class VolumeNotFound(NotFound):
     message = _("Volume %(volume_id)s could not be found.")
+
+
+class MessageNotFound(NotFound):
+    message = _("Message %(message_id)s could not be found.")
 
 
 class VolumeAttachmentNotFound(NotFound):
@@ -530,6 +542,10 @@ class SnapshotLimitExceeded(QuotaError):
 
 class BackupLimitExceeded(QuotaError):
     message = _("Maximum number of backups allowed (%(allowed)d) exceeded")
+
+
+class ImageLimitExceeded(QuotaError):
+    message = _("Image quota exceeded")
 
 
 class DuplicateSfVolumeNames(Duplicate):

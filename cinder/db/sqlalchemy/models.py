@@ -75,10 +75,6 @@ class Service(BASE, CinderBase):
     rpc_current_version = Column(String(36))
     object_current_version = Column(String(36))
 
-    # FIXME(dulek): In M we've removed rpc_available_version and
-    # object_available_version from the model. We need to merge a DB migration
-    # that actually drops these columns from the DB in early Newton.
-
     # replication_status can be: enabled, disabled, not-capable, error,
     # failed-over or not-configured
     replication_status = Column(String(255), default="not-capable")
@@ -302,32 +298,34 @@ class QualityOfServiceSpecs(BASE, CinderBase):
     QoS specs is standalone entity that can be associated/disassociated
     with volume types (one to many relation).  Adjacency list relationship
     pattern is used in this model in order to represent following hierarchical
-    data with in flat table, e.g, following structure
+    data with in flat table, e.g, following structure:
 
-    qos-specs-1  'Rate-Limit'
-         |
-         +------>  consumer = 'front-end'
-         +------>  total_bytes_sec = 1048576
-         +------>  total_iops_sec = 500
+    .. code-block:: none
 
-    qos-specs-2  'QoS_Level1'
-         |
-         +------>  consumer = 'back-end'
-         +------>  max-iops =  1000
-         +------>  min-iops = 200
+      qos-specs-1  'Rate-Limit'
+           |
+           +------>  consumer = 'front-end'
+           +------>  total_bytes_sec = 1048576
+           +------>  total_iops_sec = 500
 
-    is represented by:
+      qos-specs-2  'QoS_Level1'
+           |
+           +------>  consumer = 'back-end'
+           +------>  max-iops =  1000
+           +------>  min-iops = 200
 
-      id       specs_id       key                  value
-    ------     --------   -------------            -----
-    UUID-1     NULL       QoSSpec_Name           Rate-Limit
-    UUID-2     UUID-1       consumer             front-end
-    UUID-3     UUID-1     total_bytes_sec        1048576
-    UUID-4     UUID-1     total_iops_sec           500
-    UUID-5     NULL       QoSSpec_Name           QoS_Level1
-    UUID-6     UUID-5       consumer             back-end
-    UUID-7     UUID-5       max-iops               1000
-    UUID-8     UUID-5       min-iops               200
+      is represented by:
+
+        id       specs_id       key                  value
+      ------     --------   -------------            -----
+      UUID-1     NULL       QoSSpec_Name           Rate-Limit
+      UUID-2     UUID-1       consumer             front-end
+      UUID-3     UUID-1     total_bytes_sec        1048576
+      UUID-4     UUID-1     total_iops_sec           500
+      UUID-5     NULL       QoSSpec_Name           QoS_Level1
+      UUID-6     UUID-5       consumer             back-end
+      UUID-7     UUID-5       max-iops               1000
+      UUID-8     UUID-5       min-iops               200
     """
     __tablename__ = 'quality_of_service_specs'
     id = Column(String(36), primary_key=True)
@@ -599,6 +597,23 @@ class DriverInitiatorData(BASE, models.TimestampMixin, models.ModelBase):
     namespace = Column(String(255), nullable=False)
     key = Column(String(255), nullable=False)
     value = Column(String(255))
+
+
+class Message(BASE, CinderBase):
+    """Represents a message"""
+    __tablename__ = 'messages'
+    id = Column(String(36), primary_key=True, nullable=False)
+    project_id = Column(String(36), nullable=False)
+    # Info/Error/Warning.
+    message_level = Column(String(255), nullable=False)
+    request_id = Column(String(255), nullable=True)
+    resource_type = Column(String(255))
+    # The uuid of the related resource.
+    resource_uuid = Column(String(36), nullable=True)
+    # Operation specific event ID.
+    event_id = Column(String(255), nullable=False)
+    # After this time the message may no longer exist
+    expires_at = Column(DateTime, nullable=True)
 
 
 class ImageVolumeCacheEntry(BASE, models.ModelBase):

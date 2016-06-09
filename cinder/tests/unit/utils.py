@@ -13,6 +13,7 @@
 #    under the License.
 #
 
+import datetime
 import socket
 import sys
 import uuid
@@ -46,6 +47,7 @@ def create_volume(ctxt,
                   replication_driver_data=None,
                   consistencygroup_id=None,
                   previous_status=None,
+                  testcase_instance=None,
                   **kwargs):
     """Create a volume object in the DB."""
     vol = {}
@@ -67,6 +69,7 @@ def create_volume(ctxt,
     for key in kwargs:
         vol[key] = kwargs[key]
     vol['replication_status'] = replication_status
+
     if replication_extended_status:
         vol['replication_extended_status'] = replication_extended_status
     if replication_driver_data:
@@ -76,6 +79,10 @@ def create_volume(ctxt,
 
     volume = objects.Volume(ctxt, **vol)
     volume.create()
+
+    # If we get a TestCase instance we add cleanup
+    if testcase_instance:
+        testcase_instance.addCleanup(volume.destroy)
     return volume
 
 
@@ -99,13 +106,13 @@ def create_snapshot(ctxt,
                     display_name='test_snapshot',
                     display_description='this is a test snapshot',
                     cgsnapshot_id = None,
-                    status='creating',
+                    status=fields.SnapshotStatus.CREATING,
                     **kwargs):
     vol = db.volume_get(ctxt, volume_id)
     snap = objects.Snapshot(ctxt)
     snap.volume_id = volume_id
-    snap.user_id = ctxt.user_id or fake.user_id
-    snap.project_id = ctxt.project_id or fake.project_id
+    snap.user_id = ctxt.user_id or fake.USER_ID
+    snap.project_id = ctxt.project_id or fake.PROJECT_ID
     snap.status = status
     snap.volume_size = vol['size']
     snap.display_name = display_name
@@ -129,8 +136,8 @@ def create_consistencygroup(ctxt,
 
     cg = objects.ConsistencyGroup(ctxt)
     cg.host = host
-    cg.user_id = ctxt.user_id or fake.user_id
-    cg.project_id = ctxt.project_id or fake.project_id
+    cg.user_id = ctxt.user_id or fake.USER_ID
+    cg.project_id = ctxt.project_id or fake.PROJECT_ID
     cg.status = status
     cg.name = name
     cg.description = description
@@ -154,8 +161,8 @@ def create_cgsnapshot(ctxt,
                       **kwargs):
     """Create a cgsnapshot object in the DB."""
     cgsnap = objects.CGSnapshot(ctxt)
-    cgsnap.user_id = ctxt.user_id or fake.user_id
-    cgsnap.project_id = ctxt.project_id or fake.project_id
+    cgsnap.user_id = ctxt.user_id or fake.USER_ID
+    cgsnap.project_id = ctxt.project_id or fake.PROJECT_ID
     cgsnap.status = status
     cgsnap.name = name
     cgsnap.description = description
@@ -196,6 +203,53 @@ def create_backup(ctxt,
     backup['snapshot_id'] = snapshot_id
     backup['data_timestamp'] = data_timestamp
     return db.backup_create(ctxt, backup)
+
+
+def create_message(ctxt,
+                   project_id='fake_project',
+                   request_id='test_backup',
+                   resource_type='This is a test backup',
+                   resource_uuid='3asf434-3s433df43-434adf3-343df443',
+                   event_id=None,
+                   message_level='Error'):
+    """Create a message in the DB."""
+    expires_at = (timeutils.utcnow() + datetime.timedelta(
+                  seconds=30))
+    message_record = {'project_id': project_id,
+                      'request_id': request_id,
+                      'resource_type': resource_type,
+                      'resource_uuid': resource_uuid,
+                      'event_id': event_id,
+                      'message_level': message_level,
+                      'expires_at': expires_at}
+    return db.message_create(ctxt, message_record)
+
+
+def create_volume_type(ctxt, testcase_instance=None, **kwargs):
+    vol_type = db.volume_type_create(ctxt, kwargs)
+
+    # If we get a TestCase instance we add cleanup
+    if testcase_instance:
+        testcase_instance.addCleanup(db.volume_type_destroy, ctxt, vol_type.id)
+
+    return vol_type
+
+
+def create_encryption(ctxt, vol_type_id, testcase_instance=None, **kwargs):
+    encrypt = db.volume_type_encryption_create(ctxt, vol_type_id, kwargs)
+
+    # If we get a TestCase instance we add cleanup
+    if testcase_instance:
+        testcase_instance.addCleanup(db.volume_type_encryption_delete, ctxt,
+                                     vol_type_id)
+    return encrypt
+
+
+def create_qos(ctxt, testcase_instance=None, **kwargs):
+    qos = db.qos_specs_create(ctxt, kwargs)
+    if testcase_instance:
+        testcase_instance.addCleanup(db.qos_specs_delete, ctxt, qos['id'])
+    return qos
 
 
 class ZeroIntervalLoopingCall(loopingcall.FixedIntervalLoopingCall):

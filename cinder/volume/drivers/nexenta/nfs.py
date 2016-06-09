@@ -12,12 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-"""
-:mod:`nexenta.nfs` -- Driver to store volumes on NexentaStor Appliance.
-=======================================================================
-
-.. automodule:: nexenta.nfs
-"""
 
 import hashlib
 import os
@@ -45,6 +39,9 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
     """Executes volume driver commands on Nexenta Appliance.
 
     Version history:
+
+    .. code-block:: none
+
         1.0.0 - Initial driver version.
         1.1.0 - Auto sharing for enclosing folder.
         1.1.1 - Added caching for NexentaStor appliance 'volroot' value.
@@ -398,6 +395,10 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                                                  volume)
             self._ensure_share_mounted(sub_share, mnt_path)
 
+        if (('size' in volume) and (
+                volume['size'] > snapshot['volume_size'])):
+            self.extend_volume(volume, volume['size'])
+
         return {'provider_location': volume['provider_location']}
 
     def create_cloned_volume(self, volume, src_vref):
@@ -409,6 +410,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         LOG.info(_LI('Creating clone of volume: %s'), src_vref['id'])
         snapshot = {'volume_name': src_vref['name'],
                     'volume_id': src_vref['id'],
+                    'volume_size': src_vref['size'],
                     'name': self._get_clone_snapshot_name(volume)}
         # We don't delete this snapshot, because this snapshot will be origin
         # of new volume. This snapshot will be automatically promoted by NMS

@@ -57,6 +57,9 @@ class HPE3PARFCDriver(driver.TransferVD,
     """OpenStack Fibre Channel driver to enable 3PAR storage array.
 
     Version history:
+
+    .. code-block:: none
+
         1.0   - Initial driver
         1.1   - QoS, extend volume, multiple iscsi ports, remove domain,
                 session changes, faster clone, requires 3.1.2 MU2 firmware,
@@ -97,10 +100,11 @@ class HPE3PARFCDriver(driver.TransferVD,
         3.0.4 - Adding manage/unmanage snapshot support
         3.0.5 - Optimize array ID retrieval
         3.0.6 - Update replication to version 2.1
+        3.0.7 - Remove metadata that tracks the instance ID. bug #1572665
 
     """
 
-    VERSION = "3.0.6"
+    VERSION = "3.0.7"
 
     def __init__(self, *args, **kwargs):
         super(HPE3PARFCDriver, self).__init__(*args, **kwargs)
@@ -553,21 +557,6 @@ class HPE3PARFCDriver(driver.TransferVD,
         finally:
             self._logout(common)
 
-    def attach_volume(self, context, volume, instance_uuid, host_name,
-                      mountpoint):
-        common = self._login()
-        try:
-            common.attach_volume(volume, instance_uuid)
-        finally:
-            self._logout(common)
-
-    def detach_volume(self, context, volume, attachment=None):
-        common = self._login()
-        try:
-            common.detach_volume(volume, attachment)
-        finally:
-            self._logout(common)
-
     def retype(self, context, volume, new_type, diff, host):
         """Convert the volume to be of the new type."""
         common = self._login()
@@ -611,13 +600,13 @@ class HPE3PARFCDriver(driver.TransferVD,
         finally:
             self._logout(common)
 
-    def failover_host(self, context, volumes, secondary_backend_id):
+    def failover_host(self, context, volumes, secondary_id=None):
         """Force failover to a secondary replication target."""
         common = self._login(timeout=30)
         try:
             # Update the active_backend_id in the driver and return it.
             active_backend_id, volume_updates = common.failover_host(
-                context, volumes, secondary_backend_id)
+                context, volumes, secondary_id)
             self._active_backend_id = active_backend_id
             return active_backend_id, volume_updates
         finally:

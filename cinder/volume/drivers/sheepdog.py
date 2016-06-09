@@ -22,6 +22,7 @@ SheepDog Volume Driver.
 import errno
 import eventlet
 import io
+import random
 import re
 
 from oslo_concurrency import processutils
@@ -55,6 +56,7 @@ CONF.register_opts(sheepdog_opts)
 
 class SheepdogClient(object):
     """Sheepdog command executor."""
+
     QEMU_SHEEPDOG_PREFIX = 'sheepdog:'
     DOG_RESP_CONNECTION_ERROR = 'failed to connect to'
     DOG_RESP_CLUSTER_RUNNING = 'Cluster status: running'
@@ -76,15 +78,41 @@ class SheepdogClient(object):
     QEMU_IMG_RESP_VDI_NOT_FOUND = 'No vdi found'
     QEMU_IMG_RESP_SIZE_TOO_LARGE = 'An image is too large.'
 
-    def __init__(self, addr, port):
-        self.addr = addr
+    def __init__(self, node_list, port):
+        self.node_list = node_list
         self.port = port
 
+    def get_addr(self):
+        """Get a random node in sheepdog cluster."""
+        return self.node_list[random.randint(0, len(self.node_list) - 1)]
+
+    def local_path(self, volume):
+        """Return a sheepdog location path."""
+        return "sheepdog:%(addr)s:%(port)s:%(name)s" % {
+            'addr': self.get_addr(),
+            'port': self.port,
+            'name': volume['name']}
+
     def _run_dog(self, command, subcommand, *params):
+        """Execute dog command wrapper."""
+        addr = self.get_addr()
         cmd = ('env', 'LC_ALL=C', 'LANG=C', 'dog', command, subcommand,
-               '-a', self.addr, '-p', self.port) + params
+               '-a', addr, '-p', self.port) + params
         try:
-            return utils.execute(*cmd)
+            (_stdout, _stderr) = utils.execute(*cmd)
+            if _stderr.startswith(self.DOG_RESP_CONNECTION_ERROR):
+                # NOTE(tishizaki)
+                # Dog command does not return error_code although
+                # dog command cannot connect to sheep process.
+                # That is a Sheepdog's bug.
+                # To avoid a Sheepdog's bug, now we need to check stderr.
+                # If Sheepdog has been fixed, this check logic is needed
+                # by old Sheepdog users.
+                reason = (_('Failed to connect to sheep daemon. '
+                          'addr: %(addr)s, port: %(port)s'),
+                          {'addr': addr, 'port': self.port})
+                raise exception.SheepdogError(reason=reason)
+            return (_stdout, _stderr)
         except OSError as e:
             with excutils.save_and_reraise_exception():
                 if e.errno == errno.ENOENT:
@@ -98,7 +126,7 @@ class SheepdogClient(object):
             if _stderr.startswith(self.DOG_RESP_CONNECTION_ERROR):
                 reason = (_('Failed to connect to sheep daemon. '
                           'addr: %(addr)s, port: %(port)s'),
-                          {'addr': self.addr, 'port': self.port})
+                          {'addr': addr, 'port': self.port})
                 raise exception.SheepdogError(reason=reason)
             raise exception.SheepdogCmdError(
                 cmd=e.cmd,
@@ -107,7 +135,8 @@ class SheepdogClient(object):
                 stderr=e.stderr.replace('\n', '\\n'))
 
     def _run_qemu_img(self, command, *params):
-        """Executes qemu-img command wrapper"""
+        """Executes qemu-img command wrapper."""
+        addr = self.get_addr()
         cmd = ['env', 'LC_ALL=C', 'LANG=C', 'qemu-img', command]
         for param in params:
             if param.startswith(self.QEMU_SHEEPDOG_PREFIX):
@@ -116,7 +145,7 @@ class SheepdogClient(object):
                 param = param.replace(self.QEMU_SHEEPDOG_PREFIX,
                                       '%(prefix)s%(addr)s:%(port)s:' %
                                       {'prefix': self.QEMU_SHEEPDOG_PREFIX,
-                                       'addr': self.addr, 'port': self.port},
+                                       'addr': addr, 'port': self.port},
                                       1)
             cmd.append(param)
         try:
@@ -130,6 +159,12 @@ class SheepdogClient(object):
                     msg = _LE('OSError: command is %(cmd)s.')
                 LOG.error(msg, {'cmd': tuple(cmd)})
         except processutils.ProcessExecutionError as e:
+            _stderr = e.stderr
+            if self.QEMU_IMG_RESP_CONNECTION_ERROR in _stderr:
+                reason = (_('Failed to connect to sheep daemon. '
+                            'addr: %(addr)s, port: %(port)s'),
+                          {'addr': addr, 'port': self.port})
+                raise exception.SheepdogError(reason=reason)
             raise exception.SheepdogCmdError(
                 cmd=e.cmd,
                 exit_code=e.exit_code,
@@ -175,18 +210,6 @@ class SheepdogClient(object):
             (_stdout, _stderr) = self._run_dog('vdi', 'delete', vdiname)
             if _stderr.rstrip().endswith(self.DOG_RESP_VDI_NOT_FOUND):
                 LOG.warning(_LW('Volume not found. %s'), vdiname)
-            elif _stderr.startswith(self.DOG_RESP_CONNECTION_ERROR):
-                # NOTE(tishizaki)
-                # Dog command does not return error_code although
-                # dog command cannot connect to sheep process.
-                # That is a Sheepdog's bug.
-                # To avoid a Sheepdog's bug, now we need to check stderr.
-                # If Sheepdog has been fixed, this check logic is needed
-                # by old Sheepdog users.
-                reason = (_('Failed to connect to sheep daemon. '
-                          'addr: %(addr)s, port: %(port)s'),
-                          {'addr': self.addr, 'port': self.port})
-                raise exception.SheepdogError(reason=reason)
         except exception.SheepdogCmdError as e:
             _stderr = e.kwargs['stderr']
             with excutils.save_and_reraise_exception():
@@ -220,18 +243,6 @@ class SheepdogClient(object):
                 LOG.warning(_LW('Snapshot "%s" not found.'), snapname)
             elif _stderr.rstrip().endswith(self.DOG_RESP_VDI_NOT_FOUND):
                 LOG.warning(_LW('Volume "%s" not found.'), vdiname)
-            elif _stderr.startswith(self.DOG_RESP_CONNECTION_ERROR):
-                # NOTE(tishizaki)
-                # Dog command does not return error_code although
-                # dog command cannot connect to sheep process.
-                # That is a Sheepdog's bug.
-                # To avoid a Sheepdog's bug, now we need to check stderr.
-                # If Sheepdog has been fixed, this check logic is needed
-                # by old Sheepdog users.
-                reason = (_('Failed to connect to sheep daemon. '
-                          'addr: %(addr)s, port: %(port)s'),
-                          {'addr': self.addr, 'port': self.port})
-                raise exception.SheepdogError(reason=reason)
         except exception.SheepdogCmdError as e:
             cmd = e.kwargs['cmd']
             _stderr = e.kwargs['stderr']
@@ -250,11 +261,7 @@ class SheepdogClient(object):
             cmd = e.kwargs['cmd']
             _stderr = e.kwargs['stderr']
             with excutils.save_and_reraise_exception():
-                if self.QEMU_IMG_RESP_CONNECTION_ERROR in _stderr:
-                    LOG.error(_LE('Failed to connect to sheep daemon. '
-                                  'addr: %(addr)s, port: %(port)s'),
-                              {'addr': self.addr, 'port': self.port})
-                elif self.QEMU_IMG_RESP_ALREADY_EXISTS in _stderr:
+                if self.QEMU_IMG_RESP_ALREADY_EXISTS in _stderr:
                     LOG.error(_LE('Clone volume "%s" already exists. '
                               'Please check the results of "dog vdi list".'),
                               dst_vdiname)
@@ -304,6 +311,18 @@ class SheepdogClient(object):
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Failed to get volume status. %s'), e)
         return _stdout
+
+    def update_node_list(self):
+        try:
+            (_stdout, _stderr) = self._run_dog('node', 'list', '-r')
+        except exception.SheepdogCmdError as e:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_LE('Failed to get node list. %s'), e)
+        node_list = []
+        stdout = _stdout.strip('\n')
+        for line in stdout.split('\n'):
+            node_list.append(line.split()[1].split(':')[0])
+        self.node_list = node_list
 
 
 class SheepdogIOWrapper(io.RawIOBase):
@@ -412,18 +431,20 @@ class SheepdogDriver(driver.VolumeDriver):
     def __init__(self, *args, **kwargs):
         super(SheepdogDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(sheepdog_opts)
-        self.addr = self.configuration.sheepdog_store_address
+        addr = self.configuration.sheepdog_store_address
         self.port = self.configuration.sheepdog_store_port
-        self.client = SheepdogClient(self.addr, self.port)
         self.stats_pattern = re.compile(r'[\w\s%]*Total\s(\d+)\s(\d+)*')
         self._stats = {}
+        self.node_list = [addr]
+        self.client = SheepdogClient(self.node_list, self.port)
 
     def check_for_setup_error(self):
+        """Check cluster status and update node list."""
         self.client.check_cluster_status()
+        self.client.update_node_list()
 
     def _is_cloneable(self, image_location, image_meta):
         """Check the image can be clone or not."""
-
         if image_location is None:
             return False
 
@@ -468,12 +489,11 @@ class SheepdogDriver(driver.VolumeDriver):
         self.create_cloned_volume(volume, volume_ref)
         self.client.resize(volume.name, volume.size)
 
-        vol_path = self.local_path(volume)
+        vol_path = self.client.local_path(volume)
         return {'provider_location': vol_path}, True
 
     def create_cloned_volume(self, volume, src_vref):
         """Clone a sheepdog volume from another volume."""
-
         snapshot_name = src_vref['name'] + '-temp-snapshot'
         snapshot = {
             'name': snapshot_name,
@@ -517,7 +537,8 @@ class SheepdogDriver(driver.VolumeDriver):
             # see volume/drivers/manager.py:_create_volume
             self.client.delete(volume.name)
             # convert and store into sheepdog
-            image_utils.convert_image(tmp, self.local_path(volume), 'raw')
+            image_utils.convert_image(tmp, self.client.local_path(volume),
+                                      'raw')
             self.client.resize(volume.name, volume.size)
 
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
@@ -532,7 +553,7 @@ class SheepdogDriver(driver.VolumeDriver):
                    '-f', 'raw',
                    '-t', 'none',
                    '-O', 'raw',
-                   self.local_path(volume),
+                   self.client.local_path(volume),
                    tmp)
             self._try_execute(*cmd)
 
@@ -546,12 +567,6 @@ class SheepdogDriver(driver.VolumeDriver):
     def delete_snapshot(self, snapshot):
         """Delete a sheepdog snapshot."""
         self.client.delete_snapshot(snapshot.volume_name, snapshot.name)
-
-    def local_path(self, volume):
-        return "sheepdog:%(addr)s:%(port)s:%(name)s" % {
-            'addr': self.addr,
-            'port': self.port,
-            'name': volume['name']}
 
     def ensure_export(self, context, volume):
         """Safely and synchronously recreate an export for a logical volume."""
@@ -570,7 +585,7 @@ class SheepdogDriver(driver.VolumeDriver):
             'driver_volume_type': 'sheepdog',
             'data': {
                 'name': volume['name'],
-                'hosts': [self.addr],
+                'hosts': [self.client.get_addr()],
                 'ports': ["%d" % self.port],
             }
         }
@@ -640,7 +655,7 @@ class SheepdogDriver(driver.VolumeDriver):
             raise exception.SheepdogError(reason=msg)
 
         try:
-            sheepdog_fd = SheepdogIOWrapper(self.addr, self.port,
+            sheepdog_fd = SheepdogIOWrapper(self.client.get_addr(), self.port,
                                             src_volume, temp_snapshot_name)
             backup_service.backup(backup, sheepdog_fd)
         finally:
@@ -648,5 +663,6 @@ class SheepdogDriver(driver.VolumeDriver):
 
     def restore_backup(self, context, backup, volume, backup_service):
         """Restore an existing backup to a new or existing volume."""
-        sheepdog_fd = SheepdogIOWrapper(self.addr, self.port, volume)
+        sheepdog_fd = SheepdogIOWrapper(self.client.get_addr(),
+                                        self.port, volume)
         backup_service.restore(backup, volume['id'], sheepdog_fd)

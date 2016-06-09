@@ -18,7 +18,6 @@ from webob import exc
 
 from cinder.api import extensions
 from cinder.api.openstack import wsgi
-from cinder.api.v2 import snapshots
 from cinder.api.views import snapshots as snapshot_views
 from cinder import exception
 from cinder.i18n import _
@@ -39,7 +38,6 @@ class SnapshotManageController(wsgi.Controller):
         self.volume_api = cinder_volume.API()
 
     @wsgi.response(202)
-    @wsgi.serializers(xml=snapshots.SnapshotTemplate)
     def create(self, req, body):
         """Instruct Cinder to manage a storage snapshot object.
 
@@ -53,13 +51,15 @@ class SnapshotManageController(wsgi.Controller):
 
         Required HTTP Body:
 
-        {
-         "snapshot":
-          {
-           "volume_id": <Cinder volume already exists in volume backend>,
-           "ref":  <Driver-specific reference to the existing storage object>,
-          }
-        }
+        .. code-block:: json
+
+         {
+           "snapshot":
+           {
+             "volume_id": <Cinder volume already exists in volume backend>,
+             "ref":  <Driver-specific reference to the existing storage object>
+           }
+         }
 
         See the appropriate Cinder drivers' implementations of the
         manage_snapshot method to find out the accepted format of 'ref'.
@@ -73,11 +73,12 @@ class SnapshotManageController(wsgi.Controller):
         The snapshot will later enter the error state if it is discovered that
         'ref' is bad.
 
-        Optional elements to 'snapshot' are:
-            name               A name for the new snapshot.
-            description        A description for the new snapshot.
-            metadata           Key/value pairs to be associated with the new
-                               snapshot.
+        Optional elements to 'snapshot' are::
+
+         name           A name for the new snapshot.
+         description    A description for the new snapshot.
+         metadata       Key/value pairs to be associated with the new snapshot.
+
         """
         context = req.environ['cinder.context']
         authorize(context)
@@ -135,8 +136,6 @@ class Snapshot_manage(extensions.ExtensionDescriptor):
 
     name = 'SnapshotManage'
     alias = 'os-snapshot-manage'
-    namespace = ('http://docs.openstack.org/volume/ext/'
-                 'os-snapshot-manage/api/v1')
     updated = '2014-12-31T00:00:00+00:00'
 
     def get_resources(self):

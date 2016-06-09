@@ -234,6 +234,8 @@ class VNXError(_Enum):
     LUN_IN_SG = 'contained in a Storage Group|LUN mapping still exists'
     LUN_NOT_MIGRATING = ('The specified source LUN is '
                          'not currently migrating')
+    LUN_MIGRATION_STOPPED = 'STOPPED|FAULTED'
+    LUN_MIGRATION_MIGRATING = 'TRANSITIONING|MIGRATING'
     LUN_IS_NOT_SMP = 'it is not a snapshot mount point'
 
     CG_IS_DELETING = 0x712d8801
@@ -603,12 +605,18 @@ class VNXLunProperties(VNXCliParser):
         '-tieringPolicy',
         'Tiering Policy')
 
+    LUN_UID = PropertyDescriptor(
+        '-uid',
+        'UID',
+        'wwn')
+
     lun_all = [LUN_STATE,
                LUN_STATUS,
                LUN_OPERATION,
                LUN_CAPACITY,
                LUN_OWNER,
-               LUN_ATTACHEDSNAP]
+               LUN_ATTACHEDSNAP,
+               LUN_UID]
 
     lun_with_pool = [LUN_STATE,
                      LUN_CAPACITY,
@@ -1277,7 +1285,7 @@ class CommandLineHelper(object):
 
         return rc
 
-    def migrate_lun(self, src_id, dst_id, rate=VNXMigrationRate.HIGH):
+    def migrate_start(self, src_id, dst_id, rate=VNXMigrationRate.HIGH):
         command_migrate_lun = ('migrate', '-start',
                                '-source', src_id,
                                '-dest', dst_id,
@@ -1294,79 +1302,83 @@ class CommandLineHelper(object):
         return rc
 
     def migrate_lun_without_verification(self, src_id, dst_id,
-                                         dst_name=None,
                                          rate=VNXMigrationRate.HIGH):
+        """Start a migration session from src_id to dst_id.
+
+        :param src_id: source LUN id
+        :param dst_id: destination LUN id
+
+        NOTE: This method will ignore any errors, error-handling
+        is located in verification function.
+        """
         try:
-            self.migrate_lun(src_id, dst_id, rate)
-            return True
+            self.migrate_start(src_id, dst_id, rate)
         except exception.EMCVnxCLICmdError as ex:
-            migration_succeed = False
-            orig_out = "\n".join(ex.kwargs["out"])
-            if self._is_sp_unavailable_error(orig_out):
-                LOG.warning(_LW("Migration command may get network timeout. "
-                                "Double check whether migration in fact "
-                                "started successfully. Message: %(msg)s"),
-                            {'msg': ex.kwargs["out"]})
-                command_migrate_list = ('migrate', '-list',
-                                        '-source', src_id)
-                rc = self.command_execute(*command_migrate_list,
-                                          poll=True)[1]
-                if rc == 0:
-                    migration_succeed = True
+            with excutils.save_and_reraise_exception(reraise=False):
+                # Here we just log whether migration command has started
+                # successfully, post error handling is needed when verify
+                # this migration session
+                LOG.warning(_LW("Starting migration from %(src)s to %(dst)s "
+                                "failed. Will check whether migration was "
+                                "successful later."
+                                ": %(msg)s"), {'src': src_id,
+                                               'dst': dst_id,
+                                               'msg': ex.kwargs['out']})
+        return True
 
-            if not migration_succeed:
-                LOG.warning(_LW("Start migration failed. Message: %s"),
-                            ex.kwargs["out"])
-                if dst_name is not None:
-                    LOG.warning(_LW("Delete temp LUN after migration "
-                                    "start failed. LUN: %s"), dst_name)
-                    self.delete_lun(dst_name)
-                return False
-            else:
-                return True
+    def verify_lun_migration(self, src_id, dst_id, dst_wwn, dst_name=None):
+        """Verify whether the migration session has finished for src_id
 
-    def verify_lun_migration(self, src_id):
-        # Set the proper interval to verify the migration status
+        :param src_id: lun id of source LUN
+        :param dst_id: lun id of destination LUN
+        :param dst_wwn: original wwn for destination LUN
+        :param dst_name: dst_name for cleanup if error met
+        """
+        cmd_list = ('migrate', '-list', '-source', src_id)
+
         def migration_is_ready(poll=False):
             mig_ready = False
-            cmd_migrate_list = ('migrate', '-list', '-source', src_id)
-            out, rc = self.command_execute(*cmd_migrate_list,
-                                           poll=poll)
-            LOG.debug("Migration output: %s", out)
+            out, rc = self.migration_list(src_id, poll=poll)
             if rc == 0:
-                # parse the percentage
+                # Parse the percentage
                 state = re.search(r'Current State:\s*([^\n]+)', out)
                 percentage = re.search(r'Percent Complete:\s*([^\n]+)', out)
-                percentage_complete = 'N/A'
-                current_state = 'N/A'
-                if state is not None:
-                    current_state = state.group(1)
-                    percentage_complete = percentage.group(1)
-                else:
-                    self._raise_cli_error(cmd_migrate_list, rc, out)
-                if ("FAULTED" in current_state or
-                        "STOPPED" in current_state):
+                current_state = state.group(1)
+                percentage_complete = percentage.group(1)
+                if VNXError.has_error(current_state,
+                                      VNXError.LUN_MIGRATION_STOPPED):
                     reason = _("Migration of LUN %s has been stopped or"
                                " faulted.") % src_id
                     raise exception.VolumeBackendAPIException(data=reason)
-                if ("TRANSITIONING" in current_state or
-                        "MIGRATING" in current_state):
+                if VNXError.has_error(current_state,
+                                      VNXError.LUN_MIGRATION_MIGRATING):
                     LOG.debug("Migration of LUN %(src_id)s in process "
                               "%(percentage)s %%.",
                               {"src_id": src_id,
                                "percentage": percentage_complete})
-            else:
-                if VNXError.has_error(out, VNXError.LUN_NOT_MIGRATING):
+            elif VNXError.has_error(out, VNXError.LUN_NOT_MIGRATING):
+                # Verify the wwn has changed for the LUN
+                new_wwn = None
+                try:
+                    new_wwn = self.get_lun_by_id(dst_id)['wwn']
+                except exception.EMCVnxCLICmdError:
+                    # Destination LUN disappeared as expected
+                    pass
+                if not new_wwn or dst_wwn != new_wwn:
                     LOG.debug("Migration of LUN %s is finished.", src_id)
                     mig_ready = True
                 else:
-                    self._raise_cli_error(cmd_migrate_list, rc, out)
+                    # Migration may fail to start
+                    LOG.error(_LE("Migration verification failed: "
+                                  "wwn is not changed after migration."))
+                    self._raise_cli_error(cmd_list, rc, out)
+            else:
+                # Unexpected error occurred, raise it directly
+                self._raise_cli_error(cmd_list, rc, out)
             return mig_ready
 
         def migration_disappeared(poll=False):
-            cmd_migrate_list = ('migrate', '-list', '-source', src_id)
-            out, rc = self.command_execute(*cmd_migrate_list,
-                                           poll=poll)
+            out, rc = self.migration_list(src_id, poll=poll)
             if rc != 0:
                 if VNXError.has_error(out, VNXError.LUN_NOT_MIGRATING):
                     LOG.debug("Migration of LUN %s is finished.", src_id)
@@ -1374,7 +1386,7 @@ class CommandLineHelper(object):
                 else:
                     LOG.error(_LE("Failed to query migration status of LUN."),
                               src_id)
-                    self._raise_cli_error(cmd_migrate_list, rc, out)
+                    self._raise_cli_error(cmd_list, rc, out)
             return False
 
         try:
@@ -1385,15 +1397,23 @@ class CommandLineHelper(object):
                 interval=INTERVAL_30_SEC,
                 ignorable_exception_arbiter=lambda ex:
                 type(ex) is not exception.VolumeBackendAPIException)
-        # Migration cancellation for clean up
+        except exception.EMCVnxCLICmdError as ex:
+            # Try to delete destination lun after migration failure
+            with excutils.save_and_reraise_exception():
+                LOG.warning(_LW("Start migration failed. Message: %s"),
+                            ex.kwargs["out"])
+                if dst_name is not None:
+                    LOG.warning(_LW("Deleting temp LUN after migration "
+                                    "start failed. LUN: %s"), dst_name)
+                    self.delete_lun(dst_name)
         except exception.VolumeBackendAPIException:
+            # Migration cancellation for clean up
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("Migration of LUN %s failed to complete."),
                           src_id)
                 self.migration_cancel(src_id)
                 self._wait_for_a_condition(migration_disappeared,
                                            interval=INTERVAL_30_SEC)
-
         return True
 
     # Cancel migration in case where status is faulted or stopped
@@ -1405,17 +1425,26 @@ class CommandLineHelper(object):
         if rc != 0:
             self._raise_cli_error(cmd_migrate_cancel, rc, out)
 
-    def migrate_lun_with_verification(self, src_id,
-                                      dst_id,
+    def migration_list(self, src, poll=True):
+        """Lists migration status for LUN.
+
+        :param src: WWN or ID of source LUN
+        """
+        cmd_migrate_list = ('migrate', '-list', '-source', src)
+        return self.command_execute(*cmd_migrate_list,
+                                    poll=poll)
+
+    def migrate_lun_with_verification(self, src_id, dst_id,
                                       dst_name=None,
+                                      dst_wwn=None,
                                       rate=VNXMigrationRate.HIGH):
-        migration_started = self.migrate_lun_without_verification(
-            src_id, dst_id, dst_name, rate)
-        if not migration_started:
-            return False
+        if not dst_wwn:
+            dst_wwn = self.get_lun_by_id(dst_id, poll=False)['wwn']
+        self.migrate_lun_without_verification(
+            src_id, dst_id, rate=rate)
 
         eventlet.sleep(INTERVAL_30_SEC)
-        return self.verify_lun_migration(src_id)
+        return self.verify_lun_migration(src_id, dst_id, dst_wwn, dst_name)
 
     def get_storage_group(self, name, poll=True):
 
@@ -1999,7 +2028,7 @@ class CommandLineHelper(object):
                          '(^A network error occurred while trying to'
                          ' connect.* )|'
                          '(^Exception: Error occurred because of time out\s*)')
-        pattern = re.compile(error_pattern)
+        pattern = re.compile(error_pattern, re.DOTALL)
         return pattern.match(out)
 
     @utils.retry(exception.EMCSPUnavailableException, retries=5,
@@ -2515,7 +2544,7 @@ class EMCVnxCliBase(object):
                     # Reraise the original exception
                     pass
         if volume['provider_location']:
-            lun_type = self._extract_provider_location(
+            lun_type = self.extract_provider_location(
                 volume['provider_location'], 'type')
             if lun_type == 'smp':
                 self._client.delete_snapshot(
@@ -2644,11 +2673,12 @@ class EMCVnxCliBase(object):
             ignore_thresholds=self.ignore_pool_full_threshold)
 
         dst_id = data['lun_id']
+        dst_wwn = data['wwn']
         moved = self._client.migrate_lun_with_verification(
-            src_id, dst_id, new_volume_name,
+            src_id, dst_id, new_volume_name, dst_wwn,
             rate=self._get_migration_rate(volume))
 
-        lun_type = self._extract_provider_location(
+        lun_type = self.extract_provider_location(
             volume['provider_location'], 'type')
         # A smp will become a LUN after migration
         if lun_type == 'smp':
@@ -2666,7 +2696,8 @@ class EMCVnxCliBase(object):
     def update_migrated_volume(self, context, volume, new_volume,
                                original_volume_status):
         """Updates metadata after host-assisted migration."""
-        lun_type = self._extract_provider_location(
+
+        lun_type = self.extract_provider_location(
             new_volume['provider_location'], 'type')
         volume_metadata = self._get_volume_metadata(volume)
         model_update = {'provider_location':
@@ -2749,7 +2780,7 @@ class EMCVnxCliBase(object):
         new_provisioning, new_tiering = (
             self._get_extra_spec_value(new_specs))
 
-        lun_type = self._extract_provider_location(
+        lun_type = self.extract_provider_location(
             volume['provider_location'], 'type')
 
         if volume['host'] != host['host']:
@@ -2956,7 +2987,7 @@ class EMCVnxCliBase(object):
             flow_engine = taskflow.engines.load(work_flow,
                                                 store=store_spec)
             flow_engine.run()
-            new_lun_id = flow_engine.storage.fetch('new_smp_id')
+            new_lun_id = flow_engine.storage.fetch('new_smp_data')['lun_id']
             pl = self._build_provider_location(
                 new_lun_id, 'smp', base_lun_name)
             volume_metadata['snapcopy'] = 'True'
@@ -3033,7 +3064,7 @@ class EMCVnxCliBase(object):
             flow_engine = taskflow.engines.load(work_flow,
                                                 store=store_spec)
             flow_engine.run()
-            new_lun_id = flow_engine.storage.fetch('new_smp_id')
+            new_lun_id = flow_engine.storage.fetch('new_smp_data')['lun_id']
             pl = self._build_provider_location(
                 new_lun_id, 'smp', base_lun_name)
         else:
@@ -3077,7 +3108,8 @@ class EMCVnxCliBase(object):
 
         return model_update
 
-    def _get_volume_metadata(self, volume):
+    @staticmethod
+    def _get_volume_metadata(volume):
         # Since versionedobjects is partially merged, metadata
         # may come from 'volume_metadata' or 'metadata', here
         # we need to take care both of them.
@@ -3094,7 +3126,7 @@ class EMCVnxCliBase(object):
 
     def _get_base_lun_name(self, volume):
         """Returns base LUN name for SMP or LUN."""
-        base_name = self._extract_provider_location(
+        base_name = self.extract_provider_location(
             volume['provider_location'], 'base_lun_name')
         if base_name is None or base_name == 'None':
             return volume['name']
@@ -3125,7 +3157,8 @@ class EMCVnxCliBase(object):
         pl_dict[key] = value
         return self.dumps_provider_location(pl_dict)
 
-    def _extract_provider_location(self, provider_location, key='id'):
+    @staticmethod
+    def extract_provider_location(provider_location, key='id'):
         """Extracts value of the specified field from provider_location string.
 
         :param provider_location: provider_location string
@@ -3133,12 +3166,14 @@ class EMCVnxCliBase(object):
         :return: value of the specified field if it exists, otherwise,
                  None is returned
         """
-
-        kvps = provider_location.split('|')
-        for kvp in kvps:
-            fields = kvp.split('^')
-            if len(fields) == 2 and fields[0] == key:
-                return fields[1]
+        ret = None
+        if provider_location is not None:
+            kvps = provider_location.split('|')
+            for kvp in kvps:
+                fields = kvp.split('^')
+                if len(fields) == 2 and fields[0] == key:
+                    ret = fields[1]
+        return ret
 
     def _consistencygroup_creation_check(self, group):
         """Check extra spec for consistency group."""
@@ -3250,7 +3285,8 @@ class EMCVnxCliBase(object):
                                            cgsnapshot['id'])
             for snapshot in snapshots:
                 snapshots_model_update.append(
-                    {'id': snapshot['id'], 'status': 'available'})
+                    {'id': snapshot['id'],
+                     'status': fields.SnapshotStatus.AVAILABLE})
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Create cg snapshot %s failed.'),
@@ -3275,7 +3311,8 @@ class EMCVnxCliBase(object):
             self._client.delete_cgsnapshot(cgsnapshot['id'])
             for snapshot in snapshots:
                 snapshots_model_update.append(
-                    {'id': snapshot['id'], 'status': 'deleted'})
+                    {'id': snapshot['id'],
+                     'status': fields.SnapshotStatus.DELETED})
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Delete cgsnapshot %s failed.'),
@@ -3288,7 +3325,7 @@ class EMCVnxCliBase(object):
         try:
             provider_location = volume.get('provider_location')
             if provider_location:
-                lun_id = self._extract_provider_location(
+                lun_id = self.extract_provider_location(
                     provider_location,
                     'id')
             if lun_id:
@@ -3867,13 +3904,18 @@ class EMCVnxCliBase(object):
     def manage_existing(self, volume, manage_existing_ref):
         """Imports the existing backend storage object as a volume.
 
-        manage_existing_ref:{
-            'source-id':<lun id in VNX>
-        }
-        or
-        manage_existing_ref:{
-            'source-name':<lun name in VNX>
-        }
+        .. code-block:: none
+
+            manage_existing_ref:{
+                'source-id':<lun id in VNX>
+            }
+
+            or
+
+            manage_existing_ref:{
+                'source-name':<lun name in VNX>
+            }
+
         """
         client = self._client
 
@@ -3896,12 +3938,12 @@ class EMCVnxCliBase(object):
                                       'type': tar_type,
                                       'tier': tar_tier})
 
-        do_migration = (tar_type is not None
-                        and tar_type != vnx_lun.provision
-                        or tar_pool != vnx_lun.pool_name)
-        change_tier = (tar_tier is not None
-                       and not do_migration
-                       and tar_tier != vnx_lun.tier)
+        do_migration = (tar_type is not None and
+                        tar_type != vnx_lun.provision or
+                        tar_pool != vnx_lun.pool_name)
+        change_tier = (tar_tier is not None and
+                       not do_migration and
+                       tar_tier != vnx_lun.tier)
 
         reason = None
         if do_migration:
@@ -3986,7 +4028,7 @@ class EMCVnxCliBase(object):
 
         return specs
 
-    def failover_host(self, context, volumes, secondary_backend_id):
+    def failover_host(self, context, volumes, secondary_id=None):
         """Fails over the volume back and forth.
 
         Driver needs to update following info for this volume:
@@ -3994,12 +4036,12 @@ class EMCVnxCliBase(object):
         """
         volume_update_list = []
 
-        if secondary_backend_id != 'default':
+        if secondary_id and secondary_id != 'default':
             rep_status = 'failed-over'
             backend_id = (
                 self.configuration.replication_device[0]['backend_id'])
-            if secondary_backend_id != backend_id:
-                msg = (_('Invalid secondary_backend_id specified. '
+            if secondary_id != backend_id:
+                msg = (_('Invalid secondary_id specified. '
                          'Valid backend id is %s.') % backend_id)
                 LOG.error(msg)
                 raise exception.VolumeBackendAPIException(data=msg)
@@ -4021,12 +4063,12 @@ class EMCVnxCliBase(object):
                     'Failed to failover volume %(volume_id)s '
                     'to %(target)s: %(error)s.')
                 LOG.error(msg, {'volume_id': volume.id,
-                                'target': secondary_backend_id,
+                                'target': secondary_id,
                                 'error': ex},)
                 new_status = 'error'
             else:
                 rep_data.update({'is_primary': not is_primary})
-                # Transfer ownership to secondary_backend_id and
+                # Transfer ownership to secondary_id and
                 # update provider_location field
                 provider_location = self._update_provider_location(
                     provider_location,
@@ -4051,7 +4093,7 @@ class EMCVnxCliBase(object):
                 volume_update_list.append({
                     'volume_id': volume.id,
                     'updates': {'status': 'error'}})
-        return secondary_backend_id, volume_update_list
+        return secondary_id, volume_update_list
 
     def _is_replication_enabled(self, volume):
         """Return True if replication extra specs is specified.
@@ -4330,6 +4372,7 @@ class EMCVnxCliBase(object):
                 volume_model_updates[i]['host'] = host_and_pool
 
         work_flow.add(WaitMigrationsCompleteTask(lun_id_key_template,
+                                                 lun_data_key_template,
                                                  len(volumes)),
                       CreateConsistencyGroupTask(lun_id_key_template,
                                                  len(volumes)))
@@ -4360,8 +4403,8 @@ class EMCVnxCliBase(object):
         provider_location = source_volume.get('provider_location')
 
         if (not provider_location or
-                not self._extract_provider_location(provider_location,
-                                                    'version')):
+                not self.extract_provider_location(provider_location,
+                                                   'version')):
             LOG.warning(_LW("The source volume is a legacy volume. "
                             "Create volume in the pool where the source "
                             "volume %s is created."),
@@ -4425,13 +4468,13 @@ class CreateSMPTask(task.Task):
     """
     def __init__(self, name=None, inject=None):
         super(CreateSMPTask, self).__init__(name=name,
-                                            provides='new_smp_id',
+                                            provides='new_smp_data',
                                             inject=inject)
 
     def execute(self, client, volume, base_lun_name, *args, **kwargs):
         LOG.debug('CreateSMPTask.execute')
         client.create_mount_point(base_lun_name, volume['name'])
-        return client.get_lun_by_name(volume['name'])['lun_id']
+        return client.get_lun_by_name(volume['name'])
 
     def revert(self, result, client, volume, *args, **kwargs):
         LOG.debug('CreateSMPTask.revert')
@@ -4514,27 +4557,27 @@ class MigrateLunTask(task.Task):
                                              rebind=rebind)
         self.wait_for_completion = wait_for_completion
 
-    def execute(self, client, new_smp_id, lun_data, rate=VNXMigrationRate.HIGH,
-                *args, **kwargs):
+    def execute(self, client, new_smp_data, lun_data,
+                rate=VNXMigrationRate.HIGH, *args, **kwargs):
         LOG.debug('MigrateLunTask.execute')
         dest_vol_lun_id = lun_data['lun_id']
-        LOG.debug('Migrating Mount Point Volume ID: %s', new_smp_id)
+        dst_wwn = lun_data['wwn']
+        src_smp_id = new_smp_data['lun_id']
+        LOG.debug('Migrating Mount Point Volume ID: %s', src_smp_id)
         if self.wait_for_completion:
-            migrated = client.migrate_lun_with_verification(new_smp_id,
-                                                            dest_vol_lun_id,
-                                                            None,
-                                                            rate)
+            migrated = client.migrate_lun_with_verification(
+                src_smp_id, dest_vol_lun_id, None, dst_wwn, rate)
         else:
             migrated = client.migrate_lun_without_verification(
-                new_smp_id, dest_vol_lun_id, None)
+                src_smp_id, dest_vol_lun_id)
         if not migrated:
             msg = (_("Migrate volume failed between source vol %(src)s"
                      " and dest vol %(dst)s.") %
-                   {'src': new_smp_id, 'dst': dest_vol_lun_id})
+                   {'src': src_smp_id, 'dst': dest_vol_lun_id})
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-        return new_smp_id
+        return src_smp_id
 
     def revert(self, *args, **kwargs):
         pass
@@ -4624,19 +4667,29 @@ class CreateConsistencyGroupTask(task.Task):
 
 class WaitMigrationsCompleteTask(task.Task):
     """Task to wait migrations to be completed."""
-    def __init__(self, lun_id_key_template, num_of_members):
+    def __init__(self, lun_id_key_template, lun_data_key_template,
+                 num_of_members):
         self.lun_id_keys = sorted(set(
             [lun_id_key_template % i for i in range(num_of_members)]))
+        self.lun_data_keys = sorted(set(
+            [lun_data_key_template % i for i in range(num_of_members)]))
+        self.migrate_tuples = [
+            (lun_id_key_template % x, lun_data_key_template % x)
+            for x in range(num_of_members)]
         super(WaitMigrationsCompleteTask, self).__init__(
-            requires=self.lun_id_keys)
+            requires=self.lun_id_keys + self.lun_data_keys)
 
     def execute(self, client, *args, **kwargs):
         LOG.debug('WaitMigrationsCompleteTask.execute')
-        lun_ids = [kwargs[key] for key in self.lun_id_keys]
-        for lun_id in lun_ids:
-            migrated = client.verify_lun_migration(lun_id)
+        for src_id_key, dst_data_key in self.migrate_tuples:
+            src_id = kwargs[src_id_key]
+            dst_data = kwargs[dst_data_key]
+            migrated = client.verify_lun_migration(src_id,
+                                                   dst_data['lun_id'],
+                                                   dst_data['wwn'],
+                                                   dst_name=None)
             if not migrated:
-                msg = _("Migrate volume %(src)s failed.") % {'src': lun_id}
+                msg = _("Migrate volume %(src)s failed.") % {'src': src_id}
                 raise exception.VolumeBackendAPIException(data=msg)
 
 
@@ -4781,25 +4834,29 @@ class MirrorView(object):
         :param name: mirror view name
         :param use_secondary: get image info from secodnary or not
         :return: dict of mirror view properties as below:
+
+        .. code-block:: python
+
             {
                 'MirrorView Name': 'mirror name',
                 'MirrorView Description': 'some desciption here',
-                ...,
+                {...},
                 'images': [
                     {
                         'Image UID': '50:06:01:60:88:60:08:0F',
                         'Is Image Primary': 'YES',
-                        ...
+                        {...}
                         'Preferred SP': 'A'
                     },
                     {
                         'Image UID': '50:06:01:60:88:60:03:BA',
                         'Is Image Primary': 'NO',
-                        ...,
+                        {...},
                         'Synchronizing Progress(%)': 100
                     }
                 ]
             }
+
         """
         if use_secondary:
             client = self._secondary_client

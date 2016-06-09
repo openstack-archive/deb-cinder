@@ -6,11 +6,12 @@
 # Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2014
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Zbyněk Schwarz <zbynek.schwarz@gmail.com>, 2015. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.0rc2.dev10\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-17 18:05+0000\n"
+"Project-Id-Version: cinder 8.0.1.dev161\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-23 16:54+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -69,6 +70,9 @@ msgstr "%s"
 #, python-format
 msgid "'%(value)s' is an invalid value for extra spec '%(key)s'"
 msgstr "'%(value)s' je neplatná hodnota pro dodatečnou specifikaci '%(key)s'"
+
+msgid "A valid secondary target MUST be specified in order to failover."
+msgstr "Pro zavedení záložního systému MUSÍ být zadán platný druhotní cíl."
 
 #, python-format
 msgid ""
@@ -517,10 +521,6 @@ msgstr ""
 msgid "DB error:"
 msgstr "Chyba databáze:"
 
-#, python-format
-msgid "DBError detected when purging from table=%(table)s"
-msgstr "Při čištění tabulky %(table)s byla zjištěna chyba databáze"
-
 msgid "DBError encountered: "
 msgstr "Zjištěna chyba databáze:"
 
@@ -648,10 +648,6 @@ msgid "Error adding HBA to server"
 msgstr "Chyba při přidávání HBA k serveru"
 
 #, python-format
-msgid "Error attaching volume %s"
-msgstr "Chyba při připojování svazku %s"
-
-#, python-format
 msgid "Error cleaning up failed volume creation.  Msg - %s."
 msgstr "Chyba při čištění selhaného vytváření svazku. Zpráva - %s"
 
@@ -711,9 +707,6 @@ msgstr "Chyba při mazání klíče."
 
 msgid "Error deleting snapshot"
 msgstr "Chyba při mazání snímku"
-
-msgid "Error deleting volume"
-msgstr "Chyba při mazání svazku"
 
 #, python-format
 msgid "Error detaching snapshot %(snapshot)s, due to remove export failure."
@@ -1151,12 +1144,6 @@ msgstr "Shromažďování informací databáze fcns pro fabric %s selhalo"
 msgid "Failed collecting name server info from fabric %s"
 msgstr "Shromáždění informací o jmenném serveru z fabric %s selhalo"
 
-msgid "Failed collecting nscamshow"
-msgstr "Shromažďování nscamshow selhalo"
-
-msgid "Failed collecting nsshow info for fabric"
-msgstr "Shromáždění informací nsshow pro fabric selhalo"
-
 #, python-format
 msgid "Failed collecting nsshow info for fabric %s"
 msgstr "Shromáždění informací nsshow pro fabric %s selhalo"
@@ -1335,10 +1322,6 @@ msgstr ""
 #, python-format
 msgid "Failed to commit reservations %s"
 msgstr "Nelze odevzdat rezervace %s"
-
-#, python-format
-msgid "Failed to connect to sheep daemon. addr: %(addr)s, port: %(port)s"
-msgstr "Nelze se připojit k daemonu sheep. Adresa: %(addr)s, port: %(port)s"
 
 #, python-format
 msgid "Failed to copy %(src)s to %(dest)s."
@@ -2115,7 +2098,7 @@ msgstr "Lun %s má na sobě závislé snímky, smazání lun přeskočeno."
 
 #, python-format
 msgid "Lun create for %s failed!"
-msgstr "Vytvoření Lun pro %s selhalo!"
+msgstr "Vytvoření LUN pro %s selhalo!"
 
 #, python-format
 msgid "Lun create snapshot for volume %(vol)s snapshot %(snap)s failed!"
@@ -2633,20 +2616,9 @@ msgstr ""
 msgid "Unable to determine whether %(volumeName)s is composite or not."
 msgstr "Nelze zjistit zda %(volumeName)s je složený nebo ne."
 
-msgid "Unable to find FC initiators"
-msgstr "Nelze najít zavaděče FC"
-
 #, python-format
 msgid "Unable to find VG: %s"
 msgstr "Nelze najít skupinu svazku: %s"
-
-#, python-format
-msgid "Unable to find controller port iscsi configuration: %s"
-msgstr "Nelze najít port kontroléru pro nastavení iscsi: %s"
-
-#, python-format
-msgid "Unable to find controller port: %s"
-msgstr "Nelze najít port kontroléru: %s"
 
 #, python-format
 msgid ""
@@ -2715,10 +2687,6 @@ msgstr "Nelze získat instanci zásoby %(poolName)s v poli %(array)s."
 #, python-format
 msgid "Unable to terminate volume connection: %(err)s."
 msgstr "Nelze ukončit připojení ke svazku: %(err)s."
-
-#, python-format
-msgid "Unable to unmap Volume %s"
-msgstr "Nelze zrušit mapování svazku %s"
 
 msgid "Unexpected build error:"
 msgstr "Neočekávaná chyba při sestavování:"
@@ -2940,9 +2908,6 @@ msgstr ""
 #, python-format
 msgid "Volume already exists. %s"
 msgstr "Svazek již existuje. %s"
-
-msgid "Volume appears unmapped"
-msgstr "Svazek se nezdá být mapován"
 
 msgid "Volume did not exist. It will not be deleted"
 msgstr "Svazek neexistuje. Nebude smazán"

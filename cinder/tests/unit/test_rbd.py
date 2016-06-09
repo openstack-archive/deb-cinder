@@ -30,6 +30,7 @@ import cinder.image.glance
 from cinder.image import image_utils
 from cinder import objects
 from cinder import test
+from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_snapshot
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import test_volume
@@ -214,6 +215,17 @@ class RBDTestCase(test.TestCase):
                 self.assertEqual(2, return_size)
                 mock_rbd_image_size.assert_called_once_with()
                 mock_rbd_image_close.assert_called_once_with()
+
+    @common_mocks
+    def test_manage_existing_get_non_integer_size(self):
+        rbd_image = self.driver.rbd.Image.return_value
+        rbd_image.size.return_value = int(1.75 * units.Gi)
+        existing_ref = {'source-name': self.volume_a.name}
+        return_size = self.driver.manage_existing_get_size(self.volume_a,
+                                                           existing_ref)
+        self.assertEqual(2, return_size)
+        rbd_image.size.assert_called_once_with()
+        rbd_image.close.assert_called_once_with()
 
     @common_mocks
     def test_manage_existing_get_invalid_size(self):
@@ -413,6 +425,21 @@ class RBDTestCase(test.TestCase):
         proxy.__enter__.return_value = proxy
 
         proxy.unprotect_snap.side_effect = (
+            self.mock_rbd.ImageNotFound)
+
+        self.driver.delete_snapshot(self.snapshot)
+
+        proxy.remove_snap.assert_called_with(self.snapshot.name)
+        proxy.unprotect_snap.assert_called_with(self.snapshot.name)
+
+    @common_mocks
+    @mock.patch('cinder.objects.Volume.get_by_id')
+    def test_delete_notfound_on_remove_snapshot(self, volume_get_by_id):
+        volume_get_by_id.return_value = self.volume_a
+        proxy = self.mock_proxy.return_value
+        proxy.__enter__.return_value = proxy
+
+        proxy.remove_snap.side_effect = (
             self.mock_rbd.ImageNotFound)
 
         self.driver.delete_snapshot(self.snapshot)
@@ -832,6 +859,7 @@ class RBDTestCase(test.TestCase):
                                        self.volume_a.name),
                     'hosts': hosts,
                     'ports': ports,
+                    'cluster_name': self.cfg.rbd_cluster_name,
                     'auth_enabled': False,
                     'auth_username': None,
                     'secret_type': 'ceph',
@@ -891,7 +919,7 @@ class RBDTestCase(test.TestCase):
                 'extra_specs': {}}
         updates = {'name': 'testvolume',
                    'host': 'currenthost',
-                   'id': 'fakeid'}
+                   'id': fake.VOLUME_ID}
         fake_type = 'high-IOPS'
         volume = fake_volume.fake_volume_obj(context, **updates)
 

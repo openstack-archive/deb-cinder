@@ -13,7 +13,6 @@
 #    under the License.
 
 from oslo_config import cfg
-from oslo_log import log as logging
 from oslo_serialization import base64
 from oslo_serialization import jsonutils
 from oslo_utils import versionutils
@@ -26,8 +25,8 @@ from cinder import objects
 from cinder.objects import base
 from cinder.objects import fields as c_fields
 
+
 CONF = cfg.CONF
-LOG = logging.getLogger(__name__)
 
 
 @base.CinderObjectRegistry.register
@@ -44,8 +43,8 @@ class Backup(base.CinderPersistentObject, base.CinderObject,
     fields = {
         'id': fields.UUIDField(),
 
-        'user_id': fields.UUIDField(),
-        'project_id': fields.UUIDField(),
+        'user_id': fields.StringField(),
+        'project_id': fields.StringField(),
 
         'volume_id': fields.UUIDField(),
         'host': fields.StringField(nullable=True),

@@ -36,7 +36,7 @@ from six.moves import range
 from six.moves import urllib
 
 from cinder import exception
-from cinder.i18n import _LE, _LW
+from cinder.i18n import _, _LE, _LW
 
 
 glance_opts = [
@@ -45,6 +45,12 @@ glance_opts = [
                 help='A list of url schemes that can be downloaded directly '
                      'via the direct_url.  Currently supported schemes: '
                      '[file].'),
+    cfg.StrOpt('glance_catalog_info',
+               default='image:glance:publicURL',
+               help='Info to match when looking for glance in the service '
+                    'catalog. Format is: separated values of the form: '
+                    '<service_type>:<service_name>:<endpoint_type> - '
+                    'Only used if glance_api_servers are not provided.'),
 ]
 glance_core_properties_opts = [
     cfg.ListOpt('glance_core_properties',
@@ -97,23 +103,44 @@ def _create_glance_client(context, netloc, use_ssl, version=None):
     return glanceclient.Client(str(version), endpoint, **params)
 
 
-def get_api_servers():
+def get_api_servers(context):
     """Return Iterable over shuffled api servers.
 
-    Shuffle a list of CONF.glance_api_servers and return an iterator
+    Shuffle a list of glance_api_servers and return an iterator
     that will cycle through the list, looping around to the beginning
-    if necessary.
+    if necessary. If CONF.glance_api_servers is None then they will
+    be retrieved from the catalog.
     """
     api_servers = []
-    for api_server in CONF.glance_api_servers:
+    api_servers_info = []
+
+    if CONF.glance_api_servers is None:
+        info = CONF.glance_catalog_info
+        try:
+            service_type, service_name, endpoint_type = info.split(':')
+        except ValueError:
+            raise exception.InvalidConfigurationValue(_(
+                "Failed to parse the configuration option "
+                "'glance_catalog_info', must be in the form "
+                "<service_type>:<service_name>:<endpoint_type>"))
+        for entry in context.service_catalog:
+            if entry.get('type') == service_type:
+                api_servers.append(
+                    entry.get('endpoints')[0].get(endpoint_type))
+    else:
+        for api_server in CONF.glance_api_servers:
+            api_servers.append(api_server)
+
+    for api_server in api_servers:
         if '//' not in api_server:
             api_server = 'http://' + api_server
         url = urllib.parse.urlparse(api_server)
-        netloc = url.netloc
+        netloc = url.netloc + url.path
         use_ssl = (url.scheme == 'https')
-        api_servers.append((netloc, use_ssl))
-    random.shuffle(api_servers)
-    return itertools.cycle(api_servers)
+        api_servers_info.append((netloc, use_ssl))
+
+    random.shuffle(api_servers_info)
+    return itertools.cycle(api_servers_info)
 
 
 class GlanceClientWrapper(object):
@@ -149,7 +176,7 @@ class GlanceClientWrapper(object):
     def _create_onetime_client(self, context, version):
         """Create a client that will be used for one call."""
         if self.api_servers is None:
-            self.api_servers = get_api_servers()
+            self.api_servers = get_api_servers(context)
         self.netloc, self.use_ssl = next(self.api_servers)
         return _create_glance_client(context,
                                      self.netloc,
@@ -192,6 +219,8 @@ class GlanceClientWrapper(object):
                                           'method': method,
                                           'extra': extra})
                 time.sleep(1)
+            except glanceclient.exc.HTTPOverLimit as e:
+                raise exception.ImageLimitExceeded(e)
 
 
 class GlanceImageService(object):
@@ -225,10 +254,15 @@ class GlanceImageService(object):
             if param in params:
                 _params[param] = params.get(param)
 
-        # ensure filters is a dict
-        _params.setdefault('filters', {})
-        # NOTE(vish): don't filter out private images
-        _params['filters'].setdefault('is_public', 'none')
+        # NOTE(geguileo): We set is_public default value for v1 because we want
+        # to retrieve all images by default.  We don't need to send v2
+        # equivalent - "visible" - because its default value when omited is
+        # "public, private, shared", which will return all.
+        if CONF.glance_api_version <= 1:
+            # ensure filters is a dict
+            _params.setdefault('filters', {})
+            # NOTE(vish): don't filter out private images
+            _params['filters'].setdefault('is_public', 'none')
 
         return _params
 
@@ -282,16 +316,6 @@ class GlanceImageService(object):
         try:
             return client.call(context, 'add_location',
                                image_id, url, metadata)
-        except Exception:
-            _reraise_translated_image_exception(image_id)
-
-    def delete_locations(self, context, image_id, url_set):
-        """Delete backend location urls from an image."""
-        if CONF.glance_api_version != 2:
-            raise exception.Invalid("Image API version 2 is disabled.")
-        client = GlanceClientWrapper(version=2)
-        try:
-            return client.call(context, 'delete_locations', image_id, url_set)
         except Exception:
             _reraise_translated_image_exception(image_id)
 
@@ -507,7 +531,12 @@ def _extract_attributes(image):
                         'container_format', 'status', 'id',
                         'name', 'created_at', 'updated_at',
                         'deleted', 'deleted_at', 'checksum',
-                        'min_disk', 'min_ram', 'is_public']
+                        'min_disk', 'min_ram', 'protected']
+    if CONF.glance_api_version == 2:
+        IMAGE_ATTRIBUTES.append('visibility')
+    else:
+        IMAGE_ATTRIBUTES.append('is_public')
+
     output = {}
 
     for attr in IMAGE_ATTRIBUTES:

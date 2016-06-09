@@ -15,7 +15,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from lxml import etree
 import mock
 import webob
 
@@ -23,6 +22,7 @@ from cinder.api.contrib import types_extra_specs
 from cinder import exception
 from cinder import test
 from cinder.tests.unit.api import fakes
+from cinder.tests.unit import fake_constants as fake
 import cinder.wsgi
 
 
@@ -66,7 +66,8 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
         super(VolumeTypesExtraSpecsTest, self).setUp()
         self.flags(host='fake')
         self.stubs.Set(cinder.db, 'volume_type_get', volume_type_get)
-        self.api_path = '/v2/fake/os-volume-types/1/extra_specs'
+        self.api_path = '/v2/%s/os-volume-types/%s/extra_specs' % (
+            fake.PROJECT_ID, fake.VOLUME_TYPE_ID)
         self.controller = types_extra_specs.VolumeTypeExtraSpecsController()
 
         """to reset notifier drivers left over from other api/contrib tests"""
@@ -76,7 +77,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
                        return_volume_type_extra_specs)
 
         req = fakes.HTTPRequest.blank(self.api_path)
-        res_dict = self.controller.index(req, 1)
+        res_dict = self.controller.index(req, fake.VOLUME_TYPE_ID)
 
         self.assertEqual('value1', res_dict['extra_specs']['key1'])
 
@@ -85,7 +86,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
                        return_empty_volume_type_extra_specs)
 
         req = fakes.HTTPRequest.blank(self.api_path)
-        res_dict = self.controller.index(req, 1)
+        res_dict = self.controller.index(req, fake.VOLUME_TYPE_ID)
 
         self.assertEqual(0, len(res_dict['extra_specs']))
 
@@ -94,7 +95,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
                        return_volume_type_extra_specs)
 
         req = fakes.HTTPRequest.blank(self.api_path + '/key5')
-        res_dict = self.controller.show(req, 1, 'key5')
+        res_dict = self.controller.show(req, fake.VOLUME_TYPE_ID, 'key5')
 
         self.assertEqual('value5', res_dict['key5'])
 
@@ -104,7 +105,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank(self.api_path + '/key6')
         self.assertRaises(webob.exc.HTTPNotFound, self.controller.show,
-                          req, 1, 'key6')
+                          req, fake.VOLUME_ID, 'key6')
 
     def test_delete(self):
         self.stubs.Set(cinder.db, 'volume_type_extra_specs_delete',
@@ -112,7 +113,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         self.assertEqual(0, len(self.notifier.notifications))
         req = fakes.HTTPRequest.blank(self.api_path + '/key5')
-        self.controller.delete(req, 1, 'key5')
+        self.controller.delete(req, fake.VOLUME_ID, 'key5')
         self.assertEqual(1, len(self.notifier.notifications))
 
     def test_delete_not_found(self):
@@ -121,7 +122,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank(self.api_path + '/key6')
         self.assertRaises(webob.exc.HTTPNotFound, self.controller.delete,
-                          req, 1, 'key6')
+                          req, fake.VOLUME_ID, 'key6')
 
     @mock.patch(
         'cinder.api.openstack.wsgi.Controller.validate_string_length')
@@ -133,7 +134,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         self.assertEqual(0, len(self.notifier.notifications))
         req = fakes.HTTPRequest.blank(self.api_path)
-        res_dict = self.controller.create(req, 1, body)
+        res_dict = self.controller.create(req, fake.VOLUME_ID, body)
         self.assertEqual(1, len(self.notifier.notifications))
         self.assertTrue(mock_validate.called)
         self.assertEqual('value1', res_dict['extra_specs']['key1'])
@@ -156,7 +157,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
         self.assertEqual(0, len(self.notifier.notifications))
 
         req = fakes.HTTPRequest.blank(self.api_path)
-        res_dict = self.controller.create(req, 1, body)
+        res_dict = self.controller.create(req, fake.VOLUME_ID, body)
         self.assertEqual(1, len(self.notifier.notifications))
         self.assertTrue(mock_validate.called)
         self.assertEqual('value1',
@@ -182,7 +183,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
         self.assertEqual(0, len(self.notifier.notifications))
 
         req = fakes.HTTPRequest.blank(self.api_path)
-        res_dict = self.controller.create(req, 1, body)
+        res_dict = self.controller.create(req, fake.VOLUME_ID, body)
         self.assertEqual(1, len(self.notifier.notifications))
         self.assertTrue(mock_validate.called)
         self.assertEqual('value1',
@@ -202,7 +203,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         self.assertEqual(0, len(self.notifier.notifications))
         req = fakes.HTTPRequest.blank(self.api_path + '/key1')
-        res_dict = self.controller.update(req, 1, 'key1', body)
+        res_dict = self.controller.update(req, fake.VOLUME_ID, 'key1', body)
         self.assertEqual(1, len(self.notifier.notifications))
         self.assertTrue(mock_validate.called)
 
@@ -216,7 +217,7 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank(self.api_path + '/key1')
         self.assertRaises(webob.exc.HTTPBadRequest, self.controller.update,
-                          req, 1, 'key1', body)
+                          req, fake.VOLUME_ID, 'key1', body)
 
     def test_update_item_body_uri_mismatch(self):
         self.stubs.Set(cinder.db,
@@ -226,14 +227,15 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
 
         req = fakes.HTTPRequest.blank(self.api_path + '/bad')
         self.assertRaises(webob.exc.HTTPBadRequest, self.controller.update,
-                          req, 1, 'bad', body)
+                          req, fake.VOLUME_ID, 'bad', body)
 
     def _extra_specs_empty_update(self, body):
-        req = fakes.HTTPRequest.blank('/v2/fake/types/1/extra_specs')
+        req = fakes.HTTPRequest.blank('/v2/%s/types/%s/extra_specs' % (
+            fake.PROJECT_ID, fake.VOLUME_TYPE_ID))
         req.method = 'POST'
 
         self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.controller.update, req, '1', body)
+                          self.controller.update, req, fake.VOLUME_ID, body)
 
     def test_update_no_body(self):
         self._extra_specs_empty_update(body=None)
@@ -242,11 +244,12 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
         self._extra_specs_empty_update(body={})
 
     def _extra_specs_create_bad_body(self, body):
-        req = fakes.HTTPRequest.blank('/v2/fake/types/1/extra_specs')
+        req = fakes.HTTPRequest.blank('/v2/%s/types/%s/extra_specs' % (
+            fake.PROJECT_ID, fake.VOLUME_TYPE_ID))
         req.method = 'POST'
 
         self.assertRaises(webob.exc.HTTPBadRequest,
-                          self.controller.create, req, '1', body)
+                          self.controller.create, req, fake.VOLUME_ID, body)
 
     def test_create_no_body(self):
         self._extra_specs_create_bad_body(body=None)
@@ -266,35 +269,3 @@ class VolumeTypesExtraSpecsTest(test.TestCase):
     def test_create_invalid_too_many_key(self):
         body = {"key1": "value1", "ke/y2": "value2", "key3": "value3"}
         self._extra_specs_create_bad_body(body=body)
-
-
-class VolumeTypeExtraSpecsSerializerTest(test.TestCase):
-    def test_index_create_serializer(self):
-        serializer = types_extra_specs.VolumeTypeExtraSpecsTemplate()
-
-        # Just getting some input data
-        extra_specs = stub_volume_type_extra_specs()
-        text = serializer.serialize(dict(extra_specs=extra_specs))
-
-        tree = etree.fromstring(text)
-
-        self.assertEqual('extra_specs', tree.tag)
-        self.assertEqual(len(extra_specs), len(tree))
-        seen = set(extra_specs.keys())
-        for child in tree:
-            self.assertIn(child.tag, seen)
-            self.assertEqual(extra_specs[child.tag], child.text)
-            seen.remove(child.tag)
-        self.assertEqual(0, len(seen))
-
-    def test_update_show_serializer(self):
-        serializer = types_extra_specs.VolumeTypeExtraSpecTemplate()
-
-        exemplar = dict(key1='value1')
-        text = serializer.serialize(exemplar)
-
-        tree = etree.fromstring(text)
-
-        self.assertEqual('key1', tree.tag)
-        self.assertEqual('value1', tree.text)
-        self.assertEqual(0, len(tree))

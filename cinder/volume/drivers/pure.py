@@ -19,6 +19,7 @@ This driver requires Purity version 4.0.0 or later.
 """
 
 import math
+import platform
 import re
 import uuid
 
@@ -102,13 +103,14 @@ EXTRA_SPECS_REPL_ENABLED = "replication_enabled"
 
 CONNECT_LOCK_NAME = 'PureVolumeDriver_connect'
 
-
 UNMANAGED_SUFFIX = '-unmanaged'
 MANAGE_SNAP_REQUIRED_API_VERSIONS = ['1.4', '1.5']
 REPLICATION_REQUIRED_API_VERSIONS = ['1.3', '1.4', '1.5']
 
 REPL_SETTINGS_PROPAGATE_RETRY_INTERVAL = 5  # 5 seconds
 REPL_SETTINGS_PROPAGATE_MAX_RETRIES = 36  # 36 * 5 = 180 seconds
+
+USER_AGENT_BASE = 'OpenStack Cinder'
 
 
 def pure_driver_debug_trace(f):
@@ -156,6 +158,12 @@ class PureBaseVolumeDriver(san.SanDriver):
         self._is_replication_enabled = False
         self._active_backend_id = kwargs.get('active_backend_id', None)
         self._failed_over_primary_array = None
+        self._user_agent = '%(base)s %(class)s/%(version)s (%(platform)s)' % {
+            'base': USER_AGENT_BASE,
+            'class': self.__class__.__name__,
+            'version': self.VERSION,
+            'platform': platform.platform()
+        }
 
     def parse_replication_configs(self):
         self._replication_interval = (
@@ -408,7 +416,7 @@ class PureBaseVolumeDriver(san.SanDriver):
     def create_export(self, context, volume, connector):
         pass
 
-    def initialize_connection(self, volume, connector, initiator_data=None):
+    def initialize_connection(self, volume, connector):
         """Connect the volume to the specified initiator in Purity.
 
         This implementation is specific to the host type (iSCSI, FC, etc).
@@ -959,26 +967,13 @@ class PureBaseVolumeDriver(san.SanDriver):
 
     def _get_flasharray(self, san_ip, api_token, rest_version=None,
                         verify_https=None, ssl_cert_path=None):
-        # Older versions of the module (1.4.0) do not support setting ssl certs
-        # TODO(patrickeast): In future releases drop support for 1.4.0
-        if self._client_version_greater_than([1, 4, 0]):
-            array = purestorage.FlashArray(san_ip,
-                                           api_token=api_token,
-                                           rest_version=rest_version,
-                                           verify_https=verify_https,
-                                           ssl_cert=ssl_cert_path)
-        else:
-            if verify_https or ssl_cert_path is not None:
-                msg = _('HTTPS certificate verification was requested '
-                        'but cannot be enabled with purestorage '
-                        'module version %(version)s. Upgrade to a '
-                        'newer version to enable this feature.') % {
-                    'version': purestorage.VERSION
-                }
-                raise exception.PureDriverException(reason=msg)
-            array = purestorage.FlashArray(san_ip,
-                                           api_token=api_token,
-                                           rest_version=rest_version)
+
+        array = purestorage.FlashArray(san_ip,
+                                       api_token=api_token,
+                                       rest_version=rest_version,
+                                       verify_https=verify_https,
+                                       ssl_cert=ssl_cert_path,
+                                       user_agent=self._user_agent)
         array_info = array.get()
         array.array_name = array_info["array_name"]
         array.array_id = array_info["id"]
@@ -1101,7 +1096,7 @@ class PureBaseVolumeDriver(san.SanDriver):
             self._disable_replication(volume)
         elif not previous_vol_replicated and new_vol_replicated:
             # Add to protection group.
-            self._enable_replication(volume)
+            self._enable_replication(self._get_current_array(), volume)
 
         return True, None
 
@@ -1493,9 +1488,9 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
         return None
 
     @pure_driver_debug_trace
-    def initialize_connection(self, volume, connector, initiator_data=None):
+    def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
-        connection = self._connect(volume, connector, initiator_data)
+        connection = self._connect(volume, connector)
         target_ports = self._get_target_iscsi_ports()
         multipath = connector.get("multipath", False)
 
@@ -1557,8 +1552,8 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
     def _generate_chap_secret():
         return volume_utils.generate_password()
 
-    @classmethod
-    def _get_chap_credentials(cls, host, data):
+    def _get_chap_credentials(self, host, initiator):
+        data = self.driver_utils.get_driver_initiator_data(initiator)
         initiator_updates = None
         username = host
         password = None
@@ -1568,22 +1563,25 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
                     password = d["value"]
                     break
         if not password:
-            password = cls._generate_chap_secret()
+            password = self._generate_chap_secret()
             initiator_updates = {
                 "set_values": {
                     CHAP_SECRET_KEY: password
                 }
             }
-        return username, password, initiator_updates
+        if initiator_updates:
+            self.driver_utils.save_driver_initiator_data(initiator,
+                                                         initiator_updates)
+        return username, password
 
     @utils.synchronized(CONNECT_LOCK_NAME, external=True)
-    def _connect(self, volume, connector, initiator_data):
+    def _connect(self, volume, connector):
         """Connect the host and volume; return dict describing connection."""
         iqn = connector["initiator"]
 
         if self.configuration.use_chap_auth:
-            (chap_username, chap_password, initiator_update) = \
-                self._get_chap_credentials(connector['host'], initiator_data)
+            (chap_username, chap_password) = \
+                self._get_chap_credentials(connector['host'], iqn)
 
         current_array = self._get_current_array()
         vol_name = self._get_vol_name(volume)
@@ -1631,9 +1629,6 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
             connection["auth_username"] = chap_username
             connection["auth_password"] = chap_password
 
-            if initiator_update:
-                connection["initiator_update"] = initiator_update
-
         return connection
 
 
@@ -1663,7 +1658,7 @@ class PureFCDriver(PureBaseVolumeDriver, driver.FibreChannelDriver):
 
     @fczm_utils.AddFCZone
     @pure_driver_debug_trace
-    def initialize_connection(self, volume, connector, initiator_data=None):
+    def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
         current_array = self._get_current_array()
         connection = self._connect(volume, connector)

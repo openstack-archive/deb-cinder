@@ -24,6 +24,7 @@ import warnings
 
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import excutils
 from oslo_utils import timeutils
 from oslo_utils import units
 import requests
@@ -144,7 +145,10 @@ class SolidFireDriver(san.SanISCSIDriver):
         2.0.0 - Move from httplib to requests
         2.0.1 - Implement SolidFire Snapshots
         2.0.2 - Implement secondary account
-
+        2.0.3 - Implement cluster pairing
+        2.0.4 - Implement volume replication
+        2.0.5 - Try and deal with the stupid retry/clear issues from objects
+                and tflow
     """
 
     VERSION = '2.0.2'
@@ -176,49 +180,145 @@ class SolidFireDriver(san.SanISCSIDriver):
 
     def __init__(self, *args, **kwargs):
         super(SolidFireDriver, self).__init__(*args, **kwargs)
-        self.cluster_uuid = None
+        self.failed_over_id = kwargs.get('active_backend_id', None)
+        self.active_cluster_info = {}
         self.configuration.append_config_values(sf_opts)
-        self._endpoint = self._build_endpoint_info()
         self.template_account_id = None
         self.max_volumes_per_account = 1990
         self.volume_map = {}
+        self.cluster_pairs = []
+        self.replication_enabled = False
+        self.failed_over = False
+        self.target_driver = SolidFireISCSI(solidfire_driver=self,
+                                            configuration=self.configuration)
+        if self.failed_over_id:
+            remote_info = self._get_remote_info_by_id(self.failed_over_id)
+            if remote_info:
+                self._set_active_cluster_info(remote_info['endpoint'])
+            else:
+                LOG.error(_LE('Failed to initialize SolidFire driver to '
+                              'a remote cluster specified at id: %s'),
+                          self.failed_over_id)
+        else:
+            self._set_active_cluster_info()
 
         try:
             self._update_cluster_status()
         except exception.SolidFireAPIException:
             pass
+
         if self.configuration.sf_allow_template_caching:
             account = self.configuration.sf_template_account_name
             self.template_account_id = self._create_template_account(account)
-        self.target_driver = SolidFireISCSI(solidfire_driver=self,
-                                            configuration=self.configuration)
-        self._set_cluster_uuid()
+
+        if not self.failed_over_id:
+            self._set_cluster_pairs()
 
     def __getattr__(self, attr):
-        return getattr(self.target_driver, attr)
+        if hasattr(self.target_driver, attr):
+            return getattr(self.target_driver, attr)
+        else:
+            msg = _('Attribute: %s not found.') % attr
+            raise NotImplementedError(msg)
 
-    def _set_cluster_uuid(self):
-        self.cluster_uuid = (
-            self._get_cluster_info()['clusterInfo']['uuid'])
+    def _get_remote_info_by_id(self, backend_id):
+        remote_info = None
+        for rd in self.configuration.get('replication_device', []):
+            if rd.get('backend_id', None) == backend_id:
+                remote_endpoint = self._build_endpoint_info(**rd)
+                remote_info = self._get_remote_cluster_info(remote_endpoint)
+                remote_info['endpoint'] = remote_endpoint
+                if not remote_info['endpoint']['svip']:
+                    remote_info['endpoint']['svip'] = (
+                        remote_info['svip'] + ':3260')
+        return remote_info
 
-    def _parse_provider_id_string(self, id_string):
-        return tuple(id_string.split())
+    def _create_remote_pairing(self, remote_device):
+        try:
+            pairing_info = self._issue_api_request('StartClusterPairing',
+                                                   {}, version='8.0')['result']
+            pair_id = self._issue_api_request(
+                'CompleteClusterPairing',
+                {'clusterPairingKey': pairing_info['clusterPairingKey']},
+                version='8.0',
+                endpoint=remote_device['endpoint'])['result']['clusterPairID']
+        except exception.SolidFireAPIException as ex:
+            if 'xPairingAlreadExists' in ex.msg:
+                LOG.debug('Pairing already exists during init.')
+            else:
+                with excutils.save_and_reraise_exception():
+                    LOG.error(_LE('Cluster pairing failed: %s'), ex.msg)
+        LOG.debug(('Initialized Cluster pair with ID: %s'), pair_id)
+        remote_device['clusterPairID'] = pair_id
+        return pair_id
+
+    def _get_remote_cluster_info(self, remote_endpoint):
+        return self._issue_api_request(
+            'GetClusterInfo',
+            {},
+            endpoint=remote_endpoint)['result']['clusterInfo']
+
+    def _set_cluster_pairs(self):
+        if not self.configuration.get('replication_device', None):
+            self.replication = False
+            return
+
+        existing_pairs = self._issue_api_request(
+            'ListClusterPairs',
+            {},
+            version='8.0')['result']['clusterPairs']
+
+        remote_pair = {}
+        for rd in self.configuration.get('replication_device', []):
+            remote_endpoint = self._build_endpoint_info(**rd)
+            remote_info = self._get_remote_cluster_info(remote_endpoint)
+            remote_info['endpoint'] = remote_endpoint
+            if not remote_info['endpoint']['svip']:
+                remote_info['endpoint']['svip'] = remote_info['svip'] + ':3260'
+
+            for ep in existing_pairs:
+                if rd['backend_id'] == ep['mvip']:
+                    remote_pair = ep
+                    LOG.debug("Found remote pair: %s", remote_pair)
+                    remote_info['clusterPairID'] = ep['clusterPairID']
+                    break
+
+            if not remote_pair:
+                # NOTE(jdg): create_remote_pairing sets the
+                # clusterPairID in remote_info for us
+                self._create_remote_pairing(remote_info)
+            self.cluster_pairs.append(remote_info)
+            LOG.debug("Setting replication_enabled to True.")
+            self.replication_enabled = True
+
+    def _set_active_cluster_info(self, endpoint=None):
+        if not endpoint:
+            self.active_cluster_info['endpoint'] = self._build_endpoint_info()
+        else:
+            self.active_cluster_info['endpoint'] = endpoint
+
+        for k, v in self._issue_api_request(
+                'GetClusterInfo',
+                {})['result']['clusterInfo'].items():
+            self.active_cluster_info[k] = v
+
+        # Add a couple extra things that are handy for us
+        self.active_cluster_info['clusterAPIVersion'] = (
+            self._issue_api_request('GetClusterVersionInfo',
+                                    {})['result']['clusterAPIVersion'])
+        if self.configuration.get('sf_svip', None):
+            self.active_cluster_info['svip'] = (
+                self.configuration.get('sf_svip'))
 
     def _create_provider_id_string(self,
                                    resource_id,
-                                   account_or_vol_id,
-                                   cluster_uuid=None):
+                                   account_or_vol_id):
         # NOTE(jdg): We use the same format, but in the case
         # of snapshots, we don't have an account id, we instead
         # swap that with the parent volume id
-        cluster_id = self.cluster_uuid
-        # We allow specifying a remote cluster
-        if cluster_uuid:
-            cluster_id = cluster_uuid
-
         return "%s %s %s" % (resource_id,
                              account_or_vol_id,
-                             cluster_id)
+                             self.active_cluster_info['uuid'])
 
     def _init_snapshot_mappings(self, srefs):
         updates = []
@@ -230,7 +330,8 @@ class SolidFireDriver(san.SanISCSIDriver):
                 (ss for ss in sf_snaps if ss['name'] == seek_name), None)
             if sfsnap:
                 id_string = self._create_provider_id_string(
-                    sfsnap['snapshotID'], sfsnap['volumeID'])
+                    sfsnap['snapshotID'],
+                    sfsnap['volumeID'])
                 if s.get('provider_id') != id_string:
                     updates.append(
                         {'id': s['id'],
@@ -248,7 +349,6 @@ class SolidFireDriver(san.SanISCSIDriver):
                 (sv for sv in sf_vols if sv['name'] == seek_name), None)
             if sfvol:
                 if v.get('provider_id', 'nil') != sfvol['volumeID']:
-                    v['provider_id'] == sfvol['volumeID']
                     updates.append(
                         {'id': v['id'],
                          'provider_id': self._create_provider_id_string(
@@ -295,19 +395,19 @@ class SolidFireDriver(san.SanISCSIDriver):
             kwargs.get('port', self.configuration.sf_api_port))
         endpoint['url'] = 'https://%s:%s' % (endpoint['mvip'],
                                              endpoint['port'])
-
-        # TODO(jdg): consider a call to GetAPI and setting version
+        endpoint['svip'] = kwargs.get('svip', self.configuration.sf_svip)
+        if not endpoint.get('mvip', None) and kwargs.get('backend_id', None):
+            endpoint['mvip'] = kwargs.get('backend_id')
         return endpoint
 
     @retry(retry_exc_tuple, tries=6)
     def _issue_api_request(self, method, params, version='1.0', endpoint=None):
         if params is None:
             params = {}
-
         if endpoint is None:
-            endpoint = self._endpoint
-        payload = {'method': method, 'params': params}
+            endpoint = self.active_cluster_info['endpoint']
 
+        payload = {'method': method, 'params': params}
         url = '%s/json-rpc/%s/' % (endpoint['url'], version)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", exceptions.InsecureRequestWarning)
@@ -316,7 +416,6 @@ class SolidFireDriver(san.SanISCSIDriver):
                                 auth=(endpoint['login'], endpoint['passwd']),
                                 verify=False,
                                 timeout=30)
-
         response = req.json()
         req.close()
         if (('error' in response) and
@@ -332,18 +431,22 @@ class SolidFireDriver(san.SanISCSIDriver):
 
         return response
 
-    def _get_volumes_by_sfaccount(self, account_id):
+    def _get_volumes_by_sfaccount(self, account_id, endpoint=None):
         """Get all volumes on cluster for specified account."""
         params = {'accountID': account_id}
         return self._issue_api_request(
-            'ListVolumesForAccount', params)['result']['volumes']
+            'ListVolumesForAccount',
+            params,
+            endpoint=endpoint)['result']['volumes']
 
-    def _get_sfaccount_by_name(self, sf_account_name):
+    def _get_sfaccount_by_name(self, sf_account_name, endpoint=None):
         """Get SolidFire account object by name."""
         sfaccount = None
         params = {'username': sf_account_name}
         try:
-            data = self._issue_api_request('GetAccountByName', params)
+            data = self._issue_api_request('GetAccountByName',
+                                           params,
+                                           endpoint=endpoint)
             if 'result' in data and 'account' in data['result']:
                 LOG.debug('Found solidfire account: %s', sf_account_name)
                 sfaccount = data['result']['account']
@@ -393,31 +496,29 @@ class SolidFireDriver(san.SanISCSIDriver):
 
         return sfaccount
 
-    def _get_cluster_info(self):
-        """Query the SolidFire cluster for some property info."""
-        params = {}
-        return self._issue_api_request('GetClusterInfo', params)['result']
-
     def _generate_random_string(self, length):
         """Generates random_string to use for CHAP password."""
 
         char_set = string.ascii_uppercase + string.digits
         return ''.join(random.sample(char_set, length))
 
-    def _get_model_info(self, sfaccount, sf_volume_id):
+    def _get_model_info(self, sfaccount, sf_volume_id, endpoint=None):
         """Gets the connection info for specified account and volume."""
-        cluster_info = self._get_cluster_info()
-        if self.configuration.sf_svip is None:
-            iscsi_portal = cluster_info['clusterInfo']['svip'] + ':3260'
+        if endpoint:
+            iscsi_portal = endpoint['svip']
         else:
-            iscsi_portal = self.configuration.sf_svip
+            iscsi_portal = self.active_cluster_info['svip']
+
+        if ':' not in iscsi_portal:
+            iscsi_portal += ':3260'
+
         chap_secret = sfaccount['targetSecret']
 
         found_volume = False
         iteration_count = 0
         while not found_volume and iteration_count < 600:
             volume_list = self._get_volumes_by_sfaccount(
-                sfaccount['accountID'])
+                sfaccount['accountID'], endpoint=endpoint)
             iqn = None
             for v in volume_list:
                 if v['volumeID'] == sf_volume_id:
@@ -444,8 +545,7 @@ class SolidFireDriver(san.SanISCSIDriver):
             model_update['provider_geometry'] = ('%s %s' % (4096, 4096))
         model_update['provider_id'] = (
             self._create_provider_id_string(sf_volume_id,
-                                            sfaccount['accountID'],
-                                            self.cluster_uuid))
+                                            sfaccount['accountID']))
         return model_update
 
     def _snapshot_discovery(self, src_uuid, params, vref):
@@ -534,10 +634,11 @@ class SolidFireDriver(san.SanISCSIDriver):
         params['attributes'] = attributes
         return self._issue_api_request('ModifyVolume', params)
 
-    def _do_volume_create(self, sf_account, params):
+    def _do_volume_create(self, sf_account, params, endpoint=None):
+        params['accountID'] = sf_account['accountID']
         sf_volid = self._issue_api_request(
-            'CreateVolume', params)['result']['volumeID']
-        return self._get_model_info(sf_account, sf_volid)
+            'CreateVolume', params, endpoint=endpoint)['result']['volumeID']
+        return self._get_model_info(sf_account, sf_volid, endpoint=endpoint)
 
     def _do_snapshot_create(self, params):
         model_update = {}
@@ -549,8 +650,7 @@ class SolidFireDriver(san.SanISCSIDriver):
                   int(snapshot_id)), None))
         model_update['provider_id'] = (
             self._create_provider_id_string(snap['snapshotID'],
-                                            snap['volumeID'],
-                                            self.cluster_uuid))
+                                            snap['volumeID']))
         return model_update
 
     def _set_qos_presets(self, volume):
@@ -809,7 +909,6 @@ class SolidFireDriver(san.SanISCSIDriver):
             # Check availability for creates
             sf_account = self._get_account_create_availability(sf_accounts)
             if not sf_account:
-                # TODO(jdg): We're not doing tertiaries, so fail.
                 msg = _('Volumes/account exceeded on both primary and '
                         'secondary SolidFire accounts.')
                 raise exception.SolidFireDriverException(msg)
@@ -1084,7 +1183,107 @@ class SolidFireDriver(san.SanISCSIDriver):
             params['name'] = vname
             params['attributes']['migration_uuid'] = volume['id']
             params['attributes']['uuid'] = v
-        return self._do_volume_create(sf_account, params)
+
+        model_update = self._do_volume_create(sf_account, params)
+        try:
+            rep_settings = self._retrieve_replication_settings(volume)
+            if self.replication_enabled and rep_settings:
+                volume['volumeID'] = (
+                    int(model_update['provider_id'].split()[0]))
+                self._replicate_volume(volume, params,
+                                       sf_account, rep_settings)
+        except exception.SolidFireAPIException:
+            # NOTE(jdg): Something went wrong after the source create, due to
+            # the way TFLOW works and it's insistence on retrying the same
+            # command over and over coupled with the fact that the introduction
+            # of objects now sets host to None on failures we'll end up with an
+            # orphaned volume on the backend for every one of these segments
+            # that fail, for n-retries.  Sad Sad Panda!!  We'll just do it
+            # ourselves until we can get a general fix in Cinder further up the
+            # line
+            with excutils.save_and_reraise_exception():
+                sf_volid = int(model_update['provider_id'].split()[0])
+                self._issue_api_request('DeleteVolume', {'volumeID': sf_volid})
+        return model_update
+
+    def _retrieve_replication_settings(self, volume):
+        rep_data = {}
+        ctxt = context.get_admin_context()
+        type_id = volume.get('volume_type_id', None)
+        if type_id is not None:
+            rep_data = self._set_rep_by_volume_type(ctxt, type_id)
+        return rep_data
+
+    def _set_rep_by_volume_type(self, ctxt, type_id):
+        rep_opts = {}
+        type_ref = volume_types.get_volume_type(ctxt, type_id)
+        specs = type_ref.get('extra_specs')
+
+        if specs.get('replication', 'disabled').lower() == 'enabled':
+            rep_opts['targets'] = specs.get(
+                'solidfire:replication_targets', self.cluster_pairs[0])
+        return rep_opts
+
+    def _replicate_volume(self, volume, src_params,
+                          parent_sfaccount, rep_info):
+        params = {}
+
+        # TODO(jdg): Right now we just go to first pair,
+        # need to add parsing of rep_info eventually
+        # in other words "rep_info" is not used yet!
+        tgt_endpoint = self.cluster_pairs[0]['endpoint']
+        LOG.debug("Replicating volume on remote cluster: %s", tgt_endpoint)
+        params['attributes'] = src_params['attributes']
+        params['username'] = self._get_sf_account_name(volume['project_id'])
+        try:
+            params['initiatorSecret'] = parent_sfaccount['initiatorSecret']
+            params['targetSecret'] = parent_sfaccount['targetSecret']
+            self._issue_api_request(
+                'AddAccount',
+                params,
+                endpoint=tgt_endpoint)['result']['accountID']
+        except exception.SolidFireAPIException as ex:
+            if 'xDuplicateUsername' not in ex.msg:
+                raise
+
+        remote_account = (
+            self._get_sfaccount_by_name(params['username'],
+                                        endpoint=tgt_endpoint))
+
+        # Create the volume on the remote cluster w/same params as original
+        params = src_params
+        params['accountID'] = remote_account['accountID']
+        LOG.debug("Create remote volume on: %(endpoint)s with account: "
+                  "%(account)s",
+                  {'endpoint': tgt_endpoint['url'], 'account': remote_account})
+        model_update = self._do_volume_create(
+            remote_account, params, endpoint=tgt_endpoint)
+
+        tgt_sfid = int(model_update['provider_id'].split()[0])
+        params = {'volumeID': tgt_sfid, 'access': 'replicationTarget'}
+        self._issue_api_request('ModifyVolume',
+                                params,
+                                '8.0',
+                                endpoint=tgt_endpoint)
+
+        # Enable volume pairing
+        LOG.debug("Start volume pairing on volume ID: %s",
+                  volume['volumeID'])
+        params = {'volumeID': volume['volumeID']}
+        rep_key = self._issue_api_request('StartVolumePairing',
+                                          params,
+                                          '8.0')['result']['volumePairingKey']
+        params = {'volumeID': tgt_sfid,
+                  'volumePairingKey': rep_key}
+        LOG.debug("Issue CompleteVolumePairing request on remote: "
+                  "%(endpoint)s, %(parameters)s",
+                  {'endpoint': tgt_endpoint['url'], 'parameters': params})
+        self._issue_api_request('CompleteVolumePairing',
+                                params,
+                                '8.0',
+                                endpoint=tgt_endpoint)
+        LOG.debug("Completed volume pairing.")
+        return model_update
 
     def create_cloned_volume(self, volume, src_vref):
         """Create a clone of an existing volume."""
@@ -1119,8 +1318,22 @@ class SolidFireDriver(san.SanISCSIDriver):
                 break
 
         if sf_vol is not None:
-            params = {'volumeID': sf_vol['volumeID']}
-            self._issue_api_request('DeleteVolume', params)
+            for vp in sf_vol.get('volumePairs', []):
+                LOG.debug("Deleting paired volume on remote cluster...")
+                pair_id = vp['clusterPairID']
+                for cluster in self.cluster_pairs:
+                    if cluster['clusterPairID'] == pair_id:
+                        params = {'volumeID': vp['remoteVolumeID']}
+                        LOG.debug("Issue Delete request on cluster: "
+                                  "%(remote)s with params: %(parameters)s",
+                                  {'remote': cluster['endpoint']['url'],
+                                   'parameters': params})
+                        self._issue_api_request('DeleteVolume', params,
+                                                endpoint=cluster['endpoint'])
+
+            if sf_vol['status'] == 'active':
+                params = {'volumeID': sf_vol['volumeID']}
+                self._issue_api_request('DeleteVolume', params)
             if volume.get('multiattach'):
                 self._remove_volume_from_vags(sf_vol['volumeID'])
         else:
@@ -1264,6 +1477,24 @@ class SolidFireDriver(san.SanISCSIDriver):
         model['status'] = 'available'
         return model
 
+    def _map_sf_volumes(self, cinder_volumes, endpoint=None):
+        """Get a list of SolidFire volumes.
+
+        Creates a list of SolidFire volumes based
+        on matching a list of cinder volume ID's,
+        also adds an 'cinder_id' key to match cinder.
+        """
+        vols = self._issue_api_request(
+            'ListActiveVolumes', {},
+            endpoint=endpoint)['result']['volumes']
+        vlist = (
+            [sfvol for sfvol in vols for cv in cinder_volumes if cv['id'] in
+             sfvol['name']])
+        for v in vlist:
+            v['cinder_id'] = v['name'].split(
+                self.configuration.sf_volume_prefix)[1]
+        return vlist
+
     # Required consistency group functions
     def create_consistencygroup(self, ctxt, group):
         # SolidFire does not have a viable means for storing consistency group
@@ -1397,7 +1628,12 @@ class SolidFireDriver(san.SanISCSIDriver):
         data["driver_version"] = self.VERSION
         data["storage_protocol"] = 'iSCSI'
         data['consistencygroup_support'] = True
-        data['replication_enabled'] = True
+        # TODO(jdg):  should we have a "replication_status" that includes
+        # enabled, disabled, failed-over, error ?
+        data['replication_enabled'] = self.replication_enabled
+        if self.replication_enabled:
+            data['replication'] = 'enabled'
+        data['active_cluster_mvip'] = self.active_cluster_info['mvip']
 
         data['total_capacity_gb'] = (
             float(results['maxProvisionedSpace'] / units.Gi))
@@ -1413,14 +1649,12 @@ class SolidFireDriver(san.SanISCSIDriver):
             results['thinProvisioningPercent'])
         self.cluster_stats = data
 
-    def initialize_connection(self, volume, connector, initiator_data=None):
+    def initialize_connection(self, volume, connector):
         """Initialize the connection and return connection info.
 
            Optionally checks and utilizes volume access groups.
         """
-        properties = self._sf_initialize_connection(volume,
-                                                    connector,
-                                                    initiator_data)
+        properties = self._sf_initialize_connection(volume, connector)
         properties['data']['discard'] = True
         return properties
 
@@ -1542,7 +1776,6 @@ class SolidFireDriver(san.SanISCSIDriver):
         Renames the Volume to match the expected name for the volume.
         Also need to consider things like QoS, Emulation, account/tenant.
         """
-
         sfid = external_ref.get('source-id', None)
         sfname = external_ref.get('name', None)
         if sfid is None:
@@ -1585,7 +1818,6 @@ class SolidFireDriver(san.SanISCSIDriver):
         existing_ref is a dictionary of the form:
         {'name': <name of existing volume on SF Cluster>}
         """
-
         sfid = external_ref.get('source-id', None)
         if sfid is None:
             raise exception.SolidFireAPIException(_("Manage existing get size "
@@ -1599,7 +1831,6 @@ class SolidFireDriver(san.SanISCSIDriver):
 
     def unmanage(self, volume):
         """Mark SolidFire Volume as unmanaged (export from Cinder)."""
-
         sfaccount = self._get_sfaccount(volume['project_id'])
         if sfaccount is None:
             LOG.error(_LE("Account for Volume ID %s was not found on "
@@ -1622,6 +1853,89 @@ class SolidFireDriver(san.SanISCSIDriver):
         self._issue_api_request('ModifyVolume',
                                 params, version='5.0')
 
+    def _failover_volume(self, remote_vol, remote):
+        """Modify remote volume to R/W mode."""
+        self._issue_api_request(
+            'RemoveVolumePair',
+            {'volumeID': remote_vol['volumeID']},
+            endpoint=remote['endpoint'], version='7.0')
+
+        params = {'volumeID': remote_vol['volumeID'],
+                  'access': 'readWrite'}
+        self._issue_api_request('ModifyVolume', params,
+                                endpoint=remote['endpoint'])
+
+    def failover_host(self, context, volumes, secondary_id=None):
+        """Failover to replication target."""
+        volume_updates = []
+        remote = None
+
+        if secondary_id:
+            for rc in self.cluster_pairs:
+                if rc['mvip'] == secondary_id:
+                    remote = rc
+                    break
+            if not remote:
+                LOG.error(_LE("SolidFire driver received failover_host "
+                              "but was unable to find specified replication "
+                              "pair with id: %s."), secondary_id)
+                raise exception.InvalidReplicationTarget
+        else:
+            remote = self.cluster_pairs[0]
+
+        if not remote or not self.replication_enabled:
+            LOG.error(_LE("SolidFire driver received failover_host "
+                          "request, however replication is NOT "
+                          "enabled, or there are no available "
+                          "targets to fail-over to."))
+            raise exception.UnableToFailOver
+
+        remote_vols = self._map_sf_volumes(volumes,
+                                           endpoint=remote['endpoint'])
+        primary_vols = self._map_sf_volumes(volumes)
+        for v in volumes:
+            remote_vlist = filter(lambda sfv: sfv['cinder_id'] == v['id'],
+                                  remote_vols)
+            if len(remote_vlist) > 0:
+                remote_vol = remote_vlist[0]
+                self._failover_volume(remote_vol, remote)
+                primary_vol = filter(lambda sfv: sfv['cinder_id'] == v['id'],
+                                     primary_vols)[0]
+                if len(primary_vol['volumePairs']) > 0:
+                    self._issue_api_request(
+                        'RemoveVolumePair',
+                        {'volumeID': primary_vol['volumeID']},
+                        version='7.0')
+                iqn = remote_vol['iqn']
+                volume_updates.append(
+                    {'volume_id': v['id'],
+                     'updates': {
+                     'provider_location': ('%s %s %s' %
+                                           (remote['endpoint']['svip'],
+                                            iqn,
+                                            0)),
+                     'replication_status': 'failed-over'}})
+            else:
+                volume_updates.append({'volume_id': v['id'],
+                                       'updates': {'status': 'error', }})
+
+        # FIXME(jdg): This introduces a problem for us, up until now our driver
+        # has been pretty much stateless and has allowed customers to run
+        # active/active HA c-vol services with SolidFire.  The introduction of
+        # the active_cluster and failed_over attributes is going to break that
+        # but for now that's going to be the trade off of using replciation
+        self.active_cluster_info = remote
+        self.failed_over = True
+        return remote['mvip'], volume_updates
+
+    def freeze_backend(self, context):
+        """Freeze backend notification."""
+        pass
+
+    def thaw_backend(self, context):
+        """Thaw backend notification."""
+        pass
+
 
 class SolidFireISCSI(iscsi_driver.SanISCSITarget):
     def __init__(self, *args, **kwargs):
@@ -1629,7 +1943,11 @@ class SolidFireISCSI(iscsi_driver.SanISCSITarget):
         self.sf_driver = kwargs.get('solidfire_driver')
 
     def __getattr__(self, attr):
-        return getattr(self.sf_driver, attr)
+        if hasattr(self.sf_driver, attr):
+            return getattr(self.sf_driver, attr)
+        else:
+            msg = _('Attribute: %s not found.') % attr
+            raise NotImplementedError(msg)
 
     def _do_iscsi_export(self, volume):
         sfaccount = self._get_sfaccount(volume['project_id'])
@@ -1658,8 +1976,7 @@ class SolidFireISCSI(iscsi_driver.SanISCSITarget):
     def terminate_connection(self, volume, connector, **kwargs):
         pass
 
-    def _sf_initialize_connection(self, volume, connector,
-                                  initiator_data=None):
+    def _sf_initialize_connection(self, volume, connector):
         """Initialize the connection and return connection info.
 
            Optionally checks and utilizes volume access groups.
@@ -1667,7 +1984,7 @@ class SolidFireISCSI(iscsi_driver.SanISCSITarget):
         if self.configuration.sf_enable_vag:
             iqn = connector['initiator']
             provider_id = volume['provider_id']
-            vol_id = int(self._parse_provider_id_string(provider_id)[0])
+            vol_id = int(provider_id.split()[0])
 
             # safe_create_vag may opt to reuse vs create a vag, so we need to
             # add our vol_id.
@@ -1688,7 +2005,7 @@ class SolidFireISCSI(iscsi_driver.SanISCSITarget):
             iqn = properties['initiator']
             vag = self._get_vags_by_name(iqn)
             provider_id = volume['provider_id']
-            vol_id = int(self._parse_provider_id_string(provider_id)[0])
+            vol_id = int(provider_id.split()[0])
 
             if vag and not volume['multiattach']:
                 # Multiattach causes problems with removing volumes from VAGs.

@@ -147,31 +147,79 @@ class DellEQLSanISCSIDriverTestCase(test.TestCase):
             self.driver.create_snapshot(snapshot)
 
     def test_create_volume_from_snapshot(self):
-        snapshot = {'name': 'fakesnap', 'volume_name': 'fakevolume_name'}
-        volume = {'name': self.volume_name}
+        snapshot = {'name': 'fakesnap', 'volume_name': 'fakevolume_name',
+                    'volume_size': '1'}
+        volume = {'name': self.volume_name, 'size': '1'}
         mock_attrs = {'args': ['volume', 'select', snapshot['volume_name'],
                                'snapshot', 'select', snapshot['name'],
                                'clone', volume['name']]}
 
         with mock.patch.object(self.driver,
                                '_eql_execute') as mock_eql_execute:
-            mock_eql_execute.configure_mock(**mock_attrs)
-            mock_eql_execute.return_value = self.fake_iqn_return
-            model_update = self.driver.create_volume_from_snapshot(volume,
-                                                                   snapshot)
-            self.assertEqual(self._model_update, model_update)
+            with mock.patch.object(self.driver,
+                                   'extend_volume') as mock_extend_volume:
+                mock_eql_execute.configure_mock(**mock_attrs)
+                mock_eql_execute.return_value = self.fake_iqn_return
+                mock_extend_volume.return_value = self.fake_iqn_return
+                model_update = self.driver.create_volume_from_snapshot(
+                    volume, snapshot)
+                self.assertEqual(self._model_update, model_update)
+                self.assertFalse(self.driver.extend_volume.called)
+
+    def test_create_volume_from_snapshot_extend(self):
+        snapshot = {'name': 'fakesnap', 'volume_name': 'fakevolume_name',
+                    'volume_size': '100'}
+        volume = {'name': self.volume_name, 'size': '200'}
+        mock_attrs = {'args': ['volume', 'select', snapshot['volume_name'],
+                               'snapshot', 'select', snapshot['name'],
+                               'clone', volume['name']]}
+
+        with mock.patch.object(self.driver,
+                               '_eql_execute') as mock_eql_execute:
+            with mock.patch.object(self.driver,
+                                   'extend_volume') as mock_extend_volume:
+                mock_eql_execute.configure_mock(**mock_attrs)
+                mock_eql_execute.return_value = volume
+                mock_extend_volume.return_value = self.fake_iqn_return
+                model_update = self.driver.create_volume_from_snapshot(
+                    volume, snapshot)
+                self.assertEqual(self._model_update, model_update)
+                self.assertTrue(self.driver.extend_volume.called)
+                self.driver.extend_volume.assert_called_once_with(
+                    volume, volume['size'])
 
     def test_create_cloned_volume(self):
-        src_vref = {'name': 'fake_uuid'}
-        volume = {'name': self.volume_name}
+        src_vref = {'name': 'fake_uuid', 'size': '1'}
+        volume = {'name': self.volume_name, 'size': '1'}
         mock_attrs = {'args': ['volume', 'select', volume['name'],
                                'multihost-access', 'enable']}
         with mock.patch.object(self.driver,
                                '_eql_execute') as mock_eql_execute:
-            mock_eql_execute.configure_mock(**mock_attrs)
-            mock_eql_execute.return_value = self.fake_iqn_return
-            model_update = self.driver.create_cloned_volume(volume, src_vref)
-            self.assertEqual(self._model_update, model_update)
+            with mock.patch.object(self.driver,
+                                   'extend_volume') as mock_extend_volume:
+                mock_eql_execute.configure_mock(**mock_attrs)
+                mock_eql_execute.return_value = self.fake_iqn_return
+                mock_extend_volume.return_value = self.fake_iqn_return
+                model_update = self.driver.create_cloned_volume(
+                    volume, src_vref)
+                self.assertEqual(self._model_update, model_update)
+                self.assertFalse(self.driver.extend_volume.called)
+
+    def test_create_cloned_volume_extend(self):
+        src_vref = {'name': 'fake_uuid', 'size': '100'}
+        volume = {'name': self.volume_name, 'size': '200'}
+        mock_attrs = {'args': ['volume', 'select', volume['name'],
+                               'multihost-access', 'enable']}
+        with mock.patch.object(self.driver,
+                               '_eql_execute') as mock_eql_execute:
+            with mock.patch.object(self.driver,
+                                   'extend_volume') as mock_extend_volume:
+                mock_eql_execute.configure_mock(**mock_attrs)
+                mock_eql_execute.return_value = self.fake_iqn_return
+                mock_extend_volume.return_value = self.fake_iqn_return
+                cloned_vol = self.driver.create_cloned_volume(volume, src_vref)
+                self.assertEqual(self._model_update, cloned_vol)
+                self.assertTrue(self.driver.extend_volume.called)
 
     def test_delete_snapshot(self):
         snapshot = {'name': 'fakesnap', 'volume_name': 'fakevolume_name'}

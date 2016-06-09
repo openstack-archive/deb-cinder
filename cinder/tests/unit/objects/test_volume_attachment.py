@@ -28,7 +28,7 @@ class TestVolumeAttachment(test_objects.BaseObjectsTestCase):
         db_attachment = fake_volume.fake_db_volume_attachment()
         volume_attachment_get.return_value = db_attachment
         attachment = objects.VolumeAttachment.get_by_id(self.context,
-                                                        fake.attachment_id)
+                                                        fake.ATTACHMENT_ID)
         self._compare(self, db_attachment, attachment)
 
     @mock.patch('cinder.db.volume_attachment_update')
@@ -49,7 +49,7 @@ class TestVolumeAttachment(test_objects.BaseObjectsTestCase):
         # with an updated mountpoint
         attachment_get.side_effect = [db_attachment1, db_attachment2]
         attachment = objects.VolumeAttachment.get_by_id(self.context,
-                                                        fake.attachment_id)
+                                                        fake.ATTACHMENT_ID)
         self._compare(self, db_attachment1, attachment)
 
         # mountpoint was updated, so a volume attachment refresh should have a
@@ -61,14 +61,14 @@ class TestVolumeAttachment(test_objects.BaseObjectsTestCase):
         else:
             call_bool = mock.call.__nonzero__()
         attachment_get.assert_has_calls([mock.call(self.context,
-                                                   fake.attachment_id),
+                                                   fake.ATTACHMENT_ID),
                                          call_bool,
                                          mock.call(self.context,
-                                                   fake.attachment_id)])
+                                                   fake.ATTACHMENT_ID)])
 
 
 class TestVolumeAttachmentList(test_objects.BaseObjectsTestCase):
-    @mock.patch('cinder.db.volume_attachment_get_used_by_volume_id')
+    @mock.patch('cinder.db.volume_attachment_get_all_by_volume_id')
     def test_get_all_by_volume_id(self, get_used_by_volume_id):
         db_attachment = fake_volume.fake_db_volume_attachment()
         get_used_by_volume_id.return_value = [db_attachment]
@@ -78,7 +78,7 @@ class TestVolumeAttachmentList(test_objects.BaseObjectsTestCase):
         self.assertEqual(1, len(attachments))
         TestVolumeAttachment._compare(self, db_attachment, attachments[0])
 
-    @mock.patch('cinder.db.volume_attachment_get_by_host')
+    @mock.patch('cinder.db.volume_attachment_get_all_by_host')
     def test_get_all_by_host(self, get_by_host):
         db_attachment = fake_volume.fake_db_volume_attachment()
         get_by_host.return_value = [db_attachment]
@@ -88,7 +88,7 @@ class TestVolumeAttachmentList(test_objects.BaseObjectsTestCase):
         self.assertEqual(1, len(attachments))
         TestVolumeAttachment._compare(self, db_attachment, attachments[0])
 
-    @mock.patch('cinder.db.volume_attachment_get_by_instance_uuid')
+    @mock.patch('cinder.db.volume_attachment_get_all_by_instance_uuid')
     def test_get_all_by_instance_uuid(self, get_by_instance_uuid):
         db_attachment = fake_volume.fake_db_volume_attachment()
         get_by_instance_uuid.return_value = [db_attachment]

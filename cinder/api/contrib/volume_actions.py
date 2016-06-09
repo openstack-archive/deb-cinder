@@ -13,7 +13,7 @@
 #   under the License.
 
 
-from oslo_log import log as logging
+from oslo_config import cfg
 import oslo_messaging as messaging
 from oslo_utils import encodeutils
 from oslo_utils import strutils
@@ -21,54 +21,20 @@ import six
 import webob
 
 from cinder.api import extensions
+from cinder.api.openstack import api_version_request
 from cinder.api.openstack import wsgi
-from cinder.api import xmlutil
 from cinder import exception
 from cinder.i18n import _
 from cinder import utils
 from cinder import volume
 
 
-LOG = logging.getLogger(__name__)
+CONF = cfg.CONF
 
 
 def authorize(context, action_name):
     action = 'volume_actions:%s' % action_name
     extensions.extension_authorizer('volume', action)(context)
-
-
-class VolumeToImageSerializer(xmlutil.TemplateBuilder):
-    def construct(self):
-        root = xmlutil.TemplateElement('os-volume_upload_image',
-                                       selector='os-volume_upload_image')
-        root.set('id')
-        root.set('updated_at')
-        root.set('status')
-        root.set('display_description')
-        root.set('size')
-        root.set('volume_type')
-        root.set('image_id')
-        root.set('container_format')
-        root.set('disk_format')
-        root.set('image_name')
-        return xmlutil.MasterTemplate(root, 1)
-
-
-class VolumeToImageDeserializer(wsgi.XMLDeserializer):
-    """Deserializer to handle xml-formatted requests."""
-    def default(self, string):
-        dom = utils.safe_minidom_parse_string(string)
-        action_node = dom.childNodes[0]
-        action_name = action_node.tagName
-
-        action_data = {}
-        attributes = ["force", "image_name", "container_format", "disk_format"]
-        for attr in attributes:
-            if action_node.hasAttribute(attr):
-                action_data[attr] = action_node.getAttribute(attr)
-        if 'force' in action_data and action_data['force'] == 'True':
-            action_data['force'] = True
-        return {'body': {action_name: action_data}}
 
 
 class VolumeActionsController(wsgi.Controller):
@@ -248,12 +214,11 @@ class VolumeActionsController(wsgi.Controller):
 
     @wsgi.response(202)
     @wsgi.action('os-volume_upload_image')
-    @wsgi.serializers(xml=VolumeToImageSerializer)
-    @wsgi.deserializers(xml=VolumeToImageDeserializer)
     def _volume_upload_image(self, req, id, body):
         """Uploads the specified volume to image service."""
         context = req.environ['cinder.context']
         params = body['os-volume_upload_image']
+        req_version = req.api_version_request
         if not params.get("image_name"):
             msg = _("No image_name was specified in request.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
@@ -276,6 +241,24 @@ class VolumeActionsController(wsgi.Controller):
                                                          "bare"),
                           "disk_format": params.get("disk_format", "raw"),
                           "name": params["image_name"]}
+
+        if req_version >= api_version_request.APIVersionRequest('3.1'):
+
+            image_metadata['visibility'] = params.get('visibility', 'private')
+            image_metadata['protected'] = params.get('protected', 'False')
+
+            if image_metadata['visibility'] == 'public':
+                authorize(context, 'upload_public')
+
+            if CONF.glance_api_version != 2:
+                # Replace visibility with is_public for Glance V1
+                image_metadata['is_public'] = (
+                    image_metadata['visibility'] == 'public')
+                image_metadata.pop('visibility', None)
+
+            image_metadata['protected'] = (
+                utils.get_bool_param('protected', image_metadata))
+
         try:
             response = self.volume_api.copy_volume_to_image(context,
                                                             volume,
@@ -303,12 +286,11 @@ class VolumeActionsController(wsgi.Controller):
             raise webob.exc.HTTPNotFound(explanation=error.msg)
 
         try:
-            int(body['os-extend']['new_size'])
+            size = int(body['os-extend']['new_size'])
         except (KeyError, ValueError, TypeError):
             msg = _("New volume size must be specified as an integer.")
             raise webob.exc.HTTPBadRequest(explanation=msg)
 
-        size = int(body['os-extend']['new_size'])
         try:
             self.volume_api.extend(context, volume, size)
         except exception.InvalidVolume as error:
@@ -391,7 +373,6 @@ class Volume_actions(extensions.ExtensionDescriptor):
 
     name = "VolumeActions"
     alias = "os-volume-actions"
-    namespace = "http://docs.openstack.org/volume/ext/volume-actions/api/v1.1"
     updated = "2012-05-31T00:00:00+00:00"
 
     def get_controller_extensions(self):

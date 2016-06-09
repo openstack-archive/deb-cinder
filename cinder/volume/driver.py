@@ -29,7 +29,9 @@ from cinder import exception
 from cinder.i18n import _, _LE, _LW
 from cinder.image import image_utils
 from cinder import objects
+from cinder.objects import fields
 from cinder import utils
+from cinder.volume import driver_utils
 from cinder.volume import rpcapi as volume_rpcapi
 from cinder.volume import throttling
 
@@ -88,12 +90,12 @@ volume_opts = [
                     'for example "-c3" for idle only priority.'),
     cfg.StrOpt('iscsi_helper',
                default='tgtadm',
-               choices=['tgtadm', 'lioadm', 'scstadmin', 'iseradm', 'iscsictl',
+               choices=['tgtadm', 'lioadm', 'scstadmin', 'iscsictl',
                         'ietadm', 'fake'],
                help='iSCSI target user-land tool to use. tgtadm is default, '
                     'use lioadm for LIO iSCSI support, scstadmin for SCST '
-                    'target support, iseradm for the ISER protocol, ietadm '
-                    'for iSCSI Enterprise Target, iscsictl for Chelsio iSCSI '
+                    'target support, ietadm for iSCSI Enterprise Target, '
+                    'iscsictl for Chelsio iSCSI '
                     'Target or fake for testing.'),
     cfg.StrOpt('volumes_dir',
                default='$state_path/volumes',
@@ -130,7 +132,7 @@ volume_opts = [
                help='Sets the behavior of the iSCSI target to either '
                     'perform write-back(on) or write-through(off). '
                     'This parameter is valid if iscsi_helper is set '
-                    'to tgtadm or iseradm.'),
+                    'to tgtadm.'),
     cfg.StrOpt('iscsi_target_flags',
                default='',
                help='Sets the target-specific flags for the iSCSI target. '
@@ -316,6 +318,9 @@ class BaseVD(object):
             self.configuration.append_config_values(iser_opts)
             utils.setup_tracing(self.configuration.safe_get('trace_flags'))
 
+        self.driver_utils = driver_utils.VolumeDriverUtils(
+            self._driver_data_namespace(), self.db)
+
         self._execute = execute
         self._stats = {}
         self._throttle = None
@@ -329,7 +334,6 @@ class BaseVD(object):
         self.target_mapping = {
             'fake': 'cinder.volume.targets.fake.FakeTarget',
             'ietadm': 'cinder.volume.targets.iet.IetAdm',
-            'iseradm': 'cinder.volume.targets.iser.ISERTgtAdm',
             'lioadm': 'cinder.volume.targets.lio.LioAdm',
             'tgtadm': 'cinder.volume.targets.tgt.TgtAdm',
             'scstadmin': 'cinder.volume.targets.scst.SCSTAdm',
@@ -337,6 +341,14 @@ class BaseVD(object):
 
         # set True by manager after successful check_for_setup
         self._initialized = False
+
+    def _driver_data_namespace(self):
+        namespace = self.__class__.__name__
+        if self.configuration:
+            namespace = self.configuration.safe_get('driver_data_namespace')
+            if not namespace:
+                namespace = self.configuration.safe_get('volume_backend_name')
+        return namespace
 
     def _is_non_recoverable(self, err, non_recoverable_list):
         for item in non_recoverable_list:
@@ -492,9 +504,13 @@ class BaseVD(object):
         needs to create a volume replica (secondary), and setup replication
         between the newly created volume and the secondary volume.
         Returned dictionary should include:
+
+        .. code-block:: python
+
             volume['replication_status'] = 'copying'
-            volume['replication_extended_status'] = driver specific value
-            volume['driver_data'] = driver specific value
+            volume['replication_extended_status'] = <driver specific value>
+            volume['driver_data'] = <driver specific value>
+
         """
         return
 
@@ -1311,7 +1327,7 @@ class BaseVD(object):
             'cgsnapshot_id': None,
             'user_id': context.user_id,
             'project_id': context.project_id,
-            'status': 'creating',
+            'status': fields.SnapshotStatus.CREATING,
             'progress': '0%',
             'volume_size': volume['size'],
             'display_name': 'backup-snap-%s' % volume['id'],
@@ -1331,7 +1347,7 @@ class BaseVD(object):
                         context, temp_snap_ref.id)
                     temp_snap_ref.destroy()
 
-        temp_snap_ref.status = 'available'
+        temp_snap_ref.status = fields.SnapshotStatus.AVAILABLE
         temp_snap_ref.save()
         return temp_snap_ref
 
@@ -1348,15 +1364,19 @@ class BaseVD(object):
         }
         temp_vol_ref = self.db.volume_create(context, temp_volume)
         try:
-            self.create_cloned_volume(temp_vol_ref, volume)
+            # Some drivers return None, because they do not need to update the
+            # model for the volume. For those cases we set the model_update to
+            # an empty dictionary.
+            model_update = self.create_cloned_volume(temp_vol_ref,
+                                                     volume) or {}
         except Exception:
             with excutils.save_and_reraise_exception():
                 self.db.volume_destroy(context.elevated(),
                                        temp_vol_ref['id'])
 
-        self.db.volume_update(context, temp_vol_ref['id'],
-                              {'status': 'available'})
-        return temp_vol_ref
+        model_update['status'] = 'available'
+        self.db.volume_update(context, temp_vol_ref['id'], model_update)
+        return self.db.volume_get(context, temp_vol_ref['id'])
 
     def _create_temp_volume_from_snapshot(self, context, volume, snapshot):
         temp_volume = {
@@ -1483,23 +1503,13 @@ class BaseVD(object):
         return
 
     @abc.abstractmethod
-    def initialize_connection(self, volume, connector, initiator_data=None):
+    def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info.
 
         :param volume: The volume to be attached
         :param connector: Dictionary containing information about what is being
-        connected to.
-        :param initiator_data (optional): A dictionary of driver_initiator_data
-        objects with key-value pairs that have been saved for this initiator by
-        a driver in previous initialize_connection calls.
-        :returns conn_info: A dictionary of connection information. This can
-        optionally include a "initiator_updates" field.
-
-        The "initiator_updates" field must be a dictionary containing a
-        "set_values" and/or "remove_values" field. The "set_values" field must
-        be a dictionary of key-value pairs to be set/updated in the db. The
-        "remove_values" field must be a list of keys, previously set with
-        "set_values", that will be deleted from the db.
+                          connected to.
+        :returns conn_info: A dictionary of connection information.
         """
         return
 
@@ -1507,10 +1517,11 @@ class BaseVD(object):
         """Allow connection to connector and return connection info.
 
         :param snapshot: The snapshot to be attached
-        :param connector: Dictionary containing information about what is being
-        connected to.
-        :returns conn_info: A dictionary of connection information. This can
-        optionally include a "initiator_updates" field.
+        :param connector: Dictionary containing information about what
+                          is being connected to.
+        :returns conn_info: A dictionary of connection information. This
+                            can optionally include a "initiator_updates"
+                            field.
 
         The "initiator_updates" field must be a dictionary containing a
         "set_values" and/or "remove_values" field. The "set_values" field must
@@ -1532,7 +1543,7 @@ class BaseVD(object):
     def get_pool(self, volume):
         """Return pool name where volume reside on.
 
-        :param volume: The volume hosted by the the driver.
+        :param volume: The volume hosted by the driver.
         :returns: name of the pool where given volume is in.
         """
         return None
@@ -1617,17 +1628,17 @@ class BaseVD(object):
 
         Response is a tuple, including the new target backend_id
         AND a lit of dictionaries with volume_id and updates.
-        *Key things to consider (attaching failed-over volumes):
-          provider_location
-          provider_auth
-          provider_id
-          replication_status
+        Key things to consider (attaching failed-over volumes):
+        - provider_location
+        - provider_auth
+        - provider_id
+        - replication_status
 
         :param context: security context
         :param volumes: list of volume objects, in case the driver needs
                         to take action on them in some way
         :param secondary_id: Specifies rep target backend to fail over to
-        :returns : ID of the backend that was failed-over to
+        :returns: ID of the backend that was failed-over to
                    and model update for volumes
         """
 
@@ -1792,7 +1803,7 @@ class ManageableVD(object):
 
         :param volume:       Cinder volume to manage
         :param existing_ref: Driver-specific information used to identify a
-        volume
+                             volume
         """
         return
 
@@ -1804,7 +1815,7 @@ class ManageableVD(object):
 
         :param volume:       Cinder volume to manage
         :param existing_ref: Driver-specific information used to identify a
-        volume
+                             volume
         """
         return
 
@@ -1887,16 +1898,19 @@ class ReplicaVD(object):
         (the old replica).
         Returns model_update for the volume to reflect the actions of the
         driver.
+
         The driver is expected to update the following entries:
-            'replication_status'
-            'replication_extended_status'
-            'replication_driver_data'
+        - 'replication_status'
+        - 'replication_extended_status'
+        - 'replication_driver_data'
+
         Possible 'replication_status' values (in model_update) are:
-        'error' - replication in error state
-        'copying' - replication copying data to secondary (inconsistent)
-        'active' - replication copying data to secondary (consistent)
-        'active-stopped' - replication data copy on hold (consistent)
-        'inactive' - replication data copy on hold (inconsistent)
+        - 'error' - replication in error state
+        - 'copying' - replication copying data to secondary (inconsistent)
+        - 'active' - replication copying data to secondary (consistent)
+        - 'active-stopped' - replication data copy on hold (consistent)
+        - 'inactive' - replication data copy on hold (inconsistent)
+
         Values in 'replication_extended_status' and 'replication_driver_data'
         are managed by the driver.
 
@@ -1910,15 +1924,17 @@ class ReplicaVD(object):
 
         Returns model_update for the volume.
         The driver is expected to update the following entries:
-            'replication_status'
-            'replication_extended_status'
-            'replication_driver_data'
+        - 'replication_status'
+        - 'replication_extended_status'
+        - 'replication_driver_data'
+
         Possible 'replication_status' values (in model_update) are:
-        'error' - replication in error state
-        'copying' - replication copying data to secondary (inconsistent)
-        'active' - replication copying data to secondary (consistent)
-        'active-stopped' - replication data copy on hold (consistent)
-        'inactive' - replication data copy on hold (inconsistent)
+        - 'error' - replication in error state
+        - 'copying' - replication copying data to secondary (inconsistent)
+        - 'active' - replication copying data to secondary (consistent)
+        - 'active-stopped' - replication data copy on hold (consistent)
+        - 'inactive' - replication data copy on hold (inconsistent)
+
         Values in 'replication_extended_status' and 'replication_driver_data'
         are managed by the driver.
 
@@ -1938,12 +1954,14 @@ class ReplicaVD(object):
 
         Returns model_update for the volume.
         The driver is expected to update the following entries:
-            'replication_status'
-            'replication_extended_status'
-            'replication_driver_data'
+        - 'replication_status'
+        - 'replication_extended_status'
+        - 'replication_driver_data'
+
         Possible 'replication_status' values (in model_update) are:
-        'error' - replication in error state
-        'inactive' - replication data copy on hold (inconsistent)
+        - 'error' - replication in error state
+        - 'inactive' - replication data copy on hold (inconsistent)
+
         Values in 'replication_extended_status' and 'replication_driver_data'
         are managed by the driver.
 
@@ -2279,7 +2297,7 @@ class VolumeDriver(ConsistencyGroupVD, TransferVD, ManageableVD, ExtendVD,
     def get_pool(self, volume):
         """Return pool name where volume reside on.
 
-        :param volume: The volume hosted by the the driver.
+        :param volume: The volume hosted by the driver.
         :returns: name of the pool where given volume is in.
         """
         return None
@@ -2414,7 +2432,7 @@ class ISCSIDriver(VolumeDriver):
         except (IndexError, ValueError):
             if (self.configuration.volume_driver ==
                     'cinder.volume.drivers.lvm.ThinLVMVolumeDriver' and
-                    self.configuration.iscsi_helper in ('tgtadm', 'iseradm')):
+                    self.configuration.iscsi_helper == 'tgtadm'):
                 lun = 1
             else:
                 lun = 0
@@ -2695,7 +2713,9 @@ class ISERDriver(ISCSIDriver):
 
         The iser driver returns a driver_volume_type of 'iser'.
         The format of the driver data is defined in _get_iser_properties.
-        Example return value::
+        Example return value:
+
+        .. code-block:: json
 
             {
                 'driver_volume_type': 'iser'
@@ -2761,6 +2781,8 @@ class FibreChannelDriver(VolumeDriver):
         The target_wwn can be a single entry or a list of wwns that
         correspond to the list of remote wwn(s) that will export the volume.
         Example return values:
+
+        .. code-block:: json
 
             {
                 'driver_volume_type': 'fibre_channel'

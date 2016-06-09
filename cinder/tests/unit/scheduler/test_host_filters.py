@@ -24,6 +24,7 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.scheduler import filters
+from cinder.scheduler.filters import extra_specs_ops
 from cinder import test
 from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit.scheduler import fakes
@@ -35,7 +36,7 @@ class HostFiltersTestCase(test.TestCase):
 
     def setUp(self):
         super(HostFiltersTestCase, self).setUp()
-        self.context = context.RequestContext(fake.user_id, fake.project_id)
+        self.context = context.RequestContext(fake.USER_ID, fake.PROJECT_ID)
         # This has a side effect of testing 'get_filter_classes'
         # when specifying a method (in this case, our standard filters)
         filter_handler = filters.HostFilterHandler('cinder.scheduler.filters')
@@ -995,13 +996,11 @@ class InstanceLocalityFilterTestCase(HostFiltersTestCase):
         filter_properties = {'context': self.context, 'size': 100}
         self.assertTrue(filt_cls.host_passes(host, filter_properties))
 
-    @mock.patch('novaclient.client.discover_extensions')
-    @mock.patch('requests.request')
-    def test_nova_timeout(self, _mock_request, fake_extensions):
+    @mock.patch('cinder.compute.nova.novaclient')
+    def test_nova_timeout(self, mock_novaclient):
         # Simulate a HTTP timeout
-        _mock_request.side_effect = request_exceptions.Timeout
-        fake_extensions.return_value = (
-            fakes.FakeNovaClient().list_extensions.show_all())
+        mock_show_all = mock_novaclient.return_value.list_extensions.show_all
+        mock_show_all.side_effect = request_exceptions.Timeout
 
         filt_cls = self.class_map['InstanceLocalityFilter']()
         host = fakes.FakeHostState('host1', {})
@@ -1025,7 +1024,7 @@ class TestBogusFilter(object):
 class ExtraSpecsOpsTestCase(test.TestCase):
     def _do_extra_specs_ops_test(self, value, req, matches):
         assertion = self.assertTrue if matches else self.assertFalse
-        assertion(filters.extra_specs_ops.match(value, req))
+        assertion(extra_specs_ops.match(value, req))
 
     def test_extra_specs_matches_simple(self):
         self._do_extra_specs_ops_test(

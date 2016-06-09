@@ -124,6 +124,9 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
     """Executes REST commands relating to HPE/LeftHand SAN ISCSI volumes.
 
     Version history:
+
+    .. code-block:: none
+
         1.0.0 - Initial REST iSCSI proxy
         1.0.1 - Added support for retype
         1.0.2 - Added support for volume migrate
@@ -519,7 +522,7 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
                                    'snapshotName': snapshot_name}
                 snap_set.append(snap_set_member)
                 snapshot_update = {'id': snapshot['id'],
-                                   'status': 'available'}
+                                   'status': fields.SnapshotStatus.AVAILABLE}
                 snapshot_model_updates.append(snapshot_update)
 
             source_volume_id = snap_set[0]['volumeId']
@@ -559,20 +562,20 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
                 snap_name = snap_name_base + "-" + six.text_type(i)
                 snap_info = client.getSnapshotByName(snap_name)
                 client.deleteSnapshot(snap_info['id'])
-                snapshot_update['status'] = 'deleted'
+                snapshot_update['status'] = fields.SnapshotStatus.DELETED
             except hpeexceptions.HTTPServerError as ex:
                 in_use_msg = ('cannot be deleted because it is a clone '
                               'point')
                 if in_use_msg in ex.get_description():
                     LOG.error(_LE("The snapshot cannot be deleted because "
                                   "it is a clone point."))
-                snapshot_update['status'] = 'error'
+                snapshot_update['status'] = fields.SnapshotStatus.ERROR
             except Exception as ex:
                 LOG.error(_LE("There was an error deleting snapshot %(id)s: "
                               "%(error)."),
                           {'id': snapshot['id'],
                            'error': six.text_type(ex)})
-                snapshot_update['status'] = 'error'
+                snapshot_update['status'] = fields.SnapshotStatus.ERROR
             snapshot_model_updates.append(snapshot_update)
 
         self._logout(client)
@@ -1403,15 +1406,15 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
         return volume_types.get_volume_type(ctxt, type_id)
 
     # v2 replication methods
-    def failover_host(self, context, volumes, secondary_backend_id):
+    def failover_host(self, context, volumes, secondary_id=None):
         """Force failover to a secondary replication target."""
-        if secondary_backend_id == self.FAILBACK_VALUE:
+        if secondary_id and secondary_id == self.FAILBACK_VALUE:
             volume_update_list = self._replication_failback(volumes)
             target_id = None
         else:
             failover_target = None
             for target in self._replication_targets:
-                if target['backend_id'] == secondary_backend_id:
+                if target['backend_id'] == secondary_id:
                     failover_target = target
                     break
             if not failover_target:

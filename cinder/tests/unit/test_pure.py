@@ -285,30 +285,30 @@ REPLICATED_PGSNAPS = [
         "data_transferred": 318
     }]
 REPLICATED_VOLUME_OBJS = [
-    fake_volume.fake_volume_obj(None, id=fake.volume_id),
-    fake_volume.fake_volume_obj(None, id=fake.volume2_id),
-    fake_volume.fake_volume_obj(None, id=fake.volume3_id),
+    fake_volume.fake_volume_obj(None, id=fake.VOLUME_ID),
+    fake_volume.fake_volume_obj(None, id=fake.VOLUME2_ID),
+    fake_volume.fake_volume_obj(None, id=fake.VOLUME3_ID),
 ]
 REPLICATED_VOLUME_SNAPS = [
     {
-        "source": "array1:volume-%s-cinder" % fake.volume_id,
+        "source": "array1:volume-%s-cinder" % fake.VOLUME_ID,
         "serial": "BBA481C01639104E0001D5F7",
         "created": "2014-12-04T22:59:38Z",
-        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.volume_id,
+        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.VOLUME_ID,
         "size": 1048576
     },
     {
-        "source": "array1:volume-%s-cinder" % fake.volume2_id,
+        "source": "array1:volume-%s-cinder" % fake.VOLUME2_ID,
         "serial": "BBA481C01639104E0001D5F8",
         "created": "2014-12-04T22:59:38Z",
-        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.volume2_id,
+        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.VOLUME2_ID,
         "size": 1048576
     },
     {
-        "source": "array1:volume-%s-cinder" % fake.volume3_id,
+        "source": "array1:volume-%s-cinder" % fake.VOLUME3_ID,
         "serial": "BBA481C01639104E0001D5F9",
         "created": "2014-12-04T22:59:38Z",
-        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.volume3_id,
+        "name": "array1:cinder-repl-pg.2.volume-%s-cinder" % fake.VOLUME3_ID,
         "size": 1048576
     }
 ]
@@ -381,6 +381,16 @@ class PureDriverTestCase(test.TestCase):
             self.assertRaises(exception.PureDriverException,
                               func, *args, **kwargs)
             mock_func.side_effect = original_side_effect
+
+    @mock.patch('platform.platform')
+    def test_for_user_agent(self, mock_platform):
+        mock_platform.return_value = 'MyFavoritePlatform'
+        driver = pure.PureBaseVolumeDriver(configuration=self.mock_config)
+        expected_agent = "OpenStack Cinder %s/%s (MyFavoritePlatform)" % (
+            driver.__class__.__name__,
+            driver.VERSION
+        )
+        self.assertEqual(expected_agent, driver._user_agent)
 
 
 class PureBaseSharedDriverTestCase(PureDriverTestCase):
@@ -1510,10 +1520,13 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
                           self.driver.unmanage_snapshot,
                           SNAPSHOT)
 
-    def _test_retype_repl(self, mock_is_repl, is_vol_repl, repl_cabability):
+    def _test_retype_repl(self, mock_is_repl, is_vol_repl,
+                          repl_cabability, volume_id=None):
         mock_is_repl.return_value = is_vol_repl
         context = mock.MagicMock()
         volume = fake_volume.fake_volume_obj(context)
+        if volume_id:
+            volume.id = volume_id
         new_type = {
             'extra_specs': {
                 pure.EXTRA_SPECS_REPL_ENABLED:
@@ -1534,32 +1547,28 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
     def test_retype_non_repl_to_non_repl(self, mock_is_replicated_type):
         self._test_retype_repl(mock_is_replicated_type, False, False)
 
-    @mock.patch(BASE_DRIVER_OBJ + '._enable_replication')
-    @mock.patch(BASE_DRIVER_OBJ + '._disable_replication')
     @mock.patch(BASE_DRIVER_OBJ + '._is_volume_replicated_type', autospec=True)
-    def test_retype_non_repl_to_repl(self,
-                                     mock_is_replicated_type,
-                                     mock_replication_disable,
-                                     mock_replication_enable):
+    def test_retype_non_repl_to_repl(self, mock_is_replicated_type):
 
         context, volume = self._test_retype_repl(mock_is_replicated_type,
                                                  False,
-                                                 True)
-        self.assertFalse(mock_replication_disable.called)
-        mock_replication_enable.assert_called_with(volume)
+                                                 True,
+                                                 volume_id=VOLUME_ID)
+        self.array.set_pgroup.assert_called_once_with(
+            pure.REPLICATION_CG_NAME,
+            addvollist=[VOLUME_PURITY_NAME]
+        )
 
-    @mock.patch(BASE_DRIVER_OBJ + '._enable_replication')
-    @mock.patch(BASE_DRIVER_OBJ + '._disable_replication')
     @mock.patch(BASE_DRIVER_OBJ + '._is_volume_replicated_type', autospec=True)
-    def test_retype_repl_to_non_repl(self,
-                                     mock_is_replicated_type,
-                                     mock_replication_disable,
-                                     mock_replication_enable):
+    def test_retype_repl_to_non_repl(self, mock_is_replicated_type,):
         context, volume = self._test_retype_repl(mock_is_replicated_type,
                                                  True,
-                                                 False)
-        self.assertFalse(mock_replication_enable.called)
-        mock_replication_disable.assert_called_with(volume)
+                                                 False,
+                                                 volume_id=VOLUME_ID)
+        self.array.set_pgroup.assert_called_once_with(
+            pure.REPLICATION_CG_NAME,
+            remvollist=[VOLUME_PURITY_NAME]
+        )
 
     @mock.patch('cinder.volume.volume_types.get_volume_type')
     def test_is_vol_replicated_no_extra_specs(self, mock_get_vol_type):
@@ -1888,14 +1897,7 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
             remvollist=[VOLUME_PURITY_NAME]
         )
 
-    @ddt.data(
-        dict(version='1.5.0'),
-        dict(version='2.0.0'),
-        dict(version='1.4.1'),
-    )
-    @ddt.unpack
-    def test_get_flasharray_verify_https(self, version):
-        self.purestorage_module.VERSION = version
+    def test_get_flasharray_verify_https(self):
         san_ip = '1.2.3.4'
         api_token = 'abcdef'
         cert_path = '/my/ssl/certs'
@@ -1910,38 +1912,8 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
             api_token=api_token,
             rest_version=None,
             verify_https=True,
-            ssl_cert=cert_path
-        )
-
-    def test_get_flasharray_dont_verify_https_version_too_old(self):
-        self.purestorage_module.VERSION = '1.4.0'
-        san_ip = '1.2.3.4'
-        api_token = 'abcdef'
-        self.purestorage_module.FlashArray.return_value = mock.MagicMock()
-
-        self.driver._get_flasharray(san_ip,
-                                    api_token,
-                                    verify_https=False,
-                                    ssl_cert_path=None)
-        self.purestorage_module.FlashArray.assert_called_with(
-            san_ip,
-            api_token=api_token,
-            rest_version=None
-        )
-
-    def test_get_flasharray_verify_https_version_too_old(self):
-        self.purestorage_module.VERSION = '1.4.0'
-        san_ip = '1.2.3.4'
-        api_token = 'abcdef'
-        self.purestorage_module.FlashArray.return_value = mock.MagicMock()
-
-        self.assertRaises(
-            exception.PureDriverException,
-            self.driver._get_flasharray,
-            san_ip,
-            api_token,
-            verify_https=True,
-            ssl_cert_path='/my/ssl/certs'
+            ssl_cert=cert_path,
+            user_agent=self.driver._user_agent,
         )
 
 
@@ -1952,6 +1924,8 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         self.mock_config.use_chap_auth = False
         self.driver = pure.PureISCSIDriver(configuration=self.mock_config)
         self.driver._array = self.array
+        self.mock_utils = mock.Mock()
+        self.driver.driver_utils = self.mock_utils
 
     def test_get_host(self):
         good_host = PURE_HOST.copy()
@@ -1985,7 +1959,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
                                                         ISCSI_CONNECTOR)
         self.assertDictMatch(result, real_result)
         mock_get_iscsi_ports.assert_called_with()
-        mock_connection.assert_called_with(VOLUME, ISCSI_CONNECTOR, None)
+        mock_connection.assert_called_with(VOLUME, ISCSI_CONNECTOR)
         self.assert_error_propagates([mock_get_iscsi_ports, mock_connection],
                                      self.driver.initialize_connection,
                                      VOLUME, ISCSI_CONNECTOR)
@@ -1998,8 +1972,6 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         chap_username = ISCSI_CONNECTOR["host"]
         chap_password = "password"
         mock_get_iscsi_ports.return_value = ISCSI_PORTS
-        initiator_update = [{"key": pure.CHAP_SECRET_KEY,
-                            "value": chap_password}]
         mock_connection.return_value = {
             "vol": VOLUME["name"] + "-cinder",
             "lun": 1,
@@ -2016,15 +1988,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         # Branch where no credentials were generated
         real_result = self.driver.initialize_connection(VOLUME,
                                                         ISCSI_CONNECTOR)
-        mock_connection.assert_called_with(VOLUME, ISCSI_CONNECTOR, None)
-        self.assertDictMatch(result, real_result)
-
-        # Branch where new credentials were generated
-        mock_connection.return_value["initiator_update"] = initiator_update
-        result["initiator_update"] = initiator_update
-        real_result = self.driver.initialize_connection(VOLUME,
-                                                        ISCSI_CONNECTOR)
-        mock_connection.assert_called_with(VOLUME, ISCSI_CONNECTOR, None)
+        mock_connection.assert_called_with(VOLUME, ISCSI_CONNECTOR)
         self.assertDictMatch(result, real_result)
 
         self.assert_error_propagates([mock_get_iscsi_ports, mock_connection],
@@ -2051,7 +2015,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
                                                         multipath_connector)
         self.assertDictMatch(result, real_result)
         mock_get_iscsi_ports.assert_called_with()
-        mock_connection.assert_called_with(VOLUME, multipath_connector, None)
+        mock_connection.assert_called_with(VOLUME, multipath_connector)
 
         multipath_connector["multipath"] = False
         self.driver.initialize_connection(VOLUME, multipath_connector)
@@ -2088,7 +2052,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         # Branch where host already exists
         mock_host.return_value = PURE_HOST
         self.array.connect_host.return_value = {"vol": vol_name, "lun": 1}
-        real_result = self.driver._connect(VOLUME, ISCSI_CONNECTOR, None)
+        real_result = self.driver._connect(VOLUME, ISCSI_CONNECTOR)
         self.assertEqual(result, real_result)
         mock_host.assert_called_with(self.driver, self.array, ISCSI_CONNECTOR)
         self.assertFalse(mock_generate.called)
@@ -2098,7 +2062,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         # Branch where new host is created
         mock_host.return_value = None
         mock_generate.return_value = PURE_HOST_NAME
-        real_result = self.driver._connect(VOLUME, ISCSI_CONNECTOR, None)
+        real_result = self.driver._connect(VOLUME, ISCSI_CONNECTOR)
         mock_host.assert_called_with(self.driver, self.array, ISCSI_CONNECTOR)
         mock_generate.assert_called_with(HOSTNAME)
         self.array.create_host.assert_called_with(PURE_HOST_NAME,
@@ -2110,7 +2074,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         self.assert_error_propagates(
             [mock_host, mock_generate, self.array.connect_host,
              self.array.create_host], self.driver._connect, VOLUME,
-            ISCSI_CONNECTOR, None)
+            ISCSI_CONNECTOR)
 
         self.mock_config.use_chap_auth = True
         chap_user = ISCSI_CONNECTOR["host"]
@@ -2119,7 +2083,8 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         # Branch where chap is used and credentials already exist
         initiator_data = [{"key": pure.CHAP_SECRET_KEY,
                            "value": chap_password}]
-        self.driver._connect(VOLUME, ISCSI_CONNECTOR, initiator_data)
+        self.mock_utils.get_driver_initiator_data.return_value = initiator_data
+        self.driver._connect(VOLUME, ISCSI_CONNECTOR)
         result["auth_username"] = chap_user
         result["auth_password"] = chap_password
         self.assertDictMatch(result, real_result)
@@ -2129,10 +2094,11 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
 
         # Branch where chap is used and credentials are generated
         mock_gen_secret.return_value = chap_password
-        self.driver._connect(VOLUME, ISCSI_CONNECTOR, None)
+        self.mock_utils.get_driver_initiator_data.return_value = None
+        self.driver._connect(VOLUME, ISCSI_CONNECTOR)
         result["auth_username"] = chap_user
         result["auth_password"] = chap_password
-        result["initiator_update"] = {
+        expected_update = {
             "set_values": {
                 pure.CHAP_SECRET_KEY: chap_password
             },
@@ -2141,6 +2107,10 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         self.array.set_host.assert_called_with(PURE_HOST_NAME,
                                                host_user=chap_user,
                                                host_password=chap_password)
+        self.mock_utils.save_driver_initiator_data.assert_called_with(
+            ISCSI_CONNECTOR['initiator'],
+            expected_update
+        )
 
     @mock.patch(ISCSI_DRIVER_OBJ + "._get_host", autospec=True)
     def test_connect_already_connected(self, mock_host):
@@ -2153,7 +2123,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
                 code=400,
                 text="Connection already exists"
             )
-        actual = self.driver._connect(VOLUME, ISCSI_CONNECTOR, None)
+        actual = self.driver._connect(VOLUME, ISCSI_CONNECTOR)
         self.assertEqual(expected, actual)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
@@ -2168,7 +2138,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
                 text="Connection already exists"
             )
         self.assertRaises(exception.PureDriverException, self.driver._connect,
-                          VOLUME, ISCSI_CONNECTOR, None)
+                          VOLUME, ISCSI_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
 
@@ -2184,7 +2154,7 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
             )
         self.assertRaises(self.purestorage_module.PureHTTPError,
                           self.driver._connect, VOLUME,
-                          ISCSI_CONNECTOR, None)
+                          ISCSI_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
 

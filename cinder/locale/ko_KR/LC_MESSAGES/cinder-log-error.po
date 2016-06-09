@@ -4,12 +4,12 @@
 #
 # Translators:
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# SeYeon Lee <sy_lee@kr.ibm.com>, 2016. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.0rc2.dev22\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-25 10:18+0000\n"
+"Project-Id-Version: cinder 8.0.1.dev161\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-23 16:54+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -95,10 +95,6 @@ msgid ""
 msgstr ""
 "관리 취소 조작을 시도하는 중에 SolidFire Cluster에서 볼륨 ID %s의 계정을 찾"
 "을 수 없습니다."
-
-#, python-format
-msgid "AddHba error: %(wwn)s to %(srvname)s"
-msgstr "AddHba 오류: %(wwn)s - %(srvname)s"
 
 #, python-format
 msgid "Array Serial Number must be in the file %(fileName)s."
@@ -556,10 +552,6 @@ msgstr ""
 msgid "DB error:"
 msgstr "DB 오류:"
 
-#, python-format
-msgid "DBError detected when purging from table=%(table)s"
-msgstr "table=%(table)s에서 제거할 때 DBError 발견"
-
 msgid "DBError encountered: "
 msgstr "DBError 발생: "
 
@@ -704,10 +696,6 @@ msgid "Error adding HBA to server"
 msgstr "HBA를 서버에 추가하는 중 오류 발생"
 
 #, python-format
-msgid "Error attaching volume %s"
-msgstr "볼륨 %s 연결 오류"
-
-#, python-format
 msgid "Error changing Storage Profile for volume %(original)s to %(name)s"
 msgstr ""
 "볼륨의 스토리지 프로파일을 %(original)s에서 %(name)s(으)로 변경 중 오류 발생"
@@ -773,9 +761,6 @@ msgstr "키 삭제 오류."
 msgid "Error deleting snapshot"
 msgstr "스냅샷 삭제 에러"
 
-msgid "Error deleting volume"
-msgstr "볼륨 삭제 에러"
-
 #, python-format
 msgid "Error detaching snapshot %(snapshot)s, due to remove export failure."
 msgstr ""
@@ -798,14 +783,6 @@ msgstr "정책에서 스토리지 그룹의 연관을 해제하는 중 오류 �
 
 msgid "Error during re-export on driver init."
 msgstr "드라이버 초기화 시 다시 내보내는 중에 오류가 발생했습니다."
-
-#, python-format
-msgid ""
-"Error encountered during failover on host: %(host)s invalid target ID "
-"%(backend_id)"
-msgstr ""
-"호스트에서 장애 복구 중에 오류 발생: %(host)s 올바르지 않은 대상 ID "
-"%(backend_id)"
 
 msgid ""
 "Error encountered on Cinder backend during thaw operation, service will "
@@ -1276,12 +1253,6 @@ msgstr "패브릭 %s의 fcns 데이터베이스 정보 수집 실패"
 msgid "Failed collecting name server info from fabric %s"
 msgstr "패브릭 %s에서 이름 서버 정보를 수집하는 데 실패"
 
-msgid "Failed collecting nscamshow"
-msgstr "nscamshow 수집 실패"
-
-msgid "Failed collecting nsshow info for fabric"
-msgstr "패브릭의 nsshow 정보를 수집하는 데 실패"
-
 #, python-format
 msgid "Failed collecting nsshow info for fabric %s"
 msgstr "패브릭 %s의 nsshow 정보를 수집하는 데 실패"
@@ -1463,10 +1434,6 @@ msgstr ""
 #, python-format
 msgid "Failed to commit reservations %s"
 msgstr "%s 예약을 커밋하는 데 실패"
-
-#, python-format
-msgid "Failed to connect to sheep daemon. addr: %(addr)s, port: %(port)s"
-msgstr "sheep 디먼에 연결하지 못했습니다. 주소: %(addr)s, 포트: %(port)s"
 
 #, python-format
 msgid "Failed to copy %(src)s to %(dest)s."
@@ -2917,20 +2884,9 @@ msgid ""
 msgstr ""
 "보조로 장애 복구할 수 없습니다. 보조 백엔드가 준비되었는지 확인하십시오."
 
-msgid "Unable to find FC initiators"
-msgstr "FC 개시자를 찾을 수 없음"
-
 #, python-format
 msgid "Unable to find VG: %s"
 msgstr "VG에서 찾을 수 없습니다: %s"
-
-#, python-format
-msgid "Unable to find controller port iscsi configuration: %s"
-msgstr "컨트롤러 포트 iscis 구성을 찾을 수 없음: %s"
-
-#, python-format
-msgid "Unable to find controller port: %s"
-msgstr "컨트롤러 포트를 찾을 수 없음: %s"
 
 #, python-format
 msgid ""
@@ -3024,10 +2980,6 @@ msgstr "배열 %(array)s에서 %(poolName)s의 풀 인스턴스를 검색할 수
 #, python-format
 msgid "Unable to terminate volume connection: %(err)s."
 msgstr "볼륨 연결을 종료할 수 없음: %(err)s"
-
-#, python-format
-msgid "Unable to unmap Volume %s"
-msgstr "볼륨 %s의 맵핑을 해제할 수 없음"
 
 msgid "Unexpected build error:"
 msgstr "예상치 못한 빌드 오류:"
@@ -3254,9 +3206,6 @@ msgstr ""
 #, python-format
 msgid "Volume already exists. %s"
 msgstr "볼륨이 이미 있습니다. %s"
-
-msgid "Volume appears unmapped"
-msgstr "볼륨이 맵핑되지 않은 것으로 표시"
 
 #, python-format
 msgid ""

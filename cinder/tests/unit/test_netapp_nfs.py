@@ -17,7 +17,6 @@
 import itertools
 import os
 import shutil
-import unittest
 
 from lxml import etree
 import mock
@@ -41,7 +40,6 @@ from cinder.volume.drivers.netapp.dataontap.client import client_cmode
 from cinder.volume.drivers.netapp.dataontap import nfs_base
 from cinder.volume.drivers.netapp.dataontap.performance import perf_7mode
 from cinder.volume.drivers.netapp.dataontap.performance import perf_cmode
-from cinder.volume.drivers.netapp.dataontap import ssc_cmode
 from cinder.volume.drivers.netapp import utils
 
 
@@ -157,6 +155,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         self.mock_object(nfs_base, 'LOG')
         self._driver = netapp_nfs_cmode.NetAppCmodeNfsDriver(**kwargs)
         self._driver.zapi_client = mock.Mock()
+        self._driver.ssc_library = mock.Mock()
         config = self._driver.configuration
         config.netapp_vserver = FAKE_VSERVER
 
@@ -220,13 +219,11 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         mock_super_do_setup.assert_called_once_with(context)
 
     @mock.patch.object(nfs_base.NetAppNfsDriver, 'check_for_setup_error')
-    @mock.patch.object(ssc_cmode, 'check_ssc_api_permissions')
-    def test_check_for_setup_error(self, mock_ssc_api_permission_check,
-                                   mock_super_check_for_setup_error):
+    def test_check_for_setup_error(self, mock_super_check_for_setup_error):
         self._driver.zapi_client = mock.Mock()
         self._driver.check_for_setup_error()
-        mock_ssc_api_permission_check.assert_called_once_with(
-            self._driver.zapi_client)
+        (self._driver.ssc_library.check_api_permissions.
+         assert_called_once_with())
         mock_super_check_for_setup_error.assert_called_once_with()
 
     def _prepare_clone_mock(self, status):
@@ -888,19 +885,6 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         configuration.nfs_shares_config = '/nfs'
         return configuration
 
-    @mock.patch.object(utils, 'get_volume_extra_specs')
-    def test_check_volume_type_mismatch(self, get_specs):
-        if not hasattr(self._driver, 'vserver'):
-            return unittest.skip("Test only applies to cmode driver")
-        get_specs.return_value = {'thin_volume': 'true'}
-        self._driver._is_share_vol_type_match = mock.Mock(return_value=False)
-        self.assertRaises(exception.ManageExistingVolumeTypeMismatch,
-                          self._driver._check_volume_type, 'vol',
-                          'share', 'file')
-        get_specs.assert_called_once_with('vol')
-        self._driver._is_share_vol_type_match.assert_called_once_with(
-            'vol', 'share', 'file')
-
     @mock.patch.object(client_base.Client, 'get_ontapi_version',
                        mock.Mock(return_value=(1, 20)))
     @mock.patch.object(nfs_base.NetAppNfsDriver, 'do_setup', mock.Mock())
@@ -1313,71 +1297,6 @@ class NetAppCmodeNfsDriverOnlyTestCase(test.TestCase):
         # Verify the original error is propagated
         self.assertRaises(OSError, drv._copy_from_img_service,
                           context, volume, image_service, image_id)
-
-    def test_copyoffload_frm_cache_success(self):
-        drv = self._driver
-        context = object()
-        volume = {'id': 'vol_id', 'name': 'name'}
-        image_service = object()
-        image_id = 'image_id'
-        drv.zapi_client.get_ontapi_version = mock.Mock(return_value=(1, 20))
-        nfs_base.NetAppNfsDriver.copy_image_to_volume = mock.Mock()
-        drv._get_provider_location = mock.Mock(return_value='share')
-        drv._get_vol_for_share = mock.Mock(return_value='vol')
-        drv._update_stale_vols = mock.Mock()
-        drv._find_image_in_cache = mock.Mock(return_value=[('share', 'img')])
-        drv._copy_from_cache = mock.Mock(return_value=True)
-
-        drv.copy_image_to_volume(context, volume, image_service, image_id)
-        drv._copy_from_cache.assert_called_once_with(volume,
-                                                     image_id,
-                                                     [('share', 'img')])
-
-    def test_copyoffload_frm_img_service_success(self):
-        drv = self._driver
-        context = object()
-        volume = {'id': 'vol_id', 'name': 'name'}
-        image_service = object()
-        image_id = 'image_id'
-        drv._client = mock.Mock()
-        drv.zapi_client.get_ontapi_version = mock.Mock(return_value=(1, 20))
-        nfs_base.NetAppNfsDriver.copy_image_to_volume = mock.Mock()
-        drv._get_provider_location = mock.Mock(return_value='share')
-        drv._get_vol_for_share = mock.Mock(return_value='vol')
-        drv._update_stale_vols = mock.Mock()
-        drv._find_image_in_cache = mock.Mock(return_value=False)
-        drv._copy_from_img_service = mock.Mock()
-
-        drv.copy_image_to_volume(context, volume, image_service, image_id)
-        drv._copy_from_img_service.assert_called_once_with(context,
-                                                           volume,
-                                                           image_service,
-                                                           image_id)
-
-    def test_cache_copyoffload_workflow_success(self):
-        drv = self._driver
-        volume = {'id': 'vol_id', 'name': 'name', 'size': 1}
-        image_id = 'image_id'
-        cache_result = [('ip1:/openstack', 'img-cache-imgid')]
-        drv._get_ip_verify_on_cluster = mock.Mock(return_value='ip1')
-        drv._get_host_ip = mock.Mock(return_value='ip2')
-        drv._get_export_path = mock.Mock(return_value='/exp_path')
-        drv._execute = mock.Mock()
-        drv._register_image_in_cache = mock.Mock()
-        drv._get_provider_location = mock.Mock(return_value='/share')
-        drv._post_clone_image = mock.Mock()
-
-        copied = drv._copy_from_cache(volume, image_id, cache_result)
-        self.assertTrue(copied)
-        drv._get_ip_verify_on_cluster.assert_any_call('ip1')
-        drv._get_export_path.assert_called_with('vol_id')
-        drv._execute.assert_called_once_with('cof_path', 'ip1', 'ip1',
-                                             '/openstack/img-cache-imgid',
-                                             '/exp_path/name',
-                                             run_as_root=False,
-                                             check_exit_code=0)
-        drv._post_clone_image.assert_called_with(volume)
-        drv._get_provider_location.assert_called_with('vol_id')
 
     @mock.patch.object(image_utils, 'qemu_img_info')
     def test_img_service_raw_copyoffload_workflow_success(self,

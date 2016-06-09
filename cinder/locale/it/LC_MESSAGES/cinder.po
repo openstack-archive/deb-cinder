@@ -4,21 +4,17 @@
 #
 # Translators:
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2011
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
-# Alessandra <alessandra@translated.net>, 2016. #zanata
-# Remo Mattei <Remo@rm.ht>, 2016. #zanata
-# Tom Cocozzello <tjcocozz@us.ibm.com>, 2016. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 8.0.0.0rc2.dev19\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 19:34+0000\n"
+"Project-Id-Version: cinder 8.0.1.dev161\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-23 16:54+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-22 09:38+0000\n"
-"Last-Translator: Remo Mattei <Remo@rm.ht>\n"
+"PO-Revision-Date: 2016-04-01 12:31+0000\n"
+"Last-Translator: Alessandra <alessandra@translated.net>\n"
 "Language: it\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
@@ -884,10 +880,6 @@ msgid "Can't find cache name on the array, cache name is: %(name)s."
 msgstr "Impossibile trovare il nome cache nell'array, nome cache: %(name)s."
 
 #, python-format
-msgid "Can't find lun id from db, volume: %(id)s"
-msgstr "Impossibile trovare l'id lun da db, volume: %(id)s"
-
-#, python-format
 msgid "Can't find lun info on the array. volume: %(id)s, lun name: %(name)s."
 msgstr ""
 "Impossibile trovare informazioni sulla lun nell'array. volume: %(id)s, nome "
@@ -1619,6 +1611,13 @@ msgstr ""
 "status=%(status)s."
 
 #, python-format
+msgid ""
+"Copy volume task failed: create_cloned_volume id=%(id)s, status=%(status)s."
+msgstr ""
+"Attività di copia del volume non riuscita: create_cloned_volume id=%(id)s, "
+"stato=%(status)s."
+
+#, python-format
 msgid "Copying metadata from %(src_type)s %(src_id)s to %(vol_id)s."
 msgstr "Copia dei metadati da %(src_type)s %(src_id)s a %(vol_id)s."
 
@@ -2147,6 +2146,14 @@ msgid ""
 msgstr ""
 "Eccezione EMC VNX Cinder Driver CLI: %(cmd)s (Codice di ritorno: %(rc)s) "
 "(Output: %(out)s)."
+
+#, python-format
+msgid ""
+"EMC VNX Cinder Driver SPUnavailableException: %(cmd)s (Return Code: %(rc)s) "
+"(Output: %(out)s)."
+msgstr ""
+"EMC VNX Cinder Driver SPUnavailableException: %(cmd)s (Codice di ritorno: "
+"%(rc)s) (Output: %(out)s)."
 
 msgid ""
 "EcomServerIp, EcomServerPort, EcomUserName, EcomPassword must have valid "
@@ -4185,10 +4192,6 @@ msgid "Failure getting LUN info for %s."
 msgstr "Errore durante l'acquisizione delle informazioni sulla LUN per %s."
 
 #, python-format
-msgid "Failure in update_volume_key_value_pair:%s"
-msgstr "Errore in update_volume_key_value_pair:%s"
-
-#, python-format
 msgid "Failure moving new cloned LUN to %s."
 msgstr "Errore durante lo spostamento della nuova LUN clonata in %s."
 
@@ -4518,6 +4521,9 @@ msgstr "Errore di richiamo della politica QoS."
 
 msgid "Get SplitMirror error."
 msgstr "Errore di richiamo SplitMirror."
+
+msgid "Get active client failed."
+msgstr "Acquisizione del client attivo non riuscita."
 
 msgid "Get array info error."
 msgstr "Errore di richiamo informazioni sull'array."
@@ -5170,11 +5176,6 @@ msgstr "Intestazione di risposta non valida dal server RPC"
 msgid "Invalid secondary id %s."
 msgstr "L'id secondario %s  e' invalido. "
 
-#, python-format
-msgid "Invalid secondary_backend_id specified. Valid backend id is %s."
-msgstr ""
-"Specificato ID di backend secondario non valido. L'ID di backend valido è %s."
-
 msgid "Invalid service catalog json."
 msgstr "json del catalogo del servizio non è valido."
 
@@ -5572,6 +5573,11 @@ msgstr ""
 msgid "Managing of snapshots to failed-over volumes is not allowed."
 msgstr ""
 "La gestione di istantanee su volumi sottoposti a failover non è consentita."
+
+msgid "Map info is None due to array version not supporting hypermetro."
+msgstr ""
+"Le informazioni sulla mappa sono None a causa di una versione dell'array che "
+"non supporta hypermetro."
 
 #, python-format
 msgid ""
@@ -6462,6 +6468,28 @@ msgid "QoS config is wrong. %s must > 0."
 msgstr "La configurazione QoS è errata. %s deve essere > 0."
 
 #, python-format
+msgid ""
+"QoS policy must specify for IOTYPE and another qos_specs, QoS policy: "
+"%(qos_policy)s."
+msgstr ""
+"La politica deve essere specificata per IOTYPE e un altro qos_specs, "
+"politica QoS: %(qos_policy)s."
+
+#, python-format
+msgid ""
+"QoS policy must specify for IOTYPE: 0, 1, or 2, QoS policy: %(qos_policy)s "
+msgstr ""
+"La politica QoS deve essere specificata per IOTYPE: 0, 1 o 2, politica QoS: "
+"%(qos_policy)s "
+
+#, python-format
+msgid ""
+"QoS policy upper_limit and lower_limit conflict, QoS policy: %(qos_policy)s."
+msgstr ""
+"Conflitto upper_limit e lower_limit della politica QoS, politica QoS: "
+"%(qos_policy)s."
+
+#, python-format
 msgid "QoS spec %(specs_id)s has no spec with key %(specs_key)s."
 msgstr ""
 "La specifica QoS %(specs_id)s non dispone di specifiche con la chiave "
@@ -6903,11 +6931,6 @@ msgstr ""
 "Comando SSH non riuscito dopo '%(total_attempts)r' tentativi: '%(command)s'"
 
 #, python-format
-msgid "SSH Command failed with error: '%(err)s', Command: '%(command)s'"
-msgstr ""
-"Comando SSH non riuscito con errore: '%(err)s', comando: '%(command)s' "
-
-#, python-format
 msgid "SSH command injection detected: %(command)s"
 msgstr "Rilevato inserimento comando SSH: %(command)s"
 
@@ -6995,14 +7018,6 @@ msgid ""
 msgstr ""
 "Impostazione del gruppo di politiche qos del file non supportato su questa "
 "famiglia di archiviazione e versione ontap."
-
-#, python-format
-msgid ""
-"Share %s ignored due to invalid format. Must be of form address:/export. "
-"Please check the nas_ip and nas_share_path settings."
-msgstr ""
-"Condivisione %s ignorata a causa di un formato non valido.  Deve essere del "
-"tipo address:/export. Verificare le impostazioni nas_ip e nas_share_path."
 
 #, python-format
 msgid ""
@@ -7283,10 +7298,6 @@ msgid "StorageSystem %(array)s is not found."
 msgstr "StorageSystem %(array)s non è stato trovato"
 
 #, python-format
-msgid "String with params: %s"
-msgstr "Stringa con parametri: %s"
-
-#, python-format
 msgid ""
 "Sum of child usage '%(sum)s' is greater than free quota of '%(free)s' for "
 "project '%(proj)s' for resource '%(res)s'. Please lower the limit or usage "
@@ -7328,13 +7339,6 @@ msgstr ""
 
 msgid "Target volume type is still in use."
 msgstr "Il tipo di volume di destinazione è ancora in uso."
-
-#, python-format
-msgid ""
-"Template tree mismatch; adding slave %(slavetag)s to master %(mastertag)s"
-msgstr ""
-"Mancata corrispondenza della struttura ad albero del template; aggiunta di "
-"slave %(slavetag)s a master %(mastertag)s"
 
 #, python-format
 msgid "Tenant ID: %s does not exist."
@@ -8328,10 +8332,6 @@ msgstr "Impossibile associare il volume"
 msgid "Unable to map volume."
 msgstr "Impossibile associare il volume."
 
-msgid "Unable to parse XML request. Please provide XML in correct format."
-msgstr ""
-"Impossibile analizzare la richiesta XML. Fornire XML nel formato corretto."
-
 msgid "Unable to parse attributes."
 msgstr "Impossibile analizzare gli attributi. "
 
@@ -8907,6 +8907,14 @@ msgstr ""
 "tramite OpenStack."
 
 #, python-format
+msgid ""
+"Volume %s must not be migrating, attached, belong to a consistency group or "
+"have snapshots."
+msgstr ""
+"Il volume %s non deve essere in fase di migrazione, essere collegato, far "
+"parte di un gruppo di coerenza o avere istantanee."
+
+#, python-format
 msgid "Volume %s must not be part of a consistency group."
 msgstr "Il volume %s non deve fare parte di un gruppo di coerenza."
 
@@ -9321,9 +9329,6 @@ msgstr "Sintassi chiamata risorsa errata"
 
 msgid "X-IO Volume Driver exception!"
 msgstr "Eccezione X-IO Volume Driver!"
-
-msgid "XML support has been deprecated and will be removed in the N release."
-msgstr "Il supporto XML è obsoleto e verrà rimosso  nella release N."
 
 msgid "XtremIO not configured correctly, no iscsi portals found"
 msgstr "XtremIO non configurato correttamente, nessun portale iscsi trovato"
@@ -9841,9 +9846,6 @@ msgstr "impossibile gestire entrambi il nome e l'indice nella richiesta"
 msgid "cannot understand JSON"
 msgstr "impossibile riconoscere JSON"
 
-msgid "cannot understand XML"
-msgstr "Impossibile riconoscere XML"
-
 #, python-format
 msgid "cg-%s"
 msgstr "gc-%s"
@@ -10099,9 +10101,6 @@ msgstr "scollegamento istantanea dal nodo remoto "
 
 msgid "do_setup: No configured nodes."
 msgstr "do_setup: Nessun nodo configurato."
-
-msgid "element is not a child"
-msgstr "l'elemento non è un child"
 
 msgid "eqlx_cli_max_retries must be greater than or equal to 0"
 msgstr "eqlx_cli_max_retries deve essere maggiore o uguale a 0"
@@ -10488,9 +10487,6 @@ msgstr ""
 "restore_backup interrotto, l'elenco di oggetti effettivo non corrisponde "
 "all'elenco di oggetti archiviato nei metadati."
 
-msgid "root element selecting a list"
-msgstr "l'elemento root seleziona un elenco"
-
 #, python-format
 msgid "rtslib_fb is missing member %s: You may need a newer python-rtslib-fb."
 msgstr ""
@@ -10560,9 +10556,6 @@ msgstr "lo stato deve essere available"
 
 msgid "stop_hypermetro error."
 msgstr "Errore stop_hypermetro."
-
-msgid "subclasses must implement construct()!"
-msgstr "le sottoclassi devono implementare il costrutto()!"
 
 msgid "sudo failed, continuing as if nothing happened"
 msgstr "sudo non riuscito, proseguire come se nulla fosse successo"

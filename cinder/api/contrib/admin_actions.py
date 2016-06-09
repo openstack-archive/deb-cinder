@@ -24,6 +24,7 @@ from cinder import db
 from cinder import exception
 from cinder.i18n import _
 from cinder import objects
+from cinder.objects import fields
 from cinder import rpc
 from cinder import utils
 from cinder import volume
@@ -80,6 +81,15 @@ class AdminController(wsgi.Controller):
     @wsgi.action('os-reset_status')
     def _reset_status(self, req, id, body):
         """Reset status on the resource."""
+
+        def _clean_volume_attachment(context, id):
+            attachments = (
+                db.volume_attachment_get_all_by_volume_id(context, id))
+            for attachment in attachments:
+                db.volume_detached(context, id, attachment.id)
+            db.volume_admin_metadata_delete(context, id,
+                                            'attached_mode')
+
         context = req.environ['cinder.context']
         self.authorize(context, 'reset_status')
         update = self.validate_update(body['os-reset_status'])
@@ -94,6 +104,8 @@ class AdminController(wsgi.Controller):
 
         try:
             self._update(context, id, update)
+            if update.get('attach_status') == 'detached':
+                _clean_volume_attachment(context, id)
         except exception.VolumeNotFound as e:
             raise exc.HTTPNotFound(explanation=e.msg)
 
@@ -264,6 +276,7 @@ class SnapshotAdminController(AdminController):
     """AdminController for Snapshots."""
 
     collection = 'snapshots'
+    valid_status = fields.SnapshotStatus.ALL
 
     def _update(self, *args, **kwargs):
         context = args[0]
@@ -323,7 +336,6 @@ class Admin_actions(extensions.ExtensionDescriptor):
 
     name = "AdminActions"
     alias = "os-admin-actions"
-    namespace = "http://docs.openstack.org/volume/ext/admin-actions/api/v1.1"
     updated = "2012-08-25T00:00:00+00:00"
 
     def get_controller_extensions(self):

@@ -13,10 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from lxml import etree
 import mock
 from oslo_config import cfg
-from oslo_utils import timeutils
 from six.moves.urllib import parse as urllib
 import webob
 
@@ -26,9 +24,11 @@ from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import objects
+from cinder.objects import fields
 from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.api.v2 import stubs
+from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_snapshot
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit import utils
@@ -44,8 +44,8 @@ INVALID_UUID = '00000000-0000-0000-0000-000000000002'
 def _get_default_snapshot_param():
     return {
         'id': UUID,
-        'volume_id': 12,
-        'status': 'available',
+        'volume_id': fake.VOLUME_ID,
+        'status': fields.SnapshotStatus.AVAILABLE,
         'volume_size': 100,
         'created_at': None,
         'updated_at': None,
@@ -86,7 +86,7 @@ class SnapshotApiTest(test.TestCase):
         self.stubs.Set(db, 'snapshot_get_all',
                        stubs.stub_snapshot_get_all)
 
-        self.ctx = context.RequestContext('admin', 'fakeproject', True)
+        self.ctx = context.RequestContext(fake.USER_ID, fake.PROJECT_ID, True)
 
     @mock.patch(
         'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
@@ -175,14 +175,14 @@ class SnapshotApiTest(test.TestCase):
             snapshot_metadata_get, update_snapshot):
         snapshot = {
             'id': UUID,
-            'volume_id': 1,
-            'status': 'available',
+            'volume_id': fake.VOLUME_ID,
+            'status': fields.SnapshotStatus.AVAILABLE,
             'volume_size': 100,
             'display_name': 'Default name',
             'display_description': 'Default description',
             'expected_attrs': ['metadata'],
         }
-        ctx = context.RequestContext('admin', 'fake', True)
+        ctx = context.RequestContext(fake.PROJECT_ID, fake.USER_ID, True)
         snapshot_obj = fake_snapshot.fake_snapshot_obj(ctx, **snapshot)
         fake_volume_obj = fake_volume.fake_volume_obj(ctx)
         snapshot_get_by_id.return_value = snapshot_obj
@@ -197,8 +197,8 @@ class SnapshotApiTest(test.TestCase):
         expected = {
             'snapshot': {
                 'id': UUID,
-                'volume_id': '1',
-                'status': u'available',
+                'volume_id': fake.VOLUME_ID,
+                'status': fields.SnapshotStatus.AVAILABLE,
                 'size': 100,
                 'created_at': None,
                 'updated_at': None,
@@ -242,14 +242,14 @@ class SnapshotApiTest(test.TestCase):
                              snapshot_metadata_get, delete_snapshot):
         snapshot = {
             'id': UUID,
-            'volume_id': 1,
-            'status': 'available',
+            'volume_id': fake.VOLUME_ID,
+            'status': fields.SnapshotStatus.AVAILABLE,
             'volume_size': 100,
             'display_name': 'Default name',
             'display_description': 'Default description',
             'expected_attrs': ['metadata'],
         }
-        ctx = context.RequestContext('admin', 'fake', True)
+        ctx = context.RequestContext(fake.PROJECT_ID, fake.USER_ID, True)
         snapshot_obj = fake_snapshot.fake_snapshot_obj(ctx, **snapshot)
         fake_volume_obj = fake_volume.fake_volume_obj(ctx)
         snapshot_get_by_id.return_value = snapshot_obj
@@ -274,14 +274,14 @@ class SnapshotApiTest(test.TestCase):
                            snapshot_metadata_get):
         snapshot = {
             'id': UUID,
-            'volume_id': 1,
-            'status': 'available',
+            'volume_id': fake.VOLUME_ID,
+            'status': fields.SnapshotStatus.AVAILABLE,
             'volume_size': 100,
             'display_name': 'Default name',
             'display_description': 'Default description',
             'expected_attrs': ['metadata'],
         }
-        ctx = context.RequestContext('admin', 'fake', True)
+        ctx = context.RequestContext(fake.PROJECT_ID, fake.USER_ID, True)
         snapshot_obj = fake_snapshot.fake_snapshot_obj(ctx, **snapshot)
         fake_volume_obj = fake_volume.fake_volume_obj(ctx)
         snapshot_get_by_id.return_value = snapshot_obj
@@ -307,14 +307,14 @@ class SnapshotApiTest(test.TestCase):
                              volume_get_by_id, snapshot_metadata_get):
         snapshot = {
             'id': UUID,
-            'volume_id': 1,
-            'status': 'available',
+            'volume_id': fake.VOLUME_ID,
+            'status': fields.SnapshotStatus.AVAILABLE,
             'volume_size': 100,
             'display_name': 'Default name',
             'display_description': 'Default description',
             'expected_attrs': ['metadata']
         }
-        ctx = context.RequestContext('admin', 'fake', True)
+        ctx = context.RequestContext(fake.PROJECT_ID, fake.USER_ID, True)
         snapshot_obj = fake_snapshot.fake_snapshot_obj(ctx, **snapshot)
         fake_volume_obj = fake_volume.fake_volume_obj(ctx)
         snapshot_get_by_id.return_value = snapshot_obj
@@ -336,7 +336,7 @@ class SnapshotApiTest(test.TestCase):
     @mock.patch('cinder.db.snapshot_metadata_get', return_value=dict())
     def test_admin_list_snapshots_limited_to_project(self,
                                                      snapshot_metadata_get):
-        req = fakes.HTTPRequest.blank('/v2/fake/snapshots',
+        req = fakes.HTTPRequest.blank('/v2/%s/snapshots' % fake.PROJECT_ID,
                                       use_admin_context=True)
         res = self.controller.index(req)
 
@@ -347,8 +347,8 @@ class SnapshotApiTest(test.TestCase):
     def test_list_snapshots_with_limit_and_offset(self,
                                                   snapshot_metadata_get):
         def list_snapshots_with_limit_and_offset(snaps, is_admin):
-            req = fakes.HTTPRequest.blank('/v2/fake/snapshots?limit=1\
-                                          &offset=1',
+            req = fakes.HTTPRequest.blank('/v2/%s/snapshots?limit=1'
+                                          '&offset=1' % fake.PROJECT_ID,
                                           use_admin_context=is_admin)
             res = self.controller.index(req)
 
@@ -408,7 +408,7 @@ class SnapshotApiTest(test.TestCase):
         self.assertRaises(webob.exc.HTTPBadRequest,
                           self.controller.index, req)
 
-    def _assert_list_next(self, expected_query=None, project='fakeproject',
+    def _assert_list_next(self, expected_query=None, project=fake.PROJECT_ID,
                           **kwargs):
         """Check a page of snapshots list."""
         # Since we are accessing v2 api directly we don't need to specify
@@ -520,7 +520,8 @@ class SnapshotApiTest(test.TestCase):
 
     @mock.patch('cinder.db.snapshot_metadata_get', return_value=dict())
     def test_admin_list_snapshots_all_tenants(self, snapshot_metadata_get):
-        req = fakes.HTTPRequest.blank('/v2/fake/snapshots?all_tenants=1',
+        req = fakes.HTTPRequest.blank('/v2/%s/snapshots?all_tenants=1' %
+                                      fake.PROJECT_ID,
                                       use_admin_context=True)
         res = self.controller.index(req)
         self.assertIn('snapshots', res)
@@ -533,14 +534,15 @@ class SnapshotApiTest(test.TestCase):
         def get_all(context, filters=None, marker=None, limit=None,
                     sort_keys=None, sort_dirs=None, offset=None):
             if 'project_id' in filters and 'tenant1' in filters['project_id']:
-                return [stubs.stub_snapshot(1, tenant_id='tenant1')]
+                return [stubs.stub_snapshot(fake.VOLUME_ID,
+                                            tenant_id='tenant1')]
             else:
                 return []
 
         snapshot_get_all.side_effect = get_all
 
-        req = fakes.HTTPRequest.blank('/v2/fake/snapshots?all_tenants=1'
-                                      '&project_id=tenant1',
+        req = fakes.HTTPRequest.blank('/v2/%s/snapshots?all_tenants=1'
+                                      '&project_id=tenant1' % fake.PROJECT_ID,
                                       use_admin_context=True)
         res = self.controller.index(req)
         self.assertIn('snapshots', res)
@@ -549,20 +551,21 @@ class SnapshotApiTest(test.TestCase):
     @mock.patch('cinder.db.snapshot_metadata_get', return_value=dict())
     def test_all_tenants_non_admin_gets_all_tenants(self,
                                                     snapshot_metadata_get):
-        req = fakes.HTTPRequest.blank('/v2/fake/snapshots?all_tenants=1')
+        req = fakes.HTTPRequest.blank('/v2/%s/snapshots?all_tenants=1' %
+                                      fake.PROJECT_ID)
         res = self.controller.index(req)
         self.assertIn('snapshots', res)
         self.assertEqual(1, len(res['snapshots']))
 
     @mock.patch('cinder.db.snapshot_metadata_get', return_value=dict())
     def test_non_admin_get_by_project(self, snapshot_metadata_get):
-        req = fakes.HTTPRequest.blank('/v2/fake/snapshots')
+        req = fakes.HTTPRequest.blank('/v2/%s/snapshots' % fake.PROJECT_ID)
         res = self.controller.index(req)
         self.assertIn('snapshots', res)
         self.assertEqual(1, len(res['snapshots']))
 
     def _create_snapshot_bad_body(self, body):
-        req = fakes.HTTPRequest.blank('/v2/fake/snapshots')
+        req = fakes.HTTPRequest.blank('/v2/%s/snapshots' % fake.PROJECT_ID)
         req.method = 'POST'
 
         self.assertRaises(webob.exc.HTTPBadRequest,
@@ -578,61 +581,3 @@ class SnapshotApiTest(test.TestCase):
     def test_create_malformed_entity(self):
         body = {'snapshot': 'string'}
         self._create_snapshot_bad_body(body=body)
-
-
-class SnapshotSerializerTest(test.TestCase):
-    def _verify_snapshot(self, snap, tree):
-        self.assertEqual('snapshot', tree.tag)
-
-        for attr in ('id', 'status', 'size', 'created_at',
-                     'name', 'description', 'volume_id'):
-            self.assertEqual(str(snap[attr]), tree.get(attr))
-
-    def test_snapshot_show_create_serializer(self):
-        serializer = snapshots.SnapshotTemplate()
-        raw_snapshot = dict(
-            id='snap_id',
-            status='snap_status',
-            size=1024,
-            created_at=timeutils.utcnow(),
-            name='snap_name',
-            description='snap_desc',
-            display_description='snap_desc',
-            volume_id='vol_id',
-        )
-        text = serializer.serialize(dict(snapshot=raw_snapshot))
-
-        tree = etree.fromstring(text)
-
-        self._verify_snapshot(raw_snapshot, tree)
-
-    def test_snapshot_index_detail_serializer(self):
-        serializer = snapshots.SnapshotsTemplate()
-        raw_snapshots = [
-            dict(
-                id='snap1_id',
-                status='snap1_status',
-                size=1024,
-                created_at=timeutils.utcnow(),
-                name='snap1_name',
-                description='snap1_desc',
-                volume_id='vol1_id',
-            ),
-            dict(
-                id='snap2_id',
-                status='snap2_status',
-                size=1024,
-                created_at=timeutils.utcnow(),
-                name='snap2_name',
-                description='snap2_desc',
-                volume_id='vol2_id',
-            )
-        ]
-        text = serializer.serialize(dict(snapshots=raw_snapshots))
-
-        tree = etree.fromstring(text)
-
-        self.assertEqual('snapshots', tree.tag)
-        self.assertEqual(len(raw_snapshots), len(tree))
-        for idx, child in enumerate(tree):
-            self._verify_snapshot(raw_snapshots[idx], child)
