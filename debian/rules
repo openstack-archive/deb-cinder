@@ -26,6 +26,9 @@ override_dh_clean:
 	rm -f debian/cinder-common.config debian/cinder-common.postinst debian/cinder-api.config debian/cinder-api.postinst debian/cinder-volume.postinst
 	rm -rf debian/*.upstart debian/*.service
 
+override_dh_auto_clean:
+	echo "Do nothing..."
+
 override_dh_auto_install:
 	echo "Do nothing..."
 
