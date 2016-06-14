@@ -51,7 +51,10 @@ override_dh_install:
 		--namespace oslo.reports \
 		--namespace oslo.rootwrap \
 		--namespace oslo.serialization \
-		--namespace oslo.service \
+		--namespace oslo.service.periodic_task \
+		--namespace oslo.service.service \
+		--namespace oslo.service.sslutils \
+		--namespace oslo.service.wsgi \
 		--namespace oslo.utils \
 		--namespace oslo.versionedobjects \
 		--namespace oslo.vmware
