@@ -4,6 +4,8 @@ cinder (2:9.0.0~b1+dfsg1-1) experimental; urgency=medium
   * Fixed (build-)depends for this release.
   * Refreshed patches.
   * Fixed generation of cinder.conf namespace list.
+  * Do not use custom OSLO_PACKAGE_VERSION and build-depends on
+    openstack-pkg-tools 50.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 09 Jun 2016 09:31:38 +0200
 
