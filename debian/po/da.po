@@ -1,14 +1,14 @@
 # Danish translation cinder.
-# Copyright (C) 2014 cinder og nedenstående oversættere.
+# Copyright (C) 2016 cinder og nedenstående oversættere.
 # This file is distributed under the same license as the cinder package.
-# Joe Hansen (joedalton2@yahoo.dk), 2013, 2014.
+# Joe Hansen (joedalton2@yahoo.dk), 2013, 2014, 2016.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
 "POT-Creation-Date: 2016-03-29 12:24+0000\n"
-"PO-Revision-Date: 2014-02-22 12:42+0000\n"
+"PO-Revision-Date: 2016-07-09 12:42+0000\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
 "Language: da\n"
@@ -248,10 +248,8 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../cinder-api.templates:4001
-#, fuzzy
-#| msgid "Keystone authentication token:"
 msgid "Keystone admin name:"
-msgstr "Godkendelsessymbol for Keystone:"
+msgstr "Administratornavn for Keystone:"
 
 #. Type: string
 #. Description
@@ -265,18 +263,21 @@ msgid ""
 "To register the service endpoint, this package needs to know the Admin "
 "login, name, project name, and password to the Keystone server."
 msgstr ""
+"For at registrere tjenesteslutpunkt skal denne pakke kende til "
+"administratorlogind'et, navn, projektnavn og adgangskode for "
+"Keystoneserveren."
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
 msgid "Keystone admin project name:"
-msgstr ""
+msgstr "Projektnavn for Keystoneadministratoren:"
 
 #. Type: password
 #. Description
 #: ../cinder-api.templates:6001
 msgid "Keystone admin password:"
-msgstr ""
+msgstr "Adgangskode for Keystoneadministratoren:"
 
 #. Type: string
 #. Description
@@ -320,9 +321,3 @@ msgstr ""
 "repræsenterer et sted. Indtast venligst zonen, som du ønsker at bruge, når "
 "du registrerer slutpunktet."
 
-#~ msgid ""
-#~ "To configure its endpoint in Keystone, cinder-api needs the Keystone "
-#~ "authentication token."
-#~ msgstr ""
-#~ "For at konfigurere sit slutpunkt i Keystone skal cinder-api bruge "
-#~ "Keystones godkendelsessymbol."
