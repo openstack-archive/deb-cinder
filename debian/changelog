@@ -4,6 +4,7 @@ cinder (2:9.0.0~b2-1) experimental; urgency=medium
   * Fixed (build-)depends for this release.
   * Rebased remove-zfssa-from-opts.py.patch.
   * Updated Danish translation of the debconf templates (Closes: #830641).
+  * Blacklist VolumeMigrationTestCase.test_retype_volume_driver_success.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 15 Jul 2016 16:35:01 +0200
 
