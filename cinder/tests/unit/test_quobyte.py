@@ -30,21 +30,13 @@ from cinder import context
 from cinder import exception
 from cinder.image import image_utils
 from cinder import test
+from cinder.tests.unit import fake_snapshot
+from cinder.tests.unit import fake_volume
 from cinder.volume import configuration as conf
 from cinder.volume.drivers import quobyte
 
 
 CONF = cfg.CONF
-
-
-class DumbVolume(object):
-    fields = {}
-
-    def __setitem__(self, key, value):
-        self.fields[key] = value
-
-    def __getitem__(self, item):
-        return self.fields[item]
 
 
 class FakeDb(object):
@@ -66,7 +58,6 @@ class QuobyteDriverTestCase(test.TestCase):
     TEST_SIZE_IN_GB = 1
     TEST_MNT_POINT = '/mnt/quobyte'
     TEST_MNT_POINT_BASE = '/mnt'
-    TEST_LOCAL_PATH = '/mnt/quobyte/volume-123'
     TEST_FILE_NAME = 'test.txt'
     TEST_SHARES_CONFIG_FILE = '/etc/cinder/test-shares.conf'
     TEST_TMP_FILE = '/tmp/tempfile'
@@ -94,6 +85,7 @@ class QuobyteDriverTestCase(test.TestCase):
                                   db=FakeDb())
         self._driver.shares = {}
         self._driver.set_nas_security_options(is_new_cinder_install=False)
+        self.context = context.get_admin_context()
 
     def assertRaisesAndMessageMatches(
             self, excClass, msg, callableObj, *args, **kwargs):
@@ -115,13 +107,11 @@ class QuobyteDriverTestCase(test.TestCase):
     def test_local_path(self):
         """local_path common use case."""
         drv = self._driver
-
-        volume = DumbVolume()
-        volume['provider_location'] = self.TEST_QUOBYTE_VOLUME
-        volume['name'] = 'volume-123'
+        vol_id = self.VOLUME_UUID
+        volume = self._simple_volume(_name_id=vol_id)
 
         self.assertEqual(
-            '/mnt/1331538734b757ed52d0e18c0a7210cd/volume-123',
+            '/mnt/1331538734b757ed52d0e18c0a7210cd/volume-%s' % vol_id,
             drv.local_path(volume))
 
     def test_mount_quobyte_should_mount_correctly(self):
@@ -428,19 +418,18 @@ class QuobyteDriverTestCase(test.TestCase):
             # Future ones might do and therefore we mocked it.
             self.assertGreaterEqual(mock_get_available_capacity.call_count, 0)
 
-    def _simple_volume(self, uuid=None):
-        volume = DumbVolume()
-        volume['provider_location'] = self.TEST_QUOBYTE_VOLUME
-        if uuid is None:
-            volume['id'] = self.VOLUME_UUID
-        else:
-            volume['id'] = uuid
-        # volume['name'] mirrors format from db/sqlalchemy/models.py
-        volume['name'] = 'volume-%s' % volume['id']
-        volume['size'] = 10
-        volume['status'] = 'available'
+    def _simple_volume(self, **kwargs):
+        updates = {'id': self.VOLUME_UUID,
+                   'provider_location': self.TEST_QUOBYTE_VOLUME,
+                   'display_name': 'volume-%s' % self.VOLUME_UUID,
+                   'size': 10,
+                   'status': 'available'}
 
-        return volume
+        updates.update(kwargs)
+        if 'display_name' not in updates:
+            updates['display_name'] = 'volume-%s' % updates['id']
+
+        return fake_volume.fake_volume_obj(self.context, **updates)
 
     def test_create_sparsed_volume(self):
         drv = self._driver
@@ -501,11 +490,11 @@ class QuobyteDriverTestCase(test.TestCase):
 
         drv.LOG = mock.Mock()
         drv._find_share = mock.Mock()
+        drv._find_share.return_value = self.TEST_QUOBYTE_VOLUME
         drv._do_create_volume = mock.Mock()
         drv._ensure_shares_mounted = mock.Mock()
 
-        volume = DumbVolume()
-        volume['size'] = self.TEST_SIZE_IN_GB
+        volume = self._simple_volume(size=self.TEST_SIZE_IN_GB)
         drv.create_volume(volume)
 
         drv._find_share.assert_called_once_with(mock.ANY)
@@ -521,47 +510,13 @@ class QuobyteDriverTestCase(test.TestCase):
         drv._do_create_volume = mock.Mock()
         drv._find_share = mock.Mock(return_value=self.TEST_QUOBYTE_VOLUME)
 
-        volume = DumbVolume()
-        volume['size'] = self.TEST_SIZE_IN_GB
+        volume = self._simple_volume(size=self.TEST_SIZE_IN_GB)
         result = drv.create_volume(volume)
         self.assertEqual(self.TEST_QUOBYTE_VOLUME, result['provider_location'])
 
         drv._do_create_volume.assert_called_once_with(volume)
         drv._ensure_shares_mounted.assert_called_once_with()
         drv._find_share.assert_called_once_with(self.TEST_SIZE_IN_GB)
-
-    def test_create_cloned_volume(self):
-        drv = self._driver
-
-        drv._create_snapshot = mock.Mock()
-        drv._copy_volume_from_snapshot = mock.Mock()
-        drv._delete_snapshot = mock.Mock()
-
-        volume = self._simple_volume()
-        src_vref = self._simple_volume()
-        src_vref['id'] = '375e32b2-804a-49f2-b282-85d1d5a5b9e1'
-        src_vref['name'] = 'volume-%s' % src_vref['id']
-        volume_ref = {'id': volume['id'],
-                      'name': volume['name'],
-                      'status': volume['status'],
-                      'provider_location': volume['provider_location'],
-                      'size': volume['size']}
-
-        snap_ref = {'volume_name': src_vref['name'],
-                    'name': 'clone-snap-%s' % src_vref['id'],
-                    'size': src_vref['size'],
-                    'volume_size': src_vref['size'],
-                    'volume_id': src_vref['id'],
-                    'id': 'tmp-snap-%s' % src_vref['id'],
-                    'volume': src_vref}
-
-        drv.create_cloned_volume(volume, src_vref)
-
-        drv._create_snapshot.assert_called_once_with(snap_ref)
-        drv._copy_volume_from_snapshot.assert_called_once_with(snap_ref,
-                                                               volume_ref,
-                                                               volume['size'])
-        drv._delete_snapshot.assert_called_once_with(mock.ANY)
 
     @mock.patch('oslo_utils.fileutils.delete_if_exists')
     def test_delete_volume(self, mock_delete_if_exists):
@@ -608,9 +563,7 @@ class QuobyteDriverTestCase(test.TestCase):
 
         drv._execute = mock.Mock()
 
-        volume = DumbVolume()
-        volume['name'] = 'volume-123'
-        volume['provider_location'] = self.TEST_QUOBYTE_VOLUME
+        volume = self._simple_volume(display_name='volume-123')
 
         drv._ensure_share_mounted = mock.Mock()
 
@@ -629,14 +582,13 @@ class QuobyteDriverTestCase(test.TestCase):
         drv._ensure_share_mounted = mock.Mock()
         drv._execute = mock.Mock()
 
-        volume = DumbVolume()
-        volume['name'] = 'volume-123'
-        volume['provider_location'] = None
+        volume = self._simple_volume(display_name='volume-123',
+                                     provider_location=None)
 
         drv.delete_volume(volume)
 
-        assert not drv._ensure_share_mounted.called
-        assert not drv._execute.called
+        drv._ensure_share_mounted.assert_not_called()
+        drv._execute.assert_not_called()
 
     def test_extend_volume(self):
         drv = self._driver
@@ -671,7 +623,7 @@ class QuobyteDriverTestCase(test.TestCase):
 
         # lots of test vars to be prepared at first
         dest_volume = self._simple_volume(
-            'c1073000-0000-0000-0000-0000000c1073')
+            id='c1073000-0000-0000-0000-0000000c1073')
         src_volume = self._simple_volume()
 
         vol_dir = os.path.join(self.TEST_MNT_POINT_BASE,
@@ -680,13 +632,15 @@ class QuobyteDriverTestCase(test.TestCase):
         dest_vol_path = os.path.join(vol_dir, dest_volume['name'])
         info_path = os.path.join(vol_dir, src_volume['name']) + '.info'
 
-        snapshot = {'volume_name': src_volume['name'],
-                    'name': 'clone-snap-%s' % src_volume['id'],
-                    'size': src_volume['size'],
-                    'volume_size': src_volume['size'],
-                    'volume_id': src_volume['id'],
-                    'id': 'tmp-snap-%s' % src_volume['id'],
-                    'volume': src_volume}
+        snapshot = fake_snapshot.fake_snapshot_obj(
+            self.context,
+            volume_name=src_volume.name,
+            display_name='clone-snap-%s' % src_volume.id,
+            size=src_volume.size,
+            volume_size=src_volume.size,
+            volume_id=src_volume.id,
+            id=self.SNAP_UUID)
+        snapshot.volume = src_volume
 
         snap_file = dest_volume['name'] + '.' + snapshot['id']
         snap_path = os.path.join(vol_dir, snap_file)
@@ -725,17 +679,18 @@ class QuobyteDriverTestCase(test.TestCase):
         drv = self._driver
 
         src_volume = self._simple_volume()
-        snap_ref = {'volume_name': src_volume['name'],
-                    'name': 'clone-snap-%s' % src_volume['id'],
-                    'size': src_volume['size'],
-                    'volume_size': src_volume['size'],
-                    'volume_id': src_volume['id'],
-                    'id': 'tmp-snap-%s' % src_volume['id'],
-                    'volume': src_volume,
-                    'status': 'error'}
 
-        new_volume = DumbVolume()
-        new_volume['size'] = snap_ref['size']
+        snap_ref = fake_snapshot.fake_snapshot_obj(
+            self.context,
+            volume_name=src_volume.name,
+            display_name='clone-snap-%s' % src_volume.id,
+            volume_size=src_volume.size,
+            volume_id=src_volume.id,
+            id=self.SNAP_UUID,
+            status='error')
+        snap_ref.volume = src_volume
+
+        new_volume = self._simple_volume(size=snap_ref.volume_size)
 
         self.assertRaises(exception.InvalidSnapshot,
                           drv.create_volume_from_snapshot,
@@ -746,17 +701,18 @@ class QuobyteDriverTestCase(test.TestCase):
         drv = self._driver
 
         src_volume = self._simple_volume()
-        snap_ref = {'volume_name': src_volume['name'],
-                    'name': 'clone-snap-%s' % src_volume['id'],
-                    'size': src_volume['size'],
-                    'volume_size': src_volume['size'],
-                    'volume_id': src_volume['id'],
-                    'id': 'tmp-snap-%s' % src_volume['id'],
-                    'volume': src_volume,
-                    'status': 'available'}
 
-        new_volume = DumbVolume()
-        new_volume['size'] = snap_ref['size']
+        snap_ref = fake_snapshot.fake_snapshot_obj(
+            self.context,
+            volume_name=src_volume.name,
+            display_name='clone-snap-%s' % src_volume.id,
+            volume_size=src_volume.size,
+            volume_id=src_volume.id,
+            id=self.SNAP_UUID,
+            status='available')
+        snap_ref.volume = src_volume
+
+        new_volume = self._simple_volume(size=snap_ref.volume_size)
 
         drv._ensure_shares_mounted = mock.Mock()
         drv._find_share = mock.Mock(return_value=self.TEST_QUOBYTE_VOLUME)
@@ -940,10 +896,9 @@ class QuobyteDriverTestCase(test.TestCase):
 
     def test_set_nas_security_options_default(self):
         drv = self._driver
-        self.assertTrue(drv.configuration.nas_secure_file_operations ==
-                        "true")
-        self.assertTrue(drv.configuration.nas_secure_file_permissions ==
-                        "true")
+        self.assertEqual("true", drv.configuration.nas_secure_file_operations)
+        self.assertEqual("true",
+                         drv.configuration.nas_secure_file_permissions)
         self.assertFalse(drv._execute_as_root)
 
     def test_set_nas_security_options_insecure(self):
@@ -953,10 +908,10 @@ class QuobyteDriverTestCase(test.TestCase):
 
         drv.set_nas_security_options(is_new_cinder_install=True)
 
-        self.assertTrue(drv.configuration.nas_secure_file_operations ==
-                        "false")
-        self.assertTrue(drv.configuration.nas_secure_file_permissions ==
-                        "false")
+        self.assertEqual("false",
+                         drv.configuration.nas_secure_file_operations)
+        self.assertEqual("false",
+                         drv.configuration.nas_secure_file_permissions)
         self.assertTrue(drv._execute_as_root)
 
     def test_set_nas_security_options_explicitly_secure(self):
@@ -966,8 +921,8 @@ class QuobyteDriverTestCase(test.TestCase):
 
         drv.set_nas_security_options(is_new_cinder_install=True)
 
-        self.assertTrue(drv.configuration.nas_secure_file_operations ==
-                        "true")
-        self.assertTrue(drv.configuration.nas_secure_file_permissions ==
-                        "true")
+        self.assertEqual("true",
+                         drv.configuration.nas_secure_file_operations)
+        self.assertEqual("true",
+                         drv.configuration.nas_secure_file_permissions)
         self.assertFalse(drv._execute_as_root)

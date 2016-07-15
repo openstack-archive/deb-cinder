@@ -540,6 +540,10 @@ class SnapshotLimitExceeded(QuotaError):
     message = _("Maximum number of snapshots allowed (%(allowed)d) exceeded")
 
 
+class UnexpectedOverQuota(QuotaError):
+    message = _("Unexpected over quota on %(name)s.")
+
+
 class BackupLimitExceeded(QuotaError):
     message = _("Maximum number of backups allowed (%(allowed)d) exceeded")
 
@@ -774,6 +778,11 @@ ObjectActionError = obj_exc.ObjectActionError
 ObjectFieldInvalid = obj_exc.ObjectFieldInvalid
 
 
+class CappedVersionUnknown(CinderException):
+    message = _('Unrecoverable Error: Versioned Objects in DB are capped to '
+                'unknown version %(version)s.')
+
+
 class VolumeGroupNotFound(CinderException):
     message = _('Unable to find Volume Group: %(vg_name)s')
 
@@ -787,9 +796,18 @@ class VolumeDeviceNotFound(CinderException):
 
 
 # Driver specific exceptions
+# Dell
+class DellDriverRetryableException(VolumeBackendAPIException):
+    message = _("Retryable Dell Exception encountered")
+
+
 # Pure Storage
 class PureDriverException(VolumeDriverException):
     message = _("Pure Storage Cinder driver failure: %(reason)s")
+
+
+class PureRetryableException(VolumeBackendAPIException):
+    message = _("Retryable Pure Storage Exception encountered")
 
 
 # SolidFire
@@ -1005,24 +1023,57 @@ class XIODriverException(VolumeDriverException):
 
 
 # Violin Memory drivers
-class ViolinInvalidBackendConfig(CinderException):
+class ViolinInvalidBackendConfig(VolumeDriverException):
     message = _("Volume backend config is invalid: %(reason)s")
 
 
-class ViolinRequestRetryTimeout(CinderException):
+class ViolinRequestRetryTimeout(VolumeDriverException):
     message = _("Backend service retry timeout hit: %(timeout)s sec")
 
 
-class ViolinBackendErr(CinderException):
+class ViolinBackendErr(VolumeBackendAPIException):
     message = _("Backend reports: %(message)s")
 
 
-class ViolinBackendErrExists(CinderException):
+class ViolinBackendErrExists(VolumeBackendAPIException):
     message = _("Backend reports: item already exists")
 
 
-class ViolinBackendErrNotFound(CinderException):
+class ViolinBackendErrNotFound(NotFound):
     message = _("Backend reports: item not found")
+
+
+class ViolinResourceNotFound(NotFound):
+    message = _("Backend reports: %(message)s")
+
+
+class BadHTTPResponseStatus(VolumeDriverException):
+    message = _("Bad HTTP response status %(status)s")
+
+
+# ZADARA STORAGE VPSA driver exception
+class ZadaraServerCreateFailure(VolumeDriverException):
+    message = _("Unable to create server object for initiator %(name)s")
+
+
+class ZadaraServerNotFound(NotFound):
+    message = _("Unable to find server object for initiator %(name)s")
+
+
+class ZadaraVPSANoActiveController(VolumeDriverException):
+    message = _("Unable to find any active VPSA controller")
+
+
+class ZadaraAttachmentsNotFound(NotFound):
+    message = _("Failed to retrieve attachments for volume %(name)s")
+
+
+class ZadaraInvalidAttachmentInfo(Invalid):
+    message = _("Invalid attachment info for volume %(name)s: %(reason)s")
+
+
+class ZadaraVolumeNotFound(VolumeDriverException):
+    message = _("%(reason)s")
 
 
 # ZFSSA NFS driver exception.
@@ -1078,7 +1129,8 @@ class DotHillNotTargetPortal(CinderException):
 
 # Sheepdog
 class SheepdogError(VolumeBackendAPIException):
-    message = _("An error has occured in SheepdogDriver. (Reason: %(reason)s)")
+    message = _("An error has occurred in SheepdogDriver. "
+                "(Reason: %(reason)s)")
 
 
 class SheepdogCmdError(SheepdogError):
@@ -1128,3 +1180,21 @@ class GCSApiFailure(BackupDriverException):
 
 class GCSOAuth2Failure(BackupDriverException):
     message = _("Google Cloud Storage oauth2 failure: %(reason)s")
+
+
+# Kaminario K2
+class KaminarioCinderDriverException(VolumeDriverException):
+    message = _("KaminarioCinderDriver failure: %(reason)s")
+
+
+# Synology driver
+class SynoAPIHTTPError(CinderException):
+    message = _("HTTP exit code: [%(code)s]")
+
+
+class SynoAuthError(CinderException):
+    pass
+
+
+class SynoLUNNotExist(CinderException):
+    message = _("LUN not found by UUID: %(uuid)s.")

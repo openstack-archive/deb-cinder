@@ -449,6 +449,8 @@ class API(base.Base):
             msg = _("The volume cannot be updated during maintenance.")
             raise exception.InvalidVolume(reason=msg)
 
+        utils.check_metadata_properties(fields.get('metadata', None))
+
         volume.update(fields)
         volume.save()
         LOG.info(_LI("Volume updated successfully."), resource=volume)
@@ -750,37 +752,11 @@ class API(base.Base):
                                             volume.get('volume_type_id'))
                 reservations = QUOTAS.reserve(context, **reserve_opts)
             except exception.OverQuota as e:
-                overs = e.kwargs['overs']
-                usages = e.kwargs['usages']
-                quotas = e.kwargs['quotas']
-
-                def _consumed(name):
-                    return (usages[name]['reserved'] + usages[name]['in_use'])
-
-                for over in overs:
-                    if 'gigabytes' in over:
-                        msg = _LW("Quota exceeded for %(s_pid)s, tried to "
-                                  "create %(s_size)sG snapshot (%(d_consumed)d"
-                                  "G of %(d_quota)dG already consumed).")
-                        LOG.warning(msg, {'s_pid': context.project_id,
-                                          's_size': volume['size'],
-                                          'd_consumed': _consumed(over),
-                                          'd_quota': quotas[over]})
-                        raise exception.VolumeSizeExceedsAvailableQuota(
-                            requested=volume['size'],
-                            consumed=_consumed('gigabytes'),
-                            quota=quotas['gigabytes'])
-                    elif 'snapshots' in over:
-                        msg = _LW("Quota exceeded for %(s_pid)s, tried to "
-                                  "create snapshot (%(d_consumed)d snapshots "
-                                  "already consumed).")
-
-                        LOG.warning(msg, {'s_pid': context.project_id,
-                                          'd_consumed': _consumed(over)})
-                        raise exception.SnapshotLimitExceeded(
-                            allowed=quotas[over])
-
-        self._check_metadata_properties(metadata)
+                quota_utils.process_reserve_over_quota(
+                    context, e,
+                    resource='snapshots',
+                    size=volume.size)
+        utils.check_metadata_properties(metadata)
 
         snapshot = None
         try:
@@ -893,11 +869,9 @@ class API(base.Base):
                             total_reserve_opts[key] + value
             reservations = QUOTAS.reserve(context, **total_reserve_opts)
         except exception.OverQuota as e:
-            overs = e.kwargs['overs']
-            usages = e.kwargs['usages']
-            quotas = e.kwargs['quotas']
-            volume_utils.process_reserve_over_quota(context, overs, usages,
-                                                    quotas, volume['size'])
+            quota_utils.process_reserve_over_quota(context, e,
+                                                   resource='snapshots',
+                                                   size=volume.size)
 
         return reservations
 
@@ -988,24 +962,6 @@ class API(base.Base):
         LOG.info(_LI("Delete volume metadata completed successfully."),
                  resource=volume)
 
-    def _check_metadata_properties(self, metadata=None):
-        if not metadata:
-            metadata = {}
-
-        for k, v in metadata.items():
-            if len(k) == 0:
-                msg = _("Metadata property key blank.")
-                LOG.warning(msg)
-                raise exception.InvalidVolumeMetadata(reason=msg)
-            if len(k) > 255:
-                msg = _("Metadata property key greater than 255 characters.")
-                LOG.warning(msg)
-                raise exception.InvalidVolumeMetadataSize(reason=msg)
-            if len(v) > 255:
-                msg = _("Metadata property value greater than 255 characters.")
-                LOG.warning(msg)
-                raise exception.InvalidVolumeMetadataSize(reason=msg)
-
     @wrap_check_policy
     def update_volume_metadata(self, context, volume,
                                metadata, delete=False,
@@ -1021,7 +977,7 @@ class API(base.Base):
                     '%s status.') % volume['status']
             LOG.info(msg, resource=volume)
             raise exception.InvalidVolume(reason=msg)
-        self._check_metadata_properties(metadata)
+        utils.check_metadata_properties(metadata)
         db_meta = self.db.volume_metadata_update(context, volume['id'],
                                                  metadata,
                                                  delete,
@@ -1050,7 +1006,7 @@ class API(base.Base):
         `metadata` argument will be deleted.
 
         """
-        self._check_metadata_properties(metadata)
+        utils.check_metadata_properties(metadata)
         db_meta = self.db.volume_admin_metadata_update(context, volume['id'],
                                                        metadata, delete, add,
                                                        update)
@@ -1094,7 +1050,7 @@ class API(base.Base):
             _metadata = orig_meta.copy()
             _metadata.update(metadata)
 
-        self._check_metadata_properties(_metadata)
+        utils.check_metadata_properties(_metadata)
 
         snapshot.metadata = _metadata
         snapshot.save()
@@ -1234,7 +1190,8 @@ class API(base.Base):
 
         result = volume.conditional_update(value, expected)
         if not result:
-            msg = _('Volume %(vol_id)s status must be available to extend.')
+            msg = _('Volume %(vol_id)s status must be available '
+                    'to extend.') % {'vol_id': volume.id}
             raise exception.InvalidVolume(reason=msg)
 
         rollback = True
@@ -1298,10 +1255,11 @@ class API(base.Base):
         services = objects.ServiceList.get_all_by_topic(
             elevated, topic, disabled=False)
         found = False
+        svc_host = volume_utils.extract_host(host, 'backend')
         for service in services:
-            svc_host = volume_utils.extract_host(host, 'backend')
             if utils.service_is_up(service) and service.host == svc_host:
                 found = True
+                break
         if not found:
             msg = _('No available service named %s') % host
             LOG.error(msg)
@@ -1505,14 +1463,7 @@ class API(base.Base):
         LOG.info(_LI("Retype volume request issued successfully."),
                  resource=volume)
 
-    def manage_existing(self, context, host, ref, name=None, description=None,
-                        volume_type=None, metadata=None,
-                        availability_zone=None, bootable=False):
-        if volume_type and 'extra_specs' not in volume_type:
-            extra_specs = volume_types.get_volume_type_extra_specs(
-                volume_type['id'])
-            volume_type['extra_specs'] = extra_specs
-
+    def _get_service_by_host(self, context, host):
         elevated = context.elevated()
         try:
             svc_host = volume_utils.extract_host(host, 'backend')
@@ -1529,8 +1480,20 @@ class API(base.Base):
                           'service.'))
             raise exception.ServiceUnavailable()
 
+        return service
+
+    def manage_existing(self, context, host, ref, name=None, description=None,
+                        volume_type=None, metadata=None,
+                        availability_zone=None, bootable=False):
+        if volume_type and 'extra_specs' not in volume_type:
+            extra_specs = volume_types.get_volume_type_extra_specs(
+                volume_type['id'])
+            volume_type['extra_specs'] = extra_specs
+
+        service = self._get_service_by_host(context, host)
+
         if availability_zone is None:
-            availability_zone = service.get('availability_zone')
+            availability_zone = service.availability_zone
 
         manage_what = {
             'context': context,
@@ -1563,6 +1526,14 @@ class API(base.Base):
                      resource=vol_ref)
             return vol_ref
 
+    def get_manageable_volumes(self, context, host, marker=None, limit=None,
+                               offset=None, sort_keys=None, sort_dirs=None):
+        self._get_service_by_host(context, host)
+        return self.volume_rpcapi.get_manageable_volumes(context, host,
+                                                         marker, limit,
+                                                         offset, sort_keys,
+                                                         sort_dirs)
+
     def manage_existing_snapshot(self, context, ref, volume,
                                  name=None, description=None,
                                  metadata=None):
@@ -1589,6 +1560,14 @@ class API(base.Base):
         self.volume_rpcapi.manage_existing_snapshot(context, snapshot_object,
                                                     ref, host)
         return snapshot_object
+
+    def get_manageable_snapshots(self, context, host, marker=None, limit=None,
+                                 offset=None, sort_keys=None, sort_dirs=None):
+        self._get_service_by_host(context, host)
+        return self.volume_rpcapi.get_manageable_snapshots(context, host,
+                                                           marker, limit,
+                                                           offset, sort_keys,
+                                                           sort_dirs)
 
     # FIXME(jdg): Move these Cheesecake methods (freeze, thaw and failover)
     # to a services API because that's what they are

@@ -700,7 +700,7 @@ class StorwizeHelpers(object):
                 wwpns.add(wwpn)
         return list(wwpns)
 
-    def get_host_from_connector(self, connector):
+    def get_host_from_connector(self, connector, volume_name=None):
         """Return the Storwize host described by the connector."""
         LOG.debug('Enter: get_host_from_connector: %s.', connector)
 
@@ -725,8 +725,24 @@ class StorwizeHelpers(object):
 
         # That didn't work, so try exhaustive search
         hosts_info = self.ssh.lshost()
+        # If we have a volume name we have a potential fast path
+        # for finding the matching host for that volume.
+        # Add the host_names that have mappings for our volume to the
+        # head of the list of host names to search them first
+        if volume_name:
+            hosts_map_info = self.ssh.lsvdiskhostmap(volume_name)
+            hosts_map_info_list = list(hosts_map_info.select('host_name'))
+            hosts_info_list = list(hosts_info.select('name'))
+            # remove the fast path host names from the end of the list
+            # so they are only searched for once.
+            for host in hosts_map_info_list:
+                idx = hosts_info_list.index(host)
+                del hosts_info_list[idx]
+            host_list = hosts_map_info_list + hosts_info_list
+        else:
+            host_list = list(hosts_info.select('name'))
         found = False
-        for name in hosts_info.select('name'):
+        for name in host_list:
             try:
                 resp = self.ssh.lshost(host=name)
             except processutils.ProcessExecutionError as ex:
@@ -869,7 +885,7 @@ class StorwizeHelpers(object):
             LOG.warning(_LW('unmap_vol_from_host: No mapping of volume '
                             '%(vol_name)s to any host found.'),
                         {'vol_name': volume_name})
-            return
+            return host_name
         if host_name is None:
             if len(resp) > 1:
                 LOG.warning(_LW('unmap_vol_from_host: Multiple mappings of '
@@ -887,6 +903,7 @@ class StorwizeHelpers(object):
                 LOG.warning(_LW('unmap_vol_from_host: No mapping of volume '
                                 '%(vol_name)s to host %(host)s found.'),
                             {'vol_name': volume_name, 'host': host_name})
+                return host_name
         # We now know that the mapping exists
         self.ssh.rmvdiskhostmap(host_name, volume_name)
 
@@ -1402,7 +1419,8 @@ class StorwizeHelpers(object):
             return None
         return resp[0]
 
-    def _check_vdisk_fc_mappings(self, name, allow_snaps=True):
+    def _check_vdisk_fc_mappings(self, name,
+                                 allow_snaps=True, allow_fctgt=False):
         """FlashCopy mapping check helper."""
         LOG.debug('Loopcall: _check_vdisk_fc_mappings(), vdisk %s.', name)
         mapping_ids = self._get_vdisk_fc_mappings(name)
@@ -1415,6 +1433,12 @@ class StorwizeHelpers(object):
             target = attrs['target_vdisk_name']
             copy_rate = attrs['copy_rate']
             status = attrs['status']
+
+            if allow_fctgt and target == name and status == 'copying':
+                self.ssh.stopfcmap(map_id)
+                attrs = self._get_flashcopy_mapping_attributes(map_id)
+                if attrs:
+                    status = attrs['status']
 
             if copy_rate == '0':
                 if source == name:
@@ -1446,18 +1470,20 @@ class StorwizeHelpers(object):
                 if status == 'prepared':
                     self.ssh.stopfcmap(map_id)
                     self.ssh.rmfcmap(map_id)
-                elif status == 'idle_or_copied':
-                    # Prepare failed
+                elif status in ['idle_or_copied', 'stopped']:
+                    # Prepare failed or stopped
                     self.ssh.rmfcmap(map_id)
                 else:
                     wait_for_copy = True
         if not wait_for_copy or not len(mapping_ids):
             raise loopingcall.LoopingCallDone(retvalue=True)
 
-    def ensure_vdisk_no_fc_mappings(self, name, allow_snaps=True):
+    def ensure_vdisk_no_fc_mappings(self, name, allow_snaps=True,
+                                    allow_fctgt=False):
         """Ensure vdisk has no flashcopy mappings."""
         timer = loopingcall.FixedIntervalLoopingCall(
-            self._check_vdisk_fc_mappings, name, allow_snaps)
+            self._check_vdisk_fc_mappings, name,
+            allow_snaps, allow_fctgt)
         # Create a timer greenthread. The default volume service heart
         # beat is every 10 seconds. The flashcopy usually takes hours
         # before it finishes. Don't set the sleep interval shorter
@@ -1541,7 +1567,8 @@ class StorwizeHelpers(object):
         if not self.is_vdisk_defined(vdisk):
             LOG.info(_LI('Tried to delete non-existent vdisk %s.'), vdisk)
             return
-        self.ensure_vdisk_no_fc_mappings(vdisk)
+        self.ensure_vdisk_no_fc_mappings(vdisk, allow_snaps=True,
+                                         allow_fctgt=True)
         self.ssh.rmvdisk(vdisk, force=force)
         LOG.debug('Leave: delete_vdisk: vdisk %s.', vdisk)
 
@@ -2272,12 +2299,12 @@ class StorwizeSVCCommonDriver(san.SanDriver,
                                   opts, True, pool=pool)
 
         # The source volume size is equal to target volume size
-        # in most of the cases. But in some scenario, the target
+        # in most of the cases. But in some scenarios, the target
         # volume size may be bigger than the source volume size.
         # SVC does not support flashcopy between two volumes
-        # with two different size. So use source volume size to
+        # with two different sizes. So use source volume size to
         # create target volume first and then extend target
-        # volume to orginal size.
+        # volume to original size.
         if tgt_volume['size'] > src_volume['size']:
             # extend the new created target volume to expected size.
             self._extend_volume_op(tgt_volume, tgt_volume['size'],

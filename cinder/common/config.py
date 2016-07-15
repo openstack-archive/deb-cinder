@@ -32,8 +32,6 @@ from oslo_log import log as logging
 from oslo_middleware import cors
 from oslo_utils import netutils
 
-from cinder.i18n import _
-
 
 CONF = cfg.CONF
 logging.register_options(CONF)
@@ -68,7 +66,8 @@ global_opts = [
     cfg.BoolOpt('glance_api_insecure',
                 default=False,
                 help='Allow to perform insecure SSL (https) requests to '
-                     'glance'),
+                     'glance (https will be used but cert validation will '
+                     'not be performed).'),
     cfg.BoolOpt('glance_api_ssl_compression',
                 default=False,
                 help='Enables or disables negotiation of SSL layer '
@@ -95,14 +94,14 @@ global_opts = [
     cfg.BoolOpt('enable_v1_api',
                 default=True,
                 deprecated_for_removal=True,
-                help=_("DEPRECATED: Deploy v1 of the Cinder API.")),
+                help="DEPRECATED: Deploy v1 of the Cinder API."),
     cfg.BoolOpt('enable_v2_api',
                 default=True,
                 deprecated_for_removal=True,
-                help=_("DEPRECATED: Deploy v2 of the Cinder API.")),
+                help="DEPRECATED: Deploy v2 of the Cinder API."),
     cfg.BoolOpt('enable_v3_api',
                 default=True,
-                help=_("Deploy v3 of the Cinder API.")),
+                help="Deploy v3 of the Cinder API."),
     cfg.BoolOpt('api_rate_limit',
                 default=True,
                 help='Enables or disables rate limit of the API.'),

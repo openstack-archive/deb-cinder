@@ -241,10 +241,12 @@ class HPE3PARCommon(object):
         3.0.22 - Rework delete_vlun. Bug #1582922
         3.0.23 - Fix CG create failures with long display name or special
                  characters. bug #1573647
+        3.0.24 - Fix terminate connection on failover
+        3.0.25 - Fix delete volume when online clone is active. bug #1349639
 
     """
 
-    VERSION = "3.0.23"
+    VERSION = "3.0.25"
 
     stats = {}
 
@@ -2096,16 +2098,24 @@ class HPE3PARCommon(object):
                         self.client.removeVolumeFromVolumeSet(vvset_name,
                                                               volume_name)
                     self.client.deleteVolume(volume_name)
-                elif (ex.get_code() == 151):
-                    # the volume is being operated on in a background
-                    # task on the 3PAR.
-                    # TODO(walter-boring) do a retry a few times.
-                    # for now lets log a better message
-                    msg = _("The volume is currently busy on the 3PAR"
-                            " and cannot be deleted at this time. "
-                            "You can try again later.")
-                    LOG.error(msg)
-                    raise exception.VolumeIsBusy(message=msg)
+                elif ex.get_code() == 151:
+                    if self.client.isOnlinePhysicalCopy(volume_name):
+                        LOG.debug("Found an online copy for %(volume)s",
+                                  {'volume': volume_name})
+                        # the volume is in process of being cloned.
+                        # stopOnlinePhysicalCopy will also delete
+                        # the volume once it stops the copy.
+                        self.client.stopOnlinePhysicalCopy(volume_name)
+                    else:
+                        # the volume is being operated on in a background
+                        # task on the 3PAR.
+                        # TODO(walter-boring) do a retry a few times.
+                        # for now lets log a better message
+                        msg = _("The volume is currently busy on the 3PAR"
+                                " and cannot be deleted at this time. "
+                                "You can try again later.")
+                        LOG.error(msg)
+                        raise exception.VolumeIsBusy(message=msg)
                 elif (ex.get_code() == 32):
                     # Error 32 means that the volume has children
 
@@ -2509,12 +2519,26 @@ class HPE3PARCommon(object):
             return
         except hpeexceptions.HTTPNotFound as e:
             if 'host does not exist' in e.get_description():
-                # use the wwn to see if we can find the hostname
-                hostname = self._get_3par_hostname_from_wwn_iqn(wwn, iqn)
-                # no 3par host, re-throw
-                if hostname is None:
-                    LOG.error(_LE("Exception: %s"), e)
-                    raise
+                # If a host is failed-over, we want to allow the detach to
+                # 'succeed' when it cannot find the host. We can simply
+                # return out of the terminate connection in order for things
+                # to be updated correctly.
+                if self._active_backend_id:
+                    LOG.warning(_LW("Because the host is currently in a "
+                                    "failed-over state, the volume will not "
+                                    "be properly detached from the primary "
+                                    "array. The detach will be considered a "
+                                    "success as far as Cinder is concerned. "
+                                    "The volume can now be attached to the "
+                                    "secondary target."))
+                    return
+                else:
+                    # use the wwn to see if we can find the hostname
+                    hostname = self._get_3par_hostname_from_wwn_iqn(wwn, iqn)
+                    # no 3par host, re-throw
+                    if hostname is None:
+                        LOG.error(_LE("Exception: %s"), e)
+                        raise
             else:
                 # not a 'host does not exist' HTTPNotFound exception, re-throw
                 LOG.error(_LE("Exception: %s"), e)

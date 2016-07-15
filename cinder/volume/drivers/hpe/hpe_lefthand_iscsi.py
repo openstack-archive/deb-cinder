@@ -44,6 +44,7 @@ from oslo_utils import units
 from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import interface
 from cinder.objects import fields
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
@@ -120,6 +121,7 @@ extra_specs_value_map = {
 }
 
 
+@interface.volumedriver
 class HPELeftHandISCSIDriver(driver.ISCSIDriver):
     """Executes REST commands relating to HPE/LeftHand SAN ISCSI volumes.
 
@@ -155,9 +157,10 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
         2.0.6 - Update replication to version 2.1
         2.0.7 - Fixed bug #1554746, Create clone volume with new size.
         2.0.8 - Add defaults for creating a replication client, bug #1556331
+        2.0.9 - Fix terminate connection on failover
     """
 
-    VERSION = "2.0.8"
+    VERSION = "2.0.9"
 
     device_stats = {}
 
@@ -572,7 +575,7 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
                 snapshot_update['status'] = fields.SnapshotStatus.ERROR
             except Exception as ex:
                 LOG.error(_LE("There was an error deleting snapshot %(id)s: "
-                              "%(error)."),
+                              "%(error)s."),
                           {'id': snapshot['id'],
                            'error': six.text_type(ex)})
                 snapshot_update['status'] = fields.SnapshotStatus.ERROR
@@ -747,6 +750,22 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
 
             if removeServer:
                 client.deleteServer(server_info['id'])
+        except hpeexceptions.HTTPNotFound as ex:
+            # If a host is failed-over, we want to allow the detach to
+            # to 'succeed' when it cannot find the host. We can simply
+            # return out of the terminate connection in order for things
+            # to be updated correctly.
+            if self._active_backend_id:
+                LOG.warning(_LW("Because the host is currently in a "
+                                "failed-over state, the volume will not "
+                                "be properly detached from the primary "
+                                "array. The detach will be considered a "
+                                "success as far as Cinder is concerned. "
+                                "The volume can now be attached to the "
+                                "secondary target."))
+                return
+            else:
+                raise exception.VolumeBackendAPIException(ex)
         except Exception as ex:
             raise exception.VolumeBackendAPIException(ex)
         finally:
@@ -1237,7 +1256,7 @@ class HPELeftHandISCSIDriver(driver.ISCSIDriver):
             # Update the existing snapshot with the new name.
             client.modifySnapshot(snapshot_info['id'], new_vals)
         except hpeexceptions.HTTPServerError:
-            err = (_("An error occured while attempting to modify"
+            err = (_("An error occurred while attempting to modify "
                      "Snapshot '%s'.") % snapshot_info['id'])
             LOG.error(err)
 

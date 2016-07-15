@@ -34,7 +34,6 @@ from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import test_db_api
 
 
-from keystonemiddleware import auth_token
 from oslo_config import cfg
 from oslo_config import fixture as config_fixture
 
@@ -114,7 +113,7 @@ class QuotaSetsControllerTestBase(test.TestCase):
         self.addCleanup(list_patcher.stop)
 
         self.auth_url = 'http://localhost:5000'
-        self.fixture = self.useFixture(config_fixture.Config(auth_token.CONF))
+        self.fixture = self.useFixture(config_fixture.Config(CONF))
         self.fixture.config(auth_uri=self.auth_url, group='keystone_authtoken')
 
     def _create_project_hierarchy(self):
@@ -187,6 +186,17 @@ class QuotaSetsControllerTest(QuotaSetsControllerTestBase):
         self.assertDictMatch(make_body(), result)
         self.controller._get_quotas.assert_called_with(
             self.req.environ['cinder.context'], fake.PROJECT_ID, False)
+
+    def test_show_with_invalid_usage_param(self):
+        self.req.params = {'usage': 'InvalidBool'}
+        self.assertRaises(exception.InvalidParameterValue,
+                          self.controller.show,
+                          self.req, fake.PROJECT2_ID)
+
+    def test_show_with_valid_usage_param(self):
+        self.req.params = {'usage': 'false'}
+        result = self.controller.show(self.req, fake.PROJECT_ID)
+        self.assertDictMatch(make_body(), result)
 
     def test_update(self):
         body = make_body(gigabytes=2000, snapshots=15,
@@ -526,7 +536,7 @@ class QuotaSetControllerValidateNestedQuotaSetup(QuotaSetsControllerTestBase):
         # Get B's subtree up to date with this change
         self.B.subtree[self.D.id] = self.D.subtree
 
-        # Quota heirarchy now is
+        # Quota hierarchy now is
         #   / B - D - E - F
         # A
         #   \ C

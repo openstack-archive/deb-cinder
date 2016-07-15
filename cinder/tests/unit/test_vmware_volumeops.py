@@ -295,95 +295,6 @@ class VolumeOpsTestCase(test.TestCase):
         self.assertFalse(self.vops.is_datastore_accessible(ds, host))
         get_connected_hosts.assert_called_once_with(ds)
 
-    def test_is_valid(self):
-        with mock.patch.object(self.vops, 'get_summary') as get_summary:
-            summary = mock.Mock(spec=object)
-            get_summary.return_value = summary
-
-            datastore = mock.sentinel.datastore
-            host = mock.Mock(spec=object)
-            host.value = mock.sentinel.host
-
-            def _is_valid(host_mounts, is_valid):
-                self.session.invoke_api.return_value = host_mounts
-                result = self.vops._is_valid(datastore, host)
-                self.assertEqual(is_valid, result)
-                self.session.invoke_api.assert_called_with(
-                    vim_util,
-                    'get_object_property',
-                    self.session.vim,
-                    datastore,
-                    'host')
-
-            # Test positive cases
-            summary.maintenanceMode = 'normal'
-            summary.accessible = True
-            _is_valid(self._create_host_mounts("readWrite", host), True)
-
-            # Test negative cases
-            _is_valid(self._create_host_mounts("Inaccessible", host), False)
-            _is_valid(self._create_host_mounts("readWrite", host, True, False),
-                      False)
-            _is_valid(self._create_host_mounts("readWrite", host, True, True,
-                                               False), False)
-
-            summary.accessible = False
-            _is_valid(self._create_host_mounts("readWrite", host, False),
-                      False)
-
-            summary.accessible = True
-            summary.maintenanceMode = 'inMaintenance'
-            _is_valid(self._create_host_mounts("readWrite", host), False)
-
-    def test_get_dss_rp(self):
-        with mock.patch.object(self.vops, 'get_summary') as get_summary:
-            summary = mock.Mock(spec=object)
-            summary.accessible = True
-            summary.maintenanceModel = 'normal'
-            get_summary.return_value = summary
-
-            # build out props to be returned by 1st invoke_api call
-            datastore_prop = mock.Mock(spec=object)
-            datastore_prop.name = 'datastore'
-            datastore_prop.val = mock.Mock(spec=object)
-            datastore_prop.val.ManagedObjectReference = [mock.sentinel.ds1,
-                                                         mock.sentinel.ds2]
-            compute_resource_prop = mock.Mock(spec=object)
-            compute_resource_prop.name = 'parent'
-            compute_resource_prop.val = mock.sentinel.compute_resource
-            elem = mock.Mock(spec=object)
-            elem.propSet = [datastore_prop, compute_resource_prop]
-            props = [elem]
-            # build out host_mounts to be returned by 2nd invoke_api call
-            host = mock.Mock(spec=object)
-            host.value = mock.sentinel.host
-            host_mounts = self._create_host_mounts("readWrite", host)
-            # build out resource_pool to be returned by 3rd invoke_api call
-            resource_pool = mock.sentinel.resource_pool
-            # set return values for each call of invoke_api
-            self.session.invoke_api.side_effect = [props,
-                                                   host_mounts,
-                                                   host_mounts,
-                                                   resource_pool]
-            # invoke function and verify results
-            (dss_actual, rp_actual) = self.vops.get_dss_rp(host)
-            self.assertEqual([mock.sentinel.ds1, mock.sentinel.ds2],
-                             dss_actual)
-            self.assertEqual(resource_pool, rp_actual)
-
-            # invoke function with no valid datastore
-            summary.maintenanceMode = 'inMaintenance'
-            self.session.invoke_api.side_effect = [props,
-                                                   host_mounts,
-                                                   host_mounts,
-                                                   resource_pool]
-            self.assertRaises(exceptions.VimException,
-                              self.vops.get_dss_rp,
-                              host)
-
-            # Clear side effects.
-            self.session.invoke_api.side_effect = None
-
     def test_get_parent(self):
         # Not recursive
         child = mock.Mock(spec=object)
@@ -740,9 +651,11 @@ class VolumeOpsTestCase(test.TestCase):
         size_kb = units.Ki
         controller_key = 200
         disk_type = 'thick'
+        profile_id = mock.sentinel.profile_id
         spec = self.vops._create_virtual_disk_config_spec(size_kb,
                                                           disk_type,
                                                           controller_key,
+                                                          profile_id,
                                                           None)
 
         cf.create.side_effect = None
@@ -756,6 +669,9 @@ class VolumeOpsTestCase(test.TestCase):
         backing = device.backing
         self.assertEqual('', backing.fileName)
         self.assertEqual('persistent', backing.diskMode)
+        disk_profiles = spec.profile
+        self.assertEqual(1, len(disk_profiles))
+        self.assertEqual(profile_id, disk_profiles[0].profileId)
 
     def test_create_specs_for_ide_disk_add(self):
         factory = self.session.vim.client.factory
@@ -764,8 +680,9 @@ class VolumeOpsTestCase(test.TestCase):
         size_kb = 1
         disk_type = 'thin'
         adapter_type = 'ide'
+        profile_id = mock.sentinel.profile_id
         ret = self.vops._create_specs_for_disk_add(size_kb, disk_type,
-                                                   adapter_type)
+                                                   adapter_type, profile_id)
 
         factory.create.side_effect = None
         self.assertEqual(1, len(ret))
@@ -783,8 +700,9 @@ class VolumeOpsTestCase(test.TestCase):
         size_kb = 2 * units.Ki
         disk_type = 'thin'
         adapter_type = 'lsiLogicsas'
+        profile_id = mock.sentinel.profile_id
         ret = self.vops._create_specs_for_disk_add(size_kb, disk_type,
-                                                   adapter_type)
+                                                   adapter_type, profile_id)
 
         factory.create.side_effect = None
         self.assertEqual(2, len(ret))
@@ -834,17 +752,17 @@ class VolumeOpsTestCase(test.TestCase):
         size_kb = 1024
         disk_type = 'thin'
         ds_name = 'nfs-1'
-        profileId = mock.sentinel.profile_id
+        profile_id = mock.sentinel.profile_id
         adapter_type = 'busLogic'
         extra_config = mock.sentinel.extra_config
 
         self.vops.get_create_spec(name, size_kb, disk_type, ds_name,
-                                  profileId, adapter_type, extra_config)
+                                  profile_id, adapter_type, extra_config)
 
         get_create_spec_disk_less.assert_called_once_with(
-            name, ds_name, profileId=profileId, extra_config=extra_config)
+            name, ds_name, profileId=profile_id, extra_config=extra_config)
         create_specs_for_disk_add.assert_called_once_with(
-            size_kb, disk_type, adapter_type)
+            size_kb, disk_type, adapter_type, profile_id)
 
     @mock.patch('cinder.volume.drivers.vmware.volumeops.VMwareVolumeOps.'
                 'get_create_spec')
@@ -871,7 +789,7 @@ class VolumeOpsTestCase(test.TestCase):
                                        profile_id, adapter_type, extra_config)
         self.assertEqual(mock.sentinel.result, ret)
         get_create_spec.assert_called_once_with(
-            name, size_kb, disk_type, ds_name, profileId=profile_id,
+            name, size_kb, disk_type, ds_name, profile_id=profile_id,
             adapter_type=adapter_type, extra_config=extra_config)
         self.session.invoke_api.assert_called_once_with(self.session.vim,
                                                         'CreateVM_Task',
@@ -1296,14 +1214,16 @@ class VolumeOpsTestCase(test.TestCase):
         size_in_kb = units.Ki
         disk_type = "thin"
         adapter_type = "ide"
-        vmdk_ds_file_path = mock.Mock()
+        profile_id = mock.sentinel.profile_id
+        vmdk_ds_file_path = mock.sentinel.vmdk_ds_file_path
         self.vops.attach_disk_to_backing(backing, size_in_kb, disk_type,
-                                         adapter_type, vmdk_ds_file_path)
+                                         adapter_type, profile_id,
+                                         vmdk_ds_file_path)
 
         self.assertEqual(disk_add_config_specs, reconfig_spec.deviceChange)
-        create_spec.assert_called_once_with(size_in_kb, disk_type,
-                                            adapter_type,
-                                            vmdk_ds_file_path)
+        create_spec.assert_called_once_with(
+            size_in_kb, disk_type, adapter_type, profile_id,
+            vmdk_ds_file_path=vmdk_ds_file_path)
         self.session.invoke_api.assert_called_once_with(self.session.vim,
                                                         "ReconfigVM_Task",
                                                         backing,

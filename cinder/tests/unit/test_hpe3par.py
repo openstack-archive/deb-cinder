@@ -87,6 +87,9 @@ class Comment(object):
     def __eq__(self, actual):
         return (dict(ast.literal_eval(actual)) == self.expected)
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
 
 class HPE3PARBaseDriver(object):
 
@@ -121,11 +124,13 @@ class HPE3PARBaseDriver(object):
     VOLUME_ID_SNAP = '761fc5e5-5191-4ec7-aeba-33e36de44156'
     FAKE_DESC = 'test description name'
     FAKE_FC_PORTS = [{'portPos': {'node': 7, 'slot': 1, 'cardPort': 1},
+                      'type': 1,
                       'portWWN': '0987654321234',
                       'protocol': 1,
                       'mode': 2,
                       'linkState': 4},
                      {'portPos': {'node': 6, 'slot': 1, 'cardPort': 1},
+                      'type': 1,
                       'portWWN': '123456789000987',
                       'protocol': 1,
                       'mode': 2,
@@ -334,6 +339,7 @@ class HPE3PARBaseDriver(object):
         'PORT_STATE_READY': 4,
         'PORT_PROTO_ISCSI': 2,
         'PORT_PROTO_FC': 1,
+        'PORT_TYPE_HOST': 1,
         'TASK_DONE': TASK_DONE,
         'TASK_ACTIVE': TASK_ACTIVE,
         'HOST_EDIT_ADD': 1,
@@ -1673,6 +1679,29 @@ class HPE3PARBaseDriver(object):
                 expected +
                 self.standard_logout)
 
+    def test_delete_volume_online_clone_active(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+            ex = hpeexceptions.HTTPConflict("Online clone is active.")
+            ex._error_code = 151
+            mock_client.deleteVolume = mock.Mock(side_effect=ex)
+            mock_client.isOnlinePhysicalCopy.return_value = True
+            self.driver.delete_volume(self.volume)
+
+            expected = [
+                mock.call.deleteVolume(self.VOLUME_3PAR_NAME),
+                mock.call.isOnlinePhysicalCopy(self.VOLUME_3PAR_NAME),
+                mock.call.stopOnlinePhysicalCopy(self.VOLUME_3PAR_NAME)]
+
+            mock_client.assert_has_calls(
+                self.standard_login +
+                expected +
+                self.standard_logout)
+
     @mock.patch.object(volume_types, 'get_volume_type')
     def test_delete_volume_replicated(self, _mock_volume_types):
         # setup_mock_client drive with default configuration
@@ -2556,6 +2585,30 @@ class HPE3PARBaseDriver(object):
                 self.standard_login +
                 expected +
                 self.standard_logout)
+
+    def test_terminate_connection_from_primary_when_failed_over(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+        mock_client.getHostVLUNs.side_effect = hpeexceptions.HTTPNotFound(
+            error={'desc': 'The host does not exist.'})
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+
+            self.driver._active_backend_id = 'some_id'
+            self.driver.terminate_connection(
+                self.volume,
+                self.connector,
+                force=True)
+
+            # When the volume is still attached to the primary array after a
+            # fail-over, there should be no call to delete the VLUN(s) or the
+            # host. We can assert these methods were not called to make sure
+            # the proper exceptions are being raised.
+            self.assertEqual(0, mock_client.deleteVLUN.call_count)
+            self.assertEqual(0, mock_client.deleteHost.call_count)
 
     def test_extend_volume(self):
         # setup_mock_client drive with default configuration
@@ -4348,6 +4401,91 @@ class HPE3PARBaseDriver(object):
                 [volume],
                 'default')
 
+    def test_get_pool_with_existing_volume(self):
+        mock_client = self.setup_driver()
+        mock_client.getVolume.return_value = {'userCPG': HPE3PAR_CPG}
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+            actual_cpg = self.driver.get_pool(self.volume)
+            expected_cpg = HPE3PAR_CPG
+
+            expected = [
+                mock.call.getVolume(self.VOLUME_3PAR_NAME)
+            ]
+
+            mock_client.assert_has_calls(
+                self.standard_login +
+                expected +
+                self.standard_logout)
+
+            self.assertEqual(expected_cpg, actual_cpg)
+
+    def test_get_pool_with_non_existing_volume(self):
+        mock_client = self.setup_driver()
+        mock_client.getVolume.side_effect = hpeexceptions.HTTPNotFound
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+
+            expected = [
+                mock.call.getVolume(self.VOLUME_3PAR_NAME)
+            ]
+
+            try:
+                self.assertRaises(
+                    hpeexceptions.HTTPNotFound,
+                    self.driver.get_pool,
+                    self.volume)
+
+            except exception.InvalidVolume:
+                mock_client.assert_has_calls(
+                    self.standard_login +
+                    expected +
+                    self.standard_logout)
+
+    def test_driver_login_with_wrong_credential_and_replication_disabled(self):
+        mock_client = self.setup_driver()
+        mock_client.login.side_effect = hpeexceptions.HTTPUnauthorized
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+            expected = [
+                mock.call.login(HPE3PAR_USER_NAME, HPE3PAR_USER_PASS)
+            ]
+            self.assertRaises(
+                exception.InvalidInput,
+                self.driver._login)
+            mock_client.assert_has_calls(expected)
+
+    def test_driver_login_with_wrong_credential_and_replication_enabled(self):
+        conf = self.setup_configuration()
+        self.replication_targets[0]['replication_mode'] = 'periodic'
+        conf.replication_device = self.replication_targets
+        mock_client = self.setup_driver(config=conf)
+        mock_replicated_client = self.setup_driver(config=conf)
+        mock_client.login.side_effect = hpeexceptions.HTTPUnauthorized
+
+        with mock.patch.object(
+                hpecommon.HPE3PARCommon,
+                '_create_client') as mock_create_client, \
+            mock.patch.object(
+                hpecommon.HPE3PARCommon,
+                '_create_replication_client') as mock_replication_client:
+            mock_create_client.return_value = mock_client
+            mock_replication_client.return_value = mock_replicated_client
+            expected = [
+                mock.call.login(HPE3PAR_USER_NAME, HPE3PAR_USER_PASS)
+            ]
+
+            common = self.driver._login()
+            mock_client.assert_has_calls(
+                expected)
+            self.assertTrue(common._replication_enabled)
+
 
 class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
 
@@ -4402,16 +4540,16 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                              'firmwareVersion': None,
                              'hostSpeed': 0,
                              'model': None,
-                             'portPos': {'cardPort': 1, 'node': 1,
-                                         'slot': 2},
+                             'portPos': {'cardPort': 1, 'node': 7,
+                                         'slot': 1},
                              'vendor': None,
                              'wwn': self.wwn[0]},
                             {'driverVersion': None,
                              'firmwareVersion': None,
                              'hostSpeed': 0,
                              'model': None,
-                             'portPos': {'cardPort': 1, 'node': 0,
-                                         'slot': 2},
+                             'portPos': {'cardPort': 1, 'node': 6,
+                                         'slot': 1},
                              'vendor': None,
                              'wwn': self.wwn[1]}]}]
         mock_client.queryHost.return_value = {
@@ -4424,6 +4562,13 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
             hpeexceptions.HTTPNotFound('fake'),
             [{'active': True,
               'volumeName': self.VOLUME_3PAR_NAME,
+              'portPos': {'node': 7, 'slot': 1, 'cardPort': 1},
+              'remoteName': self.wwn[1],
+              'lun': 90, 'type': 0}],
+            [{'active': True,
+              'volumeName': self.VOLUME_3PAR_NAME,
+              'portPos': {'node': 6, 'slot': 1, 'cardPort': 1},
+              'remoteName': self.wwn[0],
               'lun': 90, 'type': 0}]]
 
         location = ("%(volume_name)s,%(lun_id)s,%(host)s,%(nsp)s" %
@@ -4432,6 +4577,16 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                      'host': self.FAKE_HOST,
                      'nsp': 'something'})
         mock_client.createVLUN.return_value = location
+        expected_properties = {
+            'driver_volume_type': 'fibre_channel',
+            'data': {
+                'encrypted': False,
+                'target_lun': 90,
+                'target_wwn': ['0987654321234', '123456789000987'],
+                'target_discovered': True,
+                'initiator_target_map':
+                    {'123456789012345': ['123456789000987'],
+                     '123456789054321': ['0987654321234']}}}
 
         with mock.patch.object(hpecommon.HPE3PARCommon,
                                '_create_client') as mock_create_client:
@@ -4449,11 +4604,20 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                 mock.call.getHost(self.FAKE_HOST),
                 mock.call.getPorts(),
                 mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.getPorts(),
                 mock.call.createVLUN(
                     self.VOLUME_3PAR_NAME,
                     auto=True,
                     hostname=self.FAKE_HOST,
-                    lun=None),
+                    lun=None,
+                    portPos={'node': 7, 'slot': 1, 'cardPort': 1}),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.createVLUN(
+                    self.VOLUME_3PAR_NAME,
+                    auto=False,
+                    hostname=self.FAKE_HOST,
+                    lun=90,
+                    portPos={'node': 6, 'slot': 1, 'cardPort': 1}),
                 mock.call.getHostVLUNs(self.FAKE_HOST)]
 
             mock_client.assert_has_calls(
@@ -4461,7 +4625,7 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                 expected +
                 self.standard_logout)
 
-            self.assertDictMatch(self.properties, result)
+            self.assertDictMatch(expected_properties, result)
 
     @mock.patch('cinder.zonemanager.utils.create_lookup_service')
     def test_initialize_connection_with_lookup_single_nsp(self, mock_lookup):
@@ -4502,7 +4666,7 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
             [{'active': True,
               'volumeName': self.VOLUME_3PAR_NAME,
               'lun': 90, 'type': 0,
-              'portPos': {'cardPort': 1, 'node': 7, 'slot': 1}, }]]
+              'portPos': {'cardPort': 1, 'node': 7, 'slot': 1}}]]
 
         location = ("%(volume_name)s,%(lun_id)s,%(host)s,%(nsp)s" %
                     {'volume_name': self.VOLUME_3PAR_NAME,
@@ -4570,16 +4734,16 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                              'firmwareVersion': None,
                              'hostSpeed': 0,
                              'model': None,
-                             'portPos': {'cardPort': 1, 'node': 1,
-                                         'slot': 2},
+                             'portPos': {'cardPort': 1, 'node': 7,
+                                         'slot': 1},
                              'vendor': None,
                              'wwn': self.wwn[0]},
                             {'driverVersion': None,
                              'firmwareVersion': None,
                              'hostSpeed': 0,
                              'model': None,
-                             'portPos': {'cardPort': 1, 'node': 0,
-                                         'slot': 2},
+                             'portPos': {'cardPort': 1, 'node': 6,
+                                         'slot': 1},
                              'vendor': None,
                              'wwn': self.wwn[1]}]}]
         mock_client.queryHost.return_value = {
@@ -4592,6 +4756,13 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
             hpeexceptions.HTTPNotFound('fake'),
             [{'active': True,
               'volumeName': self.VOLUME_3PAR_NAME,
+              'lun': 90, 'type': 0,
+              'remoteName': self.wwn[1],
+              'portPos': {'cardPort': 1, 'node': 7, 'slot': 1}}],
+            [{'active': True,
+              'volumeName': self.VOLUME_3PAR_NAME,
+              'portPos': {'node': 6, 'slot': 1, 'cardPort': 1},
+              'remoteName': self.wwn[0],
               'lun': 90, 'type': 0}]]
 
         location = ("%(volume_name)s,%(lun_id)s,%(host)s,%(nsp)s" %
@@ -4600,6 +4771,16 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                      'host': self.FAKE_HOST,
                      'nsp': 'something'})
         mock_client.createVLUN.return_value = location
+        expected_properties = {
+            'driver_volume_type': 'fibre_channel',
+            'data': {
+                'encrypted': True,
+                'target_lun': 90,
+                'target_wwn': ['0987654321234', '123456789000987'],
+                'target_discovered': True,
+                'initiator_target_map':
+                    {'123456789012345': ['123456789000987'],
+                     '123456789054321': ['0987654321234']}}}
 
         with mock.patch.object(hpecommon.HPE3PARCommon,
                                '_create_client') as mock_create_client:
@@ -4617,11 +4798,20 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                 mock.call.getHost(self.FAKE_HOST),
                 mock.call.getPorts(),
                 mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.getPorts(),
                 mock.call.createVLUN(
                     self.VOLUME_3PAR_NAME,
                     auto=True,
                     hostname=self.FAKE_HOST,
-                    lun=None),
+                    lun=None,
+                    portPos={'node': 7, 'slot': 1, 'cardPort': 1}),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.createVLUN(
+                    self.VOLUME_3PAR_NAME,
+                    auto=False,
+                    hostname=self.FAKE_HOST,
+                    lun=90,
+                    portPos={'node': 6, 'slot': 1, 'cardPort': 1}),
                 mock.call.getHostVLUNs(self.FAKE_HOST)]
 
             mock_client.assert_has_calls(
@@ -4629,8 +4819,6 @@ class TestHPE3PARFCDriver(HPE3PARBaseDriver, test.TestCase):
                 expected +
                 self.standard_logout)
 
-            expected_properties = self.properties
-            expected_properties['data']['encrypted'] = True
             self.assertDictMatch(expected_properties, result)
 
     def test_terminate_connection(self):
@@ -5687,6 +5875,160 @@ class TestHPE3PARISCSIDriver(HPE3PARBaseDriver, test.TestCase):
             expected_properties['data']['encrypted'] = True
             self.assertDictMatch(self.properties, result)
 
+    def test_terminate_connection_for_clear_chap_creds_not_found(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+        mock_client.getHostVLUNs.return_value = [
+            {'active': False,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0}]
+
+        mock_client.queryHost.return_value = {
+            'members': [{
+                'name': self.FAKE_HOST
+            }]
+        }
+        mock_client.getStorageSystemInfo.return_value = {
+            'id': self.CLIENT_ID
+        }
+        # Test for clear CHAP creds fails with HTTPNotFound
+        mock_client.removeVolumeMetaData.side_effect = [
+            hpeexceptions.HTTPNotFound,
+            hpeexceptions.HTTPNotFound]
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+            self.driver.terminate_connection(
+                self.volume,
+                self.connector,
+                force=True)
+
+            expected = [
+                mock.call.queryHost(iqns=[self.connector['initiator']]),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.deleteVLUN(
+                    self.VOLUME_3PAR_NAME,
+                    None,
+                    hostname=self.FAKE_HOST),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.deleteHost(self.FAKE_HOST),
+                mock.call.removeVolumeMetaData(
+                    self.VOLUME_3PAR_NAME, CHAP_USER_KEY),
+                mock.call.removeVolumeMetaData(
+                    self.VOLUME_3PAR_NAME, CHAP_PASS_KEY)]
+
+            mock_client.assert_has_calls(
+                self.get_id_login +
+                self.standard_logout +
+                self.standard_login +
+                expected +
+                self.standard_logout)
+
+    def test_terminate_connection_for_clear_chap_user_key_bad_request(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+        mock_client.getHostVLUNs.return_value = [
+            {'active': False,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0}]
+
+        mock_client.queryHost.return_value = {
+            'members': [{
+                'name': self.FAKE_HOST
+            }]
+        }
+        mock_client.getStorageSystemInfo.return_value = {
+            'id': self.CLIENT_ID
+        }
+        # Test for CHAP USER KEY fails with HTTPBadRequest
+        mock_client.removeVolumeMetaData.side_effect = [
+            hpeexceptions.HTTPBadRequest]
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+
+            self.assertRaises(hpeexceptions.HTTPBadRequest,
+                              self.driver.terminate_connection,
+                              self.volume,
+                              self.connector,
+                              force=True)
+
+            expected = [
+                mock.call.queryHost(iqns=[self.connector['initiator']]),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.deleteVLUN(
+                    self.VOLUME_3PAR_NAME,
+                    None,
+                    hostname=self.FAKE_HOST),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.deleteHost(self.FAKE_HOST),
+                mock.call.removeVolumeMetaData(
+                    self.VOLUME_3PAR_NAME, CHAP_USER_KEY)]
+
+            mock_client.assert_has_calls(
+                self.get_id_login +
+                self.standard_logout +
+                self.standard_login +
+                expected +
+                self.standard_logout)
+
+    def test_terminate_connection_for_clear_chap_pass_key_bad_request(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        mock_client = self.setup_driver()
+        mock_client.getHostVLUNs.return_value = [
+            {'active': False,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 0}]
+
+        mock_client.queryHost.return_value = {
+            'members': [{
+                'name': self.FAKE_HOST
+            }]
+        }
+        mock_client.getStorageSystemInfo.return_value = {
+            'id': self.CLIENT_ID,
+        }
+        # Test for CHAP PASS KEY fails with HTTPBadRequest
+        mock_client.removeVolumeMetaData.side_effect = [
+            None,
+            hpeexceptions.HTTPBadRequest]
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+
+            self.assertRaises(hpeexceptions.HTTPBadRequest,
+                              self.driver.terminate_connection,
+                              self.volume,
+                              self.connector,
+                              force=True)
+
+            expected = [
+                mock.call.queryHost(iqns=[self.connector['initiator']]),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.deleteVLUN(
+                    self.VOLUME_3PAR_NAME,
+                    None,
+                    hostname=self.FAKE_HOST),
+                mock.call.getHostVLUNs(self.FAKE_HOST),
+                mock.call.deleteHost(self.FAKE_HOST),
+                mock.call.removeVolumeMetaData(
+                    self.VOLUME_3PAR_NAME, CHAP_USER_KEY),
+                mock.call.removeVolumeMetaData(
+                    self.VOLUME_3PAR_NAME, CHAP_PASS_KEY)]
+
+            mock_client.assert_has_calls(
+                self.get_id_login +
+                self.standard_logout +
+                self.standard_login +
+                expected +
+                self.standard_logout)
+
     def test_get_volume_stats(self):
         # setup_mock_client drive with the configuration
         # and return the mock HTTP 3PAR client
@@ -6091,6 +6433,58 @@ class TestHPE3PARISCSIDriver(HPE3PARBaseDriver, test.TestCase):
             self.assertEqual(self.FAKE_HOST, host['name'])
             self.assertEqual('test-user', auth_username)
             self.assertEqual('test-pass', auth_password)
+
+    def test_create_host_chap_enabled_and_host_without_chap_cred(self):
+        # setup_mock_client driver
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hpe3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+        mock_client.getVolume.return_value = {'userCPG': HPE3PAR_CPG}
+        mock_client.getCPG.return_value = {}
+
+        expected_mod_request = {
+            'chapOperation': mock_client.HOST_EDIT_ADD,
+            'chapOperationMode': mock_client.CHAP_INITIATOR,
+            'chapName': 'test-user',
+            'chapSecret': 'test-pass'
+        }
+
+        def get_side_effect(*args):
+            data = {'value': None}
+            if args[1] == CHAP_USER_KEY:
+                data['value'] = 'test-user'
+            elif args[1] == CHAP_PASS_KEY:
+                data['value'] = 'test-pass'
+            return data
+
+        mock_client.getVolumeMetaData.side_effect = get_side_effect
+        mock_client.getHost.return_value = {
+            'name': self.FAKE_HOST,
+            'initiatorChapEnabled': False,
+            'iSCSIPaths': [{
+                "name": "iqn.1993-08.org.debian:01:222"
+            }]
+        }
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+            common = self.driver._login()
+            host, auth_username, auth_password = self.driver._create_host(
+                common, self.volume, self.connector)
+
+            expected = [
+                mock.call.getVolume('osv-0DM4qZEVSKON-DXN-NwVpw'),
+                mock.call.getCPG(HPE3PAR_CPG),
+                mock.call.getVolumeMetaData(
+                    'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY),
+                mock.call.getVolumeMetaData(
+                    'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+                mock.call.getHost(self.FAKE_HOST),
+                mock.call.modifyHost(self.FAKE_HOST, expected_mod_request)]
+
+            mock_client.assert_has_calls(expected)
 
     def test_create_invalid_host(self):
         # setup_mock_client drive with default configuration
@@ -6740,6 +7134,134 @@ class TestHPE3PARISCSIDriver(HPE3PARBaseDriver, test.TestCase):
             model = self.driver._do_export(common, volume)
             mock_client.assert_has_calls(expected)
             self.assertEqual(expected_model, model)
+
+    @mock.patch('cinder.volume.utils.generate_password')
+    def test_do_export_vlun_missing_chap_credentials(self, mock_utils):
+        # setup_mock_client drive with CHAP enabled configuration
+        # and return the mock HTTP 3PAR client
+        config = self.setup_configuration()
+        config.hpe3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': self.VOLUME_ID}
+        mock_utils.return_value = 'random-pass'
+
+        mock_client.getHost.return_value = {
+            'name': 'osv-0DM4qZEVSKON-DXN-NwVpw',
+            'initiatorChapEnabled': True}
+
+        mock_client.getVolumeMetaData.side_effect = hpeexceptions.HTTPNotFound
+
+        expected = [
+            mock.call.getHostVLUNs('test-host'),
+            mock.call.getHost('test-host'),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY, 'test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY, 'random-pass')]
+
+        expected_model = {'provider_auth': 'CHAP test-host random-pass'}
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+            common = self.driver._login()
+
+            # vlun has remoteName
+            mock_client.getHostVLUNs.return_value = [
+                {'active': True, 'volumeName': self.VOLUME_3PAR_NAME,
+                 'lun': 1, 'type': 3,
+                 'remoteName': 'iqn.1993-08.org.debian:01:222'}]
+
+            model_with_remote_name = self.driver._do_export(common, volume)
+            mock_client.assert_has_calls(expected)
+            self.assertDictMatch(expected_model, model_with_remote_name)
+
+            # vlun does not has remoteName
+            mock_client.getHostVLUNs.return_value = [
+                {'active': False, 'volumeName': self.VOLUME_3PAR_NAME,
+                 'lun': None, 'type': 1}]
+
+            model_without_remote_name = self.driver._do_export(common, volume)
+            mock_client.assert_has_calls(expected)
+            self.assertDictMatch(expected_model, model_without_remote_name)
+
+    @mock.patch('cinder.volume.utils.generate_password')
+    def test_create_export(self, mock_utils):
+        config = self.setup_configuration()
+        config.hpe3par_iscsi_chap_enabled = True
+        mock_client = self.setup_driver(config=config)
+        mock_utils.return_value = 'random-pass'
+        volume = {'host': 'test-host@3pariscsi',
+                  'id': self.VOLUME_ID}
+        mock_client.getHostVLUNs.return_value = [
+            {'active': True,
+             'volumeName': self.VOLUME_3PAR_NAME,
+             'lun': None, 'type': 3,
+             'remoteName': 'iqn.1993-08.org.debian:01:222'}]
+        mock_client.getHost.return_value = {
+            'name': 'osv-0DM4qZEVSKON-DXN-NwVpw',
+            'initiatorChapEnabled': True}
+        mock_client.getVolumeMetaData.return_value = {
+            'value': 'random-pass'}
+
+        expected = [
+            mock.call.getHostVLUNs('test-host'),
+            mock.call.getHost('test-host'),
+            mock.call.getVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_USER_KEY, 'test-host'),
+            mock.call.setVolumeMetaData(
+                'osv-0DM4qZEVSKON-DXN-NwVpw', CHAP_PASS_KEY, 'random-pass')]
+        expected_model = {'provider_auth': 'CHAP test-host random-pass'}
+        mock_create_client = self.mock_object(hpecommon.HPE3PARCommon,
+                                              '_create_client',
+                                              mock.Mock(return_value=
+                                                        mock_client))
+        mock_create_client.return_value = mock_client
+        model = self.driver.create_export(None, volume, None)
+        mock_client.assert_has_calls(expected)
+        self.assertDictMatch(expected_model, model)
+
+    def test_initialize_iscsi_ports_with_iscsi_ip_and_port(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        conf = self.setup_configuration()
+        conf.hpe3par_iscsi_ips = ["10.10.220.252:1234"]
+        mock_client = self.setup_driver(config=conf)
+
+        mock_client.getPorts.return_value = PORTS_RET
+        expected = [mock.call.getPorts()]
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+
+            common = self.driver._login()
+            self.driver.initialize_iscsi_ports(common)
+            mock_client.assert_has_calls(expected)
+
+    def test_initialize_iscsi_ports_with_wrong_ip_format_configured(self):
+        # setup_mock_client drive with default configuration
+        # and return the mock HTTP 3PAR client
+        conf = self.setup_configuration()
+        conf.hpe3par_iscsi_ips = ["10.10.220.252:1234:4567"]
+        mock_client = self.setup_driver(config=conf)
+
+        mock_client.getPorts.return_value = PORTS_RET
+
+        with mock.patch.object(hpecommon.HPE3PARCommon,
+                               '_create_client') as mock_create_client:
+            mock_create_client.return_value = mock_client
+
+            common = self.driver._login()
+            self.assertRaises(exception.InvalidInput,
+                              self.driver.initialize_iscsi_ports,
+                              common)
 
     def test_ensure_export(self):
         # setup_mock_client drive with default configuration

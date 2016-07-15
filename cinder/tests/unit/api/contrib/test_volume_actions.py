@@ -484,8 +484,10 @@ class VolumeRetypeActionsTest(test.TestCase):
             self.retype_mocks[name] = patcher.start()
             self.addCleanup(patcher.stop)
 
-    def _retype_volume_exec(self, expected_status, new_type='foo',
-                            vol_id=None):
+    @mock.patch('cinder.db.sqlalchemy.api.resource_exists', return_value=True)
+    def _retype_volume_exec(self, expected_status,
+                            new_type=fake.VOLUME_TYPE2_ID, vol_id=None,
+                            exists_mock=None):
         vol_id = vol_id or fake.VOLUME_ID
         req = webob.Request.blank('/v2/%s/volumes/%s/action' %
                                   (fake.PROJECT_ID, vol_id))
@@ -898,6 +900,21 @@ class VolumeImageActionsTest(test.TestCase):
         body = {"os-volume_upload_image": vol}
         req = fakes.HTTPRequest.blank('/v2/%s/volumes/%s/action' %
                                       (fake.PROJECT_ID, fake.VOLUME_ID))
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller._volume_upload_image,
+                          req,
+                          id,
+                          body)
+
+    def test_copy_volume_to_image_invalid_disk_format(self):
+        id = fake.IMAGE_ID
+        vol = {"container_format": 'bare',
+               "disk_format": 'iso',
+               "image_name": 'image_name',
+               "force": True}
+        body = {"os-volume_upload_image": vol}
+        req = fakes.HTTPRequest.blank('/v2/%s/volumes/%s/action'
+                                      % (fake.PROJECT_ID, id))
         self.assertRaises(webob.exc.HTTPBadRequest,
                           self.controller._volume_upload_image,
                           req,

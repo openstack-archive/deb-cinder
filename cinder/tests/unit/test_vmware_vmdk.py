@@ -68,8 +68,8 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
     CLUSTERS = ["cls-1", "cls-2"]
     DEFAULT_VC_VERSION = '5.5'
 
-    VOL_ID = 'abcdefab-cdef-abcd-efab-cdefabcdefab',
-    DISPLAY_NAME = 'foo',
+    VOL_ID = 'abcdefab-cdef-abcd-efab-cdefabcdefab'
+    DISPLAY_NAME = 'foo'
     VOL_TYPE_ID = 'd61b8cb3-aa1b-4c9b-b79e-abcdbda8b58a'
     VOL_SIZE = 2
     PROJECT_ID = 'd45beabe-f5de-47b7-b462-0d9ea02889bc'
@@ -401,12 +401,14 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
     @mock.patch.object(VMDK_DRIVER, '_create_virtual_disk_from_sparse_image')
     @mock.patch.object(VMDK_DRIVER,
                        '_create_virtual_disk_from_preallocated_image')
+    @mock.patch.object(VMDK_DRIVER, '_get_storage_profile_id')
     @mock.patch.object(VMDK_DRIVER, '_select_ds_for_volume')
     @mock.patch.object(VMDK_DRIVER, '_delete_temp_backing')
     def _test_create_volume_from_non_stream_optimized_image(
             self,
             delete_tmp_backing,
             select_ds_for_volume,
+            get_storage_profile_id,
             create_disk_from_preallocated_image,
             create_disk_from_sparse_image,
             vops,
@@ -441,9 +443,12 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         vops.get_host.return_value = host
         vops.get_dc.return_value = dc_ref
 
-        vmdk_path = mock.Mock()
+        vmdk_path = mock.Mock(spec=volumeops.FlatExtentVirtualDiskPath)
         create_disk_from_sparse_image.return_value = vmdk_path
         create_disk_from_preallocated_image.return_value = vmdk_path
+
+        profile_id = mock.sentinel.profile_id
+        get_storage_profile_id.return_value = profile_id
 
         if disk_conversion:
             rp = mock.sentinel.rp
@@ -485,9 +490,10 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
                 context, image_service, image_id, image_size_in_bytes,
                 dc_ref, ds_name, folder_path, disk_name, adapter_type)
 
+        get_storage_profile_id.assert_called_once_with(volume)
         vops.attach_disk_to_backing.assert_called_once_with(
             backing, image_size_in_bytes / units.Ki, disk_type,
-            adapter_type, vmdk_path.get_descriptor_ds_file_path())
+            adapter_type, profile_id, vmdk_path.get_descriptor_ds_file_path())
 
         if disk_conversion:
             select_ds_for_volume.assert_called_once_with(volume)
@@ -781,7 +787,7 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
 
         select_ds_for_volume.assert_called_once_with(volume)
         vops.get_create_spec.assert_called_once_with(
-            volume['name'], 0, disk_type, summary.name, profileId=profile_id,
+            volume['name'], 0, disk_type, summary.name, profile_id=profile_id,
             adapter_type=adapter_type, extra_config=extra_config)
         self.assertEqual(vm_create_spec, import_spec.configSpec)
         download_image.assert_called_with(
@@ -1502,10 +1508,16 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         version = self._driver._get_vc_version()
         self.assertEqual(ver.LooseVersion('6.0.1'), version)
 
+    @mock.patch('cinder.volume.drivers.vmware.vmdk.LOG')
     @ddt.data('5.1', '5.5')
-    def test_validate_vcenter_version(self, version):
+    def test_validate_vcenter_version(self, version, log):
         # vCenter versions 5.1 and above should pass validation.
         self._driver._validate_vcenter_version(ver.LooseVersion(version))
+        # Deprecation warning should be logged for vCenter version 5.1.
+        if version == '5.1':
+            log.warning.assert_called_once()
+        else:
+            log.warning.assert_not_called()
 
     def test_validate_vcenter_version_with_less_than_min_supported_version(
             self):
@@ -2592,11 +2604,12 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
     @mock.patch.object(VMDK_DRIVER, '_create_backing')
     @mock.patch.object(VMDK_DRIVER, 'volumeops')
     @mock.patch.object(VMDK_DRIVER, '_get_ds_name_folder_path')
+    @mock.patch.object(VMDK_DRIVER, '_get_storage_profile_id')
     @mock.patch('cinder.volume.drivers.vmware.vmdk.VMwareVcVmdkDriver.'
                 '_get_disk_type')
     def test_manage_existing(
-            self, get_disk_type, get_ds_name_folder_path, vops,
-            create_backing, get_existing):
+            self, get_disk_type, get_storage_profile_id,
+            get_ds_name_folder_path, vops, create_backing, get_existing):
 
         vm = mock.sentinel.vm
         src_path = mock.sentinel.src_path
@@ -2616,6 +2629,9 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         folder_path = "%s/" % volume['name']
         get_ds_name_folder_path.return_value = (ds_name, folder_path)
 
+        profile_id = mock.sentinel.profile_id
+        get_storage_profile_id.return_value = profile_id
+
         disk_type = mock.sentinel.disk_type
         get_disk_type.return_value = disk_type
 
@@ -2629,9 +2645,10 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         dest_path = "[%s] %s%s.vmdk" % (ds_name, folder_path, volume['name'])
         vops.move_vmdk_file.assert_called_once_with(
             src_dc, src_path, dest_path, dest_dc_ref=dest_dc)
+        get_storage_profile_id.assert_called_once_with(volume)
         vops.attach_disk_to_backing.assert_called_once_with(
             backing, disk_device.capacityInKB, disk_type, 'lsiLogic',
-            dest_path)
+            profile_id, dest_path)
         vops.update_backing_disk_uuid.assert_called_once_with(backing,
                                                               volume['id'])
 

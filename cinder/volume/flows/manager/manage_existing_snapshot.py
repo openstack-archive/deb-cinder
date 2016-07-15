@@ -17,13 +17,13 @@ from oslo_log import log as logging
 import taskflow.engines
 from taskflow.patterns import linear_flow
 from taskflow.types import failure as ft
-from taskflow.utils import misc
 
 from cinder import exception
 from cinder import flow_utils
 from cinder.i18n import _, _LE, _LI
 from cinder import objects
 from cinder import quota
+from cinder import quota_utils
 from cinder.volume.flows import common as flow_common
 from cinder.volume import utils as volume_utils
 
@@ -57,7 +57,7 @@ class ExtractSnapshotRefTask(flow_utils.CinderTask):
         return snapshot_ref
 
     def revert(self, context, snapshot_id, result, **kwargs):
-        if isinstance(result, misc.Failure):
+        if isinstance(result, ft.Failure):
             return
 
         flow_common.error_out_snapshot(context, self.db, snapshot_id)
@@ -154,15 +154,14 @@ class QuotaReserveTask(flow_utils.CinderTask):
                 'reservations': reservations,
             }
         except exception.OverQuota as e:
-            overs = e.kwargs['overs']
-            quotas = e.kwargs['quotas']
-            usages = e.kwargs['usages']
-            volume_utils.process_reserve_over_quota(context, overs, usages,
-                                                    quotas, size)
+            quota_utils.process_reserve_over_quota(
+                context, e,
+                resource='snapshots',
+                size=size)
 
     def revert(self, context, result, optional_args, **kwargs):
         # We never produced a result and therefore can't destroy anything.
-        if isinstance(result, misc.Failure):
+        if isinstance(result, ft.Failure):
             return
 
         if optional_args['is_quota_committed']:

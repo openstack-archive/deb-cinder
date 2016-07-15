@@ -43,7 +43,7 @@ i18n.enable_lazy()
 from cinder.cmd import volume as volume_cmd
 from cinder.common import config   # noqa
 from cinder.db import api as session
-from cinder.i18n import _LE, _
+from cinder.i18n import _LE, _, _LW
 from cinder import objects
 from cinder import rpc
 from cinder import service
@@ -95,7 +95,8 @@ def main():
                 host = "%s@%s" % (backend_host or CONF.host, backend)
                 server = service.Service.create(host=host,
                                                 service_name=backend,
-                                                binary='cinder-volume')
+                                                binary='cinder-volume',
+                                                coordination=True)
                 # Dispose of the whole DB connection pool here before
                 # starting another process.  Otherwise we run into cases
                 # where child processes share DB connections which results
@@ -103,7 +104,12 @@ def main():
                 session.dispose_engine()
                 launcher.launch_service(server)
         else:
-            server = service.Service.create(binary='cinder-volume')
+            LOG.warning(_LW('Configuration for cinder-volume does not specify '
+                            '"enabled_backends", using DEFAULT as backend. '
+                            'Support for DEFAULT section to configure drivers '
+                            'will be removed in the next release.'))
+            server = service.Service.create(binary='cinder-volume',
+                                            coordination=True)
             launcher.launch_service(server)
     except (Exception, SystemExit):
         LOG.exception(_LE('Failed to load cinder-volume'))

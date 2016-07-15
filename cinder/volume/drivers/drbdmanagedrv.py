@@ -38,6 +38,7 @@ from oslo_utils import units
 
 from cinder import exception
 from cinder.i18n import _, _LW, _LI, _LE
+from cinder import interface
 from cinder.volume import driver
 
 try:
@@ -62,6 +63,17 @@ drbd_opts = [
     cfg.StrOpt('drbdmanage_resource_policy',
                default='{"ratio": "0.51", "timeout": "60"}',
                help='Resource deployment completion wait policy.'),
+    cfg.StrOpt('drbdmanage_net_options',
+               default='{"connect-int": "4", "allow-two-primaries": "yes", '
+               '"ko-count": "30"}',
+               help='Net options to set on new resources. '
+               'See http://www.drbd.org/en/doc/users-guide-90/re-drbdconf'
+               ' for all the details.'),
+    cfg.StrOpt('drbdmanage_resource_options',
+               default='{"auto-promote-timeout": "300"}',
+               help='Resource options to set on new resources. '
+               'See http://www.drbd.org/en/doc/users-guide-90/re-drbdconf'
+               ' for all the details.'),
     cfg.StrOpt('drbdmanage_snapshot_policy',
                default='{"count": "1", "timeout": "60"}',
                help='Snapshot completion wait policy.'),
@@ -141,6 +153,11 @@ class DrbdManageBaseDriver(driver.VolumeDriver):
             self.configuration.safe_get('drbdmanage_snapshot_policy'))
         self.policy_resize = js_decoder.decode(
             self.configuration.safe_get('drbdmanage_resize_policy'))
+
+        self.resource_options = js_decoder.decode(
+            self.configuration.safe_get('drbdmanage_resource_options'))
+        self.net_options = js_decoder.decode(
+            self.configuration.safe_get('drbdmanage_net_options'))
 
         self.plugin_resource = self.configuration.safe_get(
             'drbdmanage_resource_plugin')
@@ -465,6 +482,20 @@ class DrbdManageBaseDriver(driver.VolumeDriver):
                                      self.empty_dict)
         self._check_result(res, ignore=[dm_exc.DM_EEXIST], ret=None)
 
+        res_opt = {'resource': d_res_name,
+                   'target': 'resource',
+                   'type': 'reso'}
+        res_opt.update(self.resource_options)
+        res = self.call_or_reconnect(self.odm.set_drbdsetup_props, res_opt)
+        self._check_result(res)
+
+        res_opt = {'resource': d_res_name,
+                   'target': 'resource',
+                   'type': 'neto'}
+        res_opt.update(self.net_options)
+        res = self.call_or_reconnect(self.odm.set_drbdsetup_props, res_opt)
+        self._check_result(res)
+
         # If we get DM_EEXIST, then the volume already exists, eg. because
         # deploy gave an error on a previous try (like ENOSPC).
         # Still, there might or might not be the volume in the resource -
@@ -728,7 +759,7 @@ class DrbdManageBaseDriver(driver.VolumeDriver):
 
 
 # Class with iSCSI interface methods
-
+@interface.volumedriver
 class DrbdManageIscsiDriver(DrbdManageBaseDriver):
     """Cinder driver that uses the iSCSI protocol. """
 
@@ -790,6 +821,7 @@ DrbdManageDriver = DrbdManageIscsiDriver
 
 
 # Class with DRBD transport mode
+@interface.volumedriver
 class DrbdManageDrbdDriver(DrbdManageBaseDriver):
     """Cinder driver that uses the DRBD protocol. """
 
@@ -877,7 +909,7 @@ class DrbdManageDrbdDriver(DrbdManageBaseDriver):
                        dm_const.BOOL_FALSE) == dm_const.BOOL_TRUE
 
     def _return_connection_data(self, nodename, volume, d_res_name=None):
-        if self._is_external_node(nodename):
+        if nodename and self._is_external_node(nodename):
             return self._return_drbdadm_config(nodename,
                                                volume,
                                                d_res_name=d_res_name)
@@ -946,9 +978,12 @@ class DrbdManageDrbdDriver(DrbdManageBaseDriver):
         return self._return_connection_data(nodename, volume)
 
     def ensure_export(self, context, volume):
-
-        fields = context['provider_location'].split(" ")
-        nodename = fields[1]
+        p_location = volume['provider_location']
+        if p_location:
+            fields = p_location.split(" ")
+            nodename = fields[1]
+        else:
+            nodename = None
 
         return self._return_connection_data(nodename, volume)
 

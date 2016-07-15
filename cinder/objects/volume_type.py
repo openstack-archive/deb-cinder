@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_utils import versionutils
 from oslo_versionedobjects import fields
 
 from cinder import exception
@@ -28,7 +29,8 @@ OPTIONAL_FIELDS = ['extra_specs', 'projects']
 class VolumeType(base.CinderPersistentObject, base.CinderObject,
                  base.CinderObjectDictCompat, base.CinderComparableObject):
     # Version 1.0: Initial version
-    VERSION = '1.0'
+    # Version 1.1: Changed extra_specs to DictOfNullableStringsField
+    VERSION = '1.1'
 
     fields = {
         'id': fields.UUIDField(),
@@ -36,8 +38,21 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
         'description': fields.StringField(nullable=True),
         'is_public': fields.BooleanField(default=True, nullable=True),
         'projects': fields.ListOfStringsField(nullable=True),
-        'extra_specs': fields.DictOfStringsField(nullable=True),
+        'extra_specs': fields.DictOfNullableStringsField(nullable=True),
     }
+
+    def obj_make_compatible(self, primitive, target_version):
+        super(VolumeType, self).obj_make_compatible(primitive, target_version)
+
+        target_version = versionutils.convert_version_to_tuple(target_version)
+        if target_version < (1, 1):
+            if primitive.get('extra_specs'):
+                # Before 1.1 extra_specs field didn't allowed None values. To
+                # make sure we won't explode on receiver side - change Nones to
+                # empty string.
+                for k, v in primitive['extra_specs'].items():
+                    if v is None:
+                        primitive['extra_specs'][k] = ''
 
     @classmethod
     def _get_expected_attrs(cls, context):
@@ -72,7 +87,6 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
         type.obj_reset_changes()
         return type
 
-    @base.remotable
     def create(self):
         if self.obj_attr_is_set('id'):
             raise exception.ObjectActionError(action='create',
@@ -83,7 +97,6 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
                                              self.description)
         self._from_db_object(self._context, self, db_volume_type)
 
-    @base.remotable
     def save(self):
         updates = self.cinder_obj_get_changes()
         if updates:
@@ -91,7 +104,6 @@ class VolumeType(base.CinderPersistentObject, base.CinderObject,
                                 self.description)
             self.obj_reset_changes()
 
-    @base.remotable
     def destroy(self):
         with self.obj_as_admin():
             volume_types.destroy(self._context, self.id)
@@ -107,12 +119,7 @@ class VolumeTypeList(base.ObjectListBase, base.CinderObject):
         'objects': fields.ListOfObjectsField('VolumeType'),
     }
 
-    child_versions = {
-        '1.0': '1.0',
-        '1.1': '1.0',
-    }
-
-    @base.remotable_classmethod
+    @classmethod
     def get_all(cls, context, inactive=0, filters=None, marker=None,
                 limit=None, sort_keys=None, sort_dirs=None, offset=None):
         types = volume_types.get_all_types(context, inactive, filters,

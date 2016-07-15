@@ -33,8 +33,8 @@ import six
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import interface
 from cinder import utils
-import cinder.volume.driver
 from cinder.volume.drivers.ibm import flashsystem_common as fscommon
 from cinder.volume.drivers.san import san
 from cinder.zonemanager import utils as fczm_utils
@@ -53,8 +53,8 @@ CONF = cfg.CONF
 CONF.register_opts(flashsystem_fc_opts)
 
 
-class FlashSystemFCDriver(fscommon.FlashSystemDriver,
-                          cinder.volume.driver.FibreChannelDriver):
+@interface.volumedriver
+class FlashSystemFCDriver(fscommon.FlashSystemDriver):
     """IBM FlashSystem FC volume driver.
 
     Version history:
@@ -76,10 +76,12 @@ class FlashSystemFCDriver(fscommon.FlashSystemDriver,
                 should not be hardcoded, only in iSCSI
         1.0.9 - Fix bug #1570574, Cleanup host resource
                 leaking, changes only in iSCSI
-
+        1.0.10 - Fix bug #1585085, add host name check in
+                 _find_host_exhaustive for iSCSI
+        1.0.11 - Update driver to use ABC metaclasses
     """
 
-    VERSION = "1.0.9"
+    VERSION = "1.0.11"
 
     def __init__(self, *args, **kwargs):
         super(FlashSystemFCDriver, self).__init__(*args, **kwargs)

@@ -35,6 +35,7 @@ from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
 from cinder.image import image_utils
+from cinder import interface
 from cinder.objects import fields
 from cinder.volume.drivers.san import san
 from cinder.volume import qos_specs
@@ -133,6 +134,7 @@ def retry(exc_tuple, tries=5, delay=1, backoff=2):
     return retry_dec
 
 
+@interface.volumedriver
 class SolidFireDriver(san.SanISCSIDriver):
     """OpenStack driver to enable SolidFire cluster.
 
@@ -603,7 +605,10 @@ class SolidFireDriver(san.SanISCSIDriver):
 
         # NOTE(jdg): all attributes are copied via clone, need to do an update
         # to set any that were provided
+        qos = self._retrieve_qos_setting(vref)
         params = {'volumeID': sf_volume_id}
+        if qos:
+            params['qos'] = qos
         create_time = vref['created_at'].isoformat()
         attributes = {'uuid': vref['id'],
                       'is_clone': 'True',
@@ -1827,7 +1832,7 @@ class SolidFireDriver(san.SanISCSIDriver):
                   'limit': 1}
         vols = self._issue_api_request(
             'ListActiveVolumes', params)['result']['volumes']
-        return int(vols[0]['totalSize']) / int(units.Gi)
+        return int(math.ceil(float(vols[0]['totalSize']) / units.Gi))
 
     def unmanage(self, volume):
         """Mark SolidFire Volume as unmanaged (export from Cinder)."""
@@ -1888,7 +1893,9 @@ class SolidFireDriver(san.SanISCSIDriver):
                           "request, however replication is NOT "
                           "enabled, or there are no available "
                           "targets to fail-over to."))
-            raise exception.UnableToFailOver
+            raise exception.UnableToFailOver(reason=_("Failover requested "
+                                                      "on non replicated "
+                                                      "backend."))
 
         remote_vols = self._map_sf_volumes(volumes,
                                            endpoint=remote['endpoint'])

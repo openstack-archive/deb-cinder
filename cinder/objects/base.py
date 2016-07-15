@@ -29,8 +29,6 @@ from cinder import objects
 
 
 LOG = logging.getLogger('object')
-remotable = base.remotable
-remotable_classmethod = base.remotable_classmethod
 obj_make_list = base.obj_make_list
 
 
@@ -101,17 +99,24 @@ OBJ_VERSIONS.add('1.1', {'Service': '1.2', 'ServiceList': '1.1'})
 OBJ_VERSIONS.add('1.2', {'Backup': '1.4', 'BackupImport': '1.4'})
 OBJ_VERSIONS.add('1.3', {'Service': '1.3'})
 OBJ_VERSIONS.add('1.4', {'Snapshot': '1.1'})
+OBJ_VERSIONS.add('1.5', {'VolumeType': '1.1'})
 
 
 class CinderObjectRegistry(base.VersionedObjectRegistry):
     def registration_hook(self, cls, index):
+        """Hook called when registering a class.
+
+        This method takes care of adding the class to cinder.objects namespace.
+
+        Should registering class have a method called cinder_ovo_cls_init it
+        will be called to support class initialization.  This is convenient
+        for all persistent classes that need to register their models.
+        """
         setattr(objects, cls.obj_name(), cls)
-        # For Versioned Object Classes that have a model store the model in
-        # a Class attribute named model
-        try:
-            cls.model = db.get_model_for_versioned_object(cls)
-        except (ImportError, AttributeError):
-            pass
+
+        # If registering class has a callable initialization method, call it.
+        if callable(getattr(cls, 'cinder_ovo_cls_init', None)):
+            cls.cinder_ovo_cls_init()
 
 
 class CinderObject(base.VersionedObject):
@@ -124,9 +129,6 @@ class CinderObject(base.VersionedObject):
     # have a custom map of version compatibility.  This just anchors the base
     # version compatibility.
     VERSION_COMPATIBILITY = {'7.0.0': '1.0'}
-
-    Not = db.Not
-    Case = db.Case
 
     def cinder_obj_get_changes(self):
         """Returns a dict of changed fields with tz unaware datetimes.
@@ -150,11 +152,117 @@ class CinderObject(base.VersionedObject):
         # Return modified dict
         return changes
 
+    def obj_make_compatible(self, primitive, target_version):
+        _log_backport(self, target_version)
+        super(CinderObject, self).obj_make_compatible(primitive,
+                                                      target_version)
+
+    def __contains__(self, name):
+        # We're using obj_extra_fields to provide aliases for some fields while
+        # in transition period. This override is to make these aliases pass
+        # "'foo' in obj" tests.
+        return name in self.obj_extra_fields or super(CinderObject,
+                                                      self).__contains__(name)
+
+
+class CinderObjectDictCompat(base.VersionedObjectDictCompat):
+    """Mix-in to provide dictionary key access compat.
+
+    If an object needs to support attribute access using
+    dictionary items instead of object attributes, inherit
+    from this class. This should only be used as a temporary
+    measure until all callers are converted to use modern
+    attribute access.
+
+    NOTE(berrange) This class will eventually be deleted.
+    """
+
+    def get(self, key, value=base._NotSpecifiedSentinel):
+        """For backwards-compatibility with dict-based objects.
+
+        NOTE(danms): May be removed in the future.
+        """
+        if key not in self.obj_fields:
+            # NOTE(jdg): There are a number of places where we rely on the
+            # old dictionary version and do a get(xxx, None).
+            # The following preserves that compatibility but in
+            # the future we'll remove this shim altogether so don't
+            # rely on it.
+            LOG.debug('Cinder object %(object_name)s has no '
+                      'attribute named: %(attribute_name)s',
+                      {'object_name': self.__class__.__name__,
+                       'attribute_name': key})
+            return None
+        if (value != base._NotSpecifiedSentinel and
+                key not in self.obj_extra_fields and
+                not self.obj_attr_is_set(key)):
+            return value
+        else:
+            try:
+                return getattr(self, key)
+            except (exception.ObjectActionError, NotImplementedError):
+                # Exception when haven't set a value for non-lazy
+                # loadable attribute, but to mimic typical dict 'get'
+                # behavior we should still return None
+                return None
+
+
+class CinderPersistentObject(object):
+    """Mixin class for Persistent objects.
+
+    This adds the fields that we use in common for all persistent objects.
+    """
+    Not = db.Not
+    Case = db.Case
+
+    fields = {
+        'created_at': fields.DateTimeField(nullable=True),
+        'updated_at': fields.DateTimeField(nullable=True),
+        'deleted_at': fields.DateTimeField(nullable=True),
+        'deleted': fields.BooleanField(default=False,
+                                       nullable=True),
+    }
+
+    @classmethod
+    def cinder_ovo_cls_init(cls):
+        """This method is called on OVO registration and sets the DB model."""
+        # Persistent Versioned Objects Classes should have a DB model, and if
+        # they don't, then we have a problem and we must raise an exception on
+        # registration.
+        try:
+            cls.model = db.get_model_for_versioned_object(cls)
+        except (ImportError, AttributeError):
+            msg = _("Couldn't find ORM model for Persistent Versioned "
+                    "Object %s.") % cls.obj_name()
+            raise exception.ProgrammingError(reason=msg)
+
+    @contextlib.contextmanager
+    def obj_as_admin(self):
+        """Context manager to make an object call as an admin.
+
+        This temporarily modifies the context embedded in an object to
+        be elevated() and restores it after the call completes. Example
+        usage:
+
+           with obj.obj_as_admin():
+               obj.save()
+        """
+        if self._context is None:
+            raise exception.OrphanedObjectError(method='obj_as_admin',
+                                                objtype=self.obj_name())
+
+        original_context = self._context
+        self._context = self._context.elevated()
+        try:
+            yield
+        finally:
+            self._context = original_context
+
     @classmethod
     def _get_expected_attrs(cls, context):
         return None
 
-    @base.remotable_classmethod
+    @classmethod
     def get_by_id(cls, context, id, *args, **kwargs):
         # To get by id we need to have a model and for the model to
         # have an id field
@@ -303,94 +411,15 @@ class CinderObject(base.VersionedObject):
             # Only update attributes that are already set.  We do not want to
             # unexpectedly trigger a lazy-load.
             if self.obj_attr_is_set(field):
-                if self[field] != current[field]:
-                    self[field] = current[field]
+                current_field = getattr(current, field)
+                if getattr(self, field) != current_field:
+                    setattr(self, field, current_field)
         self.obj_reset_changes()
 
-    def __contains__(self, name):
-        # We're using obj_extra_fields to provide aliases for some fields while
-        # in transition period. This override is to make these aliases pass
-        # "'foo' in obj" tests.
-        return name in self.obj_extra_fields or super(CinderObject,
-                                                      self).__contains__(name)
-
-
-class CinderObjectDictCompat(base.VersionedObjectDictCompat):
-    """Mix-in to provide dictionary key access compat.
-
-    If an object needs to support attribute access using
-    dictionary items instead of object attributes, inherit
-    from this class. This should only be used as a temporary
-    measure until all callers are converted to use modern
-    attribute access.
-
-    NOTE(berrange) This class will eventually be deleted.
-    """
-
-    def get(self, key, value=base._NotSpecifiedSentinel):
-        """For backwards-compatibility with dict-based objects.
-
-        NOTE(danms): May be removed in the future.
-        """
-        if key not in self.obj_fields:
-            # NOTE(jdg): There are a number of places where we rely on the
-            # old dictionary version and do a get(xxx, None).
-            # The following preserves that compatibility but in
-            # the future we'll remove this shim altogether so don't
-            # rely on it.
-            LOG.debug('Cinder object %(object_name)s has no '
-                      'attribute named: %(attribute_name)s',
-                      {'object_name': self.__class__.__name__,
-                       'attribute_name': key})
-            return None
-        if (value != base._NotSpecifiedSentinel and
-                key not in self.obj_extra_fields and
-                not self.obj_attr_is_set(key)):
-            return value
-        else:
-            try:
-                return getattr(self, key)
-            except (exception.ObjectActionError, NotImplementedError):
-                # Exception when haven't set a value for non-lazy
-                # loadable attribute, but to mimic typical dict 'get'
-                # behavior we should still return None
-                return None
-
-
-class CinderPersistentObject(object):
-    """Mixin class for Persistent objects.
-
-    This adds the fields that we use in common for all persistent objects.
-    """
-    fields = {
-        'created_at': fields.DateTimeField(nullable=True),
-        'updated_at': fields.DateTimeField(nullable=True),
-        'deleted_at': fields.DateTimeField(nullable=True),
-        'deleted': fields.BooleanField(default=False,
-                                       nullable=True),
-    }
-
-    @contextlib.contextmanager
-    def obj_as_admin(self):
-        """Context manager to make an object call as an admin.
-
-        This temporarily modifies the context embedded in an object to
-        be elevated() and restores it after the call completes. Example
-        usage:
-
-           with obj.obj_as_admin():
-               obj.save()
-        """
-        if self._context is None:
-            raise exception.OrphanedObjectError(method='obj_as_admin',
-                                                objtype=self.obj_name())
-
-        original_context = self._context
-        self._context = self._context.elevated()
-        try:
-            yield
-        finally:
-            self._context = original_context
+    @classmethod
+    def exists(cls, context, id_):
+        model = db.get_model_for_versioned_object(cls)
+        return db.resource_exists(context, model, id_)
 
 
 class CinderComparableObject(base.ComparableVersionedObject):
@@ -399,9 +428,15 @@ class CinderComparableObject(base.ComparableVersionedObject):
             return self.obj_to_primitive() == obj.obj_to_primitive()
         return False
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
 
 class ObjectListBase(base.ObjectListBase):
-    pass
+    def obj_make_compatible(self, primitive, target_version):
+        _log_backport(self, target_version)
+        super(ObjectListBase, self).obj_make_compatible(primitive,
+                                                        target_version)
 
 
 class CinderObjectSerializer(base.VersionedObjectSerializer):
@@ -410,6 +445,17 @@ class CinderObjectSerializer(base.VersionedObjectSerializer):
     def __init__(self, version_cap=None):
         super(CinderObjectSerializer, self).__init__()
         self.version_cap = version_cap
+
+        # NOTE(geguileo): During upgrades we will use a manifest to ensure that
+        # all objects are properly backported.  This allows us to properly
+        # backport child objects to the right version even if parent version
+        # has not been bumped.
+        if not version_cap or version_cap == OBJ_VERSIONS.get_current():
+            self.manifest = None
+        else:
+            if version_cap not in OBJ_VERSIONS:
+                raise exception.CappedVersionUnknown(version=version_cap)
+            self.manifest = OBJ_VERSIONS[version_cap]
 
     def _get_capped_obj_version(self, obj):
         objname = obj.obj_name()
@@ -436,5 +482,15 @@ class CinderObjectSerializer(base.VersionedObjectSerializer):
               callable(entity.obj_to_primitive)):
             # NOTE(dulek): Backport outgoing object to the capped version.
             backport_ver = self._get_capped_obj_version(entity)
-            entity = entity.obj_to_primitive(backport_ver)
+            entity = entity.obj_to_primitive(backport_ver, self.manifest)
         return entity
+
+
+def _log_backport(ovo, target_version):
+    """Log backported versioned objects."""
+    if target_version and target_version != ovo.VERSION:
+        LOG.debug('Backporting %(obj_name)s from version %(src_vers)s '
+                  'to version %(dst_vers)s',
+                  {'obj_name': ovo.obj_name(),
+                   'src_vers': ovo.VERSION,
+                   'dst_vers': target_version})

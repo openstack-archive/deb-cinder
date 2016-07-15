@@ -30,6 +30,7 @@ from six.moves import urllib
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
+from cinder import interface
 from cinder import utils
 from cinder.volume import driver
 
@@ -43,7 +44,7 @@ except ImportError:
 
 LOG = logging.getLogger(__name__)
 
-rbd_opts = [
+RBD_OPTS = [
     cfg.StrOpt('rbd_cluster_name',
                default='ceph',
                help='The name of ceph cluster'),
@@ -74,22 +75,22 @@ rbd_opts = [
                     'taken before a flatten occurs. Set to 0 to disable '
                     'cloning.'),
     cfg.IntOpt('rbd_store_chunk_size', default=4,
-               help=_('Volumes will be chunked into objects of this size '
-                      '(in megabytes).')),
+               help='Volumes will be chunked into objects of this size '
+                    '(in megabytes).'),
     cfg.IntOpt('rados_connect_timeout', default=-1,
-               help=_('Timeout value (in seconds) used when connecting to '
-                      'ceph cluster. If value < 0, no timeout is set and '
-                      'default librados value is used.')),
+               help='Timeout value (in seconds) used when connecting to '
+                    'ceph cluster. If value < 0, no timeout is set and '
+                    'default librados value is used.'),
     cfg.IntOpt('rados_connection_retries', default=3,
-               help=_('Number of retries if connection to ceph cluster '
-                      'failed.')),
+               help='Number of retries if connection to ceph cluster '
+                    'failed.'),
     cfg.IntOpt('rados_connection_interval', default=5,
-               help=_('Interval value (in seconds) between connection '
-                      'retries to ceph cluster.'))
+               help='Interval value (in seconds) between connection '
+                    'retries to ceph cluster.')
 ]
 
 CONF = cfg.CONF
-CONF.register_opts(rbd_opts)
+CONF.register_opts(RBD_OPTS)
 
 
 class RBDImageMetadata(object):
@@ -261,6 +262,7 @@ class RADOSClient(object):
         return int(features)
 
 
+@interface.volumedriver
 class RBDDriver(driver.TransferVD, driver.ExtendVD,
                 driver.CloneableImageVD, driver.SnapshotVD,
                 driver.MigrateVD, driver.ManageableVD, driver.BaseVD):
@@ -270,7 +272,7 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
 
     def __init__(self, *args, **kwargs):
         super(RBDDriver, self).__init__(*args, **kwargs)
-        self.configuration.append_config_values(rbd_opts)
+        self.configuration.append_config_values(RBD_OPTS)
         self._stats = {}
         # allow overrides for testing
         self.rados = kwargs.get('rados', rados)

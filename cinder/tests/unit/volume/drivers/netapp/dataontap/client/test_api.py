@@ -64,7 +64,7 @@ class NetAppApiServerTests(test.TestCase):
 
         expected_call_args = zapi_fakes.FAKE_CALL_ARGS_LIST
 
-        self.assertTrue(mock_invoke.call_args in expected_call_args)
+        self.assertIn(mock_invoke.call_args, expected_call_args)
 
     @ddt.data('stor', 'STORE', '')
     def test_set_server_type_value_error(self, server_type):
@@ -214,7 +214,7 @@ class NetAppApiServerTests(test.TestCase):
         na_element = zapi_fakes.FAKE_NA_ELEMENT
         self.mock_object(self.root, '_create_request', mock.Mock(
             return_value=('abc', zapi_fakes.FAKE_NA_ELEMENT)))
-        self.mock_object(netapp_api, 'LOG')
+        mock_log = self.mock_object(netapp_api, 'LOG')
         self.root._opener = zapi_fakes.FAKE_HTTP_OPENER
         self.mock_object(self.root, '_build_opener')
         self.mock_object(self.root._opener, 'open', mock.Mock(
@@ -222,6 +222,7 @@ class NetAppApiServerTests(test.TestCase):
 
         self.assertRaises(netapp_api.NaApiError, self.root.send_http_request,
                           na_element)
+        self.assertEqual(1, mock_log.exception.call_count)
 
     def test_send_http_request_valid(self):
         """Tests the method send_http_request with valid parameters"""
@@ -456,61 +457,6 @@ class NetAppApiElementTransTests(test.TestCase):
 
 
 @ddt.ddt
-class NetAppApiInvokeTests(test.TestCase):
-    """Test Cases for api request creation and invocation"""
-
-    def setUp(self):
-        super(NetAppApiInvokeTests, self).setUp()
-
-    @ddt.data(None, zapi_fakes.FAKE_XML_STR)
-    def test_invoke_api_invalid_input(self, na_server):
-        """Tests Zapi Invocation Type Error"""
-        na_server = None
-        api_name = zapi_fakes.FAKE_API_NAME
-        invoke_generator = netapp_api.invoke_api(na_server, api_name)
-
-        self.assertRaises(exception.InvalidInput, next, invoke_generator)
-
-    @ddt.data({'params': {'na_server': zapi_fakes.FAKE_NA_SERVER,
-                          'api_name': zapi_fakes.FAKE_API_NAME}},
-              {'params': {'na_server': zapi_fakes.FAKE_NA_SERVER,
-                          'api_name': zapi_fakes.FAKE_API_NAME,
-                          'api_family': 'cm',
-                          'query': zapi_fakes.FAKE_QUERY,
-                          'des_result': zapi_fakes.FAKE_DES_ATTR,
-                          'additional_elems': None,
-                          'is_iter': True}})
-    @ddt.unpack
-    def test_invoke_api_valid(self, params):
-        """Test invoke_api with valid naserver"""
-        self.mock_object(netapp_api, 'create_api_request', mock.Mock(
-            return_value='success'))
-        self.mock_object(netapp_api.NaServer, 'invoke_successfully',
-                         mock.Mock(
-                             return_value=netapp_api.NaElement('success')))
-
-        invoke_generator = netapp_api.invoke_api(**params)
-
-        self.assertEqual(netapp_api.NaElement('success').to_string(),
-                         next(invoke_generator).to_string())
-
-    def test_create_api_request(self):
-        """"Tests creating api request"""
-        self.mock_object(netapp_api.NaElement, 'translate_struct')
-        self.mock_object(netapp_api.NaElement, 'add_child_elem')
-
-        params = {'api_name': zapi_fakes.FAKE_API_NAME,
-                  'query': zapi_fakes.FAKE_QUERY,
-                  'des_result': zapi_fakes.FAKE_DES_ATTR,
-                  'additional_elems': zapi_fakes.FAKE_XML_STR,
-                  'is_iter': True,
-                  'tag': 'tag'}
-
-        self.assertEqual(zapi_fakes.FAKE_API_NAME_ELEMENT.to_string(),
-                         netapp_api.create_api_request(**params).to_string())
-
-
-@ddt.ddt
 class SSHUtilTests(test.TestCase):
     """Test Cases for SSH API invocation."""
 
@@ -599,7 +545,7 @@ class SSHUtilTests(test.TestCase):
                                        mock.Mock(return_value=False))
         self.sshutil._wait_on_stdout(stdout, 1)
         exit_status.assert_any_call()
-        self.assertTrue(exit_status.call_count > 2)
+        self.assertGreater(exit_status.call_count, 2)
 
     def _mock_ssh_channel_files(self, channel):
         stdin = mock.Mock()

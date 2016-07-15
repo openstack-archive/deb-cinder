@@ -24,6 +24,7 @@ from oslo_utils import units
 from cinder import exception
 from cinder.image import image_utils
 from cinder import test
+from cinder.tests.unit import fake_constants as fake
 from cinder.volume import throttling
 
 
@@ -795,7 +796,7 @@ class TestFetchToVolumeFormat(test.TestCase):
         tmp = mock_temp.return_value.__enter__.return_value
         image_service.show.return_value = {'disk_format': 'raw',
                                            'size': 41126400}
-        image_size_m = math.ceil(41126400 / units.Mi)
+        image_size_m = math.ceil(float(41126400) / units.Mi)
 
         output = image_utils.fetch_to_volume_format(
             ctxt, image_service, image_id, dest, volume_format, blocksize,
@@ -925,7 +926,7 @@ class TestFetchToVolumeFormat(test.TestCase):
         data = mock_info.return_value
         data.file_format = volume_format
         data.backing_file = None
-        data.virtual_size = 4321 * 1024 ** 3
+        data.virtual_size = int(1234.5 * units.Gi)
         tmp = mock_temp.return_value.__enter__.return_value
 
         self.assertRaises(
@@ -1390,3 +1391,24 @@ class TestTemporaryFileContextManager(test.TestCase):
             self.assertEqual(mock.sentinel.temporary_file, tmp_file)
             self.assertFalse(mock_delete.called)
         mock_delete.assert_called_once_with(mock.sentinel.temporary_file)
+
+
+class TestImageUtils(test.TestCase):
+    def test_get_virtual_size(self):
+        image_id = fake.IMAGE_ID
+        virtual_size = 1073741824
+        volume_size = 2
+        virt_size = image_utils.check_virtual_size(virtual_size,
+                                                   volume_size,
+                                                   image_id)
+        self.assertEqual(1, virt_size)
+
+    def test_get_bigger_virtual_size(self):
+        image_id = fake.IMAGE_ID
+        virtual_size = 3221225472
+        volume_size = 2
+        self.assertRaises(exception.ImageUnacceptable,
+                          image_utils.check_virtual_size,
+                          virtual_size,
+                          volume_size,
+                          image_id)

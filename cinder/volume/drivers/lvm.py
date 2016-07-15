@@ -31,6 +31,7 @@ from cinder.brick.local_dev import lvm as lvm
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
+from cinder import interface
 from cinder import objects
 from cinder import utils
 from cinder.volume import driver
@@ -75,6 +76,7 @@ CONF = cfg.CONF
 CONF.register_opts(volume_opts)
 
 
+@interface.volumedriver
 class LVMVolumeDriver(driver.VolumeDriver):
     """Executes commands relating to Volumes."""
 
@@ -584,7 +586,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         lv_name = existing_ref['source-name']
         self.vg.get_volume(lv_name)
 
-        if volutils.check_already_managed_volume(self.db, lv_name):
+        if volutils.check_already_managed_volume(lv_name):
             raise exception.ManageExistingAlreadyManaged(volume_ref=lv_name)
 
         # Attempt to rename the LV to match the OpenStack internal name.

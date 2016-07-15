@@ -19,6 +19,7 @@ This driver supports Nimble Storage controller CS-Series.
 
 """
 import functools
+import math
 import random
 import re
 import six
@@ -33,6 +34,7 @@ from suds import client
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import interface
 from cinder.objects import volume
 from cinder.volume.drivers.san import san
 from cinder.volume import volume_types
@@ -84,6 +86,7 @@ class NimbleAPIException(exception.VolumeBackendAPIException):
     message = _("Unexpected response from Nimble API")
 
 
+@interface.volumedriver
 class NimbleISCSIDriver(san.SanISCSIDriver):
 
     """OpenStack driver to enable Nimble Controller.
@@ -158,19 +161,17 @@ class NimbleISCSIDriver(san.SanISCSIDriver):
     def _update_existing_vols_agent_type(self, context):
         LOG.debug("Updating existing volumes to have "
                   "agent_type = 'OPENSTACK'")
-        backend_name = self.configuration.safe_get('volume_backend_name')
-        all_vols = volume.VolumeList.get_all(
-            context, None, None, None, None, {'status': 'available'})
+        all_vols = volume.VolumeList.get_all_by_host(
+            context, self.host, {'status': 'available'})
         for vol in all_vols:
-            if backend_name in vol.host:
-                try:
-                    self.APIExecutor.edit_vol(
-                        vol.name,
-                        UNMANAGE_EDIT_MASK,
-                        {'agent-type': AGENT_TYPE_OPENSTACK})
-                except NimbleAPIException:
-                    LOG.warning(_LW('Error updating agent-type for '
-                                    'volume %s.'), vol.name)
+            try:
+                self.APIExecutor.edit_vol(
+                    vol.name,
+                    UNMANAGE_EDIT_MASK,
+                    {'agent-type': AGENT_TYPE_OPENSTACK})
+            except NimbleAPIException:
+                LOG.warning(_LW('Error updating agent-type for '
+                                'volume %s.'), vol.name)
 
     def do_setup(self, context):
         """Setup the Nimble Cinder volume driver."""
@@ -413,7 +414,7 @@ class NimbleISCSIDriver(san.SanISCSIDriver):
         LOG.debug('Volume size : %(size)s  Volume-name : %(name)s',
                   {'size': vol_info['size'], 'name': vol_info['name']})
 
-        return int(vol_info['size'] / units.Gi)
+        return int(math.ceil(float(vol_info['size']) / units.Gi))
 
     def unmanage(self, volume):
         """Removes the specified volume from Cinder management."""

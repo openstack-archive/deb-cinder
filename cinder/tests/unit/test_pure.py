@@ -725,7 +725,9 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
         self.driver.delete_volume(VOLUME)
         expected = [mock.call.list_volume_private_connections(vol_name),
                     mock.call.disconnect_host(host_name_a, vol_name),
+                    mock.call.list_host_connections(host_name_a, private=True),
                     mock.call.disconnect_host(host_name_b, vol_name),
+                    mock.call.list_host_connections(host_name_b, private=True),
                     mock.call.destroy_volume(vol_name)]
         self.array.assert_has_calls(expected)
 
@@ -768,7 +770,7 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
         # Branch with manually created host
         self.driver.terminate_connection(VOLUME, ISCSI_CONNECTOR)
         self.array.disconnect_host.assert_called_with("some-host", vol_name)
-        self.assertFalse(self.array.list_host_connections.called)
+        self.assertTrue(self.array.list_host_connections.called)
         self.assertFalse(self.array.delete_host.called)
         # Branch with host added to host group
         self.array.reset_mock()
@@ -822,20 +824,31 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
         self.assertFalse(self.array.list_host_connections.called)
         self.assertFalse(self.array.delete_host.called)
 
-    @mock.patch(BASE_DRIVER_OBJ + "._get_host", autospec=True)
-    def test_terminate_connection_host_deleted(self, mock_host):
+    def _test_terminate_connection_with_error(self, mock_host, error):
         vol_name = VOLUME["name"] + "-cinder"
         mock_host.return_value = PURE_HOST.copy()
         self.array.reset_mock()
         self.array.list_host_connections.return_value = []
         self.array.delete_host.side_effect = \
             self.purestorage_module.PureHTTPError(code=400,
-                                                  text='Host does not exist.')
+                                                  text=error)
         self.driver.terminate_connection(VOLUME, ISCSI_CONNECTOR)
         self.array.disconnect_host.assert_called_with(PURE_HOST_NAME, vol_name)
         self.array.list_host_connections.assert_called_with(PURE_HOST_NAME,
                                                             private=True)
         self.array.delete_host.assert_called_once_with(PURE_HOST_NAME)
+
+    @mock.patch(BASE_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_terminate_connection_host_deleted(self, mock_host):
+        self._test_terminate_connection_with_error(mock_host,
+                                                   'Host does not exist.')
+
+    @mock.patch(BASE_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_terminate_connection_host_got_new_connections(self, mock_host):
+        self._test_terminate_connection_with_error(
+            mock_host,
+            'Host cannot be deleted due to existing connections.'
+        )
 
     def test_extend_volume(self):
         vol_name = VOLUME["name"] + "-cinder"
@@ -1581,8 +1594,18 @@ class PureBaseVolumeDriverTestCase(PureBaseSharedDriverTestCase):
     def test_is_vol_replicated_has_repl_extra_specs(self, mock_get_vol_type):
         mock_get_vol_type.return_value = REPLICATED_VOL_TYPE
         volume = fake_volume.fake_volume_obj(mock.MagicMock())
+        volume.volume_type_id = REPLICATED_VOL_TYPE['id']
         actual = self.driver._is_volume_replicated_type(volume)
         self.assertTrue(actual)
+
+    @mock.patch('cinder.volume.volume_types.get_volume_type')
+    def test_is_vol_replicated_none_type(self, mock_get_vol_type):
+        mock_get_vol_type.side_effect = exception.InvalidVolumeType(reason='')
+        volume = fake_volume.fake_volume_obj(mock.MagicMock())
+        volume.volume_type = None
+        volume.volume_type_id = None
+        actual = self.driver._is_volume_replicated_type(volume)
+        self.assertFalse(actual)
 
     @mock.patch('cinder.volume.volume_types.get_volume_type')
     def test_is_vol_replicated_has_other_extra_specs(self, mock_get_vol_type):
@@ -2098,18 +2121,15 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
         self.driver._connect(VOLUME, ISCSI_CONNECTOR)
         result["auth_username"] = chap_user
         result["auth_password"] = chap_password
-        expected_update = {
-            "set_values": {
-                pure.CHAP_SECRET_KEY: chap_password
-            },
-        }
+
         self.assertDictMatch(result, real_result)
         self.array.set_host.assert_called_with(PURE_HOST_NAME,
                                                host_user=chap_user,
                                                host_password=chap_password)
-        self.mock_utils.save_driver_initiator_data.assert_called_with(
+        self.mock_utils.insert_driver_initiator_data.assert_called_with(
             ISCSI_CONNECTOR['initiator'],
-            expected_update
+            pure.CHAP_SECRET_KEY,
+            chap_password
         )
 
     @mock.patch(ISCSI_DRIVER_OBJ + "._get_host", autospec=True)
@@ -2157,6 +2177,84 @@ class PureISCSIDriverTestCase(PureDriverTestCase):
                           ISCSI_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
+
+    @mock.patch(ISCSI_DRIVER_OBJ + "._get_chap_secret_from_init_data")
+    @mock.patch(ISCSI_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_connect_host_deleted(self, mock_host, mock_get_secret):
+        mock_host.return_value = None
+        self.mock_config.use_chap_auth = True
+        mock_get_secret.return_value = 'abcdef'
+
+        self.array.set_host.side_effect = (
+            self.purestorage_module.PureHTTPError(
+                code=400, text='Host does not exist.'))
+
+        # Because we mocked out retry make sure we are raising the right
+        # exception to allow for retries to happen.
+        self.assertRaises(exception.PureRetryableException,
+                          self.driver._connect,
+                          VOLUME, ISCSI_CONNECTOR)
+
+    @mock.patch(ISCSI_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_connect_iqn_already_in_use(self, mock_host):
+        mock_host.return_value = None
+
+        self.array.create_host.side_effect = (
+            self.purestorage_module.PureHTTPError(
+                code=400, text='The specified IQN is already in use.'))
+
+        # Because we mocked out retry make sure we are raising the right
+        # exception to allow for retries to happen.
+        self.assertRaises(exception.PureRetryableException,
+                          self.driver._connect,
+                          VOLUME, ISCSI_CONNECTOR)
+
+    @mock.patch(ISCSI_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_connect_create_host_already_exists(self, mock_host):
+        mock_host.return_value = None
+
+        self.array.create_host.side_effect = (
+            self.purestorage_module.PureHTTPError(
+                code=400, text='Host already exists.'))
+
+        # Because we mocked out retry make sure we are raising the right
+        # exception to allow for retries to happen.
+        self.assertRaises(exception.PureRetryableException,
+                          self.driver._connect,
+                          VOLUME, ISCSI_CONNECTOR)
+
+    @mock.patch(ISCSI_DRIVER_OBJ + "._generate_chap_secret")
+    def test_get_chap_credentials_create_new(self, mock_generate_secret):
+        self.mock_utils.get_driver_initiator_data.return_value = []
+        host = 'host1'
+        expected_password = 'foo123'
+        mock_generate_secret.return_value = expected_password
+        self.mock_utils.insert_driver_initiator_data.return_value = True
+        username, password = self.driver._get_chap_credentials(host,
+                                                               INITIATOR_IQN)
+        self.assertEqual(host, username)
+        self.assertEqual(expected_password, password)
+        self.mock_utils.insert_driver_initiator_data.assert_called_once_with(
+            INITIATOR_IQN, pure.CHAP_SECRET_KEY, expected_password
+        )
+
+    @mock.patch(ISCSI_DRIVER_OBJ + "._generate_chap_secret")
+    def test_get_chap_credentials_create_new_fail_to_set(self,
+                                                         mock_generate_secret):
+        host = 'host1'
+        expected_password = 'foo123'
+        mock_generate_secret.return_value = 'badpassw0rd'
+        self.mock_utils.insert_driver_initiator_data.return_value = False
+        self.mock_utils.get_driver_initiator_data.side_effect = [
+            [],
+            [{'key': pure.CHAP_SECRET_KEY, 'value': expected_password}],
+            exception.PureDriverException(reason='this should never be hit'),
+        ]
+
+        username, password = self.driver._get_chap_credentials(host,
+                                                               INITIATOR_IQN)
+        self.assertEqual(host, username)
+        self.assertEqual(expected_password, password)
 
 
 class PureFCDriverTestCase(PureDriverTestCase):
@@ -2271,6 +2369,20 @@ class PureFCDriverTestCase(PureDriverTestCase):
                           self.driver._connect, VOLUME, FC_CONNECTOR)
         self.assertTrue(self.array.connect_host.called)
         self.assertTrue(self.array.list_volume_private_connections)
+
+    @mock.patch(FC_DRIVER_OBJ + "._get_host", autospec=True)
+    def test_connect_wwn_already_in_use(self, mock_host):
+        mock_host.return_value = None
+
+        self.array.create_host.side_effect = (
+            self.purestorage_module.PureHTTPError(
+                code=400, text='The specified WWN is already in use.'))
+
+        # Because we mocked out retry make sure we are raising the right
+        # exception to allow for retries to happen.
+        self.assertRaises(exception.PureRetryableException,
+                          self.driver._connect,
+                          VOLUME, FC_CONNECTOR)
 
 
 @ddt.ddt

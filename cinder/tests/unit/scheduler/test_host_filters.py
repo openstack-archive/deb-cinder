@@ -15,6 +15,7 @@
 Tests For Scheduler Host Filters.
 """
 
+import ddt
 import mock
 from oslo_serialization import jsonutils
 from requests import exceptions as request_exceptions
@@ -1236,7 +1237,20 @@ class ExtraSpecsOpsTestCase(test.TestCase):
             req='>= 3',
             matches=False)
 
+    def test_extra_specs_fails_none_req(self):
+        self._do_extra_specs_ops_test(
+            value='foo',
+            req=None,
+            matches=False)
 
+    def test_extra_specs_matches_none_req(self):
+        self._do_extra_specs_ops_test(
+            value=None,
+            req=None,
+            matches=True)
+
+
+@ddt.ddt
 class BasicFiltersTestCase(HostFiltersTestCase):
     """Test case for host filters."""
 
@@ -1248,10 +1262,10 @@ class BasicFiltersTestCase(HostFiltersTestCase):
 
     def test_all_filters(self):
         # Double check at least a couple of known filters exist
-        self.assertTrue('JsonFilter' in self.class_map)
-        self.assertTrue('CapabilitiesFilter' in self.class_map)
-        self.assertTrue('AvailabilityZoneFilter' in self.class_map)
-        self.assertTrue('IgnoreAttemptedHostsFilter' in self.class_map)
+        self.assertIn('JsonFilter', self.class_map)
+        self.assertIn('CapabilitiesFilter', self.class_map)
+        self.assertIn('AvailabilityZoneFilter', self.class_map)
+        self.assertIn('IgnoreAttemptedHostsFilter', self.class_map)
 
     def _do_test_type_filter_extra_specs(self, ecaps, especs, passes):
         filt_cls = self.class_map['CapabilitiesFilter']()
@@ -1291,6 +1305,31 @@ class BasicFiltersTestCase(HostFiltersTestCase):
             especs={'opt1': '>= 2', 'opt2': '>= 8'},
             passes=False)
 
+    def test_capability_filter_passes_extra_specs_list_simple(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'opt1': ['1', '2'], 'opt2': '2'},
+            especs={'opt1': '1', 'opt2': '2'},
+            passes=True)
+
+    @ddt.data('<is> True', '<is> False')
+    def test_capability_filter_passes_extra_specs_list_complex(self, opt1):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'opt1': [True, False], 'opt2': ['1', '2']},
+            especs={'opt1': opt1, 'opt2': '<= 8'},
+            passes=True)
+
+    def test_capability_filter_fails_extra_specs_list_simple(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'opt1': ['1', '2'], 'opt2': ['2']},
+            especs={'opt1': '3', 'opt2': '2'},
+            passes=False)
+
+    def test_capability_filter_fails_extra_specs_list_complex(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'opt1': [True, False], 'opt2': ['1', '2']},
+            especs={'opt1': 'fake', 'opt2': '<= 8'},
+            passes=False)
+
     def test_capability_filter_passes_scope_extra_specs(self):
         self._do_test_type_filter_extra_specs(
             ecaps={'scope_lv1': {'opt1': 10}},
@@ -1316,10 +1355,74 @@ class BasicFiltersTestCase(HostFiltersTestCase):
             especs={'capabilities:scope_lv0:scope_lv1:scope_lv2:opt1': '>= 2'},
             passes=True)
 
+    def test_capability_filter_fails_unenough_level_scope_extra_specs(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'scope_lv0': {'scope_lv1': None}},
+            especs={'capabilities:scope_lv0:scope_lv1:scope_lv2:opt1': '>= 2'},
+            passes=False)
+
     def test_capability_filter_fails_wrong_scope_extra_specs(self):
         self._do_test_type_filter_extra_specs(
             ecaps={'scope_lv0': {'opt1': 10}},
             especs={'capabilities:scope_lv1:opt1': '>= 2'},
+            passes=False)
+
+    def test_capability_filter_passes_none_extra_specs(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'scope_lv0': {'opt1': None}},
+            especs={'capabilities:scope_lv0:opt1': None},
+            passes=True)
+
+    def test_capability_filter_fails_none_extra_specs(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'scope_lv0': {'opt1': 10}},
+            especs={'capabilities:scope_lv0:opt1': None},
+            passes=False)
+
+    def test_capability_filter_fails_none_caps(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'scope_lv0': {'opt1': None}},
+            especs={'capabilities:scope_lv0:opt1': 'foo'},
+            passes=False)
+
+    def test_capability_filter_passes_multi_level_scope_extra_specs_list(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={
+                'scope_lv0': {
+                    'scope_lv1': {
+                        'scope_lv2': {
+                            'opt1': [True, False],
+                        },
+                    },
+                },
+            },
+            especs={
+                'capabilities:scope_lv0:scope_lv1:scope_lv2:opt1': '<is> True',
+            },
+            passes=True)
+
+    def test_capability_filter_fails_multi_level_scope_extra_specs_list(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={
+                'scope_lv0': {
+                    'scope_lv1': {
+                        'scope_lv2': {
+                            'opt1': [True, False],
+                            'opt2': ['1', '2'],
+                        },
+                    },
+                },
+            },
+            especs={
+                'capabilities:scope_lv0:scope_lv1:scope_lv2:opt1': '<is> True',
+                'capabilities:scope_lv0:scope_lv1:scope_lv2:opt2': '3',
+            },
+            passes=False)
+
+    def test_capability_filter_fails_wrong_scope_extra_specs_list(self):
+        self._do_test_type_filter_extra_specs(
+            ecaps={'scope_lv0': {'opt1': [True, False]}},
+            especs={'capabilities:scope_lv1:opt1': '<is> True'},
             passes=False)
 
     def test_json_filter_passes(self):

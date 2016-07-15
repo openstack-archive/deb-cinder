@@ -19,6 +19,7 @@ from oslo_utils import excutils
 
 from cinder import exception
 from cinder.i18n import _, _LE
+from cinder import interface
 from cinder.volume import driver
 from cinder.volume.drivers.dell import dell_storagecenter_common
 from cinder.zonemanager import utils as fczm_utils
@@ -26,6 +27,7 @@ from cinder.zonemanager import utils as fczm_utils
 LOG = logging.getLogger(__name__)
 
 
+@interface.volumedriver
 class DellStorageCenterFCDriver(dell_storagecenter_common.DellCommonDriver,
                                 driver.FibreChannelDriver):
 
@@ -51,10 +53,11 @@ class DellStorageCenterFCDriver(dell_storagecenter_common.DellCommonDriver,
         2.4.1 - Updated Replication support to V2.1.
         2.5.0 - ManageableSnapshotsVD implemented.
         3.0.0 - ProviderID utilized.
+        3.1.0 - Failback Supported.
 
     """
 
-    VERSION = '3.0.0'
+    VERSION = '3.1.0'
 
     def __init__(self, *args, **kwargs):
         super(DellStorageCenterFCDriver, self).__init__(*args, **kwargs)

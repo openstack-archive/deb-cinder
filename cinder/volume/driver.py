@@ -252,6 +252,12 @@ volume_opts = [
                      'discard (aka. trim/unmap). This will not actually '
                      'change the behavior of the backend or the client '
                      'directly, it will only notify that it can be used.'),
+    cfg.StrOpt('storage_protocol',
+               ignore_case=True,
+               default='iscsi',
+               choices=['iscsi', 'fc'],
+               help='Protocol for transferring data between host and '
+                    'storage back-end.'),
 ]
 
 # for backward compatibility
@@ -278,6 +284,7 @@ iser_opts = [
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
 CONF.register_opts(iser_opts)
+CONF.import_opt('backup_use_same_host', 'cinder.backup.api')
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -995,7 +1002,7 @@ class BaseVD(object):
                     LOG.error(err_msg)
                     raise exception.VolumeBackendAPIException(data=ex_msg)
                 raise exception.VolumeBackendAPIException(data=err_msg)
-        return (self._connect_device(conn), snapshot)
+        return self._connect_device(conn)
 
     def _connect_device(self, conn):
         # Use Brick's code to do attach/detach
@@ -1052,8 +1059,7 @@ class BaseVD(object):
         """
         backup_device = None
         is_snapshot = False
-        if (self.backup_use_temp_snapshot() and
-                self.snapshot_remote_attachable()):
+        if self.backup_use_temp_snapshot() and CONF.backup_use_same_host:
             (backup_device, is_snapshot) = (
                 self._get_backup_volume_temp_snapshot(context, backup))
         else:
@@ -1339,7 +1345,9 @@ class BaseVD(object):
         temp_snap_ref = objects.Snapshot(context=context, **kwargs)
         temp_snap_ref.create()
         try:
-            self.create_snapshot(temp_snap_ref)
+            model_update = self.create_snapshot(temp_snap_ref)
+            if model_update:
+                temp_snap_ref.update(model_update)
         except Exception:
             with excutils.save_and_reraise_exception():
                 with temp_snap_ref.obj_as_admin():
@@ -1361,6 +1369,7 @@ class BaseVD(object):
             'status': 'creating',
             'attach_status': 'detached',
             'availability_zone': volume.availability_zone,
+            'volume_type_id': volume.volume_type_id,
         }
         temp_vol_ref = self.db.volume_create(context, temp_volume)
         try:
@@ -1388,18 +1397,20 @@ class BaseVD(object):
             'status': 'creating',
             'attach_status': 'detached',
             'availability_zone': volume.availability_zone,
+            'volume_type_id': volume.volume_type_id,
         }
         temp_vol_ref = self.db.volume_create(context, temp_volume)
         try:
-            self.create_volume_from_snapshot(temp_vol_ref, snapshot)
+            model_update = self.create_volume_from_snapshot(temp_vol_ref,
+                                                            snapshot) or {}
         except Exception:
             with excutils.save_and_reraise_exception():
                 self.db.volume_destroy(context.elevated(),
                                        temp_vol_ref['id'])
 
-        self.db.volume_update(context, temp_vol_ref['id'],
-                              {'status': 'available'})
-        return temp_vol_ref
+        model_update['status'] = 'available'
+        self.db.volume_update(context, temp_vol_ref['id'], model_update)
+        return self.db.volume_get(context, temp_vol_ref['id'])
 
     def _delete_temp_snapshot(self, context, snapshot):
         self.delete_snapshot(snapshot)
@@ -1816,8 +1827,40 @@ class ManageableVD(object):
         :param volume:       Cinder volume to manage
         :param existing_ref: Driver-specific information used to identify a
                              volume
+        :returns size:       Volume size in GiB (integer)
         """
         return
+
+    def get_manageable_volumes(self, cinder_volumes, marker, limit, offset,
+                               sort_keys, sort_dirs):
+        """List volumes on the backend available for management by Cinder.
+
+        Returns a list of dictionaries, each specifying a volume in the host,
+        with the following keys:
+        - reference (dictionary): The reference for a volume, which can be
+          passed to "manage_existing".
+        - size (int): The size of the volume according to the storage
+          backend, rounded up to the nearest GB.
+        - safe_to_manage (boolean): Whether or not this volume is safe to
+          manage according to the storage backend. For example, is the volume
+          in use or invalid for any reason.
+        - reason_not_safe (string): If safe_to_manage is False, the reason why.
+        - cinder_id (string): If already managed, provide the Cinder ID.
+        - extra_info (string): Any extra information to return to the user
+
+        :param cinder_volumes: A list of volumes in this host that Cinder
+                               currently manages, used to determine if
+                               a volume is manageable or not.
+        :param marker:    The last item of the previous page; we return the
+                          next results after this value (after sorting)
+        :param limit:     Maximum number of items to return
+        :param offset:    Number of items to skip after marker
+        :param sort_keys: List of keys to sort results by (valid keys are
+                          'identifier' and 'size')
+        :param sort_dirs: List of directions to sort by, corresponding to
+                          sort_keys (valid directions are 'asc' and 'desc')
+        """
+        return []
 
     @abc.abstractmethod
     def unmanage(self, volume):
@@ -1860,6 +1903,10 @@ class ManageableSnapshotsVD(object):
         If the existing_ref doesn't make sense, or doesn't refer to an existing
         backend storage object, raise a ManageExistingInvalidReference
         exception.
+
+        :param snapshot:     Cinder volume snapshot to manage
+        :param existing_ref: Driver-specific information used to identify a
+                             volume snapshot
         """
         return
 
@@ -1868,8 +1915,47 @@ class ManageableSnapshotsVD(object):
         """Return size of snapshot to be managed by manage_existing.
 
         When calculating the size, round up to the next GB.
+
+        :param snapshot:     Cinder volume snapshot to manage
+        :param existing_ref: Driver-specific information used to identify a
+                             volume snapshot
+        :returns size:       Volume snapshot size in GiB (integer)
         """
         return
+
+    def get_manageable_snapshots(self, cinder_snapshots, marker, limit, offset,
+                                 sort_keys, sort_dirs):
+        """List snapshots on the backend available for management by Cinder.
+
+        Returns a list of dictionaries, each specifying a snapshot in the host,
+        with the following keys:
+        - reference (dictionary): The reference for a snapshot, which can be
+          passed to "manage_existing_snapshot".
+        - size (int): The size of the snapshot according to the storage
+          backend, rounded up to the nearest GB.
+        - safe_to_manage (boolean): Whether or not this snapshot is safe to
+          manage according to the storage backend. For example, is the snapshot
+          in use or invalid for any reason.
+        - reason_not_safe (string): If safe_to_manage is False, the reason why.
+        - cinder_id (string): If already managed, provide the Cinder ID.
+        - extra_info (string): Any extra information to return to the user
+        - source_reference (string): Similar to "reference", but for the
+          snapshot's source volume.
+
+        :param cinder_snapshots: A list of snapshots in this host that Cinder
+                                 currently manages, used to determine if
+                                 a snapshot is manageable or not.
+        :param marker:    The last item of the previous page; we return the
+                          next results after this value (after sorting)
+        :param limit:     Maximum number of items to return
+        :param offset:    Number of items to skip after marker
+        :param sort_keys: List of keys to sort results by (valid keys are
+                          'identifier' and 'size')
+        :param sort_dirs: List of directions to sort by, corresponding to
+                          sort_keys (valid directions are 'asc' and 'desc')
+
+        """
+        return []
 
     # NOTE: Can't use abstractmethod before all drivers implement it
     def unmanage_snapshot(self, snapshot):
@@ -1881,6 +1967,8 @@ class ManageableSnapshotsVD(object):
         drivers might use this call as an opportunity to clean up any
         Cinder-specific configuration that they have associated with the
         backend storage object.
+
+        :param snapshot: Cinder volume snapshot to unmanage
         """
         pass
 
@@ -2025,6 +2113,11 @@ class VolumeDriver(ConsistencyGroupVD, TransferVD, ManageableVD, ExtendVD,
         msg = _("Manage existing volume not implemented.")
         raise NotImplementedError(msg)
 
+    def get_manageable_volumes(self, cinder_volumes, marker, limit, offset,
+                               sort_keys, sort_dirs):
+        msg = _("Get manageable volumes not implemented.")
+        raise NotImplementedError(msg)
+
     def unmanage(self, volume):
         pass
 
@@ -2034,6 +2127,11 @@ class VolumeDriver(ConsistencyGroupVD, TransferVD, ManageableVD, ExtendVD,
 
     def manage_existing_snapshot_get_size(self, snapshot, existing_ref):
         msg = _("Manage existing snapshot not implemented.")
+        raise NotImplementedError(msg)
+
+    def get_manageable_snapshots(self, cinder_snapshots, marker, limit, offset,
+                                 sort_keys, sort_dirs):
+        msg = _("Get manageable snapshots not implemented.")
         raise NotImplementedError(msg)
 
     def unmanage_snapshot(self, snapshot):
@@ -2579,109 +2677,6 @@ class ISCSIDriver(VolumeDriver):
         self._update_pools_and_stats(data)
 
 
-class FakeISCSIDriver(ISCSIDriver):
-    """Logs calls instead of executing."""
-    def __init__(self, *args, **kwargs):
-        super(FakeISCSIDriver, self).__init__(execute=self.fake_execute,
-                                              *args, **kwargs)
-
-    def _update_pools_and_stats(self, data):
-        fake_pool = {}
-        fake_pool.update(dict(
-            pool_name=data["volume_backend_name"],
-            total_capacity_gb='infinite',
-            free_capacity_gb='infinite',
-            provisioned_capacity_gb=0,
-            reserved_percentage=100,
-            QoS_support=False,
-            filter_function=self.get_filter_function(),
-            goodness_function=self.get_goodness_function()
-        ))
-        data["pools"].append(fake_pool)
-        self._stats = data
-
-    def create_volume(self, volume):
-        pass
-
-    def check_for_setup_error(self):
-        """No setup necessary in fake mode."""
-        pass
-
-    def initialize_connection(self, volume, connector):
-        return {
-            'driver_volume_type': 'iscsi',
-            'discard': False,
-        }
-
-    def initialize_connection_snapshot(self, snapshot, connector):
-        return {
-            'driver_volume_type': 'iscsi',
-        }
-
-    def terminate_connection(self, volume, connector, **kwargs):
-        pass
-
-    def terminate_connection_snapshot(self, snapshot, connector, **kwargs):
-        pass
-
-    @staticmethod
-    def fake_execute(cmd, *_args, **_kwargs):
-        """Execute that simply logs the command."""
-        LOG.debug("FAKE ISCSI: %s", cmd)
-        return (None, None)
-
-    def create_volume_from_snapshot(self, volume, snapshot):
-        """Creates a volume from a snapshot."""
-        pass
-
-    def create_cloned_volume(self, volume, src_vref):
-        """Creates a clone of the specified volume."""
-        pass
-
-    def delete_volume(self, volume):
-        """Deletes a volume."""
-        pass
-
-    def create_snapshot(self, snapshot):
-        """Creates a snapshot."""
-        pass
-
-    def delete_snapshot(self, snapshot):
-        """Deletes a snapshot."""
-        pass
-
-    def local_path(self, volume):
-        return '/tmp/volume-%s' % volume.id
-
-    def ensure_export(self, context, volume):
-        """Synchronously recreates an export for a volume."""
-        pass
-
-    def create_export(self, context, volume, connector):
-        """Exports the volume.
-
-        Can optionally return a Dictionary of changes to the volume object to
-        be persisted.
-        """
-        pass
-
-    def create_export_snapshot(self, context, snapshot, connector):
-        """Exports the snapshot.
-
-        Can optionally return a Dictionary of changes to the snapshot object to
-        be persisted.
-        """
-        pass
-
-    def remove_export(self, context, volume):
-        """Removes an export for a volume."""
-        pass
-
-    def remove_export_snapshot(self, context, snapshot):
-        """Removes an export for a snapshot."""
-        pass
-
-
 class ISERDriver(ISCSIDriver):
     """Executes commands relating to ISER volumes.
 
@@ -2748,25 +2743,6 @@ class ISERDriver(ISCSIDriver):
         data["pools"] = []
 
         self._update_pools_and_stats(data)
-
-
-class FakeISERDriver(FakeISCSIDriver):
-    """Logs calls instead of executing."""
-    def __init__(self, *args, **kwargs):
-        super(FakeISERDriver, self).__init__(execute=self.fake_execute,
-                                             *args, **kwargs)
-
-    def initialize_connection(self, volume, connector):
-        return {
-            'driver_volume_type': 'iser',
-            'data': {}
-        }
-
-    @staticmethod
-    def fake_execute(cmd, *_args, **_kwargs):
-        """Execute that simply logs the command."""
-        LOG.debug("FAKE ISER: %s", cmd)
-        return (None, None)
 
 
 class FibreChannelDriver(VolumeDriver):

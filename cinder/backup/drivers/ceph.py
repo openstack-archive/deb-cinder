@@ -58,6 +58,7 @@ from six.moves import range
 from cinder.backup import driver
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
+from cinder import interface
 from cinder import utils
 import cinder.volume.drivers.rbd as rbd_driver
 
@@ -152,6 +153,7 @@ class VolumeMetadataBackup(object):
                       self.name)
 
 
+@interface.backupdriver
 class CephBackupDriver(driver.BackupDriver):
     """Backup Cinder volumes to Ceph Object Store.
 
@@ -281,7 +283,7 @@ class CephBackupDriver(driver.BackupDriver):
             if self._file_is_rbd(volume):
                 volume.rbd_image.discard(offset, length)
             else:
-                zeroes = '\0' * length
+                zeroes = '\0' * self.chunk_size
                 chunks = int(length / self.chunk_size)
                 for chunk in range(0, chunks):
                     LOG.debug("Writing zeroes chunk %d", chunk)

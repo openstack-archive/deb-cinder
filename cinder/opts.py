@@ -67,6 +67,10 @@ from cinder.volume.drivers import blockbridge as \
 from cinder.volume.drivers.cloudbyte import options as \
     cinder_volume_drivers_cloudbyte_options
 from cinder.volume.drivers import coho as cinder_volume_drivers_coho
+from cinder.volume.drivers.coprhd import common as \
+    cinder_volume_drivers_coprhd_common
+from cinder.volume.drivers.coprhd import scaleio as \
+    cinder_volume_drivers_coprhd_scaleio
 from cinder.volume.drivers import datera as cinder_volume_drivers_datera
 from cinder.volume.drivers.dell import dell_storagecenter_common as \
     cinder_volume_drivers_dell_dellstoragecentercommon
@@ -78,15 +82,17 @@ from cinder.volume.drivers import drbdmanagedrv as \
     cinder_volume_drivers_drbdmanagedrv
 from cinder.volume.drivers.emc import emc_vmax_common as \
     cinder_volume_drivers_emc_emcvmaxcommon
-from cinder.volume.drivers.emc import emc_vnx_cli as \
-    cinder_volume_drivers_emc_emcvnxcli
 from cinder.volume.drivers.emc import scaleio as \
     cinder_volume_drivers_emc_scaleio
+from cinder.volume.drivers.emc.vnx import common as \
+    cinder_volume_drivers_emc_vnx_common
 from cinder.volume.drivers.emc import xtremio as \
     cinder_volume_drivers_emc_xtremio
 from cinder.volume.drivers import eqlx as cinder_volume_drivers_eqlx
 from cinder.volume.drivers.fujitsu import eternus_dx_common as \
     cinder_volume_drivers_fujitsu_eternusdxcommon
+from cinder.volume.drivers.fusionstorage import dsware as \
+    cinder_volume_drivers_fusionstorage_dsware
 from cinder.volume.drivers import glusterfs as cinder_volume_drivers_glusterfs
 from cinder.volume.drivers import hgst as cinder_volume_drivers_hgst
 from cinder.volume.drivers.hitachi import hbsd_common as \
@@ -126,6 +132,8 @@ from cinder.volume.drivers.ibm import xiv_ds8k as \
     cinder_volume_drivers_ibm_xivds8k
 from cinder.volume.drivers.infortrend.eonstor_ds_cli import common_cli as \
     cinder_volume_drivers_infortrend_eonstor_ds_cli_commoncli
+from cinder.volume.drivers.kaminario import kaminario_common as \
+    cinder_volume_drivers_kaminario_kaminariocommon
 from cinder.volume.drivers.lenovo import lenovo_common as \
     cinder_volume_drivers_lenovo_lenovocommon
 from cinder.volume.drivers import lvm as cinder_volume_drivers_lvm
@@ -148,6 +156,8 @@ from cinder.volume.drivers import scality as cinder_volume_drivers_scality
 from cinder.volume.drivers import sheepdog as cinder_volume_drivers_sheepdog
 from cinder.volume.drivers import smbfs as cinder_volume_drivers_smbfs
 from cinder.volume.drivers import solidfire as cinder_volume_drivers_solidfire
+from cinder.volume.drivers.synology import synology_common as \
+    cinder_volume_drivers_synology_synologycommon
 from cinder.volume.drivers import tegile as cinder_volume_drivers_tegile
 from cinder.volume.drivers import tintri as cinder_volume_drivers_tintri
 from cinder.volume.drivers.violin import v7000_common as \
@@ -158,10 +168,12 @@ from cinder.volume.drivers import vzstorage as cinder_volume_drivers_vzstorage
 from cinder.volume.drivers.windows import windows as \
     cinder_volume_drivers_windows_windows
 from cinder.volume.drivers import xio as cinder_volume_drivers_xio
+from cinder.volume.drivers import zadara as cinder_volume_drivers_zadara
 from cinder.volume.drivers.zfssa import zfssaiscsi as \
     cinder_volume_drivers_zfssa_zfssaiscsi
 from cinder.volume.drivers.zfssa import zfssanfs as \
     cinder_volume_drivers_zfssa_zfssanfs
+from cinder.volume.drivers.zte import zte_ks as cinder_volume_drivers_zte_zteks
 from cinder.volume import manager as cinder_volume_manager
 from cinder.wsgi import eventlet_server as cinder_wsgi_eventletserver
 from cinder.zonemanager.drivers.brocade import brcd_fabric_opts as \
@@ -215,10 +227,12 @@ def list_opts():
                 cinder_volume_drivers_ibm_storwize_svc_storwizesvciscsi.
                 storwize_svc_iscsi_opts,
                 cinder_backup_drivers_glusterfs.glusterfsbackup_service_opts,
+                cinder_volume_drivers_coprhd_scaleio.scaleio_opts,
                 cinder_backup_drivers_tsm.tsm_opts,
                 cinder_volume_drivers_fujitsu_eternusdxcommon.
                 FJ_ETERNUS_DX_OPT_opts,
                 cinder_volume_drivers_ibm_gpfs.gpfs_opts,
+                cinder_volume_drivers_zte_zteks.zte_opts,
                 cinder_volume_drivers_violin_v7000common.violin_opts,
                 cinder_volume_drivers_nexenta_options.NEXENTA_CONNECTION_OPTS,
                 cinder_volume_drivers_nexenta_options.NEXENTA_ISCSI_OPTS,
@@ -232,6 +246,7 @@ def list_opts():
                 cinder_volume_drivers_sheepdog.sheepdog_opts,
                 [cinder_api_middleware_sizelimit.max_request_body_size_opt],
                 cinder_volume_drivers_solidfire.sf_opts,
+                cinder_volume_drivers_coprhd_common.volume_opts,
                 cinder_backup_drivers_swift.swiftbackup_service_opts,
                 cinder_volume_drivers_cloudbyte_options.
                 cloudbyte_add_qosgroup_opts,
@@ -251,7 +266,6 @@ def list_opts():
                 cinder_context.context_opts,
                 cinder_scheduler_driver.scheduler_driver_opts,
                 cinder_volume_drivers_scality.volume_opts,
-                cinder_volume_drivers_emc_emcvnxcli.loc_opts,
                 cinder_volume_drivers_vmware_vmdk.vmdk_opts,
                 cinder_volume_drivers_lenovo_lenovocommon.common_opts,
                 cinder_volume_drivers_lenovo_lenovocommon.iscsi_opts,
@@ -273,6 +287,7 @@ def list_opts():
                 cinder_api_views_versions.versions_opts,
                 cinder_volume_drivers_nimble.nimble_opts,
                 cinder_volume_drivers_windows_windows.windows_opts,
+                cinder_volume_drivers_emc_vnx_common.EMC_VNX_OPTS,
                 cinder_volume_drivers_san_hp_hpmsacommon.common_opts,
                 cinder_volume_drivers_san_hp_hpmsacommon.iscsi_opts,
                 cinder_image_glance.glance_opts,
@@ -291,7 +306,7 @@ def list_opts():
                 cinder_volume_drivers_infortrend_eonstor_ds_cli_commoncli.
                 infortrend_esds_extra_opts,
                 cinder_volume_drivers_hitachi_hnasiscsi.iSCSI_OPTS,
-                cinder_volume_drivers_rbd.rbd_opts,
+                cinder_volume_drivers_rbd.RBD_OPTS,
                 cinder_volume_drivers_tintri.tintri_opts,
                 cinder_backup_api.backup_api_opts,
                 cinder_volume_drivers_hitachi_hbsdhorcm.volume_opts,
@@ -301,6 +316,7 @@ def list_opts():
                 cinder_volume_drivers_hitachi_hbsdfc.volume_opts,
                 cinder_quota.quota_opts,
                 cinder_volume_drivers_huawei_huaweidriver.huawei_opts,
+                cinder_volume_drivers_synology_synologycommon.cinder_opts,
                 cinder_volume_drivers_dell_dellstoragecentercommon.
                 common_opts,
                 cinder_scheduler_hostmanager.host_manager_opts,
@@ -310,6 +326,9 @@ def list_opts():
                 [cinder_scheduler_scheduleroptions.
                     scheduler_json_config_location_opt],
                 cinder_volume_drivers_zfssa_zfssanfs.ZFSSA_OPTS,
+                cinder_volume_drivers_fusionstorage_dsware.volume_opts,
+                cinder_volume_drivers_kaminario_kaminariocommon.
+                kaminario1_opts,
                 cinder_volume_drivers_disco_disco.disco_opts,
                 cinder_volume_drivers_hgst.hgst_opts,
                 cinder_message_api.messages_opts,
@@ -333,6 +352,7 @@ def list_opts():
                 cinder_volume_drivers_ibm_xivds8k.xiv_ds8k_opts,
                 cinder_volume_drivers_hpe_hpe3parcommon.hpe3par_opts,
                 cinder_volume_drivers_datera.d_opts,
+                cinder_volume_drivers_zadara.zadara_opts,
                 cinder_volume_drivers_blockdevice.volume_opts,
                 cinder_volume_drivers_quobyte.volume_opts,
                 cinder_volume_drivers_vzstorage.vzstorage_opts,

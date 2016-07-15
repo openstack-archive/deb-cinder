@@ -28,6 +28,7 @@ from cinder import exception
 from cinder import utils
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
+from cinder import interface
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
 from cinder.volume.drivers.zfssa import zfssarest
@@ -105,6 +106,7 @@ def factory_zfssa():
     return zfssarest.ZFSSAApi()
 
 
+@interface.volumedriver
 class ZFSSAISCSIDriver(driver.ISCSIDriver):
     """ZFSSA Cinder iSCSI volume driver.
 
@@ -224,10 +226,10 @@ class ZFSSAISCSIDriver(driver.ISCSIDriver):
 
         # Parse interfaces
         interfaces = []
-        for interface in lcfg.zfssa_target_interfaces.split(','):
-            if interface == '':
+        for intrface in lcfg.zfssa_target_interfaces.split(','):
+            if intrface == '':
                 continue
-            interfaces.append(interface)
+            interfaces.append(intrface)
 
         # Setup target and target group
         iqn = self.zfssa.create_target(
@@ -244,6 +246,11 @@ class ZFSSAISCSIDriver(driver.ISCSIDriver):
                        lcfg.zfssa_manage_policy)
             LOG.error(err_msg)
             raise exception.InvalidInput(reason=err_msg)
+
+        # Lookup the zfssa_target_portal DNS name to an IP address
+        host, port = lcfg.zfssa_target_portal.split(':')
+        host_ip_addr = utils.resolve_hostname(host)
+        self.zfssa_target_portal = host_ip_addr + ':' + port
 
     def check_for_setup_error(self):
         """Check that driver can login.
@@ -290,7 +297,7 @@ class ZFSSAISCSIDriver(driver.ISCSIDriver):
         if self.tgtiqn is None:
             self.tgtiqn = self.zfssa.get_target(self._get_target_alias())
 
-        loc = "%s %s %s" % (lcfg.zfssa_target_portal, self.tgtiqn,
+        loc = "%s %s %s" % (self.zfssa_target_portal, self.tgtiqn,
                             lun['number'])
         LOG.debug('_get_provider_info: provider_location: %s', loc)
         provider = {'provider_location': loc}
@@ -570,7 +577,7 @@ class ZFSSAISCSIDriver(driver.ISCSIDriver):
                                  'volume %(volume)s. Error: %(error)s.'),
                              {'volume': volume['name'],
                               'image': image_meta['id'],
-                              'error': exc.message})
+                              'error': exc.msg})
             LOG.error(exception_msg)
             return None, False
 
@@ -712,14 +719,6 @@ class ZFSSAISCSIDriver(driver.ISCSIDriver):
         return cachevol_props['cache_name'], cachevol_props['snap_name']
 
     def local_path(self, volume):
-        """Not implemented."""
-        pass
-
-    def backup_volume(self, context, backup, backup_service):
-        """Not implemented."""
-        pass
-
-    def restore_backup(self, context, backup, volume, backup_service):
         """Not implemented."""
         pass
 

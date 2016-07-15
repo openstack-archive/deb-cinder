@@ -1,4 +1,5 @@
 #   Copyright 2014 IBM Corp.
+#   Copyright (c) 2016 Stratoscale, Ltd.
 #
 #   Licensed under the Apache License, Version 2.0 (the "License"); you may
 #   not use this file except in compliance with the License. You may obtain
@@ -13,7 +14,12 @@
 #   under the License.
 
 import mock
+from oslo_config import cfg
 from oslo_serialization import jsonutils
+try:
+    from urllib import urlencode
+except ImportError:
+    from urllib.parse import urlencode
 import webob
 
 from cinder import context
@@ -22,6 +28,8 @@ from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_volume
+
+CONF = cfg.CONF
 
 
 def app():
@@ -100,6 +108,24 @@ def api_manage(*args, **kwargs):
     return fake_volume.fake_volume_obj(ctx, **vol)
 
 
+def api_get_manageable_volumes(*args, **kwargs):
+    """Replacement for cinder.volume.api.API.get_manageable_volumes."""
+    vols = [
+        {'reference': {'source-name': 'volume-%s' % fake.VOLUME_ID},
+         'size': 4,
+         'extra_info': 'qos_setting:high',
+         'safe_to_manage': False,
+         'cinder_id': fake.VOLUME_ID,
+         'reason_not_safe': 'volume in use'},
+        {'reference': {'source-name': 'myvol'},
+         'size': 5,
+         'extra_info': 'qos_setting:low',
+         'safe_to_manage': True,
+         'cinder_id': None,
+         'reason_not_safe': None}]
+    return vols
+
+
 @mock.patch('cinder.db.service_get_by_host_and_topic',
             db_service_get_by_host_and_topic)
 @mock.patch('cinder.volume.volume_types.get_volume_type_by_name',
@@ -122,15 +148,19 @@ class VolumeManageTest(test.TestCase):
 
     def setUp(self):
         super(VolumeManageTest, self).setUp()
+        self._admin_ctxt = context.RequestContext(fake.USER_ID,
+                                                  fake.PROJECT_ID,
+                                                  is_admin=True)
+        self._non_admin_ctxt = context.RequestContext(fake.USER_ID,
+                                                      fake.PROJECT_ID,
+                                                      is_admin=False)
 
-    def _get_resp(self, body):
-        """Helper to execute an os-volume-manage API call."""
+    def _get_resp_post(self, body):
+        """Helper to execute a POST os-volume-manage API call."""
         req = webob.Request.blank('/v2/%s/os-volume-manage' % fake.PROJECT_ID)
         req.method = 'POST'
         req.headers['Content-Type'] = 'application/json'
-        req.environ['cinder.context'] = context.RequestContext(fake.USER_ID,
-                                                               fake.PROJECT_ID,
-                                                               True)
+        req.environ['cinder.context'] = self._admin_ctxt
         req.body = jsonutils.dump_as_bytes(body)
         res = req.get_response(app())
         return res
@@ -148,7 +178,7 @@ class VolumeManageTest(test.TestCase):
         """
         body = {'volume': {'host': 'host_ok',
                            'ref': 'fake_ref'}}
-        res = self._get_resp(body)
+        res = self._get_resp_post(body)
         self.assertEqual(202, res.status_int, res)
 
         # Check that the manage API was called with the correct arguments.
@@ -161,15 +191,23 @@ class VolumeManageTest(test.TestCase):
     def test_manage_volume_missing_host(self):
         """Test correct failure when host is not specified."""
         body = {'volume': {'ref': 'fake_ref'}}
-        res = self._get_resp(body)
+        res = self._get_resp_post(body)
         self.assertEqual(400, res.status_int)
 
     def test_manage_volume_missing_ref(self):
         """Test correct failure when the ref is not specified."""
         body = {'volume': {'host': 'host_ok'}}
-        res = self._get_resp(body)
+        res = self._get_resp_post(body)
         self.assertEqual(400, res.status_int)
         pass
+
+    def test_manage_volume_with_invalid_bootable(self):
+        """Test correct failure when invalid bool value is specified."""
+        body = {'volume': {'host': 'host_ok',
+                           'ref': 'fake_ref',
+                           'bootable': 'InvalidBool'}}
+        res = self._get_resp_post(body)
+        self.assertEqual(400, res.status_int)
 
     @mock.patch('cinder.volume.api.API.manage_existing', api_manage)
     @mock.patch(
@@ -182,8 +220,9 @@ class VolumeManageTest(test.TestCase):
         """
         body = {'volume': {'host': 'host_ok',
                            'ref': 'fake_ref',
-                           'volume_type': fake.VOLUME_TYPE_ID}}
-        res = self._get_resp(body)
+                           'volume_type': fake.VOLUME_TYPE_ID,
+                           'bootable': True}}
+        res = self._get_resp_post(body)
         self.assertEqual(202, res.status_int, res)
         self.assertTrue(mock_validate.called)
         pass
@@ -200,7 +239,7 @@ class VolumeManageTest(test.TestCase):
         body = {'volume': {'host': 'host_ok',
                            'ref': 'fake_ref',
                            'volume_type': 'good_fakevt'}}
-        res = self._get_resp(body)
+        res = self._get_resp_post(body)
         self.assertEqual(202, res.status_int, res)
         self.assertTrue(mock_validate.called)
         pass
@@ -210,7 +249,7 @@ class VolumeManageTest(test.TestCase):
         body = {'volume': {'host': 'host_ok',
                            'ref': 'fake_ref',
                            'volume_type': fake.WILL_NOT_BE_FOUND_ID}}
-        res = self._get_resp(body)
+        res = self._get_resp_post(body)
         self.assertEqual(404, res.status_int, res)
         pass
 
@@ -219,6 +258,72 @@ class VolumeManageTest(test.TestCase):
         body = {'volume': {'host': 'host_ok',
                            'ref': 'fake_ref',
                            'volume_type': 'bad_fakevt'}}
-        res = self._get_resp(body)
+        res = self._get_resp_post(body)
         self.assertEqual(404, res.status_int, res)
         pass
+
+    def _get_resp_get(self, host, detailed, paging, admin=True):
+        """Helper to execute a GET os-volume-manage API call."""
+        params = {'host': host}
+        if paging:
+            params.update({'marker': '1234', 'limit': 10,
+                           'offset': 4, 'sort': 'reference:asc'})
+        query_string = "?%s" % urlencode(params)
+        detail = ""
+        if detailed:
+            detail = "/detail"
+        url = "/v2/%s/os-volume-manage%s%s" % (fake.PROJECT_ID, detail,
+                                               query_string)
+        req = webob.Request.blank(url)
+        req.method = 'GET'
+        req.headers['Content-Type'] = 'application/json'
+        req.environ['cinder.context'] = (self._admin_ctxt if admin
+                                         else self._non_admin_ctxt)
+        res = req.get_response(app())
+        return res
+
+    @mock.patch('cinder.volume.api.API.get_manageable_volumes',
+                wraps=api_get_manageable_volumes)
+    def test_get_manageable_volumes_non_admin(self, mock_api_manageable):
+        res = self._get_resp_get('fakehost', False, False, admin=False)
+        self.assertEqual(403, res.status_int)
+        self.assertEqual(False, mock_api_manageable.called)
+        res = self._get_resp_get('fakehost', True, False, admin=False)
+        self.assertEqual(403, res.status_int)
+        self.assertEqual(False, mock_api_manageable.called)
+
+    @mock.patch('cinder.volume.api.API.get_manageable_volumes',
+                wraps=api_get_manageable_volumes)
+    def test_get_manageable_volumes_ok(self, mock_api_manageable):
+        res = self._get_resp_get('fakehost', False, True)
+        exp = {'manageable-volumes':
+               [{'reference':
+                 {'source-name':
+                  'volume-%s' % fake.VOLUME_ID},
+                 'size': 4, 'safe_to_manage': False},
+                {'reference': {'source-name': 'myvol'},
+                 'size': 5, 'safe_to_manage': True}]}
+        self.assertEqual(200, res.status_int)
+        self.assertEqual(jsonutils.loads(res.body), exp)
+        mock_api_manageable.assert_called_once_with(
+            self._admin_ctxt, 'fakehost', limit=10, marker='1234', offset=4,
+            sort_dirs=['asc'], sort_keys=['reference'])
+
+    @mock.patch('cinder.volume.api.API.get_manageable_volumes',
+                wraps=api_get_manageable_volumes)
+    def test_get_manageable_volumes_detailed_ok(self, mock_api_manageable):
+        res = self._get_resp_get('fakehost', True, False)
+        exp = {'manageable-volumes':
+               [{'reference': {'source-name': 'volume-%s' % fake.VOLUME_ID},
+                 'size': 4, 'reason_not_safe': 'volume in use',
+                 'cinder_id': fake.VOLUME_ID, 'safe_to_manage': False,
+                 'extra_info': 'qos_setting:high'},
+                {'reference': {'source-name': 'myvol'}, 'cinder_id': None,
+                 'size': 5, 'reason_not_safe': None, 'safe_to_manage': True,
+                 'extra_info': 'qos_setting:low'}]}
+        self.assertEqual(200, res.status_int)
+        self.assertEqual(jsonutils.loads(res.body), exp)
+        mock_api_manageable.assert_called_once_with(
+            self._admin_ctxt, 'fakehost', limit=CONF.osapi_max_limit,
+            marker=None, offset=0, sort_dirs=['desc'],
+            sort_keys=['reference'])

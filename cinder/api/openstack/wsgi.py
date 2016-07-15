@@ -841,10 +841,6 @@ class Resource(wsgi.Application):
         return self._process_stack(request, action, action_args,
                                    content_type, body, accept)
 
-    def _is_legacy_endpoint(self, request):
-        version_str = request.api_version_request.get_string()
-        return '1.0' in version_str or '2.0' in version_str
-
     def _process_stack(self, request, action, action_args,
                        content_type, body, accept):
         """Implement the processing stack."""
@@ -952,7 +948,7 @@ class Resource(wsgi.Application):
                 response.headers[hdr] = val
 
             if (not request.api_version_request.is_null() and
-               not self._is_legacy_endpoint(request)):
+               not _is_legacy_endpoint(request)):
                 response.headers[API_VERSION_REQUEST_HEADER] = (
                     VOLUME_SERVICE + ' ' +
                     request.api_version_request.get_string())
@@ -1062,21 +1058,32 @@ class ControllerMetaclass(type):
         # Find all actions
         actions = {}
         extensions = []
-        versioned_methods = None
+        # NOTE(geguileo): We'll keep a list of versioned methods that have been
+        # added by the new metaclass (dictionary in attribute VER_METHOD_ATTR
+        # on Controller class) and all the versioned methods from the different
+        # base classes so we can consolidate them.
+        versioned_methods = []
+
+        # NOTE(cyeoh): This resets the VER_METHOD_ATTR attribute
+        # between API controller class creations. This allows us
+        # to use a class decorator on the API methods that doesn't
+        # require naming explicitly what method is being versioned as
+        # it can be implicit based on the method decorated. It is a bit
+        # ugly.
+        if bases != (object,) and VER_METHOD_ATTR in vars(Controller):
+            # Get the versioned methods that this metaclass creation has added
+            # to the Controller class
+            versioned_methods.append(getattr(Controller, VER_METHOD_ATTR))
+            # Remove them so next metaclass has a clean start
+            delattr(Controller, VER_METHOD_ATTR)
+
         # start with wsgi actions from base classes
         for base in bases:
             actions.update(getattr(base, 'wsgi_actions', {}))
 
-            if base.__name__ == "Controller":
-                # NOTE(cyeoh): This resets the VER_METHOD_ATTR attribute
-                # between API controller class creations. This allows us
-                # to use a class decorator on the API methods that doesn't
-                # require naming explicitly what method is being versioned as
-                # it can be implicit based on the method decorated. It is a bit
-                # ugly.
-                if VER_METHOD_ATTR in base.__dict__:
-                    versioned_methods = getattr(base, VER_METHOD_ATTR)
-                    delattr(base, VER_METHOD_ATTR)
+            # Get the versioned methods that this base has
+            if VER_METHOD_ATTR in vars(base):
+                versioned_methods.append(getattr(base, VER_METHOD_ATTR))
 
         for key, value in cls_dict.items():
             if not callable(value):
@@ -1090,10 +1097,23 @@ class ControllerMetaclass(type):
         cls_dict['wsgi_actions'] = actions
         cls_dict['wsgi_extensions'] = extensions
         if versioned_methods:
-            cls_dict[VER_METHOD_ATTR] = versioned_methods
+            cls_dict[VER_METHOD_ATTR] = mcs.consolidate_vers(versioned_methods)
 
         return super(ControllerMetaclass, mcs).__new__(mcs, name, bases,
                                                        cls_dict)
+
+    @staticmethod
+    def consolidate_vers(versioned_methods):
+        """Consolidates a list of versioned methods dictionaries."""
+        if not versioned_methods:
+            return {}
+        result = versioned_methods.pop(0)
+        for base_methods in versioned_methods:
+            for name, methods in base_methods.items():
+                method_list = result.setdefault(name, [])
+                method_list.extend(methods)
+                method_list.sort(reverse=True)
+        return result
 
 
 @six.add_metaclass(ControllerMetaclass)
@@ -1312,9 +1332,10 @@ class Fault(webob.exc.HTTPException):
             if retry:
                 fault_data[fault_name]['retryAfter'] = retry
 
-        if not req.api_version_request.is_null():
+        if (not req.api_version_request.is_null() and not
+           _is_legacy_endpoint(req)):
             self.wrapped_exc.headers[API_VERSION_REQUEST_HEADER] = (
-                req.api_version_request.get_string())
+                VOLUME_SERVICE + ' ' + req.api_version_request.get_string())
             self.wrapped_exc.headers['Vary'] = API_VERSION_REQUEST_HEADER
 
         content_type = req.best_match_content_type()
@@ -1339,6 +1360,11 @@ def _set_request_id_header(req, headers):
     context = req.environ.get('cinder.context')
     if context:
         headers['x-compute-request-id'] = context.request_id
+
+
+def _is_legacy_endpoint(request):
+    version_str = request.api_version_request.get_string()
+    return '1.0' in version_str or '2.0' in version_str
 
 
 class OverLimitFault(webob.exc.HTTPException):

@@ -160,6 +160,29 @@ def check_ssh_injection(cmd_list):
                     raise exception.SSHInjectionThreat(command=cmd_list)
 
 
+def check_metadata_properties(metadata=None):
+    """Checks that the volume metadata properties are valid."""
+
+    if not metadata:
+        metadata = {}
+
+    for k, v in metadata.items():
+        if len(k) == 0:
+            msg = _("Metadata property key blank.")
+            LOG.debug(msg)
+            raise exception.InvalidVolumeMetadata(reason=msg)
+        if len(k) > 255:
+            msg = _("Metadata property key %s greater than 255 "
+                    "characters.") % k
+            LOG.debug(msg)
+            raise exception.InvalidVolumeMetadataSize(reason=msg)
+        if len(v) > 255:
+            msg = _("Metadata property key %s value greater than "
+                    "255 characters.") % k
+            LOG.debug(msg)
+            raise exception.InvalidVolumeMetadataSize(reason=msg)
+
+
 def last_completed_audit_period(unit=None):
     """This method gives you the most recently *completed* audit period.
 
@@ -1036,3 +1059,19 @@ def validate_integer(value, name, min_value=None, max_value=None):
                          {'value_name': name, 'max_value': max_value}))
 
     return value
+
+
+def validate_extra_specs(specs):
+    """Validating key and value of extra specs."""
+    if not isinstance(specs, dict):
+        msg = _('extra_specs must be a dictionary.')
+        raise exception.InvalidInput(reason=msg)
+
+    for key, value in specs.items():
+        if key is not None:
+            check_string_length(key, 'Key "%s"' % key,
+                                min_length=1, max_length=255)
+
+        if value is not None:
+            check_string_length(value, 'Value for key "%s"' % key,
+                                min_length=0, max_length=255)

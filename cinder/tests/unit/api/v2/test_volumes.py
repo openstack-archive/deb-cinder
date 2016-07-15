@@ -23,6 +23,7 @@ import six
 from six.moves import range
 from six.moves import urllib
 import webob
+from webob import exc
 
 from cinder.api import common
 from cinder.api import extensions
@@ -36,7 +37,6 @@ from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.api.v2 import stubs
 from cinder.tests.unit import fake_constants as fake
-from cinder.tests.unit import fake_notifier
 from cinder.tests.unit import fake_volume
 from cinder.tests.unit.image import fake as fake_image
 from cinder.tests.unit import utils
@@ -57,8 +57,6 @@ class VolumeApiTest(test.TestCase):
         fake_image.stub_out_image_service(self.stubs)
         self.controller = volumes.VolumeController(self.ext_mgr)
 
-        self.flags(host='fake',
-                   notification_driver=[fake_notifier.__name__])
         self.stubs.Set(db, 'volume_get_all', stubs.stub_volume_get_all)
         self.stubs.Set(volume_api.API, 'delete', stubs.stub_volume_delete)
         self.stubs.Set(db, 'service_get_all_by_topic',
@@ -664,6 +662,48 @@ class VolumeApiTest(test.TestCase):
 
     @mock.patch(
         'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_volume_update_metadata_value_too_long(self, mock_validate):
+        self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_api_get)
+
+        updates = {
+            "metadata": {"key1": ("a" * 260)}
+        }
+        body = {"volume": updates}
+        req = fakes.HTTPRequest.blank('/v2/volumes/%s' % fake.VOLUME_ID)
+        self.assertEqual(0, len(self.notifier.notifications))
+        self.assertRaises(exc.HTTPRequestEntityTooLarge,
+                          self.controller.update, req, fake.VOLUME_ID, body)
+
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_volume_update_metadata_key_too_long(self, mock_validate):
+        self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_api_get)
+
+        updates = {
+            "metadata": {("a" * 260): "value1"}
+        }
+        body = {"volume": updates}
+        req = fakes.HTTPRequest.blank('/v2/volumes/%s' % fake.VOLUME_ID)
+        self.assertEqual(0, len(self.notifier.notifications))
+        self.assertRaises(exc.HTTPRequestEntityTooLarge,
+                          self.controller.update, req, fake.VOLUME_ID, body)
+
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
+    def test_volume_update_metadata_empty_key(self, mock_validate):
+        self.stubs.Set(volume_api.API, 'get', stubs.stub_volume_api_get)
+
+        updates = {
+            "metadata": {"": "value1"}
+        }
+        body = {"volume": updates}
+        req = fakes.HTTPRequest.blank('/v2/volumes/%s' % fake.VOLUME_ID)
+        self.assertEqual(0, len(self.notifier.notifications))
+        self.assertRaises(exc.HTTPBadRequest,
+                          self.controller.update, req, fake.VOLUME_ID, body)
+
+    @mock.patch(
+        'cinder.api.openstack.wsgi.Controller.validate_name_and_description')
     def test_volume_update_with_admin_metadata(self, mock_validate):
         self.stubs.Set(volume_api.API, "update", stubs.stub_volume_update)
 
@@ -977,7 +1017,7 @@ class VolumeApiTest(test.TestCase):
         self.assertEqual('/v2/%s/volumes/detail' % fake.PROJECT_ID,
                          href_parts.path)
         params = urllib.parse.parse_qs(href_parts.query)
-        self.assertTrue('marker' in params)
+        self.assertIn('marker', params)
         self.assertEqual('1', params['limit'][0])
 
     def test_volume_detail_limit_negative(self):
@@ -1128,7 +1168,7 @@ class VolumeApiTest(test.TestCase):
                                            viewable_admin_meta=False,
                                            offset=0):
             self.assertTrue(filters['no_migration_targets'])
-            self.assertFalse('all_tenants' in filters)
+            self.assertNotIn('all_tenants', filters)
             return [stubs.stub_volume(fake.VOLUME_ID, display_name='vol1')]
 
         def stub_volume_get_all(context, marker, limit,
@@ -1154,7 +1194,7 @@ class VolumeApiTest(test.TestCase):
                                             filters=None,
                                             viewable_admin_meta=False,
                                             offset=0):
-            self.assertFalse('no_migration_targets' in filters)
+            self.assertNotIn('no_migration_targets', filters)
             return [stubs.stub_volume(fake.VOLUME_ID, display_name='vol2')]
 
         def stub_volume_get_all2(context, marker, limit,
@@ -1184,8 +1224,8 @@ class VolumeApiTest(test.TestCase):
                                  sort_keys=None, sort_dirs=None,
                                  filters=None,
                                  viewable_admin_meta=False, offset=0):
-            self.assertFalse('no_migration_targets' in filters)
-            self.assertFalse('all_tenants' in filters)
+            self.assertNotIn('no_migration_targets', filters)
+            self.assertNotIn('all_tenants', filters)
             return [stubs.stub_volume(fake.VOLUME3_ID, display_name='vol3')]
         self.stubs.Set(db, 'volume_get_all_by_project',
                        stub_volume_get_all_by_project3)

@@ -620,6 +620,8 @@ port_speed!N/A
         return self._print_info_cmd(rows=rows, **kwargs)
 
     def _cmd_lsfabric(self, **kwargs):
+        if self._next_cmd_error['lsfabric'] == 'no_hosts':
+            return ('', '')
         host_name = kwargs['host'].strip('\'\"') if 'host' in kwargs else None
         target_wwpn = kwargs['wwpn'] if 'wwpn' in kwargs else None
         host_infos = []
@@ -1013,7 +1015,7 @@ port_speed!N/A
                 return ('', '')
         else:
             if self._next_cmd_error['lshost'] == 'missing_host':
-                self._next_cmd_error['lshost'] == ''
+                self._next_cmd_error['lshost'] = ''
                 return self._errors['CMMVC5754E']
             host_name = kwargs['obj'].strip('\'\"')
             if host_name not in self._hosts_list:
@@ -1963,6 +1965,65 @@ class StorwizeSVCISCSIDriverTestCase(test.TestCase):
                           volume_iSCSI, connector)
         term_conn.assert_called_once_with(volume_iSCSI, connector)
 
+    def test_storwize_terminate_iscsi_connection_multi_attach(self):
+        # create a iSCSI volume
+        volume_iSCSI = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> iSCSI'}
+        vol_type_iSCSI = volume_types.create(self.ctxt, 'iSCSI', extra_spec)
+        volume_iSCSI['volume_type_id'] = vol_type_iSCSI['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+        connector2 = {'host': 'STORWIZE-SVC-HOST',
+                      'wwnns': ['30000090fa17311e', '30000090fa17311f'],
+                      'wwpns': ['ffff000000000000', 'ffff000000000001'],
+                      'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1bbb'}
+
+        # map and unmap the volume to two hosts normal case
+        self.iscsi_driver.initialize_connection(volume_iSCSI, connector)
+        self.iscsi_driver.initialize_connection(volume_iSCSI, connector2)
+        for conn in [connector, connector2]:
+            host = self.iscsi_driver._helpers.get_host_from_connector(conn)
+            self.assertIsNotNone(host)
+        self.iscsi_driver.terminate_connection(volume_iSCSI, connector)
+        self.iscsi_driver.terminate_connection(volume_iSCSI, connector2)
+        # validate that the host entries are deleted
+        for conn in [connector, connector2]:
+            host = self.iscsi_driver._helpers.get_host_from_connector(conn)
+            self.assertIsNone(host)
+        # map and unmap the volume to two hosts with the mapping removed
+        self.iscsi_driver.initialize_connection(volume_iSCSI, connector)
+        self.iscsi_driver.initialize_connection(volume_iSCSI, connector2)
+        # Test multiple attachments case
+        host_name = self.iscsi_driver._helpers.get_host_from_connector(
+            connector2)
+        self.iscsi_driver._helpers.unmap_vol_from_host(
+            volume_iSCSI['name'], host_name)
+        host_name = self.iscsi_driver._helpers.get_host_from_connector(
+            connector2)
+        self.assertIsNotNone(host_name)
+        with mock.patch.object(storwize_svc_common.StorwizeSSH,
+                               'rmvdiskhostmap') as rmmap:
+            rmmap.side_effect = Exception('boom')
+            self.iscsi_driver.terminate_connection(volume_iSCSI,
+                                                   connector2)
+        host_name = self.iscsi_driver._helpers.get_host_from_connector(
+            connector2)
+        self.assertIsNone(host_name)
+        # Test single attachment case
+        self.iscsi_driver._helpers.unmap_vol_from_host(
+            volume_iSCSI['name'], host_name)
+        with mock.patch.object(storwize_svc_common.StorwizeSSH,
+                               'rmvdiskhostmap') as rmmap:
+            rmmap.side_effect = Exception('boom')
+            self.iscsi_driver.terminate_connection(volume_iSCSI, connector)
+        # validate that the host entries are deleted
+        for conn in [connector, connector2]:
+            host = self.iscsi_driver._helpers.get_host_from_connector(conn)
+        self.assertIsNone(host)
+
     def test_storwize_svc_iscsi_host_maps(self):
         # Create two volumes to be used in mappings
 
@@ -2285,6 +2346,32 @@ class StorwizeSVCFcDriverTestCase(test.TestCase):
 
         self.assertIsNotNone(host_name)
 
+    def test_storwize_get_host_with_fc_connection_with_volume(self):
+        # create a FC volume
+        volume_fc = self._generate_vol_info(None, None)
+        self.fc_driver.create_volume(volume_fc)
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type_fc = volume_types.create(self.ctxt, 'FC', extra_spec)
+        volume_fc['volume_type_id'] = vol_type_fc['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+
+        self.fc_driver.initialize_connection(volume_fc, connector)
+        # Create a FC host
+        helper = self.fc_driver._helpers
+
+        if self.USESIM:
+            # tell lsfabric to not return anything
+            self.sim.error_injection('lsfabric', 'no_hosts')
+        host_name = helper.get_host_from_connector(
+            connector, volume_fc['name'])
+        if self.USESIM:
+            self.sim.error_injection('lsfabric', 'no_hosts')
+        self.assertIsNotNone(host_name)
+
     def test_storwize_get_host_from_connector_with_lshost_failure(self):
         # Create a FC host
         del self._connector['initiator']
@@ -2409,6 +2496,62 @@ class StorwizeSVCFcDriverTestCase(test.TestCase):
                           self.fc_driver.initialize_connection,
                           volume_fc, connector)
         term_conn.assert_called_once_with(volume_fc, connector)
+
+    def test_storwize_terminate_fc_connection_multi_attach(self):
+        # create a FC volume
+        volume_fc = self._create_volume()
+        extra_spec = {'capabilities:storage_protocol': '<in> FC'}
+        vol_type_fc = volume_types.create(self.ctxt, 'FC', extra_spec)
+        volume_fc['volume_type_id'] = vol_type_fc['id']
+
+        connector = {'host': 'storwize-svc-host',
+                     'wwnns': ['20000090fa17311e', '20000090fa17311f'],
+                     'wwpns': ['ff00000000000000', 'ff00000000000001'],
+                     'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1aaa'}
+        connector2 = {'host': 'STORWIZE-SVC-HOST',
+                      'wwnns': ['30000090fa17311e', '30000090fa17311f'],
+                      'wwpns': ['ffff000000000000', 'ffff000000000001'],
+                      'initiator': 'iqn.1993-08.org.debian:01:eac5ccc1bbb'}
+
+        # map and unmap the volume to two hosts normal case
+        self.fc_driver.initialize_connection(volume_fc, connector)
+        self.fc_driver.initialize_connection(volume_fc, connector2)
+        # validate that the host entries are created
+        for conn in [connector, connector2]:
+            host = self.fc_driver._helpers.get_host_from_connector(conn)
+            self.assertIsNotNone(host)
+        self.fc_driver.terminate_connection(volume_fc, connector)
+        self.fc_driver.terminate_connection(volume_fc, connector2)
+        # validate that the host entries are deleted
+        for conn in [connector, connector2]:
+            host = self.fc_driver._helpers.get_host_from_connector(conn)
+            self.assertIsNone(host)
+        # map and unmap the volume to two hosts with the mapping gone
+        self.fc_driver.initialize_connection(volume_fc, connector)
+        self.fc_driver.initialize_connection(volume_fc, connector2)
+        # Test multiple attachments case
+        host_name = self.fc_driver._helpers.get_host_from_connector(connector2)
+        self.fc_driver._helpers.unmap_vol_from_host(
+            volume_fc['name'], host_name)
+        host_name = self.fc_driver._helpers.get_host_from_connector(connector2)
+        self.assertIsNotNone(host_name)
+        with mock.patch.object(storwize_svc_common.StorwizeSSH,
+                               'rmvdiskhostmap') as rmmap:
+            rmmap.side_effect = Exception('boom')
+            self.fc_driver.terminate_connection(volume_fc, connector2)
+        host_name = self.fc_driver._helpers.get_host_from_connector(connector2)
+        self.assertIsNone(host_name)
+        # Test single attachment case
+        self.fc_driver._helpers.unmap_vol_from_host(
+            volume_fc['name'], host_name)
+        with mock.patch.object(storwize_svc_common.StorwizeSSH,
+                               'rmvdiskhostmap') as rmmap:
+            rmmap.side_effect = Exception('boom')
+            self.fc_driver.terminate_connection(volume_fc, connector)
+        # validate that the host entries are deleted
+        for conn in [connector, connector2]:
+            host = self.fc_driver._helpers.get_host_from_connector(conn)
+        self.assertIsNone(host)
 
     def test_storwize_initiator_target_map(self):
         # Generate us a test volume
@@ -3261,6 +3404,50 @@ class StorwizeSVCCommonDriverTestCase(test.TestCase):
         self._assert_vol_exists(vol3['name'], False)
         self.driver.delete_volume(vol2)
         self._assert_vol_exists(vol2['name'], False)
+        self.driver.delete_snapshot(snap1)
+        self._assert_vol_exists(snap1['name'], False)
+        self.driver.delete_volume(vol1)
+        self._assert_vol_exists(vol1['name'], False)
+
+    def test_storwize_svc_delete_vol_with_fcmap(self):
+        vol1 = self._create_volume()
+        # create two snapshots
+        snap1 = self._generate_vol_info(vol1['name'], vol1['id'])
+        snap2 = self._generate_vol_info(vol1['name'], vol1['id'])
+        self.driver.create_snapshot(snap1)
+        self.driver.create_snapshot(snap2)
+        vol2 = self._generate_vol_info(None, None)
+        vol3 = self._generate_vol_info(None, None)
+
+        # Create vol from the second snapshot
+        if self.USESIM:
+            self.sim.error_injection('lsfcmap', 'speed_up')
+        self.driver.create_volume_from_snapshot(vol2, snap2)
+        if self.USESIM:
+            # validate copyrate was set on the flash copy
+            for i, fcmap in self.sim._fcmappings_list.items():
+                if fcmap['target'] == vol2['name']:
+                    self.assertEqual('copying', fcmap['status'])
+        self._assert_vol_exists(vol2['name'], True)
+
+        if self.USESIM:
+            self.sim.error_injection('lsfcmap', 'speed_up')
+        self.driver.create_cloned_volume(vol3, vol2)
+
+        if self.USESIM:
+            # validate copyrate was set on the flash copy
+            for i, fcmap in self.sim._fcmappings_list.items():
+                if fcmap['target'] == vol3['name']:
+                    self.assertEqual('copying', fcmap['status'])
+        self._assert_vol_exists(vol3['name'], True)
+
+        # Delete in the 'opposite' order to make sure it works
+        self.driver.delete_volume(vol3)
+        self._assert_vol_exists(vol3['name'], False)
+        self.driver.delete_volume(vol2)
+        self._assert_vol_exists(vol2['name'], False)
+        self.driver.delete_snapshot(snap2)
+        self._assert_vol_exists(snap2['name'], False)
         self.driver.delete_snapshot(snap1)
         self._assert_vol_exists(snap1['name'], False)
         self.driver.delete_volume(vol1)

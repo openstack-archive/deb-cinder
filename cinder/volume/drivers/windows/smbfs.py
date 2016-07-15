@@ -26,6 +26,7 @@ from oslo_utils import units
 from cinder import exception
 from cinder.i18n import _, _LI
 from cinder.image import image_utils
+from cinder import interface
 from cinder.volume.drivers import remotefs as remotefs_drv
 from cinder.volume.drivers import smbfs
 from cinder.volume.drivers.windows import remotefs
@@ -42,6 +43,7 @@ CONF.set_default('smbfs_mount_point_base', r'C:\OpenStack\_mnt')
 CONF.set_default('smbfs_default_volume_format', 'vhd')
 
 
+@interface.volumedriver
 class WindowsSmbfsDriver(smbfs.SmbfsDriver):
     VERSION = VERSION
     _MINIMUM_QEMU_IMG_VERSION = '1.6'
@@ -152,7 +154,8 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
                                                backing_file_full_path)
 
     def _do_extend_volume(self, volume_path, size_gb, volume_name=None):
-        self._vhdutils.resize_vhd(volume_path, size_gb * units.Gi)
+        self._vhdutils.resize_vhd(volume_path, size_gb * units.Gi,
+                                  is_file_max_size=False)
 
     @remotefs_drv.locked_volume_id_operation
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
@@ -203,7 +206,8 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
             self.configuration.volume_dd_blocksize)
 
         self._vhdutils.resize_vhd(self.local_path(volume),
-                                  volume['size'] * units.Gi)
+                                  volume['size'] * units.Gi,
+                                  is_file_max_size=False)
 
     def _copy_volume_from_snapshot(self, snapshot, volume, volume_size):
         """Copy data from snapshot to destination volume."""
@@ -230,4 +234,5 @@ class WindowsSmbfsDriver(smbfs.SmbfsDriver):
         self._delete(volume_path)
         self._vhdutils.convert_vhd(snapshot_path,
                                    volume_path)
-        self._vhdutils.resize_vhd(volume_path, volume_size * units.Gi)
+        self._vhdutils.resize_vhd(volume_path, volume_size * units.Gi,
+                                  is_file_max_size=False)

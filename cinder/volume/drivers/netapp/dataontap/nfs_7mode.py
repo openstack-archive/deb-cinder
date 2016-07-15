@@ -28,6 +28,7 @@ import six
 
 from cinder import exception
 from cinder.i18n import _
+from cinder import interface
 from cinder import utils
 from cinder.volume.drivers.netapp.dataontap.client import client_7mode
 from cinder.volume.drivers.netapp.dataontap import nfs_base
@@ -40,6 +41,7 @@ LOG = logging.getLogger(__name__)
 
 
 @six.add_metaclass(utils.TraceWrapperWithABCMetaclass)
+@interface.volumedriver
 class NetApp7modeNfsDriver(nfs_base.NetAppNfsDriver):
     """NetApp NFS driver for Data ONTAP (7-mode)."""
 
@@ -59,7 +61,6 @@ class NetApp7modeNfsDriver(nfs_base.NetAppNfsDriver):
             port=self.configuration.netapp_server_port,
             vfiler=self.configuration.netapp_vfiler)
 
-        self.ssc_enabled = False
         self.perf_library = perf_7mode.Performance7modeLibrary(
             self.zapi_client)
 

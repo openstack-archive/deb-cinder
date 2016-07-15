@@ -87,7 +87,7 @@ class HttpClient(object):
                        should be turned on or not.
         :param apiversion: Dell API version.
         """
-        self.baseUrl = 'https://%s:%s/api/rest/' % (host, port)
+        self.baseUrl = 'https://%s:%s/' % (host, port)
 
         self.session = requests.Session()
         self.session.auth = (user, password)
@@ -110,7 +110,11 @@ class HttpClient(object):
         self.session.close()
 
     def __formatUrl(self, url):
-        return '%s%s' % (self.baseUrl, url if url[0] != '/' else url[1:])
+        baseurl = self.baseUrl
+        # Some url sources have api/rest and some don't. Handle.
+        if 'api/rest' not in url:
+            baseurl += 'api/rest/'
+        return '%s%s' % (baseurl, url if url[0] != '/' else url[1:])
 
     def _get_header(self, async):
         if async:
@@ -119,28 +123,56 @@ class HttpClient(object):
             return header
         return self.header
 
+    def _get_async_url(self, asyncTask):
+        """Handle a bug in SC API that gives a full url."""
+        try:
+            # strip off the https.
+            url = asyncTask.get('returnValue').split(
+                'https://')[1].split('/', 1)[1]
+        except IndexError:
+            url = asyncTask.get('returnValue')
+        # Check for incomplete url error case.
+        if url.endswith('/'):
+            # Try to fix.
+            id = asyncTask.get('instanceId')
+            if id:
+                # We have an id so note the error and add the id.
+                LOG.debug('_get_async_url: url format error. (%s)', asyncTask)
+                url = url + id
+            else:
+                # No hope.
+                LOG.error(_LE('_get_async_url: Bogus return url %s'), url)
+                raise exception.VolumeBackendAPIException(
+                    message=_('_get_async_url: Invalid URL.'))
+        return url
+
     def _wait_for_async_complete(self, asyncTask):
-        url = asyncTask.get('returnValue')
+        url = self._get_async_url(asyncTask)
         while True and url:
             try:
-                r = self.session.get(url, headers=self.header,
-                                     verify=self.verify)
+                r = self.get(url)
                 # We can leave this loop for a variety of reasons.
                 # Nothing returned.
                 # r.content blanks.
                 # Object returned switches to one without objectType or with
                 # a different objectType.
-                if r and r.content:
-                    content = r.json()
-                    if content.get('objectType') == 'AsyncTask':
-                        url = content.get('returnValue')
-                        eventlet.sleep(1)
-                        continue
+                if not StorageCenterApi._check_result(r):
+                    LOG.debug('Async error: status_code: %s', r.status_code)
+                else:
+                    # In theory we have a good run.
+                    if r.content:
+                        content = r.json()
+                        if content.get('objectType') == 'AsyncTask':
+                            url = self._get_async_url(content)
+                            eventlet.sleep(1)
+                            continue
+                    else:
+                        LOG.debug('Async debug: r.content is None')
                 return r
-            except exception:
+            except Exception:
                 methodname = asyncTask.get('methodName')
                 objectTypeName = asyncTask.get('objectTypeName')
-                msg = (_('Async error: Unable to retreive %(obj)s '
+                msg = (_('Async error: Unable to retrieve %(obj)s '
                          'method %(method)s result')
                        % {'obj': objectTypeName, 'method': methodname})
                 raise exception.VolumeBackendAPIException(message=msg)
@@ -165,12 +197,17 @@ class HttpClient(object):
                 raise exception.VolumeBackendAPIException(message=msg)
         return rest_response
 
-    @utils.retry(exceptions=(requests.ConnectionError,))
+    @utils.retry(exceptions=(requests.ConnectionError,
+                             exception.DellDriverRetryableException))
     def get(self, url, async=False):
         LOG.debug('get: %(url)s', {'url': url})
-        return self._rest_ret(self.session.get(self.__formatUrl(url),
-                                               headers=self._get_header(async),
-                                               verify=self.verify), async)
+        rest_response = self._rest_ret(self.session.get(
+            self.__formatUrl(url), headers=self._get_header(async),
+            verify=self.verify), async)
+        if rest_response and rest_response.status_code == 400 and (
+                'Unhandled Exception' in rest_response.text):
+            raise exception.DellDriverRetryableException()
+        return rest_response
 
     @utils.retry(exceptions=(requests.ConnectionError,))
     def post(self, url, payload, async=False):
@@ -197,8 +234,17 @@ class HttpClient(object):
             verify=self.verify), async)
 
     @utils.retry(exceptions=(requests.ConnectionError,))
-    def delete(self, url, async=False):
-        LOG.debug('delete: %(url)s', {'url': url})
+    def delete(self, url, payload=None, async=False):
+        LOG.debug('delete: %(url)s data: %(payload)s',
+                  {'url': url, 'payload': payload})
+        if payload:
+            return self._rest_ret(
+                self.session.delete(self.__formatUrl(url),
+                                    data=json.dumps(payload,
+                                                    ensure_ascii=False
+                                                    ).encode('utf-8'),
+                                    headers=self._get_header(async),
+                                    verify=self.verify), async)
         return self._rest_ret(
             self.session.delete(self.__formatUrl(url),
                                 headers=self._get_header(async),
@@ -217,7 +263,7 @@ class StorageCenterApiHelper(object):
         # Now that active_backend_id is set on failover.
         # Use that if set.  Mark the backend as failed over.
         self.active_backend_id = active_backend_id
-        self.ssn = self.config.dell_sc_ssn
+        self.primaryssn = self.config.dell_sc_ssn
         self.storage_protocol = storage_protocol
         self.apiversion = '2.0'
 
@@ -229,9 +275,9 @@ class StorageCenterApiHelper(object):
         """
         connection = None
         LOG.info(_LI('open_connection to %(ssn)s at %(ip)s'),
-                 {'ssn': self.ssn,
+                 {'ssn': self.primaryssn,
                   'ip': self.config.san_ip})
-        if self.ssn:
+        if self.primaryssn:
             """Open connection to REST API."""
             connection = StorageCenterApi(self.config.san_ip,
                                           self.config.dell_sc_api_port,
@@ -244,17 +290,16 @@ class StorageCenterApiHelper(object):
             # about.
             connection.vfname = self.config.dell_sc_volume_folder
             connection.sfname = self.config.dell_sc_server_folder
+            # Our primary SSN doesn't change
+            connection.primaryssn = self.primaryssn
             if self.storage_protocol == 'FC':
                 connection.protocol = 'FibreChannel'
             # Set appropriate ssn and failover state.
             if self.active_backend_id:
                 # active_backend_id is a string.  Convert to int.
                 connection.ssn = int(self.active_backend_id)
-                connection.failed_over = True
             else:
-
-                connection.ssn = self.ssn
-                connection.failed_over = False
+                connection.ssn = self.primaryssn
             # Open connection.
             connection.open_connection()
             # Save our api version for next time.
@@ -288,9 +333,10 @@ class StorageCenterApi(object):
         2.4.1 - Updated Replication support to V2.1.
         2.5.0 - ManageableSnapshotsVD implemented.
         3.0.0 - ProviderID utilized.
+        3.1.0 - Failback Supported.
     """
 
-    APIDRIVERVERSION = '3.0.0'
+    APIDRIVERVERSION = '3.1.0'
 
     def __init__(self, host, port, user, password, verify, apiversion):
         """This creates a connection to Dell SC or EM.
@@ -306,6 +352,9 @@ class StorageCenterApi(object):
         self.notes = 'Created by Dell Cinder Driver'
         self.repl_prefix = 'Cinder repl of '
         self.ssn = None
+        # primaryssn is the ssn of the SC we are configured to use. This
+        # doesn't change in the case of a failover.
+        self.primaryssn = None
         self.failed_over = False
         self.vfname = 'openstack'
         self.sfname = 'openstack'
@@ -332,26 +381,30 @@ class StorageCenterApi(object):
         :param rest_response: The result from a REST API call.
         :returns: ``True`` if success, ``False`` otherwise.
         """
-        if 200 <= rest_response.status_code < 300:
-            # API call was a normal success
-            return True
+        if rest_response:
+            if 200 <= rest_response.status_code < 300:
+                # API call was a normal success
+                return True
 
-        # Some versions return this as a dict.
-        try:
-            response_text = rest_response.text['result']
-        except Exception:
-            # We do not care why that failed. Just use the text.
-            response_text = rest_response.text
+            # Some versions return this as a dict.
+            try:
+                response_json = rest_response.json()
+                response_text = response_json.text['result']
+            except Exception:
+                # We do not care why that failed. Just use the text.
+                response_text = rest_response.text
 
-        LOG.debug('REST call result:\n'
-                  '\tUrl:    %(url)s\n'
-                  '\tCode:   %(code)d\n'
-                  '\tReason: %(reason)s\n'
-                  '\tText:   %(text)s',
-                  {'url': rest_response.url,
-                   'code': rest_response.status_code,
-                   'reason': rest_response.reason,
-                   'text': response_text})
+            LOG.debug('REST call result:\n'
+                      '\tUrl:    %(url)s\n'
+                      '\tCode:   %(code)d\n'
+                      '\tReason: %(reason)s\n'
+                      '\tText:   %(text)s',
+                      {'url': rest_response.url,
+                       'code': rest_response.status_code,
+                       'reason': rest_response.reason,
+                       'text': response_text})
+        else:
+            LOG.warning(_LW('Failed to get REST call result.'))
         return False
 
     @staticmethod
@@ -489,6 +542,8 @@ class StorageCenterApi(object):
 
         :raises: VolumeBackendAPIException.
         """
+        # Set our fo state.
+        self.failed_over = (self.primaryssn != self.ssn)
 
         # Login
         payload = {}
@@ -542,14 +597,15 @@ class StorageCenterApi(object):
         :param provider_id: Provider_id from an volume or snapshot object.
         :returns: True/False
         """
+        ret = False
         if provider_id:
             try:
-                if provider_id.split('.')[0] == str(self.ssn):
-                    return True
+                if provider_id.split('.')[0] == six.text_type(self.ssn):
+                    ret = True
             except Exception:
                 LOG.error(_LE('_use_provider_id: provider_id %s is invalid!'),
                           provider_id)
-        return False
+        return ret
 
     def find_sc(self, ssn=-1):
         """Check that the SC is there and being managed by EM.
@@ -936,20 +992,23 @@ class StorageCenterApi(object):
 
         return scvolume
 
-    def _get_volume_list(self, name, deviceid, filterbyvfname=True):
+    def _get_volume_list(self, name, deviceid, filterbyvfname=True, ssn=-1):
         """Return the specified list of volumes.
 
         :param name: Volume name.
         :param deviceid: Volume device ID on the SC backend.
         :param filterbyvfname:  If set to true then this filters by the preset
                                 folder name.
+        :param ssn: SSN to search on.
         :return: Returns the scvolume list or None.
         """
+        if ssn == -1:
+            ssn = self.ssn
         result = None
         # We need a name or a device ID to find a volume.
         if name or deviceid:
             pf = self._get_payload_filter()
-            pf.append('scSerialNumber', self.ssn)
+            pf.append('scSerialNumber', ssn)
             if name is not None:
                 pf.append('Name', name)
             if deviceid is not None:
@@ -1071,7 +1130,7 @@ class StorageCenterApi(object):
         # If we have an id then delete the volume.
         if provider_id:
             r = self.client.delete('StorageCenter/ScVolume/%s' % provider_id,
-                                   True)
+                                   async=True)
             if not self._check_result(r):
                 msg = _('Error deleting volume %(ssn)s: %(volume)s') % {
                     'ssn': self.ssn,
@@ -1528,8 +1587,7 @@ class StorageCenterApi(object):
                            controller or not.
             :return: Nothing
             """
-            portals.append(address + ':' +
-                           six.text_type(port))
+            portals.append(address + ':' + six.text_type(port))
             iqns.append(iqn)
             luns.append(lun)
 
@@ -1694,7 +1752,8 @@ class StorageCenterApi(object):
                 prosrv = profile.get('server')
                 if prosrv is not None and self._get_id(prosrv) == serverid:
                     r = self.client.delete('StorageCenter/ScMappingProfile/%s'
-                                           % self._get_id(profile), True)
+                                           % self._get_id(profile),
+                                           async=True)
                     if self._check_result(r):
                         # Check our result in the json.
                         result = self._get_json(r)
@@ -1957,7 +2016,7 @@ class StorageCenterApi(object):
         payload['Name'] = name
         r = self.client.put('StorageCenter/ScVolume/%s'
                             % self._get_id(scvolume),
-                            payload)
+                            payload, True)
         if self._check_result(r):
             return True
 
@@ -2044,7 +2103,7 @@ class StorageCenterApi(object):
         LOG.debug('ScServer delete %s', self._get_id(scserver))
         if scserver.get('deleteAllowed') is True:
             r = self.client.delete('StorageCenter/ScServer/%s'
-                                   % self._get_id(scserver), True)
+                                   % self._get_id(scserver), async=True)
             if self._check_result(r):
                 LOG.debug('ScServer deleted.')
         else:
@@ -2106,7 +2165,7 @@ class StorageCenterApi(object):
         """
         self.cg_except_on_no_support()
         r = self.client.delete('StorageCenter/ScReplayProfile/%s' %
-                               self._get_id(profile), True)
+                               self._get_id(profile), async=True)
         if self._check_result(r):
             LOG.info(_LI('Profile %s has been deleted.'),
                      profile.get('name'))
@@ -2400,7 +2459,7 @@ class StorageCenterApi(object):
 
          This checks a few things. The volume has to exist.  There can
          only be one volume by that name.  Since cinder manages volumes
-         by the GB it has to be defined on a GB boundry.
+         by the GB it has to be defined on a GB boundary.
 
          This renames existing to newname.  newname is the guid from
          the cinder volume['id'].  The volume is moved to the defined
@@ -2490,14 +2549,17 @@ class StorageCenterApi(object):
                 'newname': newname}
             raise exception.VolumeBackendAPIException(data=msg)
 
-    def _find_qos(self, qosnode):
+    def _find_qos(self, qosnode, ssn=-1):
         """Find Dell SC QOS Node entry for replication.
 
         :param qosnode: Name of qosnode.
+        :param ssn: SSN to search on.
         :return: scqos node object.
         """
+        if ssn == -1:
+            ssn = self.ssn
         pf = self._get_payload_filter()
-        pf.append('scSerialNumber', self.ssn)
+        pf.append('scSerialNumber', ssn)
         pf.append('name', qosnode)
         r = self.client.post('StorageCenter/ScReplicationQosNode/GetList',
                              pf.payload)
@@ -2509,7 +2571,7 @@ class StorageCenterApi(object):
                 payload = {}
                 payload['LinkSpeed'] = '1 Gbps'
                 payload['Name'] = qosnode
-                payload['StorageCenter'] = self.ssn
+                payload['StorageCenter'] = ssn
                 payload['BandwidthLimited'] = False
                 r = self.client.post('StorageCenter/ScReplicationQosNode',
                                      payload, True)
@@ -2565,17 +2627,23 @@ class StorageCenterApi(object):
                      'ssn': destssn})
         return None
 
-    def delete_replication(self, scvolume, destssn):
+    def delete_replication(self, scvolume, destssn, deletedestvolume=True):
         """Deletes the SC replication object from scvolume to the destssn.
 
         :param scvolume: Dell SC Volume object.
-        :param destssn: SC the replication is replicating to.S
+        :param destssn: SC the replication is replicating to.
+        :param deletedestvolume: Delete or keep dest volume.
         :return: True on success.  False on fail.
         """
         replication = self.get_screplication(scvolume, destssn)
         if replication:
+            payload = {}
+            payload['DeleteDestinationVolume'] = deletedestvolume
+            payload['RecycleDestinationVolume'] = False
+            payload['DeleteRestorePoint'] = True
             r = self.client.delete('StorageCenter/ScReplication/%s' %
-                                   self._get_id(replication), True)
+                                   self._get_id(replication), payload=payload,
+                                   async=True)
             if self._check_result(r):
                 # check that we whacked the dest volume
                 LOG.info(_LI('Replication %(vol)s to %(dest)s.'),
@@ -2600,7 +2668,7 @@ class StorageCenterApi(object):
             pf.append('scSerialNumber', ssn)
             pf.append('name', foldername)
             r = self.client.post('StorageCenter/ScDiskFolder/GetList',
-                                 pf.payload, True)
+                                 pf.payload)
             if self._check_result(r):
                 try:
                     # Go for broke.
@@ -2634,7 +2702,12 @@ class StorageCenterApi(object):
         payload['StorageCenter'] = self.find_sc()
         # Have to replicate the active replay.
         payload['ReplicateActiveReplay'] = replicate_active or synchronous
-        payload['Type'] = 'Synchronous' if synchronous else 'Asynchronous'
+        if synchronous:
+            payload['Type'] = 'Synchronous'
+            # If our type is synchronous we prefer high availability be set.
+            payload['SyncMode'] = 'HighAvailability'
+        else:
+            payload['Type'] = 'Asynchronous'
         destinationvolumeattributes = {}
         destinationvolumeattributes['CreateSourceVolumeFolderPath'] = True
         destinationvolumeattributes['Notes'] = self.notes
@@ -2662,25 +2735,32 @@ class StorageCenterApi(object):
                        'destsc': destssn})
         return screpl
 
-    def _find_repl_volume(self, guid, destssn, instance_id=None):
+    def find_repl_volume(self, name, destssn, instance_id=None,
+                         source=False, destination=True):
         """Find our replay destination volume on the destssn.
 
-        :param guid: Volume ID.
+        :param name: Name to search for.
         :param destssn: Where to look for the volume.
         :param instance_id: If we know our exact volume ID use that.
+        :param source: Replication source boolen.
+        :param destination: Replication destination boolean.
         :return: SC Volume object or None
         """
         # Do a normal volume search.
         pf = self._get_payload_filter()
         pf.append('scSerialNumber', destssn)
-        pf.append('ReplicationDestination', True)
+        # Are we looking for a replication destination?
+        pf.append('ReplicationDestination', destination)
+        # Are we looking for a replication source?
+        pf.append('ReplicationSource', source)
         # There is a chance we know the exact volume.  If so then use that.
         if instance_id:
             pf.append('instanceId', instance_id)
         else:
             # Try the name.
-            pf.append('Name', self._repl_name(guid))
-        r = self.client.post('StorageCenter/ScVolume/GetList', pf.payload)
+            pf.append('Name', name)
+        r = self.client.post('StorageCenter/ScVolume/GetList',
+                             pf.payload)
         if self._check_result(r):
             volumes = self._get_json(r)
             if len(volumes) == 1:
@@ -2717,7 +2797,8 @@ class StorageCenterApi(object):
         # if we got our replication volume we can do this nicely.
         if screplication:
             replinstanceid = screplication['destinationVolume']['instanceId']
-        screplvol = self._find_repl_volume(volumename, destssn, replinstanceid)
+        screplvol = self.find_repl_volume(self._repl_name(volumename),
+                                          destssn, replinstanceid)
         # delete_replication fails to delete replication without also
         # stuffing it into the recycle bin.
         # Instead we try to unmap the destination volume which will break
@@ -2728,3 +2809,147 @@ class StorageCenterApi(object):
             self.remove_mappings(scvolume)
 
         return screplvol
+
+    def _get_replay_list(self, scvolume):
+        r = self.client.get('StorageCenter/ScVolume/%s/ReplayList'
+                            % self._get_id(scvolume))
+        if self._check_result(r):
+            return self._get_json(r)
+        return []
+
+    def find_common_replay(self, svolume, dvolume):
+        """Finds the common replay between two volumes.
+
+        This assumes that one volume was replicated from the other. This
+        should return the most recent replay.
+
+        :param svolume: Source SC Volume.
+        :param dvolume: Destination SC Volume.
+        :return: Common replay or None.
+        """
+        if svolume and dvolume:
+            sreplays = self._get_replay_list(svolume)
+            dreplays = self._get_replay_list(dvolume)
+            for dreplay in dreplays:
+                for sreplay in sreplays:
+                    if dreplay['globalIndex'] == sreplay['globalIndex']:
+                        return dreplay
+        return None
+
+    def start_replication(self, svolume, dvolume,
+                          replicationtype, qosnode, activereplay):
+        """Starts a replication between volumes.
+
+        Requires the dvolume to be in an appropriate state to start this.
+
+        :param svolume: Source SC Volume.
+        :param dvolume: Destiation SC Volume
+        :param replicationtype: Asynchronous or synchronous.
+        :param qosnode: QOS node name.
+        :param activereplay: Boolean to replicate the active replay or not.
+        :return: ScReplication object or None.
+        """
+        if svolume and dvolume:
+            qos = self._find_qos(qosnode, svolume['scSerialNumber'])
+            if qos:
+                payload = {}
+                payload['QosNode'] = self._get_id(qos)
+                payload['SourceVolume'] = self._get_id(svolume)
+                payload['StorageCenter'] = svolume['scSerialNumber']
+                # Have to replicate the active replay.
+                payload['ReplicateActiveReplay'] = activereplay
+                payload['Type'] = replicationtype
+                payload['DestinationVolume'] = self._get_id(dvolume)
+                payload['DestinationStorageCenter'] = dvolume['scSerialNumber']
+                r = self.client.post('StorageCenter/ScReplication', payload,
+                                     True)
+                # 201 expected.
+                if self._check_result(r):
+                    LOG.info(_LI('Replication created for '
+                                 '%(src)s to %(dest)s'),
+                             {'src': svolume.get('name'),
+                              'dest': dvolume.get('name')})
+                    screpl = self._get_json(r)
+                    return screpl
+        return None
+
+    def replicate_to_common(self, svolume, dvolume, qosnode):
+        """Reverses a replication between two volumes.
+
+        :param fovolume: Failed over volume. (Current)
+        :param ovolume: Original source volume.
+        :param qosnode: QOS node name to use to create the replay.
+        :return: ScReplication object or None.
+        """
+        # find our common replay.
+        creplay = self.find_common_replay(svolume, dvolume)
+        # if we found one.
+        if creplay:
+            # create a view volume from the common replay.
+            payload = {}
+            # funky name.
+            payload['Name'] = 'fback:' + dvolume['name']
+            payload['Notes'] = self.notes
+            payload['VolumeFolder'] = self._get_id(dvolume['volumeFolder'])
+            r = self.client.post('StorageCenter/ScReplay/%s/CreateView'
+                                 % self._get_id(creplay), payload, True)
+            if self._check_result(r):
+                vvolume = self._get_json(r)
+                if vvolume:
+                    # snap a replay and start replicating.
+                    if self.create_replay(svolume, 'failback', 600):
+                        return self.start_replication(svolume, vvolume,
+                                                      'Asynchronous', qosnode,
+                                                      False)
+        # No joy.  Error the volume.
+        return None
+
+    def flip_replication(self, svolume, dvolume, name,
+                         replicationtype, qosnode, activereplay):
+        """Enables replication from current destination volume to source.
+
+        :param svolume: Current source. New destination.
+        :param dvolume: Current destination.  New source.
+        :param name: Volume name.
+        :param replicationtype: Sync or async
+        :param qosnode: qos node for the new source ssn.
+        :param activereplay: replicate the active replay.
+        :return: True/False.
+        """
+        # We are flipping a replication. That means there was a replication to
+        # start with. Delete that.
+        if self.delete_replication(svolume, dvolume['scSerialNumber'], False):
+            # Kick off a replication going the other way.
+            if self.start_replication(dvolume, svolume, replicationtype,
+                                      qosnode, activereplay) is not None:
+                # rename
+                if (self.rename_volume(svolume, self._repl_name(name)) and
+                        self.rename_volume(dvolume, name)):
+                    return True
+        LOG.warning(_LW('flip_replication: Unable to replicate '
+                        '%(name)s from %(src)s to %(dst)s'),
+                    {'name': name,
+                     'src': dvolume['scSerialNumber'],
+                     'dst': svolume['scSerialNumber']})
+        return False
+
+    def replication_progress(self, screplid):
+        """Get's the current progress of the replication.
+
+        :param screplid: instanceId of the ScReplication object.
+        :return: Boolean for synced, float of remaining bytes. (Or None, None.)
+        """
+        if screplid:
+            r = self.client.get(
+                'StorageCenter/ScReplication/%s/CurrentProgress' % screplid)
+            if self._check_result(r):
+                progress = self._get_json(r)
+                try:
+                    remaining = float(
+                        progress['amountRemaining'].split(' ', 1)[0])
+                    return progress['synced'], remaining
+                except Exception:
+                    LOG.warning(_LW('replication_progress: Invalid replication'
+                                    ' progress information returned: %s'),
+                                progress)
+        return None, None

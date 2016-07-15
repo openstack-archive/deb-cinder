@@ -19,6 +19,7 @@ Driver for EMC ScaleIO based on ScaleIO remote CLI.
 import base64
 import binascii
 import json
+import math
 
 from os_brick.initiator import connector
 from oslo_config import cfg
@@ -32,6 +33,7 @@ from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LI, _LW, _LE
 from cinder.image import image_utils
+from cinder import interface
 from cinder import utils
 from cinder.volume import driver
 from cinder.volume.drivers.san import san
@@ -80,19 +82,24 @@ IOPS_LIMIT_KEY = 'sio:iops_limit'
 BANDWIDTH_LIMIT = 'sio:bandwidth_limit'
 QOS_IOPS_LIMIT_KEY = 'maxIOPS'
 QOS_BANDWIDTH_LIMIT = 'maxBWS'
+QOS_IOPS_PER_GB = 'maxIOPSperGB'
+QOS_BANDWIDTH_PER_GB = 'maxBWSperGB'
 
 BLOCK_SIZE = 8
 OK_STATUS_CODE = 200
 VOLUME_NOT_FOUND_ERROR = 79
 VOLUME_NOT_MAPPED_ERROR = 84
 VOLUME_ALREADY_MAPPED_ERROR = 81
+MIN_BWS_SCALING_SIZE = 128
 
 
+@interface.volumedriver
 class ScaleIODriver(driver.VolumeDriver):
     """EMC ScaleIO Driver."""
 
     VERSION = "2.0"
-    scaleio_qos_keys = (QOS_IOPS_LIMIT_KEY, QOS_BANDWIDTH_LIMIT)
+    scaleio_qos_keys = (QOS_IOPS_LIMIT_KEY, QOS_BANDWIDTH_LIMIT,
+                        QOS_IOPS_PER_GB, QOS_BANDWIDTH_PER_GB)
 
     def __init__(self, *args, **kwargs):
         super(ScaleIODriver, self).__init__(*args, **kwargs)
@@ -146,6 +153,12 @@ class ScaleIODriver(driver.VolumeDriver):
         LOG.info(_LI(
                  "Protection domain id: %(domain_id)s."),
                  {'domain_id': self.protection_domain_id})
+
+        self.provisioning_type = (
+            'thin' if self.configuration.san_thin_provision else 'thick')
+        LOG.info(_LI(
+                 "Default provisioning type: %(provisioning_type)s."),
+                 {'provisioning_type': self.provisioning_type})
 
         self.connector = connector.InitiatorConnector.factory(
             connector.SCALEIO, utils.get_root_helper(),
@@ -229,11 +242,14 @@ class ScaleIODriver(driver.VolumeDriver):
                                 self.protection_domain_name)
 
     def _find_provisioning_type(self, storage_type):
-        return storage_type.get(PROVISIONING_KEY)
+        return storage_type.get(PROVISIONING_KEY,
+                                self.provisioning_type)
 
     def _find_limit(self, storage_type, qos_key, extraspecs_key):
-        qos_limit = storage_type.get(qos_key)
-        extraspecs_limit = storage_type.get(extraspecs_key)
+        qos_limit = (storage_type.get(qos_key)
+                     if qos_key is not None else None)
+        extraspecs_limit = (storage_type.get(extraspecs_key)
+                            if extraspecs_key is not None else None)
         if extraspecs_limit is not None:
             if qos_limit is not None:
                 LOG.warning(_LW("QoS specs are overriding extra_specs."))
@@ -416,7 +432,7 @@ class ScaleIODriver(driver.VolumeDriver):
         LOG.info(_LI("Created volume %(volname)s, volume id %(volid)s."),
                  {'volname': volname, 'volid': volume.id})
 
-        real_size = int(self._round_to_8_gran(volume.size))
+        real_size = int(self._round_to_num_gran(volume.size))
 
         return {'provider_id': response['id'], 'size': real_size}
 
@@ -559,20 +575,19 @@ class ScaleIODriver(driver.VolumeDriver):
 
         # Round up the volume size so that it is a granularity of 8 GBs
         # because ScaleIO only supports volumes with a granularity of 8 GBs.
-        volume_new_size = self._round_to_8_gran(new_size)
-        volume_real_old_size = self._round_to_8_gran(old_size)
+        volume_new_size = self._round_to_num_gran(new_size)
+        volume_real_old_size = self._round_to_num_gran(old_size)
         if volume_real_old_size == volume_new_size:
             return
 
         round_volume_capacity = self.configuration.sio_round_volume_capacity
-        if (not round_volume_capacity and not new_size % 8 == 0):
+        if not round_volume_capacity and not new_size % 8 == 0:
             LOG.warning(_LW("ScaleIO only supports volumes with a granularity "
                             "of 8 GBs. The new volume size is: %d."),
                         volume_new_size)
 
         params = {'sizeInGB': six.text_type(volume_new_size)}
         r, response = self._execute_scaleio_post_request(params, request)
-
         if r.status_code != OK_STATUS_CODE:
             response = r.json()
             msg = (_("Error extending volume %(vol)s: %(err)s.")
@@ -581,10 +596,10 @@ class ScaleIODriver(driver.VolumeDriver):
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-    def _round_to_8_gran(self, size):
-        if size % 8 == 0:
+    def _round_to_num_gran(self, size, num=8):
+        if size % num == 0:
             return size
-        return size + 8 - (size % 8)
+        return size + num - (size % num)
 
     def create_cloned_volume(self, volume, src_vref):
         """Creates a cloned volume."""
@@ -689,22 +704,71 @@ class ScaleIODriver(driver.VolumeDriver):
 
         volname = self._id_to_base64(volume.id)
         connection_properties['scaleIO_volname'] = volname
+        connection_properties['scaleIO_volume_id'] = volume.provider_id
         extra_specs = self._get_volumetype_extraspecs(volume)
         qos_specs = self._get_volumetype_qos(volume)
         storage_type = extra_specs.copy()
         storage_type.update(qos_specs)
         LOG.info(_LI("Volume type is %s."), storage_type)
-        iops_limit = self._find_limit(storage_type, QOS_IOPS_LIMIT_KEY,
-                                      IOPS_LIMIT_KEY)
-        LOG.info(_LI("iops limit is: %s."), iops_limit)
-        bandwidth_limit = self._find_limit(storage_type, QOS_BANDWIDTH_LIMIT,
-                                           BANDWIDTH_LIMIT)
-        LOG.info(_LI("Bandwidth limit is: %s."), bandwidth_limit)
+        round_volume_size = self._round_to_num_gran(volume.size)
+        iops_limit = self._get_iops_limit(round_volume_size, storage_type)
+        bandwidth_limit = self._get_bandwidth_limit(round_volume_size,
+                                                    storage_type)
+        LOG.info(_LI("iops limit is %s"), iops_limit)
+        LOG.info(_LI("bandwidth limit is %s"), bandwidth_limit)
         connection_properties['iopsLimit'] = iops_limit
         connection_properties['bandwidthLimit'] = bandwidth_limit
-
         return {'driver_volume_type': 'scaleio',
                 'data': connection_properties}
+
+    def _get_bandwidth_limit(self, size, storage_type):
+        try:
+            max_bandwidth = self._find_limit(storage_type, QOS_BANDWIDTH_LIMIT,
+                                             BANDWIDTH_LIMIT)
+            if max_bandwidth is not None:
+                max_bandwidth = (self._round_to_num_gran(int(max_bandwidth),
+                                                         units.Ki))
+                max_bandwidth = six.text_type(max_bandwidth)
+            LOG.info(_LI("max bandwidth is: %s"), max_bandwidth)
+            bw_per_gb = self._find_limit(storage_type, QOS_BANDWIDTH_PER_GB,
+                                         None)
+            LOG.info(_LI("bandwidth per gb is: %s"), bw_per_gb)
+            if bw_per_gb is None:
+                return max_bandwidth
+            # Since ScaleIO volumes size is in 8GB granularity
+            # and BWS limitation is in 1024 KBs granularity, we need to make
+            # sure that scaled_bw_limit is in 128 granularity.
+            scaled_bw_limit = (size *
+                               self._round_to_num_gran(int(bw_per_gb),
+                                                       MIN_BWS_SCALING_SIZE))
+            if max_bandwidth is None or scaled_bw_limit < int(max_bandwidth):
+                return six.text_type(scaled_bw_limit)
+            else:
+                return max_bandwidth
+        except ValueError:
+            msg = _("None numeric BWS QoS limitation")
+            raise exception.InvalidInput(reason=msg)
+
+    def _get_iops_limit(self, size, storage_type):
+        max_iops = self._find_limit(storage_type, QOS_IOPS_LIMIT_KEY,
+                                    IOPS_LIMIT_KEY)
+        LOG.info(_LI("max iops is: %s"), max_iops)
+        iops_per_gb = self._find_limit(storage_type, QOS_IOPS_PER_GB, None)
+        LOG.info(_LI("iops per gb is: %s"), iops_per_gb)
+        try:
+            if iops_per_gb is None:
+                if max_iops is not None:
+                    return six.text_type(max_iops)
+                else:
+                    return None
+            scaled_iops_limit = size * int(iops_per_gb)
+            if max_iops is None or scaled_iops_limit < int(max_iops):
+                return six.text_type(scaled_iops_limit)
+            else:
+                return six.text_type(max_iops)
+        except ValueError:
+            msg = _("None numeric IOPS QoS limitation")
+            raise exception.InvalidInput(reason=msg)
 
     def terminate_connection(self, volume, connector, **kwargs):
         LOG.debug("scaleio driver terminate connection.")
@@ -722,6 +786,7 @@ class ScaleIODriver(driver.VolumeDriver):
         stats['reserved_percentage'] = 0
         stats['QoS_support'] = True
         stats['consistencygroup_support'] = True
+
         pools = []
 
         verify_cert = self._get_verify_cert()
@@ -1022,32 +1087,61 @@ class ScaleIODriver(driver.VolumeDriver):
                          "%(new_name)s."),
                      {'vol': vol_id, 'new_name': new_name})
 
+    def _query_scaleio_volume(self, volume, existing_ref):
+        request = self._create_scaleio_get_volume_request(volume, existing_ref)
+        r, response = self._execute_scaleio_get_request(request)
+        LOG.info(_LI("Get Volume response: %(res)s"),
+                 {'res': response})
+        self._manage_existing_check_legal_response(r, existing_ref)
+        return response
+
     def manage_existing(self, volume, existing_ref):
         """Manage an existing ScaleIO volume.
 
         existing_ref is a dictionary of the form:
         {'source-id': <id of ScaleIO volume>}
         """
-        request = self._create_scaleio_get_volume_request(volume, existing_ref)
-        r, response = self._execute_scaleio_get_request(request)
-        LOG.info(_LI("Get Volume response: %s"), response)
-        self._manage_existing_check_legal_response(r, existing_ref)
-        if response['mappedSdcInfo'] is not None:
-            reason = _("manage_existing cannot manage a volume "
-                       "connected to hosts. Please disconnect this volume "
-                       "from existing hosts before importing")
+        response = self._query_scaleio_volume(volume, existing_ref)
+        return {'provider_id': response['id']}
+
+    def manage_existing_get_size(self, volume, existing_ref):
+        return self._get_volume_size(volume, existing_ref)
+
+    def manage_existing_snapshot(self, snapshot, existing_ref):
+        """Manage an existing ScaleIO snapshot.
+
+        :param existing_ref: dictionary of the form:
+            {'source-id': <id of ScaleIO snapshot>}
+        """
+        response = self._query_scaleio_volume(snapshot, existing_ref)
+        not_real_parent = (response.get('orig_parent_overriden') or
+                           response.get('is_source_deleted'))
+        if not_real_parent:
+            reason = (_("The snapshot's parent is not the original parent due "
+                        "to deletion or revert action, therefore "
+                        "this snapshot cannot be managed."))
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref,
+                reason=reason
+            )
+        ancestor_id = response['ancestorVolumeId']
+        volume_id = snapshot.volume.provider_id
+        if ancestor_id != volume_id:
+            reason = (_("The snapshot's parent in ScaleIO is %(ancestor)s "
+                        "and not %(volume)s.") %
+                      {'ancestor': ancestor_id, 'volume': volume_id})
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref,
                 reason=reason
             )
         return {'provider_id': response['id']}
 
-    def manage_existing_get_size(self, volume, existing_ref):
-        request = self._create_scaleio_get_volume_request(volume, existing_ref)
-        r, response = self._execute_scaleio_get_request(request)
-        LOG.info(_LI("Get Volume response: %s"), response)
-        self._manage_existing_check_legal_response(r, existing_ref)
-        return int(response['sizeInKb'] / units.Mi)
+    def manage_existing_snapshot_get_size(self, snapshot, existing_ref):
+        return self._get_volume_size(snapshot, existing_ref)
+
+    def _get_volume_size(self, volume, existing_ref):
+        response = self._query_scaleio_volume(volume, existing_ref)
+        return int(math.ceil(float(response['sizeInKb']) / units.Mi))
 
     def _execute_scaleio_get_request(self, request):
         r = requests.get(
@@ -1091,6 +1185,15 @@ class ScaleIODriver(driver.VolumeDriver):
         if response.status_code != OK_STATUS_CODE:
             reason = (_("Error managing volume: %s.") % response.json()[
                 'message'])
+            raise exception.ManageExistingInvalidReference(
+                existing_ref=existing_ref,
+                reason=reason
+            )
+
+        if response.json()['mappedSdcInfo'] is not None:
+            reason = _("manage_existing cannot manage a volume "
+                       "connected to hosts. Please disconnect this volume "
+                       "from existing hosts before importing.")
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref,
                 reason=reason

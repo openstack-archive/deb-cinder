@@ -38,6 +38,7 @@ from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import utils
+from cinder.volume import driver
 from cinder.volume.drivers.san import san
 from cinder.volume import utils as volume_utils
 from cinder.volume import volume_types
@@ -62,7 +63,11 @@ CONF = cfg.CONF
 CONF.register_opts(flashsystem_opts)
 
 
-class FlashSystemDriver(san.SanDriver):
+class FlashSystemDriver(san.SanDriver,
+                        driver.TransferVD,
+                        driver.ExtendVD,
+                        driver.SnapshotVD,
+                        driver.BaseVD):
     """IBM FlashSystem volume driver.
 
     Version history:
@@ -84,10 +89,12 @@ class FlashSystemDriver(san.SanDriver):
                 should not be hardcoded, only in iSCSI
         1.0.9 - Fix bug #1570574, Cleanup host resource
                 leaking, changes only in iSCSI
-
+        1.0.10 - Fix bug #1585085, add host name check in
+                 _find_host_exhaustive for iSCSI
+        1.0.11 - Update driver to use ABC metaclasses
     """
 
-    VERSION = "1.0.9"
+    VERSION = "1.0.11"
 
     def __init__(self, *args, **kwargs):
         super(FlashSystemDriver, self).__init__(*args, **kwargs)
