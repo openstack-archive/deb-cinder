@@ -1,0 +1,14 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+1: Tiago Pasqualini da Silva <tiago.pasqualini@gmail.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+1: José Mello <jose.eduardo.jr@gmail.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+1: Alyson <alyson.rodrigues.rosa@gmail.com>
+Code-Review+1: Jose Falavinha <jose.falavinha@fit-tecnologia.org.br>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 05 Aug 2016 16:54:27 +0000
+Reviewed-on: https://review.openstack.org/285469
+Project: openstack/deb-cinder
+Branch: refs/heads/master

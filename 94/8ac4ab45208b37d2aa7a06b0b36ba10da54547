@@ -1,0 +1,10 @@
+Code-Review+1: Nate Potter <nathaniel.potter@intel.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Workflow+1: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 22 Jul 2016 11:29:07 +0000
+Reviewed-on: https://review.openstack.org/330212
+Project: openstack/deb-cinder
+Branch: refs/heads/master

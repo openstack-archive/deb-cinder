@@ -1,0 +1,12 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+2: Walter A. Boring IV (hemna) <walter.boring@hpe.com>
+Workflow+1: Walter A. Boring IV (hemna) <walter.boring@hpe.com>
+Code-Review+2: Jay Bryant <jsbryant@us.ibm.com>
+Code-Review+2: Patrick East <patrick.east@purestorage.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 22 Jul 2016 20:32:46 +0000
+Reviewed-on: https://review.openstack.org/318572
+Project: openstack/deb-cinder
+Branch: refs/heads/master

@@ -1,0 +1,14 @@
+Code-Review+1: Lucian Petrut <lpetrut@cloudbasesolutions.com>
+Code-Review+1: Vipin Balachandran <vbala@vmware.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+1: Rahul U Nair <rahulunair@gmail.com>
+Code-Review+1: Harini <harinipradeep27@gmail.com>
+Code-Review+1: Kendall Nelson <kennelson11@gmail.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 11 Aug 2016 11:43:48 +0000
+Reviewed-on: https://review.openstack.org/347944
+Project: openstack/deb-cinder
+Branch: refs/heads/master

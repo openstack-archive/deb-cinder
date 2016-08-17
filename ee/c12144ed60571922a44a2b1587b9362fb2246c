@@ -1,0 +1,10 @@
+Code-Review+2: Duncan Thomas <duncan.thomas@gmail.com>
+Code-Review+1: Yuriy Nesenenko <ynesenenko@mirantis.com>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Workflow+1: Mike Perez <thingee@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 19 Jul 2016 18:12:47 +0000
+Reviewed-on: https://review.openstack.org/334664
+Project: openstack/deb-cinder
+Branch: refs/heads/master

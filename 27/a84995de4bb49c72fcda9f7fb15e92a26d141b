@@ -1,0 +1,10 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+1: Swami Reddy <swamireddy@gmail.com>
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Workflow+1: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 14 Jul 2016 09:58:58 +0000
+Reviewed-on: https://review.openstack.org/335103
+Project: openstack/deb-cinder
+Branch: refs/heads/master

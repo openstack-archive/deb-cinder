@@ -1,0 +1,11 @@
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Code-Review+1: Yuriy Nesenenko <ynesenenko@mirantis.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Code-Review+1: Kushal Wathore <kushal.wathore@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 29 Jul 2016 02:24:22 +0000
+Reviewed-on: https://review.openstack.org/346470
+Project: openstack/deb-cinder
+Branch: refs/heads/master

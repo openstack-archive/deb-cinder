@@ -1,0 +1,10 @@
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 28 Jul 2016 05:55:47 +0000
+Reviewed-on: https://review.openstack.org/344766
+Project: openstack/deb-cinder
+Branch: refs/heads/master

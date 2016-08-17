@@ -1,0 +1,16 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: Duncan Thomas <duncan.thomas@gmail.com>
+Workflow+1: Duncan Thomas <duncan.thomas@gmail.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+1: huanan <huanan@huawei.com>
+Code-Review+1: Eric Harney <eharney@redhat.com>
+Code-Review+1: melissaml <ma.lei@99cloud.net>
+Verified+1: VMware NSX CI
+Code-Review+1: bruce-benjamin <bruce.benjamin@jhuapl.edu>
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 04 Aug 2016 04:28:09 +0000
+Reviewed-on: https://review.openstack.org/339313
+Project: openstack/deb-cinder
+Branch: refs/heads/master

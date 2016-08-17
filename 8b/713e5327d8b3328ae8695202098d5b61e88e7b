@@ -1,0 +1,13 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: Patrick East <patrick.east@purestorage.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+1: Yuriy Nesenenko <ynesenenko@mirantis.com>
+Workflow+1: Patrick East <patrick.east@purestorage.com>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 26 Jul 2016 10:47:44 +0000
+Reviewed-on: https://review.openstack.org/327689
+Project: openstack/deb-cinder
+Branch: refs/heads/master

@@ -1,0 +1,9 @@
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Workflow+1: Gorka Eguileor <geguileo@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 11 Aug 2016 23:27:05 +0000
+Reviewed-on: https://review.openstack.org/353137
+Project: openstack/deb-cinder
+Branch: refs/heads/master
