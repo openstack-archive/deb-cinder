@@ -1,0 +1,10 @@
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Code-Review+1: Jay Bryant <jsbryant@us.ibm.com>
+Code-Review+2: Thierry Carrez <thierry@openstack.org>
+Workflow+1: Thierry Carrez <thierry@openstack.org>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 10 Oct 2013 21:21:51 +0000
+Reviewed-on: https://review.openstack.org/50958
+Project: openstack/deb-cinder
+Branch: refs/heads/milestone-proposed

@@ -1,0 +1,11 @@
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Code-Review+1: Josh Durgin <jdurgin@redhat.com>
+Code-Review+1: Mike Perez <thingee@gmail.com>
+Code-Review+2: Mark McLoughlin <markmc@redhat.com>
+Workflow+1: Mark McLoughlin <markmc@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 28 Nov 2012 20:04:29 +0000
+Reviewed-on: https://review.openstack.org/17069
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/folsom

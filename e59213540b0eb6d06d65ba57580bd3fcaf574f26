@@ -1,0 +1,10 @@
+Code-Review+2: Mark McLoughlin <markmc@redhat.com>
+Workflow+1: Mark McLoughlin <markmc@redhat.com>
+Code-Review+2: Thierry Carrez <thierry@openstack.org>
+Workflow+1: Thierry Carrez <thierry@openstack.org>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 04 Apr 2013 19:42:48 +0000
+Reviewed-on: https://review.openstack.org/26102
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/grizzly

@@ -1,0 +1,8 @@
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 23 Mar 2013 23:28:32 +0000
+Reviewed-on: https://review.openstack.org/25222
+Project: openstack/deb-cinder
+Branch: refs/heads/milestone-proposed

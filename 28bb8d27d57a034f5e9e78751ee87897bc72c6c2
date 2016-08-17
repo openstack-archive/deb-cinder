@@ -1,0 +1,11 @@
+Code-Review+2: Jay Bryant <jsbryant@us.ibm.com>
+Code-Review+1: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+1: Vipin Balachandran <vbala@vmware.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 06 Jun 2015 15:18:35 +0000
+Reviewed-on: https://review.openstack.org/188403
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/kilo
