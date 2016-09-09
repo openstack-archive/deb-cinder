@@ -1,0 +1,9 @@
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+2: Duncan Thomas <duncan.thomas@gmail.com>
+Workflow+1: Duncan Thomas <duncan.thomas@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 05 Sep 2016 09:55:06 +0000
+Reviewed-on: https://review.openstack.org/358720
+Project: openstack/deb-cinder
+Branch: refs/heads/master

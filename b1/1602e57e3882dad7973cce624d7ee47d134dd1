@@ -1,0 +1,12 @@
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Code-Review+1: melissaml <ma.lei@99cloud.net>
+Code-Review+1: Kushal Wathore <kushal.wathore@hpe.com>
+Code-Review+1: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Workflow+1: xing-yang <xing.yang@emc.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 07 Sep 2016 19:04:20 +0000
+Reviewed-on: https://review.openstack.org/362643
+Project: openstack/deb-cinder
+Branch: refs/heads/master

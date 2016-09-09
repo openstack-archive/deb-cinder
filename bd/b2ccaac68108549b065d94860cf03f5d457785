@@ -1,0 +1,9 @@
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Workflow+1: Eric Harney <eharney@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 06 Sep 2016 17:49:16 +0000
+Reviewed-on: https://review.openstack.org/366114
+Project: openstack/deb-cinder
+Branch: refs/heads/master

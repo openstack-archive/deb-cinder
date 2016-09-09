@@ -1,0 +1,9 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Workflow+1: Eric Harney <eharney@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 06 Sep 2016 18:10:43 +0000
+Reviewed-on: https://review.openstack.org/354289
+Project: openstack/deb-cinder
+Branch: refs/heads/master

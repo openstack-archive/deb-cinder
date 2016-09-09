@@ -1,0 +1,10 @@
+Code-Review+1: Jeff Seiler <jeff_seiler@dell.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Workflow+1: xing-yang <xing.yang@emc.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 Aug 2016 04:25:15 +0000
+Reviewed-on: https://review.openstack.org/350782
+Project: openstack/deb-cinder
+Branch: refs/heads/master

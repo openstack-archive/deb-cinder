@@ -1,0 +1,11 @@
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Code-Review+1: Vipin Balachandran <vbala@vmware.com>
+Code-Review+1: liucheng <liucheng20@huawei.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Workflow+1: xing-yang <xing.yang@emc.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 29 Aug 2016 04:39:39 +0000
+Reviewed-on: https://review.openstack.org/356624
+Project: openstack/deb-cinder
+Branch: refs/heads/master

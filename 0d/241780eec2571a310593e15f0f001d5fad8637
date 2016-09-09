@@ -1,0 +1,11 @@
+Code-Review+1: liucheng <liucheng20@huawei.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+1: David Rosales <darosale@us.ibm.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Sep 2016 17:04:27 +0000
+Reviewed-on: https://review.openstack.org/363546
+Project: openstack/deb-cinder
+Branch: refs/heads/master

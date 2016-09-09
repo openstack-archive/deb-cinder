@@ -1,0 +1,10 @@
+Verified+1: VMware NSX CI
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Workflow+1: xing-yang <xing.yang@emc.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 09 Sep 2016 22:02:13 +0000
+Reviewed-on: https://review.openstack.org/366939
+Project: openstack/deb-cinder
+Branch: refs/heads/master

@@ -1,0 +1,9 @@
+Code-Review+2: Walter A. Boring IV (hemna) <walter.boring@hpe.com>
+Code-Review+2: Patrick East <patrick.east@purestorage.com>
+Workflow+1: Patrick East <patrick.east@purestorage.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Sep 2016 18:57:46 +0000
+Reviewed-on: https://review.openstack.org/366759
+Project: openstack/deb-cinder
+Branch: refs/heads/master

@@ -1,0 +1,10 @@
+Code-Review+2: Scott DAngelo <scott.dangelo@hpe.com>
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Workflow+1: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 29 Aug 2016 11:03:03 +0000
+Reviewed-on: https://review.openstack.org/361270
+Project: openstack/deb-cinder
+Branch: refs/heads/master

@@ -1,0 +1,13 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+1: Yuriy Nesenenko <ynesenenko@mirantis.com>
+Code-Review+1: huyang <huyang1@huawei.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Verified+1: VMware NSX CI
+Workflow+1: xing-yang <xing.yang@emc.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 27 Aug 2016 18:54:23 +0000
+Reviewed-on: https://review.openstack.org/344069
+Project: openstack/deb-cinder
+Branch: refs/heads/master

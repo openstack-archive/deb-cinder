@@ -1,0 +1,10 @@
+Verified+1: VMware NSX CI
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+2: Walter A. Boring IV (hemna) <walter.boring@hpe.com>
+Workflow+1: Walter A. Boring IV (hemna) <walter.boring@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 18 Aug 2016 19:13:51 +0000
+Reviewed-on: https://review.openstack.org/317060
+Project: openstack/deb-cinder
+Branch: refs/heads/master

@@ -1,0 +1,12 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+1: Sumit Girish Shatwara <sumit.shatwara@hpe.com>
+Code-Review+1: Yuriy Nesenenko <ynesenenko@mirantis.com>
+Code-Review+1: haobing <hao.bing1@zte.com.cn>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 29 Aug 2016 11:03:14 +0000
+Reviewed-on: https://review.openstack.org/358491
+Project: openstack/deb-cinder
+Branch: refs/heads/master

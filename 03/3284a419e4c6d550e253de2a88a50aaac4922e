@@ -1,0 +1,16 @@
+Code-Review+1: chenzongliang <chenzongliang@huawei.com>
+Code-Review+1: Lallana <gaozhiqiang2@huawei.com>
+Code-Review+1: Anthony Lee <anthony.mic.lee@hpe.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+1: Jay.Shen <shenhong09@huawei.com>
+Code-Review+1: huyang <huyang1@huawei.com>
+Code-Review+1: liuke <liuke2@huawei.com>
+Code-Review+2: Duncan Thomas <duncan.thomas@gmail.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 05 Sep 2016 16:01:52 +0000
+Reviewed-on: https://review.openstack.org/362031
+Project: openstack/deb-cinder
+Branch: refs/heads/master
