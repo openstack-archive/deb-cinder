@@ -1,0 +1,12 @@
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Code-Review+1: Vipin Balachandran <vbala@vmware.com>
+Code-Review+1: Suyash Sambhare <suyash.sambhare@hpe.com>
+Code-Review+1: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Workflow+1: Mike Perez <thingee@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 10 Aug 2016 19:26:09 +0000
+Reviewed-on: https://review.openstack.org/345585
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/mitaka
