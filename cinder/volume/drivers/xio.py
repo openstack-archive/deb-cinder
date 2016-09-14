@@ -62,7 +62,7 @@ def RaiseXIODriverException():
     raise exception.XIODriverException()
 
 
-class XIOISEDriver(object):
+class XIOISEDriver(driver.VolumeDriver):
 
     VERSION = '1.1.4'
 
@@ -73,6 +73,9 @@ class XIOISEDriver(object):
     # 1.1.2     Fix host object deletion (Bug 1433450).
     # 1.1.3     Wait for volume/snapshot to be deleted.
     # 1.1.4     Force target_lun to be int (Bug 1549048)
+
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "X-IO_technologies_CI"
 
     def __init__(self, *args, **kwargs):
         super(XIOISEDriver, self).__init__()
@@ -1385,6 +1388,7 @@ class XIOISEDriver(object):
 class XIOISEISCSIDriver(driver.ISCSIDriver):
 
     """Requires ISE Running FW version 3.1.0 or higher"""
+    VERSION = XIOISEDriver.VERSION
 
     def __init__(self, *args, **kwargs):
         super(XIOISEISCSIDriver, self).__init__(*args, **kwargs)
@@ -1512,6 +1516,7 @@ class XIOISEISCSIDriver(driver.ISCSIDriver):
 class XIOISEFCDriver(driver.FibreChannelDriver):
 
     """Requires ISE Running FW version 2.8.0 or higher"""
+    VERSION = XIOISEDriver.VERSION
 
     def __init__(self, *args, **kwargs):
         super(XIOISEFCDriver, self).__init__(*args, **kwargs)

@@ -54,6 +54,9 @@ class V7000ISCSIDriver(driver.ISCSIDriver):
 
     VERSION = '1.0'
 
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "Violin_Memory_CI"
+
     def __init__(self, *args, **kwargs):
         super(V7000ISCSIDriver, self).__init__(*args, **kwargs)
         self.stats = {}
@@ -79,7 +82,7 @@ class V7000ISCSIDriver(driver.ISCSIDriver):
         # Getting iscsi IPs from the array is incredibly expensive,
         # so only do it once.
         if not self.configuration.violin_iscsi_target_ips:
-            LOG.warning(_LW("iSCSI target ip addresses not configured "))
+            LOG.warning(_LW("iSCSI target ip addresses not configured. "))
             self.gateway_iscsi_ip_addresses = (
                 self.common.vmem_mg.utility.get_iscsi_interfaces())
         else:
@@ -260,7 +263,7 @@ class V7000ISCSIDriver(driver.ISCSIDriver):
         """
         v = self.common.vmem_mg
 
-        LOG.info(_LI("Unexporting lun %(vol)s host is %(host)s"),
+        LOG.info(_LI("Unexporting lun %(vol)s host is %(host)s."),
                  {'vol': volume['id'], 'host': connector['host']})
 
         try:
@@ -269,7 +272,7 @@ class V7000ISCSIDriver(driver.ISCSIDriver):
                                   volume['id'], target, True)
 
         except exception.ViolinBackendErrNotFound:
-            LOG.info(_LI("Lun %s already unexported, continuing"),
+            LOG.info(_LI("Lun %s already unexported, continuing..."),
                      volume['id'])
 
         except Exception:
@@ -284,7 +287,7 @@ class V7000ISCSIDriver(driver.ISCSIDriver):
         client info has the lun_id.
 
         Note: The structure returned for iscsi is different from the
-        one returned for FC. Therefore this funtion is here instead of
+        one returned for FC. Therefore this function is here instead of
         common.
 
         Arguments:
@@ -310,7 +313,7 @@ class V7000ISCSIDriver(driver.ISCSIDriver):
         client info has the lun_id.
 
         Note: The structure returned for iscsi is different from the
-        one returned for FC. Therefore this funtion is here instead of
+        one returned for FC. Therefore this function is here instead of
         common.
 
         Arguments:

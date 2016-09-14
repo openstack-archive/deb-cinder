@@ -36,11 +36,8 @@ import sys
 import tempfile
 import time
 import types
-from xml.dom import minidom
-from xml.parsers import expat
-from xml import sax
-from xml.sax import expatreader
 
+from os_brick import encryptors
 from os_brick.initiator import connector
 from oslo_concurrency import lockutils
 from oslo_concurrency import processutils
@@ -57,6 +54,7 @@ import webob.exc
 
 from cinder import exception
 from cinder.i18n import _, _LE, _LW
+from cinder import keymgr
 
 
 CONF = cfg.CONF
@@ -268,52 +266,6 @@ def last_completed_audit_period(unit=None):
         begin = end - datetime.timedelta(hours=1)
 
     return (begin, end)
-
-
-class ProtectedExpatParser(expatreader.ExpatParser):
-    """An expat parser which disables DTD's and entities by default."""
-
-    def __init__(self, forbid_dtd=True, forbid_entities=True,
-                 *args, **kwargs):
-        # Python 2.x old style class
-        expatreader.ExpatParser.__init__(self, *args, **kwargs)
-        self.forbid_dtd = forbid_dtd
-        self.forbid_entities = forbid_entities
-
-    def start_doctype_decl(self, name, sysid, pubid, has_internal_subset):
-        raise ValueError("Inline DTD forbidden")
-
-    def entity_decl(self, entityName, is_parameter_entity, value, base,
-                    systemId, publicId, notationName):
-        raise ValueError("<!ENTITY> forbidden")
-
-    def unparsed_entity_decl(self, name, base, sysid, pubid, notation_name):
-        # expat 1.2
-        raise ValueError("<!ENTITY> forbidden")
-
-    def reset(self):
-        expatreader.ExpatParser.reset(self)
-        if self.forbid_dtd:
-            self._parser.StartDoctypeDeclHandler = self.start_doctype_decl
-        if self.forbid_entities:
-            self._parser.EntityDeclHandler = self.entity_decl
-            self._parser.UnparsedEntityDeclHandler = self.unparsed_entity_decl
-
-
-def safe_minidom_parse_string(xml_string):
-    """Parse an XML string using minidom safely.
-
-    """
-    try:
-        if six.PY3 and isinstance(xml_string, bytes):
-            # On Python 3, minidom.parseString() requires Unicode when
-            # the parser parameter is used.
-            #
-            # Bet that XML used in Cinder is always encoded to UTF-8.
-            xml_string = xml_string.decode('utf-8')
-        return minidom.parseString(xml_string, parser=ProtectedExpatParser())
-    except sax.SAXParseException:
-        raise expat.ExpatError()
 
 
 def is_valid_boolstr(val):
@@ -557,6 +509,36 @@ def brick_get_connector(protocol, driver=None,
                                                 *args, **kwargs)
 
 
+def brick_get_encryptor(connection_info, *args, **kwargs):
+    """Wrapper to get a brick encryptor object."""
+
+    root_helper = get_root_helper()
+    key_manager = keymgr.API()
+    return encryptors.get_volume_encryptor(root_helper=root_helper,
+                                           connection_info=connection_info,
+                                           keymgr=key_manager,
+                                           *args, **kwargs)
+
+
+def brick_attach_volume_encryptor(context, attach_info, encryption):
+    """Attach encryption layer."""
+    connection_info = attach_info['conn']
+    connection_info['data']['device_path'] = attach_info['device']['path']
+    encryptor = brick_get_encryptor(connection_info,
+                                    **encryption)
+    encryptor.attach_volume(context, **encryption)
+
+
+def brick_detach_volume_encryptor(attach_info, encryption):
+    """Detach encryption layer."""
+    connection_info = attach_info['conn']
+    connection_info['data']['device_path'] = attach_info['device']['path']
+
+    encryptor = brick_get_encryptor(connection_info,
+                                    **encryption)
+    encryptor.detach_volume(**encryption)
+
+
 def require_driver_initialized(driver):
     """Verifies if `driver` is initialized
 
@@ -570,6 +552,21 @@ def require_driver_initialized(driver):
         driver_name = driver.__class__.__name__
         LOG.error(_LE("Volume driver %s not initialized"), driver_name)
         raise exception.DriverNotInitialized()
+    else:
+        log_unsupported_driver_warning(driver)
+
+
+def log_unsupported_driver_warning(driver):
+    """Annoy the log about unsupported drivers."""
+    if not driver.supported:
+        # Check to see if the driver is flagged as supported.
+        LOG.warning(_LW("Volume driver (%(driver_name)s %(version)s) is "
+                        "currently unsupported and may be removed in the "
+                        "next release of OpenStack.  Use at your own risk."),
+                    {'driver_name': driver.__class__.__name__,
+                     'version': driver.get_version()},
+                    resource={'type': 'driver',
+                              'id': driver.__class__.__name__})
 
 
 def get_file_mode(path):
@@ -889,6 +886,7 @@ def trace(f):
             return f(*args, **kwargs)
 
         all_args = inspect.getcallargs(f, *args, **kwargs)
+
         logger.debug('==> %(func)s: call %(all_args)r',
                      {'func': func_name, 'all_args': all_args})
 
@@ -904,10 +902,17 @@ def trace(f):
             raise
         total_time = int(round(time.time() * 1000)) - start_time
 
+        if isinstance(result, dict):
+            mask_result = strutils.mask_dict_password(result)
+        elif isinstance(result, six.string_types):
+            mask_result = strutils.mask_password(result)
+        else:
+            mask_result = result
+
         logger.debug('<== %(func)s: return (%(time)dms) %(result)r',
                      {'func': func_name,
                       'time': total_time,
-                      'result': result})
+                      'result': mask_result})
         return result
     return trace_logging_wrapper
 
@@ -1004,7 +1009,8 @@ def calculate_virtual_free_capacity(total_capacity,
                                     provisioned_capacity,
                                     thin_provisioning_support,
                                     max_over_subscription_ratio,
-                                    reserved_percentage):
+                                    reserved_percentage,
+                                    thin):
     """Calculate the virtual free capacity based on thin provisioning support.
 
     :param total_capacity:  total_capacity_gb of a host_state or pool.
@@ -1017,13 +1023,14 @@ def calculate_virtual_free_capacity(total_capacity,
                                         a host_state or a pool
     :param reserved_percentage: reserved_percentage of a host_state or
                                 a pool.
+    :param thin: whether volume to be provisioned is thin
     :returns: the calculated virtual free capacity.
     """
 
     total = float(total_capacity)
     reserved = float(reserved_percentage) / 100
 
-    if thin_provisioning_support:
+    if thin and thin_provisioning_support:
         free = (total * max_over_subscription_ratio
                 - provisioned_capacity
                 - math.floor(total * reserved))
@@ -1061,10 +1068,10 @@ def validate_integer(value, name, min_value=None, max_value=None):
     return value
 
 
-def validate_extra_specs(specs):
-    """Validating key and value of extra specs."""
+def validate_dictionary_string_length(specs):
+    """Check the length of each key and value of dictionary."""
     if not isinstance(specs, dict):
-        msg = _('extra_specs must be a dictionary.')
+        msg = _('specs must be a dictionary.')
         raise exception.InvalidInput(reason=msg)
 
     for key, value in specs.items():
@@ -1075,3 +1082,8 @@ def validate_extra_specs(specs):
         if value is not None:
             check_string_length(value, 'Value for key "%s"' % key,
                                 min_length=0, max_length=255)
+
+
+def service_expired_time(with_timezone=False):
+    return (timeutils.utcnow(with_timezone=with_timezone) -
+            datetime.timedelta(seconds=CONF.service_down_time))

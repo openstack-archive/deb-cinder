@@ -45,7 +45,6 @@ from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder import interface
-from cinder import objects
 from cinder.objects import fields
 from cinder import utils
 from cinder.volume import driver
@@ -361,6 +360,10 @@ class XtremIOVolumeDriver(san.SanDriver):
     """Executes commands relating to Volumes."""
 
     VERSION = '1.0.7'
+
+    # ThirdPartySystems wiki
+    CI_WIKI_NAME = "EMC_XIO_CI"
+
     driver_name = 'XtremIO'
     MIN_XMS_VERSION = [3, 0, 0]
 
@@ -469,6 +472,27 @@ class XtremIOVolumeDriver(san.SanDriver):
         except exception.NotFound:
             LOG.info(_LI("snapshot %s doesn't exist"), snapshot.id)
 
+    def update_migrated_volume(self, ctxt, volume, new_volume,
+                               original_volume_status):
+        # as the volume name is used to id the volume we need to rename it
+        name_id = None
+        provider_location = None
+        current_name = new_volume['id']
+        original_name = volume['id']
+        try:
+            data = {'name': original_name}
+            self.client.req('volumes', 'PUT', data, name=current_name)
+        except exception.VolumeBackendAPIException:
+            LOG.error(_LE('Unable to rename the logical volume '
+                          'for volume: %s'), original_name)
+            # If the rename fails, _name_id should be set to the new
+            # volume id and provider_location should be set to the
+            # one from the new volume as well.
+            name_id = new_volume['_name_id'] or new_volume['id']
+            provider_location = new_volume['provider_location']
+
+        return {'_name_id': name_id, 'provider_location': provider_location}
+
     def _update_volume_stats(self):
         sys = self.client.get_cluster()
         physical_space = int(sys["ud-ssd-space"]) / units.Mi
@@ -502,22 +526,33 @@ class XtremIOVolumeDriver(san.SanDriver):
             self._update_volume_stats()
         return self._stats
 
-    def manage_existing(self, volume, existing_ref):
+    def manage_existing(self, volume, existing_ref, is_snapshot=False):
         """Manages an existing LV."""
         lv_name = existing_ref['source-name']
         # Attempt to locate the volume.
         try:
             vol_obj = self.client.req('volumes', name=lv_name)['content']
+            if (
+                is_snapshot and
+                (not vol_obj['ancestor-vol-id'] or
+                 vol_obj['ancestor-vol-id'][XTREMIO_OID_NAME] !=
+                 volume.volume_id)):
+                kwargs = {'existing_ref': lv_name,
+                          'reason': 'Not a snapshot of vol %s' %
+                          volume.volume_id}
+                raise exception.ManageExistingInvalidReference(**kwargs)
         except exception.NotFound:
             kwargs = {'existing_ref': lv_name,
-                      'reason': 'Specified logical volume does not exist.'}
+                      'reason': 'Specified logical %s does not exist.' %
+                      'snapshot' if is_snapshot else 'volume'}
             raise exception.ManageExistingInvalidReference(**kwargs)
 
         # Attempt to rename the LV to match the OpenStack internal name.
         self.client.req('volumes', 'PUT', data={'vol-name': volume['id']},
                         idx=vol_obj['index'])
 
-    def manage_existing_get_size(self, volume, existing_ref):
+    def manage_existing_get_size(self, volume, existing_ref,
+                                 is_snapshot=False):
         """Return size of an existing LV for manage_existing."""
         # Check that the reference is valid
         if 'source-name' not in existing_ref:
@@ -530,25 +565,36 @@ class XtremIOVolumeDriver(san.SanDriver):
             vol_obj = self.client.req('volumes', name=lv_name)['content']
         except exception.NotFound:
             kwargs = {'existing_ref': lv_name,
-                      'reason': 'Specified logical volume does not exist.'}
+                      'reason': 'Specified logical %s does not exist.' %
+                      'snapshot' if is_snapshot else 'volume'}
             raise exception.ManageExistingInvalidReference(**kwargs)
         # LV size is returned in gigabytes.  Attempt to parse size as a float
         # and round up to the next integer.
-        lv_size = int(math.ceil(int(vol_obj['vol-size']) / units.Mi))
+        lv_size = int(math.ceil(float(vol_obj['vol-size']) / units.Mi))
 
         return lv_size
 
-    def unmanage(self, volume):
+    def unmanage(self, volume, is_snapshot=False):
         """Removes the specified volume from Cinder management."""
         # trying to rename the volume to [cinder name]-unmanged
         try:
             self.client.req('volumes', 'PUT', name=volume['id'],
                             data={'vol-name': volume['name'] + '-unmanged'})
         except exception.NotFound:
-            LOG.info(_LI("Volume with the name %s wasn't found,"
-                         " can't unmanage"),
-                     volume['id'])
+            LOG.info(_LI("%(typ)s with the name %(name)s wasn't found, "
+                         "can't unmanage") %
+                     {'typ': 'Snapshot' if is_snapshot else 'Volume',
+                      'name': volume['id']})
             raise exception.VolumeNotFound(volume_id=volume['id'])
+
+    def manage_existing_snapshot(self, snapshot, existing_ref):
+        self.manage_existing(snapshot, existing_ref, True)
+
+    def manage_existing_snapshot_get_size(self, snapshot, existing_ref):
+        return self.manage_existing_get_size(snapshot, existing_ref, True)
+
+    def unmanage_snapshot(self, snapshot):
+        self.unmanage(snapshot, True)
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume's size."""
@@ -732,30 +778,14 @@ class XtremIOVolumeDriver(san.SanDriver):
                 'snapshot-set-name': self._get_cgsnap_name(cgsnapshot)}
         self.client.req('snapshots', 'POST', data, ver='v2')
 
-        snapshots = objects.SnapshotList().get_all_for_cgsnapshot(
-            context, cgsnapshot['id'])
-
-        for snapshot in snapshots:
-            snapshot.status = fields.SnapshotStatus.AVAILABLE
-
-        model_update = {'status': 'available'}
-
-        return model_update, snapshots
+        return None, None
 
     def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
-        self.client.req('snapshot-sets', 'DELETE',
+        self.client.req('snapshot-sets', fields.SnapshotStatus.DELETED,
                         name=self._get_cgsnap_name(cgsnapshot), ver='v2')
 
-        snapshots = objects.SnapshotList().get_all_for_cgsnapshot(
-            context, cgsnapshot['id'])
-
-        for snapshot in snapshots:
-            snapshot.status = fields.SnapshotStatus.DELETED
-
-        model_update = {'status': cgsnapshot.status}
-
-        return model_update, snapshots
+        return None, None
 
     def _get_ig(self, name):
         try:

@@ -14,6 +14,8 @@
 
 import ddt
 import mock
+from oslo_utils import timeutils
+import pytz
 import six
 
 from cinder import context
@@ -44,7 +46,8 @@ class TestVolume(test_objects.BaseObjectsTestCase):
 
     @mock.patch('cinder.db.sqlalchemy.api.model_query')
     def test_get_by_id_no_existing_id(self, model_query):
-        pf = model_query().options().options().options().options().options()
+        pf = (model_query().options().options().options().options().options().
+              options())
         pf.filter_by().first.return_value = None
         self.assertRaises(exception.VolumeNotFound,
                           objects.Volume.get_by_id, self.context, 123)
@@ -132,8 +135,13 @@ class TestVolume(test_objects.BaseObjectsTestCase):
         volume.snapshots = objects.SnapshotList()
         self.assertRaises(exception.ObjectActionError, volume.save)
 
-    @mock.patch('cinder.db.volume_destroy')
-    def test_destroy(self, volume_destroy):
+    @mock.patch('oslo_utils.timeutils.utcnow', return_value=timeutils.utcnow())
+    @mock.patch('cinder.db.sqlalchemy.api.volume_destroy')
+    def test_destroy(self, volume_destroy, utcnow_mock):
+        volume_destroy.return_value = {
+            'status': 'deleted',
+            'deleted': True,
+            'deleted_at': utcnow_mock.return_value}
         db_volume = fake_volume.fake_db_volume()
         volume = objects.Volume._from_db_object(self.context,
                                                 objects.Volume(), db_volume)
@@ -141,6 +149,11 @@ class TestVolume(test_objects.BaseObjectsTestCase):
         self.assertTrue(volume_destroy.called)
         admin_context = volume_destroy.call_args[0][0]
         self.assertTrue(admin_context.is_admin)
+        self.assertTrue(volume.deleted)
+        self.assertEqual('deleted', volume.status)
+        self.assertEqual(utcnow_mock.return_value.replace(tzinfo=pytz.UTC),
+                         volume.deleted_at)
+        self.assertIsNone(volume.migration_status)
 
     def test_obj_fields(self):
         volume = objects.Volume(context=self.context, id=fake.VOLUME_ID,
@@ -368,6 +381,9 @@ class TestVolume(test_objects.BaseObjectsTestCase):
                          updated_dest_volume.display_description)
         self.assertEqual(src_volume.id, updated_dest_volume._name_id)
         self.assertTrue(volume_update.called)
+        volume_update.assert_has_calls([
+            mock.call(self.context, src_volume.id, mock.ANY),
+            mock.call(self.context, dest_volume.id, mock.ANY)])
         ctxt, vol_id, updates = volume_update.call_args[0]
         self.assertNotIn('volume_type', updates)
 
@@ -441,3 +457,24 @@ class TestVolumeList(test_objects.BaseObjectsTestCase):
             mock.sentinel.sorted_dirs, mock.sentinel.filters)
         self.assertEqual(1, len(volumes))
         TestVolume._compare(self, db_volume, volumes[0])
+
+    @mock.patch('cinder.db.volume_include_in_cluster')
+    def test_include_in_cluster(self, include_mock):
+        filters = {'host': mock.sentinel.host,
+                   'cluster_name': mock.sentinel.cluster_name}
+        cluster = 'new_cluster'
+        objects.VolumeList.include_in_cluster(self.context, cluster, **filters)
+        include_mock.assert_called_once_with(self.context, cluster, True,
+                                             **filters)
+
+    @mock.patch('cinder.db.volume_include_in_cluster')
+    def test_include_in_cluster_specify_partial(self, include_mock):
+        filters = {'host': mock.sentinel.host,
+                   'cluster_name': mock.sentinel.cluster_name}
+        cluster = 'new_cluster'
+        objects.VolumeList.include_in_cluster(self.context, cluster,
+                                              mock.sentinel.partial_rename,
+                                              **filters)
+        include_mock.assert_called_once_with(self.context, cluster,
+                                             mock.sentinel.partial_rename,
+                                             **filters)

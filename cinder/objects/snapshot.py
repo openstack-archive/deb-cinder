@@ -36,7 +36,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
 
     # NOTE(thangp): OPTIONAL_FIELDS are fields that would be lazy-loaded. They
     # are typically the relationship in the sqlalchemy object.
-    OPTIONAL_FIELDS = ('volume', 'metadata', 'cgsnapshot')
+    OPTIONAL_FIELDS = ('volume', 'metadata', 'cgsnapshot', 'group_snapshot')
 
     fields = {
         'id': fields.UUIDField(),
@@ -46,6 +46,7 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
 
         'volume_id': fields.UUIDField(nullable=True),
         'cgsnapshot_id': fields.UUIDField(nullable=True),
+        'group_snapshot_id': fields.UUIDField(nullable=True),
         'status': c_fields.SnapshotStatusField(nullable=True),
         'progress': fields.StringField(nullable=True),
         'volume_size': fields.IntegerField(nullable=True),
@@ -63,10 +64,15 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
 
         'volume': fields.ObjectField('Volume', nullable=True),
         'cgsnapshot': fields.ObjectField('CGSnapshot', nullable=True),
+        'group_snapshot': fields.ObjectField('GroupSnapshot', nullable=True),
     }
 
+    @property
+    def service_topic_queue(self):
+        return self.volume.service_topic_queue
+
     @classmethod
-    def _get_expected_attrs(cls, context):
+    def _get_expected_attrs(cls, context, *args, **kwargs):
         return 'metadata',
 
     # NOTE(thangp): obj_extra_fields is used to hold properties that are not
@@ -129,6 +135,12 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
             cgsnapshot._from_db_object(context, cgsnapshot,
                                        db_snapshot['cgsnapshot'])
             snapshot.cgsnapshot = cgsnapshot
+        if 'group_snapshot' in expected_attrs:
+            group_snapshot = objects.GroupSnapshot(context)
+            group_snapshot._from_db_object(context, group_snapshot,
+                                           db_snapshot['group_snapshot'])
+            snapshot.group_snapshot = group_snapshot
+
         if 'metadata' in expected_attrs:
             metadata = db_snapshot.get('snapshot_metadata')
             if metadata is None:
@@ -151,6 +163,13 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         if 'cgsnapshot' in updates:
             raise exception.ObjectActionError(action='create',
                                               reason=_('cgsnapshot assigned'))
+        if 'cluster' in updates:
+            raise exception.ObjectActionError(
+                action='create', reason=_('cluster assigned'))
+        if 'group_snapshot' in updates:
+            raise exception.ObjectActionError(
+                action='create',
+                reason=_('group_snapshot assigned'))
 
         db_snapshot = db.snapshot_create(self._context, updates)
         self._from_db_object(self._context, self, db_snapshot)
@@ -164,6 +183,13 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
             if 'cgsnapshot' in updates:
                 raise exception.ObjectActionError(
                     action='save', reason=_('cgsnapshot changed'))
+            if 'group_snapshot' in updates:
+                raise exception.ObjectActionError(
+                    action='save', reason=_('group_snapshot changed'))
+
+            if 'cluster' in updates:
+                raise exception.ObjectActionError(
+                    action='save', reason=_('cluster changed'))
 
             if 'metadata' in updates:
                 # Metadata items that are not specified in the
@@ -178,7 +204,9 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         self.obj_reset_changes()
 
     def destroy(self):
-        db.snapshot_destroy(self._context, self.id)
+        updated_values = db.snapshot_destroy(self._context, self.id)
+        self.update(updated_values)
+        self.obj_reset_changes(updated_values.keys())
 
     def obj_load_attr(self, attrname):
         if attrname not in self.OPTIONAL_FIELDS:
@@ -196,6 +224,11 @@ class Snapshot(base.CinderPersistentObject, base.CinderObject,
         if attrname == 'cgsnapshot':
             self.cgsnapshot = objects.CGSnapshot.get_by_id(self._context,
                                                            self.cgsnapshot_id)
+
+        if attrname == 'group_snapshot':
+            self.group_snapshot = objects.GroupSnapshot.get_by_id(
+                self._context,
+                self.group_snapshot_id)
 
         self.obj_reset_changes(fields=[attrname])
 
@@ -268,6 +301,14 @@ class SnapshotList(base.ObjectListBase, base.CinderObject):
     @classmethod
     def get_all_for_cgsnapshot(cls, context, cgsnapshot_id):
         snapshots = db.snapshot_get_all_for_cgsnapshot(context, cgsnapshot_id)
+        expected_attrs = Snapshot._get_expected_attrs(context)
+        return base.obj_make_list(context, cls(context), objects.Snapshot,
+                                  snapshots, expected_attrs=expected_attrs)
+
+    @classmethod
+    def get_all_for_group_snapshot(cls, context, group_snapshot_id):
+        snapshots = db.snapshot_get_all_for_group_snapshot(
+            context, group_snapshot_id)
         expected_attrs = Snapshot._get_expected_attrs(context)
         return base.obj_make_list(context, cls(context), objects.Snapshot,
                                   snapshots, expected_attrs=expected_attrs)

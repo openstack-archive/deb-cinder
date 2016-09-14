@@ -19,6 +19,7 @@ import taskflow.engines
 from taskflow.patterns import linear_flow
 from taskflow.types import failure as ft
 
+from cinder.common import constants
 from cinder import exception
 from cinder import flow_utils
 from cinder.i18n import _, _LE, _LW
@@ -47,6 +48,7 @@ SRC_VOL_PROCEED_STATUS = ('available', 'in-use',)
 REPLICA_PROCEED_STATUS = ('active', 'active-stopped',)
 CG_PROCEED_STATUS = ('available', 'creating',)
 CGSNAPSHOT_PROCEED_STATUS = ('available',)
+GROUP_PROCEED_STATUS = ('available', 'creating',)
 
 
 class ExtractVolumeRequestTask(flow_utils.CinderTask):
@@ -67,7 +69,7 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
                             'source_volid', 'volume_type', 'volume_type_id',
                             'encryption_key_id', 'source_replicaid',
                             'consistencygroup_id', 'cgsnapshot_id',
-                            'qos_specs'])
+                            'qos_specs', 'group_id'])
 
     def __init__(self, image_service, availability_zones, **kwargs):
         super(ExtractVolumeRequestTask, self).__init__(addons=[ACTION],
@@ -114,6 +116,11 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
         return self._extract_resource(consistencygroup, (CG_PROCEED_STATUS,),
                                       exception.InvalidConsistencyGroup,
                                       'consistencygroup')
+
+    def _extract_group(self, group):
+        return self._extract_resource(group, (GROUP_PROCEED_STATUS,),
+                                      exception.InvalidGroup,
+                                      'group')
 
     def _extract_cgsnapshot(self, cgsnapshot):
         return self._extract_resource(cgsnapshot, (CGSNAPSHOT_PROCEED_STATUS,),
@@ -269,7 +276,7 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
             return volume_type
 
     def _extract_availability_zone(self, availability_zone, snapshot,
-                                   source_volume):
+                                   source_volume, group):
         """Extracts and returns a validated availability zone.
 
         This function will extract the availability zone (if not provided) from
@@ -277,6 +284,14 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
         checks on the provided or extracted availability zone and then returns
         the validated availability zone.
         """
+
+        # If the volume will be created in a group, it should be placed in
+        # in same availability zone as the group.
+        if group:
+            try:
+                availability_zone = group['availability_zone']
+            except (TypeError, KeyError):
+                pass
 
         # Try to extract the availability zone from the corresponding snapshot
         # or source volume if either is valid so that we can be in the same
@@ -354,10 +369,22 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
             # Clone the existing key and associate a separate -- but
             # identical -- key with each volume.
             if encryption_key_id is not None:
-                encryption_key_id = key_manager.copy_key(context,
-                                                         encryption_key_id)
+                encryption_key_id = key_manager.store(
+                    context, key_manager.get(context, encryption_key_id))
             else:
-                encryption_key_id = key_manager.create_key(context)
+                volume_type_encryption = (
+                    volume_types.get_volume_type_encryption(context,
+                                                            volume_type_id))
+                cipher = volume_type_encryption.cipher
+                length = volume_type_encryption.key_size
+
+                # NOTE(kaitlin-farr): dm-crypt expects the cipher in a
+                # hyphenated format (aes-xts-plain64). The algorithm needs
+                # to be parsed out to pass to the key manager (aes).
+                algorithm = cipher.split('-')[0] if cipher else None
+                encryption_key_id = key_manager.create_key(context,
+                                                           algorithm=algorithm,
+                                                           length=length)
 
         return encryption_key_id
 
@@ -377,7 +404,7 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
 
     def execute(self, context, size, snapshot, image_id, source_volume,
                 availability_zone, volume_type, metadata, key_manager,
-                source_replica, consistencygroup, cgsnapshot):
+                source_replica, consistencygroup, cgsnapshot, group):
 
         utils.check_exclusive_options(snapshot=snapshot,
                                       imageRef=image_id,
@@ -392,12 +419,14 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
         size = self._extract_size(size, source_volume, snapshot)
         consistencygroup_id = self._extract_consistencygroup(consistencygroup)
         cgsnapshot_id = self._extract_cgsnapshot(cgsnapshot)
+        group_id = self._extract_group(group)
 
         self._check_image_metadata(context, image_id, size)
 
         availability_zone = self._extract_availability_zone(availability_zone,
                                                             snapshot,
-                                                            source_volume)
+                                                            source_volume,
+                                                            group)
 
         # TODO(joel-coffman): This special handling of snapshots to ensure that
         # their volume type matches the source volume is too convoluted. We
@@ -419,13 +448,6 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
         volume_type_id = self._get_volume_type_id(volume_type,
                                                   source_volume, snapshot)
 
-        if image_id and volume_types.is_encrypted(context, volume_type_id):
-            msg = _('Create encrypted volumes with type %(type)s '
-                    'from image %(image)s is not supported.')
-            msg = msg % {'type': volume_type_id,
-                         'image': image_id, }
-            raise exception.InvalidInput(reason=msg)
-
         encryption_key_id = self._get_encryption_key_id(key_manager,
                                                         context,
                                                         volume_type_id,
@@ -441,8 +463,6 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
             # to make sure we don't pass empty dict
             specs = None
 
-        utils.check_metadata_properties(metadata)
-
         return {
             'size': size,
             'snapshot_id': snapshot_id,
@@ -455,6 +475,7 @@ class ExtractVolumeRequestTask(flow_utils.CinderTask):
             'source_replicaid': source_replicaid,
             'consistencygroup_id': consistencygroup_id,
             'cgsnapshot_id': cgsnapshot_id,
+            'group_id': group_id,
         }
 
 
@@ -471,7 +492,8 @@ class EntryCreateTask(flow_utils.CinderTask):
                     'name', 'reservations', 'size', 'snapshot_id',
                     'source_volid', 'volume_type_id', 'encryption_key_id',
                     'source_replicaid', 'consistencygroup_id',
-                    'cgsnapshot_id', 'multiattach', 'qos_specs']
+                    'cgsnapshot_id', 'multiattach', 'qos_specs',
+                    'group_id', ]
         super(EntryCreateTask, self).__init__(addons=[ACTION],
                                               requires=requires)
         self.db = db
@@ -505,6 +527,16 @@ class EntryCreateTask(flow_utils.CinderTask):
         volume_properties.update(kwargs)
         volume = objects.Volume(context=context, **volume_properties)
         volume.create()
+
+        # FIXME(dulek): We're passing this volume_properties dict through RPC
+        # in request_spec. This shouldn't be needed, most data is replicated
+        # in both volume and other places. We should make Newton read data
+        # from just one correct place and leave just compatibility code.
+        #
+        # Right now - let's move it to versioned objects to be able to make
+        # non-backward compatible changes.
+
+        volume_properties = objects.VolumeProperties(**volume_properties)
 
         return {
             'volume_id': volume['id'],
@@ -665,7 +697,7 @@ class VolumeCastTask(flow_utils.CinderTask):
         requires = ['image_id', 'scheduler_hints', 'snapshot_id',
                     'source_volid', 'volume_id', 'volume', 'volume_type',
                     'volume_properties', 'source_replicaid',
-                    'consistencygroup_id', 'cgsnapshot_id', ]
+                    'consistencygroup_id', 'cgsnapshot_id', 'group_id', ]
         super(VolumeCastTask, self).__init__(addons=[ACTION],
                                              requires=requires)
         self.volume_rpcapi = volume_rpcapi
@@ -682,16 +714,21 @@ class VolumeCastTask(flow_utils.CinderTask):
         cgroup_id = request_spec['consistencygroup_id']
         host = None
         cgsnapshot_id = request_spec['cgsnapshot_id']
-
+        group_id = request_spec['group_id']
         if cgroup_id:
             # If cgroup_id existed, we should cast volume to the scheduler
             # to choose a proper pool whose backend is same as CG's backend.
             cgroup = objects.ConsistencyGroup.get_by_id(context, cgroup_id)
-            # FIXME(wanghao): CG_backend got added before request_spec was
+            request_spec['CG_backend'] = vol_utils.extract_host(cgroup.host)
+        elif group_id:
+            # If group_id exists, we should cast volume to the scheduler
+            # to choose a proper pool whose backend is same as group's backend.
+            group = objects.Group.get_by_id(context, group_id)
+            # FIXME(wanghao): group_backend got added before request_spec was
             # converted to versioned objects. We should make sure that this
             # will be handled by object version translations once we add
             # RequestSpec object.
-            request_spec['CG_backend'] = vol_utils.extract_host(cgroup.host)
+            request_spec['group_backend'] = vol_utils.extract_host(group.host)
         elif snapshot_id and CONF.snapshot_same_host:
             # NOTE(Rongze Zhu): A simple solution for bug 1008866.
             #
@@ -717,7 +754,7 @@ class VolumeCastTask(flow_utils.CinderTask):
             # to select the target host for this volume.
             self.scheduler_rpcapi.create_volume(
                 context,
-                CONF.volume_topic,
+                constants.VOLUME_TOPIC,
                 volume_id,
                 snapshot_id=snapshot_id,
                 image_id=image_id,
@@ -741,21 +778,26 @@ class VolumeCastTask(flow_utils.CinderTask):
 
     def execute(self, context, **kwargs):
         scheduler_hints = kwargs.pop('scheduler_hints', None)
-        request_spec = kwargs.copy()
+        db_vt = kwargs.pop('volume_type')
+        kwargs['volume_type'] = None
+        if db_vt:
+            kwargs['volume_type'] = objects.VolumeType()
+            objects.VolumeType()._from_db_object(context,
+                                                 kwargs['volume_type'], db_vt)
+        request_spec = objects.RequestSpec(**kwargs)
         filter_properties = {}
         if scheduler_hints:
             filter_properties['scheduler_hints'] = scheduler_hints
         self._cast_create_volume(context, request_spec, filter_properties)
 
-    def revert(self, context, result, flow_failures, **kwargs):
+    def revert(self, context, result, flow_failures, volume, **kwargs):
         if isinstance(result, ft.Failure):
             return
 
         # Restore the source volume status and set the volume to error status.
-        volume_id = kwargs['volume_id']
         common.restore_source_status(context, self.db, kwargs)
-        common.error_out_volume(context, self.db, volume_id)
-        LOG.error(_LE("Volume %s: create failed"), volume_id)
+        common.error_out(volume)
+        LOG.error(_LE("Volume %s: create failed"), volume.id)
         exc_info = False
         if all(flow_failures[-1].exc_info):
             exc_info = flow_failures[-1].exc_info

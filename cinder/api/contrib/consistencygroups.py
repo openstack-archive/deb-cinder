@@ -45,12 +45,10 @@ class ConsistencyGroupsController(wsgi.Controller):
         LOG.debug('show called for member %s', id)
         context = req.environ['cinder.context']
 
-        try:
-            consistencygroup = self.consistencygroup_api.get(
-                context,
-                group_id=id)
-        except exception.ConsistencyGroupNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
+        consistencygroup = self.consistencygroup_api.get(
+            context,
+            group_id=id)
 
         return self._view_builder.detail(req, consistencygroup)
 
@@ -73,14 +71,12 @@ class ConsistencyGroupsController(wsgi.Controller):
                 msg = _("Invalid value '%s' for force.") % force
                 raise exc.HTTPBadRequest(explanation=msg)
 
-        LOG.info(_LI('Delete consistency group with id: %s'), id,
-                 context=context)
+        LOG.info(_LI('Delete consistency group with id: %s'), id)
 
         try:
             group = self.consistencygroup_api.get(context, id)
             self.consistencygroup_api.delete(context, group, force)
-        except exception.ConsistencyGroupNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
         except exception.InvalidConsistencyGroup as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
 
@@ -132,19 +128,17 @@ class ConsistencyGroupsController(wsgi.Controller):
         availability_zone = consistencygroup.get('availability_zone', None)
 
         LOG.info(_LI("Creating consistency group %(name)s."),
-                 {'name': name},
-                 context=context)
+                 {'name': name})
 
         try:
             new_consistencygroup = self.consistencygroup_api.create(
                 context, name, description, volume_types,
                 availability_zone=availability_zone)
+        # Not found exception will be handled at the wsgi level
         except exception.InvalidConsistencyGroup as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
         except exception.InvalidVolumeType as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
-        except exception.ConsistencyGroupNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
 
         retval = self._view_builder.summary(req, new_consistencygroup)
         return retval
@@ -182,23 +176,20 @@ class ConsistencyGroupsController(wsgi.Controller):
         if cgsnapshot_id:
             LOG.info(_LI("Creating consistency group %(name)s from "
                          "cgsnapshot %(snap)s."),
-                     {'name': name, 'snap': cgsnapshot_id},
-                     context=context)
+                     {'name': name, 'snap': cgsnapshot_id})
         elif source_cgid:
             LOG.info(_LI("Creating consistency group %(name)s from "
                          "source consistency group %(source_cgid)s."),
-                     {'name': name, 'source_cgid': source_cgid},
-                     context=context)
+                     {'name': name, 'source_cgid': source_cgid})
 
         try:
             new_consistencygroup = self.consistencygroup_api.create_from_src(
                 context, name, description, cgsnapshot_id, source_cgid)
         except exception.InvalidConsistencyGroup as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
-        except exception.CgSnapshotNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
-        except exception.ConsistencyGroupNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        except exception.NotFound:
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.CinderException as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
 
@@ -222,18 +213,13 @@ class ConsistencyGroupsController(wsgi.Controller):
                   'name': name,
                   'description': description,
                   'add_volumes': add_volumes,
-                  'remove_volumes': remove_volumes},
-                 context=context)
+                  'remove_volumes': remove_volumes})
 
-        try:
-            group = self.consistencygroup_api.get(context, id)
-            self.consistencygroup_api.update(
-                context, group, name, description,
-                add_volumes, remove_volumes, allow_empty)
-        except exception.ConsistencyGroupNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
-        except exception.InvalidConsistencyGroup as error:
-            raise exc.HTTPBadRequest(explanation=error.msg)
+        # Handle relevant exceptions at wsgi level
+        group = self.consistencygroup_api.get(context, id)
+        self.consistencygroup_api.update(context, group, name, description,
+                                         add_volumes, remove_volumes,
+                                         allow_empty)
 
     def update(self, req, id, body):
         """Update the consistency group.

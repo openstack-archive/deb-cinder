@@ -21,15 +21,16 @@ import collections
 
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import importutils
 from oslo_utils import timeutils
 
+from cinder.common import constants
 from cinder import context as cinder_context
 from cinder import exception
 from cinder import objects
 from cinder import utils
 from cinder.i18n import _LI, _LW
 from cinder.scheduler import filters
-from cinder.scheduler import weights
 from cinder.volume import utils as vol_utils
 
 
@@ -46,7 +47,11 @@ host_manager_opts = [
                 default=[
                     'CapacityWeigher'
                 ],
-                help='Which weigher class names to use for weighing hosts.')
+                help='Which weigher class names to use for weighing hosts.'),
+    cfg.StrOpt('scheduler_weight_handler',
+               default='cinder.scheduler.weights.OrderedHostWeightHandler',
+               help='Which handler to use for selecting the host/pool '
+                    'after weighing'),
 ]
 
 CONF = cfg.CONF
@@ -347,8 +352,9 @@ class HostManager(object):
         self.filter_handler = filters.HostFilterHandler('cinder.scheduler.'
                                                         'filters')
         self.filter_classes = self.filter_handler.get_all_classes()
-        self.weight_handler = weights.HostWeightHandler('cinder.scheduler.'
-                                                        'weights')
+        self.weight_handler = importutils.import_object(
+            CONF.scheduler_weight_handler,
+            'cinder.scheduler.weights')
         self.weight_classes = self.weight_handler.get_all_classes()
 
         self._no_capabilities_hosts = set()  # Hosts having no capabilities
@@ -451,7 +457,7 @@ class HostManager(object):
     def _update_host_state_map(self, context):
 
         # Get resource usage across the available volume nodes:
-        topic = CONF.volume_topic
+        topic = constants.VOLUME_TOPIC
         volume_services = objects.ServiceList.get_all_by_topic(context,
                                                                topic,
                                                                disabled=False)

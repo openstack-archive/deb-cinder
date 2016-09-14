@@ -29,6 +29,10 @@ LOG = logging.getLogger(__name__)
 @interface.volumedriver
 class EMCCoprHDISCSIDriver(driver.ISCSIDriver):
     """CoprHD iSCSI Driver."""
+    VERSION = "3.0.0.0"
+
+    # ThirdPartySystems wiki page name
+    CI_WIKI_NAME = "EMC_CoprHD_CI"
 
     def __init__(self, *args, **kwargs):
         super(EMCCoprHDISCSIDriver, self).__init__(*args, **kwargs)
@@ -95,7 +99,7 @@ class EMCCoprHDISCSIDriver(driver.ISCSIDriver):
         return self.common.delete_consistencygroup(context, group, volumes)
 
     def update_consistencygroup(self, context, group,
-                                add_volumes, remove_volumes):
+                                add_volumes=None, remove_volumes=None):
         """Updates volumes in consistency group."""
         return self.common.update_consistencygroup(group, add_volumes,
                                                    remove_volumes)
