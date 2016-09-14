@@ -33,20 +33,21 @@ from cinder import exception
 from cinder.i18n import _
 from cinder import utils
 from cinder.volume.drivers.netapp.dataontap import block_base
-from cinder.volume.drivers.netapp.dataontap.client import client_cmode
 from cinder.volume.drivers.netapp.dataontap.performance import perf_cmode
 from cinder.volume.drivers.netapp.dataontap.utils import capabilities
+from cinder.volume.drivers.netapp.dataontap.utils import data_motion
+from cinder.volume.drivers.netapp.dataontap.utils import utils as cmode_utils
 from cinder.volume.drivers.netapp import options as na_opts
 from cinder.volume.drivers.netapp import utils as na_utils
 
 
 LOG = logging.getLogger(__name__)
-QOS_CLEANUP_INTERVAL_SECONDS = 60
 SSC_UPDATE_INTERVAL_SECONDS = 3600  # hourly
 
 
 @six.add_metaclass(utils.TraceWrapperMetaclass)
-class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
+class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary,
+                                     data_motion.DataMotionMixin):
     """NetApp block storage library for Data ONTAP (Cluster-mode)."""
 
     REQUIRED_CMODE_FLAGS = ['netapp_vserver']
@@ -57,26 +58,41 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
                                                              **kwargs)
         self.configuration.append_config_values(na_opts.netapp_cluster_opts)
         self.driver_mode = 'cluster'
+        self.failed_over_backend_name = kwargs.get('active_backend_id')
+        self.failed_over = self.failed_over_backend_name is not None
+        self.replication_enabled = (
+            True if self.get_replication_backend_names(
+                self.configuration) else False)
 
     def do_setup(self, context):
         super(NetAppBlockStorageCmodeLibrary, self).do_setup(context)
         na_utils.check_flags(self.REQUIRED_CMODE_FLAGS, self.configuration)
 
-        self.vserver = self.configuration.netapp_vserver
+        # cDOT API client
+        self.zapi_client = cmode_utils.get_client_for_backend(
+            self.failed_over_backend_name or self.backend_name)
+        self.vserver = self.zapi_client.vserver
 
-        self.zapi_client = client_cmode.Client(
-            transport_type=self.configuration.netapp_transport_type,
-            username=self.configuration.netapp_login,
-            password=self.configuration.netapp_password,
-            hostname=self.configuration.netapp_server_hostname,
-            port=self.configuration.netapp_server_port,
-            vserver=self.vserver)
-
+        # Performance monitoring library
         self.perf_library = perf_cmode.PerformanceCmodeLibrary(
             self.zapi_client)
+
+        # Storage service catalog
         self.ssc_library = capabilities.CapabilitiesLibrary(
             self.driver_protocol, self.vserver, self.zapi_client,
             self.configuration)
+
+    def _update_zapi_client(self, backend_name):
+        """Set cDOT API client for the specified config backend stanza name."""
+
+        self.zapi_client = cmode_utils.get_client_for_backend(backend_name)
+        self.vserver = self.zapi_client.vserver
+        self.ssc_library._update_for_failover(self.zapi_client,
+                                              self._get_flexvol_to_pool_map())
+        ssc = self.ssc_library.get_ssc()
+        self.perf_library._update_for_failover(self.zapi_client, ssc)
+        # Clear LUN table cache
+        self.lun_table = {}
 
     def check_for_setup_error(self):
         """Check that the driver is working and can communicate."""
@@ -89,9 +105,9 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
             raise exception.NetAppDriverException(msg)
 
         super(NetAppBlockStorageCmodeLibrary, self).check_for_setup_error()
-        self._start_periodic_tasks()
 
     def _start_periodic_tasks(self):
+        """Start recurring tasks for NetApp cDOT block drivers."""
 
         # Note(cknight): Run the task once in the current thread to prevent a
         # race with the first invocation of _update_volume_stats.
@@ -104,12 +120,32 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
             interval=SSC_UPDATE_INTERVAL_SECONDS,
             initial_delay=SSC_UPDATE_INTERVAL_SECONDS)
 
-        # Start the task that harvests soft-deleted QoS policy groups.
-        harvest_qos_periodic_task = loopingcall.FixedIntervalLoopingCall(
-            self.zapi_client.remove_unused_qos_policy_groups)
-        harvest_qos_periodic_task.start(
-            interval=QOS_CLEANUP_INTERVAL_SECONDS,
-            initial_delay=QOS_CLEANUP_INTERVAL_SECONDS)
+        super(NetAppBlockStorageCmodeLibrary, self)._start_periodic_tasks()
+
+    def _handle_housekeeping_tasks(self):
+        """Handle various cleanup activities."""
+        (super(NetAppBlockStorageCmodeLibrary, self).
+         _handle_housekeeping_tasks())
+
+        # Harvest soft-deleted QoS policy groups
+        self.zapi_client.remove_unused_qos_policy_groups()
+
+        active_backend = self.failed_over_backend_name or self.backend_name
+
+        LOG.debug("Current service state: Replication enabled: %("
+                  "replication)s. Failed-Over: %(failed)s. Active Backend "
+                  "ID: %(active)s",
+                  {
+                      'replication': self.replication_enabled,
+                      'failed': self.failed_over,
+                      'active': active_backend,
+                  })
+
+        # Create pool mirrors if whole-backend replication configured
+        if self.replication_enabled and not self.failed_over:
+            self.ensure_snapmirrors(
+                self.configuration, self.backend_name,
+                self.ssc_library.get_ssc_flexvol_names())
 
     def _create_lun(self, volume_name, lun_name, size,
                     metadata, qos_policy_group_name=None):
@@ -118,8 +154,9 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
         self.zapi_client.create_lun(
             volume_name, lun_name, size, metadata, qos_policy_group_name)
 
-    def _create_lun_handle(self, metadata):
+    def _create_lun_handle(self, metadata, vserver=None):
         """Returns LUN handle based on filer type."""
+        vserver = vserver or self.vserver
         return '%s:%s' % (self.vserver, metadata['Path'])
 
     def _find_mapped_lun_igroup(self, path, initiator_list):
@@ -138,7 +175,7 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
 
     def _clone_lun(self, name, new_name, space_reserved=None,
                    qos_policy_group_name=None, src_block=0, dest_block=0,
-                   block_count=0, source_snapshot=None):
+                   block_count=0, source_snapshot=None, is_snapshot=False):
         """Clone LUN with the given handle to the new name."""
         if not space_reserved:
             space_reserved = self.lun_space_reservation
@@ -149,7 +186,8 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
                                    qos_policy_group_name=qos_policy_group_name,
                                    src_block=src_block, dest_block=dest_block,
                                    block_count=block_count,
-                                   source_snapshot=source_snapshot)
+                                   source_snapshot=source_snapshot,
+                                   is_snapshot=is_snapshot)
 
         LOG.debug("Cloned LUN with new name %s", new_name)
         lun = self.zapi_client.get_lun_by_args(vserver=self.vserver,
@@ -185,7 +223,7 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
 
     def _update_volume_stats(self, filter_function=None,
                              goodness_function=None):
-        """Retrieve stats info from vserver."""
+        """Retrieve backend stats."""
 
         LOG.debug('Updating volume stats')
         data = {}
@@ -198,6 +236,7 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
             filter_function=filter_function,
             goodness_function=goodness_function)
         data['sparse_copy_volume'] = True
+        data.update(self.get_replication_backend_stats(self.configuration))
 
         self.zapi_client.provide_ems(self, self.driver_name, self.app_version)
         self._stats = data
@@ -216,7 +255,12 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
         if not ssc:
             return pools
 
+        # Get up-to-date node utilization metrics just once
         self.perf_library.update_performance_cache(ssc)
+
+        # Get up-to-date aggregate capacities just once
+        aggregates = self.ssc_library.get_ssc_aggregates()
+        aggr_capacities = self.zapi_client.get_aggregate_capacities(aggregates)
 
         for ssc_vol_name, ssc_vol_info in ssc.items():
 
@@ -227,6 +271,7 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
 
             # Add driver capabilities and config info
             pool['QoS_support'] = True
+            pool['multiattach'] = True
             pool['consistencygroup_support'] = True
             pool['reserved_percentage'] = self.reserved_percentage
             pool['max_over_subscription_ratio'] = (
@@ -244,6 +289,11 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
 
             pool['provisioned_capacity_gb'] = round(
                 pool['total_capacity_gb'] - pool['free_capacity_gb'], 2)
+
+            aggregate_name = ssc_vol_info.get('netapp_aggregate')
+            aggr_capacity = aggr_capacities.get(aggregate_name, {})
+            pool['netapp_aggregate_used_percent'] = aggr_capacity.get(
+                'percent-used', 0)
 
             # Add utilization data
             utilization = self.perf_library.get_node_utilization_for_pool(
@@ -357,3 +407,8 @@ class NetAppBlockStorageCmodeLibrary(block_base.NetAppBlockStorageLibrary):
             qos_policy_group_info = None
         self._mark_qos_policy_group_for_deletion(qos_policy_group_info)
         super(NetAppBlockStorageCmodeLibrary, self).unmanage(volume)
+
+    def failover_host(self, context, volumes, secondary_id=None):
+        """Failover a backend to a secondary replication target."""
+
+        return self._failover_host(volumes, secondary_id=secondary_id)

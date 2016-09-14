@@ -573,13 +573,13 @@ class VolumeRetypeActionsTest(test.TestCase):
         self.retype_mocks['reserve'].side_effect = exc
         self._retype_volume_exec(413, vol_type_new.id, vol.id)
 
-    def _retype_volume_qos(self, vol_status, consumer, expected_status,
+    def _retype_volume_qos(self, vol_status, consumer_pass, expected_status,
                            same_qos=False, has_qos=True, has_type=True):
         admin_ctxt = context.get_admin_context()
         if has_qos:
             qos_old = utils.create_qos(admin_ctxt, self,
                                        name='old',
-                                       qos_specs={'consumer': consumer})['id']
+                                       consumer=consumer_pass)['id']
         else:
             qos_old = None
 
@@ -588,7 +588,7 @@ class VolumeRetypeActionsTest(test.TestCase):
         else:
             qos_new = utils.create_qos(admin_ctxt, self,
                                        name='new',
-                                       qos_specs={'consumer': consumer})['id']
+                                       consumer=consumer_pass)['id']
 
         if has_type:
             vol_type_old = utils.create_volume_type(admin_ctxt, self,
@@ -739,16 +739,16 @@ class VolumeRetypeActionsTest(test.TestCase):
         self._retype_volume_encryption('available', 202, False, False, False)
 
     def test_retype_volume_orig_no_type_dest_enc(self):
-        self._retype_volume_encryption('available', 400, False, False)
+        self._retype_volume_encryption('available', 202, False, False)
 
     def test_retype_volume_orig_type_no_enc_dest_no_enc(self):
         self._retype_volume_encryption('available', 202, True, False, False)
 
     def test_retype_volume_orig_type_no_enc_dest_enc(self):
-        self._retype_volume_encryption('available', 400, True, False)
+        self._retype_volume_encryption('available', 202, True, False)
 
     def test_retype_volume_orig_type_enc_dest_enc(self):
-        self._retype_volume_encryption('available', 400)
+        self._retype_volume_encryption('available', 202)
 
 
 def stub_volume_get(self, context, volume_id):
@@ -878,7 +878,7 @@ class VolumeImageActionsTest(test.TestCase):
         body = {"os-volume_upload_image": vol}
         req = fakes.HTTPRequest.blank('/v2/%s/volumes/%s/action' %
                                       (fake.PROJECT_ID, id))
-        self.assertRaises(webob.exc.HTTPNotFound,
+        self.assertRaises(exception.VolumeNotFound,
                           self.controller._volume_upload_image,
                           req,
                           id,
@@ -1304,3 +1304,49 @@ class VolumeImageActionsTest(test.TestCase):
         expected['os-volume_upload_image'].update(visibility='public',
                                                   protected=True)
         self.assertDictMatch(expected, res_dict)
+
+    @mock.patch.object(volume_api.API, "get_volume_image_metadata")
+    @mock.patch.object(glance.GlanceImageService, "create")
+    @mock.patch.object(volume_rpcapi.VolumeAPI, "copy_volume_to_image")
+    def test_copy_volume_to_image_vhd(
+            self, mock_copy_to_image, mock_create, mock_get_image_metadata):
+        """Test create image from volume with vhd disk format"""
+        volume, expected = self._create_volume_with_type()
+        mock_get_image_metadata.return_value = {}
+        mock_create.side_effect = self.fake_image_service_create
+        req = fakes.HTTPRequest.blank(
+            '/v2/fakeproject/volumes/%s/action' % volume.id)
+        body = self._get_os_volume_upload_image()
+        body['os-volume_upload_image']['force'] = True
+        body['os-volume_upload_image']['container_format'] = 'bare'
+        body['os-volume_upload_image']['disk_format'] = 'vhd'
+
+        res_dict = self.controller._volume_upload_image(req, volume.id, body)
+
+        self.assertDictMatch(expected, res_dict)
+        vol_db = objects.Volume.get_by_id(self.context, volume.id)
+        self.assertEqual('uploading', vol_db.status)
+        self.assertEqual('available', vol_db.previous_status)
+
+    @mock.patch.object(volume_api.API, "get_volume_image_metadata")
+    @mock.patch.object(glance.GlanceImageService, "create")
+    @mock.patch.object(volume_rpcapi.VolumeAPI, "copy_volume_to_image")
+    def test_copy_volume_to_image_vhdx(
+            self, mock_copy_to_image, mock_create, mock_get_image_metadata):
+        """Test create image from volume with vhdx disk format"""
+        volume, expected = self._create_volume_with_type()
+        mock_get_image_metadata.return_value = {}
+        mock_create.side_effect = self.fake_image_service_create
+        req = fakes.HTTPRequest.blank(
+            '/v2/fakeproject/volumes/%s/action' % volume.id)
+        body = self._get_os_volume_upload_image()
+        body['os-volume_upload_image']['force'] = True
+        body['os-volume_upload_image']['container_format'] = 'bare'
+        body['os-volume_upload_image']['disk_format'] = 'vhdx'
+
+        res_dict = self.controller._volume_upload_image(req, volume.id, body)
+
+        self.assertDictMatch(expected, res_dict)
+        vol_db = objects.Volume.get_by_id(self.context, volume.id)
+        self.assertEqual('uploading', vol_db.status)
+        self.assertEqual('available', vol_db.previous_status)

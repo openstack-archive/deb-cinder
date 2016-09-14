@@ -41,10 +41,8 @@ class VolumeTransferController(wsgi.Controller):
         """Return data about active transfers."""
         context = req.environ['cinder.context']
 
-        try:
-            transfer = self.transfer_api.get(context, transfer_id=id)
-        except exception.TransferNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
+        transfer = self.transfer_api.get(context, transfer_id=id)
 
         return self._view_builder.detail(req, transfer)
 
@@ -97,15 +95,13 @@ class VolumeTransferController(wsgi.Controller):
             name = name.strip()
 
         LOG.info(_LI("Creating transfer of volume %s"),
-                 volume_id,
-                 context=context)
+                 volume_id)
 
         try:
             new_transfer = self.transfer_api.create(context, volume_id, name)
+        # Not found exception will be handled at the wsgi level
         except exception.InvalidVolume as error:
             raise exc.HTTPBadRequest(explanation=error.msg)
-        except exception.VolumeNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
 
         transfer = self._view_builder.create(req,
                                              dict(new_transfer))
@@ -127,8 +123,7 @@ class VolumeTransferController(wsgi.Controller):
             msg = _("Incorrect request body format")
             raise exc.HTTPBadRequest(explanation=msg)
 
-        LOG.info(_LI("Accepting transfer %s"), transfer_id,
-                 context=context)
+        LOG.info(_LI("Accepting transfer %s"), transfer_id)
 
         try:
             accepted_transfer = self.transfer_api.accept(context, transfer_id,
@@ -148,12 +143,10 @@ class VolumeTransferController(wsgi.Controller):
         """Delete a transfer."""
         context = req.environ['cinder.context']
 
-        LOG.info(_LI("Delete transfer with id: %s"), id, context=context)
+        LOG.info(_LI("Delete transfer with id: %s"), id)
 
-        try:
-            self.transfer_api.delete(context, transfer_id=id)
-        except exception.TransferNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
+        self.transfer_api.delete(context, transfer_id=id)
         return webob.Response(status_int=202)
 
 

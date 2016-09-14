@@ -42,8 +42,7 @@ import six
 import sqlalchemy
 from sqlalchemy import MetaData
 from sqlalchemy import or_, and_, case
-from sqlalchemy.orm import aliased
-from sqlalchemy.orm import joinedload, joinedload_all
+from sqlalchemy.orm import joinedload, joinedload_all, undefer_group
 from sqlalchemy.orm import RelationshipProperty
 from sqlalchemy.schema import Table
 from sqlalchemy import sql
@@ -61,6 +60,7 @@ from cinder.db.sqlalchemy import models
 from cinder import exception
 from cinder.i18n import _, _LW, _LE, _LI
 from cinder.objects import fields
+from cinder import utils
 
 
 CONF = cfg.CONF
@@ -341,6 +341,15 @@ def _sync_consistencygroups(context, project_id, session,
     return {key: groups}
 
 
+def _sync_groups(context, project_id, session,
+                 volume_type_id=None,
+                 volume_type_name=None):
+    (_junk, groups) = _group_data_get_for_project(
+        context, project_id, session=session)
+    key = 'groups'
+    return {key: groups}
+
+
 def _sync_backup_gigabytes(context, project_id, session, volume_type_id=None,
                            volume_type_name=None):
     key = 'backup_gigabytes'
@@ -355,112 +364,144 @@ QUOTA_SYNC_FUNCTIONS = {
     '_sync_gigabytes': _sync_gigabytes,
     '_sync_consistencygroups': _sync_consistencygroups,
     '_sync_backups': _sync_backups,
-    '_sync_backup_gigabytes': _sync_backup_gigabytes
+    '_sync_backup_gigabytes': _sync_backup_gigabytes,
+    '_sync_groups': _sync_groups,
 }
 
 
 ###################
 
 
-@require_admin_context
-def service_destroy(context, service_id):
-    session = get_session()
-    with session.begin():
-        service_ref = _service_get(context, service_id, session=session)
-        service_ref.delete(session=session)
+def _clean_filters(filters):
+    return {k: v for k, v in filters.items() if v is not None}
 
 
-@require_admin_context
-def _service_get(context, service_id, session=None):
-    result = model_query(
-        context,
-        models.Service,
-        session=session).\
-        filter_by(id=service_id).\
-        first()
-    if not result:
-        raise exception.ServiceNotFound(service_id=service_id)
+def _filter_host(field, value, match_level=None):
+    """Generate a filter condition for host and cluster fields.
 
-    return result
+    Levels are:
+    - 'pool': Will search for an exact match
+    - 'backend': Will search for exact match and value#*
+    - 'host'; Will search for exact match, value@* and value#*
+
+    If no level is provided we'll determine it based on the value we want to
+    match:
+    - 'pool': If '#' is present in value
+    - 'backend': If '@' is present in value and '#' is not present
+    - 'host': In any other case
+
+    :param field: ORM field.  Ex: objects.Volume.model.host
+    :param value: String to compare with
+    :param match_level: 'pool', 'backend', or 'host'
+    """
+    # If we don't set level we'll try to determine it automatically.  LIKE
+    # operations are expensive, so we try to reduce them to the minimum.
+    if match_level is None:
+        if '#' in value:
+            match_level = 'pool'
+        elif '@' in value:
+            match_level = 'backend'
+        else:
+            match_level = 'host'
+
+    # Mysql is not doing case sensitive filtering, so we force it
+    conn_str = CONF.database.connection
+    if conn_str.startswith('mysql') and conn_str[5] in ['+', ':']:
+        cmp_value = func.binary(value)
+        like_op = 'LIKE BINARY'
+    else:
+        cmp_value = value
+        like_op = 'LIKE'
+
+    conditions = [field == cmp_value]
+    if match_level != 'pool':
+        conditions.append(field.op(like_op)(value + '#%'))
+        if match_level == 'host':
+            conditions.append(field.op(like_op)(value + '@%'))
+
+    return or_(*conditions)
 
 
-@require_admin_context
-def service_get(context, service_id):
-    return _service_get(context, service_id)
-
-
-@require_admin_context
-def service_get_all(context, filters=None):
+def _service_query(context, session=None, read_deleted='no', host=None,
+                   cluster_name=None, is_up=None, backend_match_level=None,
+                   **filters):
+    filters = _clean_filters(filters)
     if filters and not is_valid_model_filters(models.Service, filters):
-        return []
+        return None
 
-    query = model_query(context, models.Service)
+    query = model_query(context, models.Service, session=session,
+                        read_deleted=read_deleted)
+
+    # Host and cluster are particular cases of filters, because we must
+    # retrieve not only exact matches (single backend configuration), but also
+    # match those that have the backend defined (multi backend configuration).
+    if host:
+        query = query.filter(_filter_host(models.Service.host, host,
+                                          backend_match_level))
+    if cluster_name:
+        query = query.filter(_filter_host(models.Service.cluster_name,
+                                          cluster_name, backend_match_level))
 
     if filters:
-        try:
-            host = filters.pop('host')
-            host_attr = models.Service.host
-            conditions = or_(host_attr ==
-                             host, host_attr.op('LIKE')(host + '@%'))
-            query = query.filter(conditions)
-        except KeyError:
-            pass
-
         query = query.filter_by(**filters)
 
-    return query.all()
+    if is_up is not None:
+        date_limit = utils.service_expired_time()
+        svc = models.Service
+        filter_ = or_(
+            and_(svc.created_at.isnot(None), svc.created_at >= date_limit),
+            and_(svc.updated_at.isnot(None), svc.updated_at >= date_limit))
+        query = query.filter(filter_ == is_up)
+
+    return query
 
 
 @require_admin_context
-def service_get_all_by_topic(context, topic, disabled=None):
-    query = model_query(
-        context, models.Service, read_deleted="no").\
-        filter_by(topic=topic)
-
-    if disabled is not None:
-        query = query.filter_by(disabled=disabled)
-
-    return query.all()
+def service_destroy(context, service_id):
+    query = _service_query(context, id=service_id)
+    updated_values = models.Service.delete_values()
+    if not query.update(updated_values):
+        raise exception.ServiceNotFound(service_id=service_id)
+    return updated_values
 
 
 @require_admin_context
-def service_get_all_by_binary(context, binary, disabled=None):
-    query = model_query(
-        context, models.Service, read_deleted="no").filter_by(binary=binary)
+def service_get(context, service_id=None, backend_match_level=None, **filters):
+    """Get a service that matches the criteria.
 
-    if disabled is not None:
-        query = query.filter_by(disabled=disabled)
+    A possible filter is is_up=True and it will filter nodes that are down.
 
-    return query.all()
-
-
-@require_admin_context
-def service_get_by_host_and_topic(context, host, topic):
-    result = model_query(
-        context, models.Service, read_deleted="no").\
-        filter_by(disabled=False).\
-        filter_by(host=host).\
-        filter_by(topic=topic).\
-        first()
-    if not result:
-        raise exception.ServiceNotFound(service_id=topic,
-                                        host=host)
-    return result
+    :param service_id: Id of the service.
+    :param filters: Filters for the query in the form of key/value.
+    :param backend_match_level: 'pool', 'backend', or 'host' for host and
+                                cluster filters (as defined in _filter_host
+                                method)
+    :raise ServiceNotFound: If service doesn't exist.
+    """
+    query = _service_query(context, backend_match_level=backend_match_level,
+                           id=service_id, **filters)
+    service = None if not query else query.first()
+    if not service:
+        serv_id = service_id or filters.get('topic') or filters.get('binary')
+        raise exception.ServiceNotFound(service_id=serv_id,
+                                        host=filters.get('host'))
+    return service
 
 
 @require_admin_context
-def service_get_by_args(context, host, binary):
-    results = model_query(context, models.Service).\
-        filter_by(host=host).\
-        filter_by(binary=binary).\
-        all()
+def service_get_all(context, backend_match_level=None, **filters):
+    """Get all services that match the criteria.
 
-    for result in results:
-        if host == result['host']:
-            return result
+    A possible filter is is_up=True and it will filter nodes that are down.
 
-    raise exception.ServiceNotFound(service_id=binary,
-                                    host=host)
+    :param filters: Filters for the query in the form of key/value.
+    :param backend_match_level: 'pool', 'backend', or 'host' for host and
+                                cluster filters (as defined in _filter_host
+                                method)
+    """
+    query = _service_query(context, backend_match_level=backend_match_level,
+                           **filters)
+    return [] if not query else query.all()
 
 
 @require_admin_context
@@ -479,14 +520,158 @@ def service_create(context, values):
 @require_admin_context
 @_retry_on_deadlock
 def service_update(context, service_id, values):
+    if 'disabled' in values:
+        values = values.copy()
+        values['modified_at'] = values.get('modified_at', timeutils.utcnow())
+        values['updated_at'] = values.get('updated_at',
+                                          literal_column('updated_at'))
+    query = _service_query(context, id=service_id)
+    result = query.update(values)
+    if not result:
+        raise exception.ServiceNotFound(service_id=service_id)
+
+
+###################
+
+def _cluster_query(context, is_up=None, get_services=False,
+                   services_summary=False, read_deleted='no',
+                   name_match_level=None, name=None, session=None, **filters):
+    filters = _clean_filters(filters)
+    if filters and not is_valid_model_filters(models.Cluster, filters):
+        return None
+
+    query = model_query(context, models.Cluster, session=session,
+                        read_deleted=read_deleted)
+
+    # Cluster is a special case of filter, because we must match exact match
+    # as well as hosts that specify the backend
+    if name:
+        query = query.filter(_filter_host(models.Cluster.name, name,
+                                          name_match_level))
+
+    if filters:
+        query = query.filter_by(**filters)
+
+    if services_summary:
+        query = query.options(undefer_group('services_summary'))
+        # We bind the expiration time to now (as it changes with each query)
+        # and is required by num_down_hosts
+        query = query.params(expired=utils.service_expired_time())
+    elif 'num_down_hosts' in filters:
+        query = query.params(expired=utils.service_expired_time())
+
+    if get_services:
+        query = query.options(joinedload_all('services'))
+
+    if is_up is not None:
+        date_limit = utils.service_expired_time()
+        filter_ = and_(models.Cluster.last_heartbeat.isnot(None),
+                       models.Cluster.last_heartbeat >= date_limit)
+        query = query.filter(filter_ == is_up)
+
+    return query
+
+
+@require_admin_context
+def cluster_get(context, id=None, is_up=None, get_services=False,
+                services_summary=False, read_deleted='no',
+                name_match_level=None, **filters):
+    """Get a cluster that matches the criteria.
+
+    :param id: Id of the cluster.
+    :param is_up: Boolean value to filter based on the cluster's up status.
+    :param get_services: If we want to load all services from this cluster.
+    :param services_summary: If we want to load num_hosts and
+                             num_down_hosts fields.
+    :param read_deleted: Filtering based on delete status. Default value is
+                         "no".
+    :param filters: Field based filters in the form of key/value.
+    :param name_match_level: 'pool', 'backend', or 'host' for name filter (as
+                             defined in _filter_host method)
+    :raise ClusterNotFound: If cluster doesn't exist.
+    """
+    query = _cluster_query(context, is_up, get_services, services_summary,
+                           read_deleted, name_match_level, id=id, **filters)
+    cluster = None if not query else query.first()
+    if not cluster:
+        cluster_id = id or six.text_type(filters)
+        raise exception.ClusterNotFound(id=cluster_id)
+    return cluster
+
+
+@require_admin_context
+def cluster_get_all(context, is_up=None, get_services=False,
+                    services_summary=False, read_deleted='no',
+                    name_match_level=None, **filters):
+    """Get all clusters that match the criteria.
+
+    :param is_up: Boolean value to filter based on the cluster's up status.
+    :param get_services: If we want to load all services from this cluster.
+    :param services_summary: If we want to load num_hosts and
+                             num_down_hosts fields.
+    :param read_deleted: Filtering based on delete status. Default value is
+                         "no".
+    :param name_match_level: 'pool', 'backend', or 'host' for name filter (as
+                             defined in _filter_host method)
+    :param filters: Field based filters in the form of key/value.
+    """
+    query = _cluster_query(context, is_up, get_services, services_summary,
+                           read_deleted, name_match_level, **filters)
+    return [] if not query else query.all()
+
+
+@require_admin_context
+def cluster_create(context, values):
+    """Create a cluster from the values dictionary."""
+    cluster_ref = models.Cluster()
+    cluster_ref.update(values)
+    # Provided disabled value takes precedence
+    if values.get('disabled') is None:
+        cluster_ref.disabled = not CONF.enable_new_services
+
     session = get_session()
-    with session.begin():
-        service_ref = _service_get(context, service_id, session=session)
-        if ('disabled' in values):
-            service_ref['modified_at'] = timeutils.utcnow()
-            service_ref['updated_at'] = literal_column('updated_at')
-        service_ref.update(values)
-        return service_ref
+    try:
+        with session.begin():
+            cluster_ref.save(session)
+            # We mark that newly created cluster has no hosts to prevent
+            # problems at the OVO level
+            cluster_ref.last_heartbeat = None
+            return cluster_ref
+    # If we had a race condition (another non deleted cluster exists with the
+    # same name) raise Duplicate exception.
+    except db_exc.DBDuplicateEntry:
+        raise exception.ClusterExists(name=values.get('name'))
+
+
+@require_admin_context
+@_retry_on_deadlock
+def cluster_update(context, id, values):
+    """Set the given properties on an cluster and update it.
+
+    Raises ClusterNotFound if cluster does not exist.
+    """
+    query = _cluster_query(context, id=id)
+    result = query.update(values)
+    if not result:
+        raise exception.ClusterNotFound(id=id)
+
+
+@require_admin_context
+def cluster_destroy(context, id):
+    """Destroy the cluster or raise if it does not exist or has hosts."""
+    query = _cluster_query(context, id=id)
+    query = query.filter(models.Cluster.num_hosts == 0)
+    # If the update doesn't succeed we don't know if it's because the
+    # cluster doesn't exist or because it has hosts.
+    result = query.update(models.Cluster.delete_values(),
+                          synchronize_session=False)
+
+    if not result:
+        # This will fail if the cluster doesn't exist raising the right
+        # exception
+        cluster_get(context, id=id)
+        # If it doesn't fail, then the problem is that there are hosts
+        raise exception.ClusterHasHosts(id=id)
 
 
 ###################
@@ -528,6 +713,37 @@ def _dict_with_extra_specs_if_authorized(context, inst_type_query):
         extra_specs = {x['key']: x['value']
                        for x in inst_type_query['extra_specs']}
         inst_type_dict['extra_specs'] = extra_specs
+    return inst_type_dict
+
+
+###################
+
+
+def _dict_with_group_specs_if_authorized(context, inst_type_query):
+    """Convert group type query result to dict with spec and rate_limit.
+
+    Takes a group type query returned by sqlalchemy and returns it
+    as a dictionary, converting the extra_specs entry from a list
+    of dicts.  NOTE the contents of extra-specs are admin readable
+    only.  If the context passed in for this request is not admin
+    then we will return an empty extra-specs dict rather than
+    providing the admin only details.
+
+    Example response with admin context:
+
+    'group_specs' : [{'key': 'k1', 'value': 'v1', ...}, ...]
+    to a single dict:
+    'group_specs' : {'k1': 'v1'}
+
+    """
+
+    inst_type_dict = dict(inst_type_query)
+    if not is_admin_context(context):
+        del(inst_type_dict['group_specs'])
+    else:
+        group_specs = {x['key']: x['value']
+                       for x in inst_type_query['group_specs']}
+        inst_type_dict['group_specs'] = group_specs
     return inst_type_dict
 
 
@@ -634,7 +850,7 @@ def quota_destroy(context, project_id, resource):
     session = get_session()
     with session.begin():
         quota_ref = _quota_get(context, project_id, resource, session=session)
-        quota_ref.delete(session=session)
+        return quota_ref.delete(session=session)
 
 
 ###################
@@ -737,7 +953,7 @@ def quota_class_destroy(context, class_name, resource):
     with session.begin():
         quota_class_ref = _quota_class_get(context, class_name, resource,
                                            session=session)
-        quota_class_ref.delete(session=session)
+        return quota_class_ref.delete(session=session)
 
 
 @require_admin_context
@@ -1307,13 +1523,14 @@ def volume_destroy(context, volume_id):
     session = get_session()
     now = timeutils.utcnow()
     with session.begin():
+        updated_values = {'status': 'deleted',
+                          'deleted': True,
+                          'deleted_at': now,
+                          'updated_at': literal_column('updated_at'),
+                          'migration_status': None}
         model_query(context, models.Volume, session=session).\
             filter_by(id=volume_id).\
-            update({'status': 'deleted',
-                    'deleted': True,
-                    'deleted_at': now,
-                    'updated_at': literal_column('updated_at'),
-                    'migration_status': None})
+            update(updated_values)
         model_query(context, models.VolumeMetadata, session=session).\
             filter_by(volume_id=volume_id).\
             update({'deleted': True,
@@ -1329,6 +1546,53 @@ def volume_destroy(context, volume_id):
             update({'deleted': True,
                     'deleted_at': now,
                     'updated_at': literal_column('updated_at')})
+    del updated_values['updated_at']
+    return updated_values
+
+
+def _include_in_cluster(context, cluster, model, partial_rename, filters):
+    """Generic include in cluster method.
+
+    When we include resources in a cluster we have to be careful to preserve
+    the addressing sections that have not been provided.  That's why we allow
+    partial_renaming, so we can preserve the backend and pool if we are only
+    providing host/cluster level information, and preserve pool information if
+    we only provide backend level information.
+
+    For example when we include a host in a cluster we receive calls with
+    filters like {'host': 'localhost@lvmdriver-1'} and cluster with something
+    like 'mycluster@lvmdriver-1'.  Since in the DB the resources will have the
+    host field set to something like 'localhost@lvmdriver-1#lvmdriver-1' we
+    want to include original pool in the new cluster_name.  So we want to store
+    in cluster_name value 'mycluster@lvmdriver-1#lvmdriver-1'.
+    """
+    filters = _clean_filters(filters)
+    if filters and not is_valid_model_filters(model, filters):
+        return None
+    query = model_query(context, model)
+
+    # cluster_name and host are special filter cases
+    for field in {'cluster_name', 'host'}.intersection(filters):
+        value = filters.pop(field)
+        # We do a special backend filter
+        query = query.filter(_filter_host(getattr(model, field), value))
+        # If we want do do a partial rename and we haven't set the cluster
+        # already, the value we want to set is a SQL replace of existing field
+        # value.
+        if partial_rename and isinstance(cluster, six.string_types):
+            cluster = func.replace(getattr(model, field), value, cluster)
+
+    query = query.filter_by(**filters)
+    result = query.update({'cluster_name': cluster}, synchronize_session=False)
+    return result
+
+
+@require_admin_context
+def volume_include_in_cluster(context, cluster, partial_rename=True,
+                              **filters):
+    """Include all volumes matching the filters into a cluster."""
+    return _include_in_cluster(context, cluster, models.Volume,
+                               partial_rename, filters)
 
 
 @require_admin_context
@@ -1408,14 +1672,16 @@ def _volume_get_query(context, session=None, project_only=False,
             options(joinedload('volume_admin_metadata')).\
             options(joinedload('volume_type')).\
             options(joinedload('volume_attachment')).\
-            options(joinedload('consistencygroup'))
+            options(joinedload('consistencygroup')).\
+            options(joinedload('group'))
     else:
         return model_query(context, models.Volume, session=session,
                            project_only=project_only).\
             options(joinedload('volume_metadata')).\
             options(joinedload('volume_type')).\
             options(joinedload('volume_attachment')).\
-            options(joinedload('consistencygroup'))
+            options(joinedload('consistencygroup')).\
+            options(joinedload('group'))
 
 
 @require_context
@@ -1522,6 +1788,23 @@ def volume_get_all(context, marker, limit, sort_keys=None, sort_dirs=None,
 
 
 @require_admin_context
+def get_volume_summary_all(context):
+    """Retrieves all volumes summary.
+
+    :param context: context to query under
+    :returns: volume summary of all projects
+    """
+    query = model_query(context, func.count(models.Volume.id),
+                        func.sum(models.Volume.size), read_deleted="no")
+
+    if query is None:
+        return []
+
+    result = query.first()
+    return (result[0] or 0, result[1] or 0)
+
+
+@require_admin_context
 def volume_get_all_by_host(context, host, filters=None):
     """Retrieves all volumes hosted on a host.
 
@@ -1561,7 +1844,7 @@ def volume_get_all_by_group(context, group_id, filters=None):
     """Retrieves all volumes associated with the group_id.
 
     :param context: context to query under
-    :param group_id: group ID for all volumes being retrieved
+    :param group_id: consistency group ID for all volumes being retrieved
     :param filters: dictionary of filters; values that are in lists, tuples,
                     or sets cause an 'IN' operation, while exact matching
                     is used for other values, see _process_volume_filters
@@ -1569,6 +1852,27 @@ def volume_get_all_by_group(context, group_id, filters=None):
     :returns: list of matching volumes
     """
     query = _volume_get_query(context).filter_by(consistencygroup_id=group_id)
+    if filters:
+        query = _process_volume_filters(query, filters)
+        # No volumes would match, return empty list
+        if query is None:
+            return []
+    return query.all()
+
+
+@require_context
+def volume_get_all_by_generic_group(context, group_id, filters=None):
+    """Retrieves all volumes associated with the group_id.
+
+    :param context: context to query under
+    :param group_id: group ID for all volumes being retrieved
+    :param filters: dictionary of filters; values that are in lists, tuples,
+                    or sets cause an 'IN' operation, while exact matching
+                    is used for other values, see _process_volume_filters
+                    function for more information
+    :returns: list of matching volumes
+    """
+    query = _volume_get_query(context).filter_by(group_id=group_id)
     if filters:
         query = _process_volume_filters(query, filters)
         # No volumes would match, return empty list
@@ -1823,6 +2127,25 @@ def process_sort_params(sort_keys, sort_dirs, default_keys=None,
     return result_keys, result_dirs
 
 
+@require_context
+def get_volume_summary_by_project(context, project_id):
+    """Retrieves all volumes summary in a project.
+
+    :param context: context to query under
+    :param project_id: project for all volumes being retrieved
+    :returns: volume summary of a project
+    """
+    query = model_query(context, func.count(models.Volume.id),
+                        func.sum(models.Volume.size), read_deleted="no").\
+        filter_by(project_id=project_id)
+
+    if query is None:
+        return []
+
+    result = query.first()
+    return (result[0] or 0, result[1] or 0)
+
+
 @handle_db_data_error
 @require_context
 def volume_update(context, volume_id, values):
@@ -1848,6 +2171,38 @@ def volume_update(context, volume_id, values):
         volume_ref.update(values)
 
         return volume_ref
+
+
+@handle_db_data_error
+@require_context
+def volumes_update(context, values_list):
+    session = get_session()
+    with session.begin():
+        volume_refs = []
+        for values in values_list:
+            volume_id = values['id']
+            values.pop('id')
+            metadata = values.get('metadata')
+            if metadata is not None:
+                _volume_user_metadata_update(context,
+                                             volume_id,
+                                             values.pop('metadata'),
+                                             delete=True,
+                                             session=session)
+
+            admin_metadata = values.get('admin_metadata')
+            if is_admin_context(context) and admin_metadata is not None:
+                _volume_admin_metadata_update(context,
+                                              volume_id,
+                                              values.pop('admin_metadata'),
+                                              delete=True,
+                                              session=session)
+
+            volume_ref = _volume_get(context, volume_id, session=session)
+            volume_ref.update(values)
+            volume_refs.append(volume_ref)
+
+        return volume_refs
 
 
 @require_context
@@ -1898,6 +2253,8 @@ def volume_has_undeletable_snapshots_filter():
         and_(models.Volume.id == models.Snapshot.volume_id,
              ~models.Snapshot.deleted,
              or_(models.Snapshot.cgsnapshot_id != None,  # noqa: != None
+                 models.Snapshot.status.notin_(deletable_statuses)),
+             or_(models.Snapshot.group_snapshot_id != None,  # noqa: != None
                  models.Snapshot.status.notin_(deletable_statuses))))
 
 
@@ -1906,29 +2263,6 @@ def volume_has_attachments_filter():
         and_(models.Volume.id == models.VolumeAttachment.volume_id,
              models.VolumeAttachment.attach_status != 'detached',
              ~models.VolumeAttachment.deleted))
-
-
-def volume_has_same_encryption_type(new_vol_type):
-    """Filter to check that encryption matches with new volume type.
-
-    They match if both don't have encryption or both have the same Encryption.
-    """
-    # Query for the encryption in the new volume type
-    encryption_alias = aliased(models.Encryption)
-    new_enc = sql.select((encryption_alias.encryption_id,)).where(and_(
-        ~encryption_alias.deleted,
-        encryption_alias.volume_type_id == new_vol_type))
-
-    # Query for the encryption in the old volume type
-    old_enc = sql.select((models.Encryption.encryption_id,)).where(and_(
-        ~models.Encryption.deleted,
-        models.Encryption.volume_type_id == models.Volume.volume_type_id))
-
-    # NOTE(geguileo): This query is optimizable, but at this moment I can't
-    #                 figure out how.
-    return or_(and_(new_enc.as_scalar().is_(None),
-                    old_enc.as_scalar().is_(None)),
-               new_enc.as_scalar() == old_enc.as_scalar())
 
 
 def volume_qos_allows_retype(new_vol_type):
@@ -2228,19 +2562,23 @@ def snapshot_create(context, values):
 @require_admin_context
 @_retry_on_deadlock
 def snapshot_destroy(context, snapshot_id):
+    utcnow = timeutils.utcnow()
     session = get_session()
     with session.begin():
+        updated_values = {'status': 'deleted',
+                          'deleted': True,
+                          'deleted_at': utcnow,
+                          'updated_at': literal_column('updated_at')}
         model_query(context, models.Snapshot, session=session).\
             filter_by(id=snapshot_id).\
-            update({'status': 'deleted',
-                    'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
-                    'updated_at': literal_column('updated_at')})
+            update(updated_values)
         model_query(context, models.SnapshotMetadata, session=session).\
             filter_by(snapshot_id=snapshot_id).\
             update({'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
+                    'deleted_at': utcnow,
                     'updated_at': literal_column('updated_at')})
+    del updated_values['updated_at']
+    return updated_values
 
 
 @require_context
@@ -2356,6 +2694,16 @@ def snapshot_get_all_for_cgsnapshot(context, cgsnapshot_id):
     return model_query(context, models.Snapshot, read_deleted='no',
                        project_only=True).\
         filter_by(cgsnapshot_id=cgsnapshot_id).\
+        options(joinedload('volume')).\
+        options(joinedload('snapshot_metadata')).\
+        all()
+
+
+@require_context
+def snapshot_get_all_for_group_snapshot(context, group_snapshot_id):
+    return model_query(context, models.Snapshot, read_deleted='no',
+                       project_only=True).\
+        filter_by(group_snapshot_id=group_snapshot_id).\
         options(joinedload('volume')).\
         options(joinedload('snapshot_metadata')).\
         all()
@@ -2592,6 +2940,48 @@ def volume_type_create(context, values, projects=None):
         return volume_type_ref
 
 
+@handle_db_data_error
+@require_admin_context
+def group_type_create(context, values, projects=None):
+    """Create a new group type.
+
+    In order to pass in group specs, the values dict should contain a
+    'group_specs' key/value pair:
+    {'group_specs' : {'k1': 'v1', 'k2': 'v2', ...}}
+    """
+    if not values.get('id'):
+        values['id'] = six.text_type(uuid.uuid4())
+
+    projects = projects or []
+
+    session = get_session()
+    with session.begin():
+        try:
+            _group_type_get_by_name(context, values['name'], session)
+            raise exception.GroupTypeExists(id=values['name'])
+        except exception.GroupTypeNotFoundByName:
+            pass
+        try:
+            _group_type_get(context, values['id'], session)
+            raise exception.GroupTypeExists(id=values['id'])
+        except exception.GroupTypeNotFound:
+            pass
+        try:
+            values['group_specs'] = _metadata_refs(values.get('group_specs'),
+                                                   models.GroupTypeSpecs)
+            group_type_ref = models.GroupTypes()
+            group_type_ref.update(values)
+            session.add(group_type_ref)
+        except Exception as e:
+            raise db_exc.DBError(e)
+        for project in set(projects):
+            access_ref = models.GroupTypeProjects()
+            access_ref.update({"group_type_id": group_type_ref.id,
+                               "project_id": project})
+            access_ref.save(session=session)
+        return group_type_ref
+
+
 def _volume_type_get_query(context, session=None, read_deleted='no',
                            expected_fields=None):
     expected_fields = expected_fields or []
@@ -2607,6 +2997,29 @@ def _volume_type_get_query(context, session=None, read_deleted='no',
     if not context.is_admin:
         the_filter = [models.VolumeTypes.is_public == true()]
         projects_attr = getattr(models.VolumeTypes, 'projects')
+        the_filter.extend([
+            projects_attr.any(project_id=context.project_id)
+        ])
+        query = query.filter(or_(*the_filter))
+
+    return query
+
+
+def _group_type_get_query(context, session=None, read_deleted='no',
+                          expected_fields=None):
+    expected_fields = expected_fields or []
+    query = model_query(context,
+                        models.GroupTypes,
+                        session=session,
+                        read_deleted=read_deleted).\
+        options(joinedload('group_specs'))
+
+    if 'projects' in expected_fields:
+        query = query.options(joinedload('projects'))
+
+    if not context.is_admin:
+        the_filter = [models.GroupTypes.is_public == true()]
+        projects_attr = models.GroupTypes.projects
         the_filter.extend([
             projects_attr.any(project_id=context.project_id)
         ])
@@ -2646,6 +3059,41 @@ def _process_volume_types_filters(query, filters):
             else:
                 query = query.filter(the_filter[0])
             del filters['extra_specs']
+        query = query.filter_by(**filters)
+    return query
+
+
+def _process_group_types_filters(query, filters):
+    context = filters.pop('context', None)
+    if 'is_public' in filters and filters['is_public'] is not None:
+        the_filter = [models.GroupTypes.is_public == filters['is_public']]
+        if filters['is_public'] and context.project_id is not None:
+            projects_attr = getattr(models.GroupTypes, 'projects')
+            the_filter.extend([
+                projects_attr.any(project_id=context.project_id, deleted=0)
+            ])
+        if len(the_filter) > 1:
+            query = query.filter(or_(*the_filter))
+        else:
+            query = query.filter(the_filter[0])
+    if 'is_public' in filters:
+        del filters['is_public']
+    if filters:
+        # Ensure that filters' keys exist on the model
+        if not is_valid_model_filters(models.GroupTypes, filters):
+            return
+        if filters.get('group_specs') is not None:
+            the_filter = []
+            searchdict = filters.get('group_specs')
+            group_specs = getattr(models.GroupTypes, 'group_specs')
+            for k, v in searchdict.items():
+                the_filter.extend([group_specs.any(key=k, value=v,
+                                                   deleted=False)])
+            if len(the_filter) > 1:
+                query = query.filter(and_(*the_filter))
+            else:
+                query = query.filter(the_filter[0])
+            del filters['group_specs']
         query = query.filter_by(**filters)
     return query
 
@@ -2692,6 +3140,50 @@ def volume_type_update(context, volume_type_id, values):
         volume_type_ref.save(session=session)
 
         return volume_type_ref
+
+
+@handle_db_data_error
+@require_admin_context
+def group_type_update(context, group_type_id, values):
+    session = get_session()
+    with session.begin():
+        # Check it exists
+        group_type_ref = _group_type_ref_get(context,
+                                             group_type_id,
+                                             session)
+        if not group_type_ref:
+            raise exception.GroupTypeNotFound(type_id=group_type_id)
+
+        # No description change
+        if values['description'] is None:
+            del values['description']
+
+        # No is_public change
+        if values['is_public'] is None:
+            del values['is_public']
+
+        # No name change
+        if values['name'] is None:
+            del values['name']
+        else:
+            # Group type name is unique. If change to a name that belongs to
+            # a different group_type , it should be prevented.
+            check_grp_type = None
+            try:
+                check_grp_type = \
+                    _group_type_get_by_name(context,
+                                            values['name'],
+                                            session=session)
+            except exception.GroupTypeNotFoundByName:
+                pass
+            else:
+                if check_grp_type.get('id') != group_type_id:
+                    raise exception.GroupTypeExists(id=values['name'])
+
+        group_type_ref.update(values)
+        group_type_ref.save(session=session)
+
+        return group_type_ref
 
 
 @require_context
@@ -2746,10 +3238,69 @@ def volume_type_get_all(context, inactive=False, filters=None, marker=None,
         return result
 
 
+@require_context
+def group_type_get_all(context, inactive=False, filters=None, marker=None,
+                       limit=None, sort_keys=None, sort_dirs=None,
+                       offset=None, list_result=False):
+    """Returns a dict describing all group_types with name as key.
+
+    If no sort parameters are specified then the returned group types are
+    sorted first by the 'created_at' key and then by the 'id' key in descending
+    order.
+
+    :param context: context to query under
+    :param marker: the last item of the previous page, used to determine the
+                   next page of results to return
+    :param limit: maximum number of items to return
+    :param sort_keys: list of attributes by which results should be sorted,
+                      paired with corresponding item in sort_dirs
+    :param sort_dirs: list of directions in which results should be sorted,
+                      paired with corresponding item in sort_keys
+    :param filters: dictionary of filters; values that are in lists, tuples,
+                    or sets cause an 'IN' operation, while exact matching
+                    is used for other values, see _process_volume_type_filters
+                    function for more information
+    :param list_result: For compatibility, if list_result = True, return a list
+                        instead of dict.
+    :returns: list/dict of matching group types
+    """
+    session = get_session()
+    with session.begin():
+        # Add context for _process_group_types_filters
+        filters = filters or {}
+        filters['context'] = context
+        # Generate the query
+        query = _generate_paginate_query(context, session, marker, limit,
+                                         sort_keys, sort_dirs, filters, offset,
+                                         models.GroupTypes)
+        # No group types would match, return empty dict or list
+        if query is None:
+            if list_result:
+                return []
+            return {}
+
+        rows = query.all()
+        if list_result:
+            result = [_dict_with_group_specs_if_authorized(context, row)
+                      for row in rows]
+            return result
+        result = {row['name']: _dict_with_group_specs_if_authorized(context,
+                                                                    row)
+                  for row in rows}
+        return result
+
+
 def _volume_type_get_id_from_volume_type_query(context, id, session=None):
     return model_query(
         context, models.VolumeTypes.id, read_deleted="no",
         session=session, base_model=models.VolumeTypes).\
+        filter_by(id=id)
+
+
+def _group_type_get_id_from_group_type_query(context, id, session=None):
+    return model_query(
+        context, models.GroupTypes.id, read_deleted="no",
+        session=session, base_model=models.GroupTypes).\
         filter_by(id=id)
 
 
@@ -2761,10 +3312,28 @@ def _volume_type_get_id_from_volume_type(context, id, session=None):
     return result[0]
 
 
+def _group_type_get_id_from_group_type(context, id, session=None):
+    result = _group_type_get_id_from_group_type_query(
+        context, id, session=session).first()
+    if not result:
+        raise exception.GroupTypeNotFound(group_type_id=id)
+    return result[0]
+
+
 def _volume_type_get_db_object(context, id, session=None, inactive=False,
                                expected_fields=None):
     read_deleted = "yes" if inactive else "no"
     result = _volume_type_get_query(
+        context, session, read_deleted, expected_fields).\
+        filter_by(id=id).\
+        first()
+    return result
+
+
+def _group_type_get_db_object(context, id, session=None, inactive=False,
+                              expected_fields=None):
+    read_deleted = "yes" if inactive else "no"
+    result = _group_type_get_query(
         context, session, read_deleted, expected_fields).\
         filter_by(id=id).\
         first()
@@ -2789,6 +3358,23 @@ def _volume_type_get(context, id, session=None, inactive=False,
 
 
 @require_context
+def _group_type_get(context, id, session=None, inactive=False,
+                    expected_fields=None):
+    expected_fields = expected_fields or []
+    result = _group_type_get_db_object(context, id, session, inactive,
+                                       expected_fields)
+    if not result:
+        raise exception.GroupTypeNotFound(group_type_id=id)
+
+    gtype = _dict_with_group_specs_if_authorized(context, result)
+
+    if 'projects' in expected_fields:
+        gtype['projects'] = [p['project_id'] for p in result['projects']]
+
+    return gtype
+
+
+@require_context
 def volume_type_get(context, id, inactive=False, expected_fields=None):
     """Return a dict describing specific volume_type."""
 
@@ -2798,10 +3384,26 @@ def volume_type_get(context, id, inactive=False, expected_fields=None):
                             expected_fields=expected_fields)
 
 
+@require_context
+def group_type_get(context, id, inactive=False, expected_fields=None):
+    """Return a dict describing specific group_type."""
+
+    return _group_type_get(context, id,
+                           session=None,
+                           inactive=inactive,
+                           expected_fields=expected_fields)
+
+
 def _volume_type_get_full(context, id):
     """Return dict for a specific volume_type with extra_specs and projects."""
     return _volume_type_get(context, id, session=None, inactive=False,
                             expected_fields=('extra_specs', 'projects'))
+
+
+def _group_type_get_full(context, id):
+    """Return dict for a specific group_type with group_specs and projects."""
+    return _group_type_get(context, id, session=None, inactive=False,
+                           expected_fields=('group_specs', 'projects'))
 
 
 @require_context
@@ -2822,6 +3424,23 @@ def _volume_type_ref_get(context, id, session=None, inactive=False):
 
 
 @require_context
+def _group_type_ref_get(context, id, session=None, inactive=False):
+    read_deleted = "yes" if inactive else "no"
+    result = model_query(context,
+                         models.GroupTypes,
+                         session=session,
+                         read_deleted=read_deleted).\
+        options(joinedload('group_specs')).\
+        filter_by(id=id).\
+        first()
+
+    if not result:
+        raise exception.GroupTypeNotFound(group_type_id=id)
+
+    return result
+
+
+@require_context
 def _volume_type_get_by_name(context, name, session=None):
     result = model_query(context, models.VolumeTypes, session=session).\
         options(joinedload('extra_specs')).\
@@ -2835,10 +3454,30 @@ def _volume_type_get_by_name(context, name, session=None):
 
 
 @require_context
+def _group_type_get_by_name(context, name, session=None):
+    result = model_query(context, models.GroupTypes, session=session).\
+        options(joinedload('group_specs')).\
+        filter_by(name=name).\
+        first()
+
+    if not result:
+        raise exception.GroupTypeNotFoundByName(group_type_name=name)
+
+    return _dict_with_group_specs_if_authorized(context, result)
+
+
+@require_context
 def volume_type_get_by_name(context, name):
     """Return a dict describing specific volume_type."""
 
     return _volume_type_get_by_name(context, name)
+
+
+@require_context
+def group_type_get_by_name(context, name):
+    """Return a dict describing specific group_type."""
+
+    return _group_type_get_by_name(context, name)
 
 
 @require_context
@@ -2854,12 +3493,32 @@ def volume_types_get_by_name_or_id(context, volume_type_list):
     return req_volume_types
 
 
+@require_context
+def group_types_get_by_name_or_id(context, group_type_list):
+    """Return a dict describing specific group_type."""
+    req_group_types = []
+    for grp_t in group_type_list:
+        if not uuidutils.is_uuid_like(grp_t):
+            grp_type = _group_type_get_by_name(context, grp_t)
+        else:
+            grp_type = _group_type_get(context, grp_t)
+        req_group_types.append(grp_type)
+    return req_group_types
+
+
 @require_admin_context
 def volume_type_qos_associations_get(context, qos_specs_id, inactive=False):
     read_deleted = "yes" if inactive else "no"
-    return model_query(context, models.VolumeTypes,
-                       read_deleted=read_deleted). \
-        filter_by(qos_specs_id=qos_specs_id).all()
+    # Raise QoSSpecsNotFound if no specs found
+    if not resource_exists(context,
+                           models.QualityOfServiceSpecs,
+                           qos_specs_id):
+        raise exception.QoSSpecsNotFound(specs_id=qos_specs_id)
+    vts = (model_query(context, models.VolumeTypes, read_deleted=read_deleted).
+           options(joinedload('extra_specs')).
+           options(joinedload('projects')).
+           filter_by(qos_specs_id=qos_specs_id).all())
+    return vts
 
 
 @require_admin_context
@@ -2943,28 +3602,62 @@ def volume_type_qos_specs_get(context, type_id):
 @require_admin_context
 @_retry_on_deadlock
 def volume_type_destroy(context, id):
+    utcnow = timeutils.utcnow()
     session = get_session()
     with session.begin():
         _volume_type_get(context, id, session)
         results = model_query(context, models.Volume, session=session). \
             filter_by(volume_type_id=id).all()
-        if results:
+        group_count = model_query(context,
+                                  models.GroupVolumeTypeMapping,
+                                  read_deleted="no",
+                                  session=session).\
+            filter_by(volume_type_id=id).count()
+        if results or group_count:
             LOG.error(_LE('VolumeType %s deletion failed, '
                           'VolumeType in use.'), id)
             raise exception.VolumeTypeInUse(volume_type_id=id)
+        updated_values = {'deleted': True,
+                          'deleted_at': utcnow,
+                          'updated_at': literal_column('updated_at')}
         model_query(context, models.VolumeTypes, session=session).\
             filter_by(id=id).\
-            update({'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
-                    'updated_at': literal_column('updated_at')})
+            update(updated_values)
         model_query(context, models.VolumeTypeExtraSpecs, session=session).\
             filter_by(volume_type_id=id).\
             update({'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
+                    'deleted_at': utcnow,
                     'updated_at': literal_column('updated_at')})
         model_query(context, models.VolumeTypeProjects, session=session,
                     read_deleted="int_no").filter_by(
             volume_type_id=id).soft_delete(synchronize_session=False)
+    del updated_values['updated_at']
+    return updated_values
+
+
+@require_admin_context
+@_retry_on_deadlock
+def group_type_destroy(context, id):
+    session = get_session()
+    with session.begin():
+        _group_type_get(context, id, session)
+        # TODO(xyang): Uncomment the following after groups table is added.
+        # results = model_query(context, models.Group, session=session). \
+        #     filter_by(group_type_id=id).all()
+        # if results:
+        #     LOG.error(_LE('GroupType %s deletion failed, '
+        #                   'GroupType in use.'), id)
+        #     raise exception.GroupTypeInUse(group_type_id=id)
+        model_query(context, models.GroupTypes, session=session).\
+            filter_by(id=id).\
+            update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')})
+        model_query(context, models.GroupTypeSpecs, session=session).\
+            filter_by(group_type_id=id).\
+            update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')})
 
 
 @require_context
@@ -2984,7 +3677,8 @@ def volume_get_active_by_window(context,
     query = (query.options(joinedload('volume_metadata')).
              options(joinedload('volume_type')).
              options(joinedload('volume_attachment')).
-             options(joinedload('consistencygroup')))
+             options(joinedload('consistencygroup')).
+             options(joinedload('group')))
 
     if is_admin_context(context):
         query = query.options(joinedload('volume_admin_metadata'))
@@ -2997,11 +3691,54 @@ def _volume_type_access_query(context, session=None):
                        read_deleted="int_no")
 
 
+def _group_type_access_query(context, session=None):
+    return model_query(context, models.GroupTypeProjects, session=session,
+                       read_deleted="int_no")
+
+
 @require_admin_context
 def volume_type_access_get_all(context, type_id):
     volume_type_id = _volume_type_get_id_from_volume_type(context, type_id)
     return _volume_type_access_query(context).\
         filter_by(volume_type_id=volume_type_id).all()
+
+
+@require_admin_context
+def group_type_access_get_all(context, type_id):
+    group_type_id = _group_type_get_id_from_group_type(context, type_id)
+    return _group_type_access_query(context).\
+        filter_by(group_type_id=group_type_id).all()
+
+
+def _group_volume_type_mapping_query(context, session=None):
+    return model_query(context, models.GroupVolumeTypeMapping, session=session,
+                       read_deleted="no")
+
+
+@require_admin_context
+def volume_type_get_all_by_group(context, group_id):
+    # Generic volume group
+    mappings = (_group_volume_type_mapping_query(context).
+                filter_by(group_id=group_id).all())
+    session = get_session()
+    with session.begin():
+        volume_type_ids = [mapping.volume_type_id for mapping in mappings]
+        query = (model_query(context,
+                             models.VolumeTypes,
+                             session=session,
+                             read_deleted='no').
+                 filter(models.VolumeTypes.id.in_(volume_type_ids)).
+                 options(joinedload('extra_specs')).
+                 all())
+        return query
+
+
+def _group_volume_type_mapping_get_all_by_group_volume_type(context, group_id,
+                                                            volume_type_id):
+    mappings = _group_volume_type_mapping_query(context).\
+        filter_by(group_id=group_id).\
+        filter_by(volume_type_id=volume_type_id).all()
+    return mappings
 
 
 @require_admin_context
@@ -3024,6 +3761,25 @@ def volume_type_access_add(context, type_id, project_id):
 
 
 @require_admin_context
+def group_type_access_add(context, type_id, project_id):
+    """Add given tenant to the group type access list."""
+    group_type_id = _group_type_get_id_from_group_type(context, type_id)
+
+    access_ref = models.GroupTypeProjects()
+    access_ref.update({"group_type_id": group_type_id,
+                       "project_id": project_id})
+
+    session = get_session()
+    with session.begin():
+        try:
+            access_ref.save(session=session)
+        except db_exc.DBDuplicateEntry:
+            raise exception.GroupTypeAccessExists(group_type_id=type_id,
+                                                  project_id=project_id)
+        return access_ref
+
+
+@require_admin_context
 def volume_type_access_remove(context, type_id, project_id):
     """Remove given tenant from the volume type access list."""
     volume_type_id = _volume_type_get_id_from_volume_type(context, type_id)
@@ -3035,6 +3791,20 @@ def volume_type_access_remove(context, type_id, project_id):
     if count == 0:
         raise exception.VolumeTypeAccessNotFound(
             volume_type_id=type_id, project_id=project_id)
+
+
+@require_admin_context
+def group_type_access_remove(context, type_id, project_id):
+    """Remove given tenant from the group type access list."""
+    group_type_id = _group_type_get_id_from_group_type(context, type_id)
+
+    count = (_group_type_access_query(context).
+             filter_by(group_type_id=group_type_id).
+             filter_by(project_id=project_id).
+             soft_delete(synchronize_session=False))
+    if count == 0:
+        raise exception.GroupTypeAccessNotFound(
+            group_type_id=type_id, project_id=project_id)
 
 
 ####################
@@ -3111,21 +3881,91 @@ def volume_type_extra_specs_update_or_create(context, volume_type_id,
 ####################
 
 
+def _group_type_specs_query(context, group_type_id, session=None):
+    return model_query(context, models.GroupTypeSpecs, session=session,
+                       read_deleted="no").\
+        filter_by(group_type_id=group_type_id)
+
+
+@require_context
+def group_type_specs_get(context, group_type_id):
+    rows = _group_type_specs_query(context, group_type_id).\
+        all()
+
+    result = {}
+    for row in rows:
+        result[row['key']] = row['value']
+
+    return result
+
+
+@require_context
+def group_type_specs_delete(context, group_type_id, key):
+    session = get_session()
+    with session.begin():
+        _group_type_specs_get_item(context, group_type_id, key,
+                                   session)
+        _group_type_specs_query(context, group_type_id, session).\
+            filter_by(key=key).\
+            update({'deleted': True,
+                    'deleted_at': timeutils.utcnow(),
+                    'updated_at': literal_column('updated_at')})
+
+
+@require_context
+def _group_type_specs_get_item(context, group_type_id, key,
+                               session=None):
+    result = _group_type_specs_query(
+        context, group_type_id, session=session).\
+        filter_by(key=key).\
+        first()
+
+    if not result:
+        raise exception.GroupTypeSpecsNotFound(
+            group_specs_key=key,
+            group_type_id=group_type_id)
+
+    return result
+
+
+@handle_db_data_error
+@require_context
+def group_type_specs_update_or_create(context, group_type_id,
+                                      specs):
+    session = get_session()
+    with session.begin():
+        spec_ref = None
+        for key, value in specs.items():
+            try:
+                spec_ref = _group_type_specs_get_item(
+                    context, group_type_id, key, session)
+            except exception.GroupTypeSpecsNotFound:
+                spec_ref = models.GroupTypeSpecs()
+            spec_ref.update({"key": key, "value": value,
+                             "group_type_id": group_type_id,
+                             "deleted": False})
+            spec_ref.save(session=session)
+
+        return specs
+
+
+####################
+
+
 @require_admin_context
 def qos_specs_create(context, values):
     """Create a new QoS specs.
 
     :param values dictionary that contains specifications for QoS
           e.g. {'name': 'Name',
-                'qos_specs': {
-                    'consumer': 'front-end',
+                'consumer': 'front-end',
+                'specs': {
                     'total_iops_sec': 1000,
                     'total_bytes_sec': 1024000
                     }
                 }
     """
     specs_id = str(uuid.uuid4())
-
     session = get_session()
     with session.begin():
         try:
@@ -3145,8 +3985,18 @@ def qos_specs_create(context, values):
             specs_root.update(root)
             specs_root.save(session=session)
 
+            # Save 'consumer' value directly as it will not be in
+            # values['specs'] and so we avoid modifying/copying passed in dict
+            consumer = {'key': 'consumer',
+                        'value': values['consumer'],
+                        'specs_id': specs_id,
+                        'id': six.text_type(uuid.uuid4())}
+            cons_entry = models.QualityOfServiceSpecs()
+            cons_entry.update(consumer)
+            cons_entry.save(session=session)
+
             # Insert all specification entries for QoS specs
-            for k, v in values['qos_specs'].items():
+            for k, v in values.get('specs', {}).items():
                 item = dict(key=k, value=v, specs_id=specs_id)
                 item['id'] = str(uuid.uuid4())
                 spec_entry = models.QualityOfServiceSpecs()
@@ -3213,12 +4063,10 @@ def _dict_with_qos_specs(rows):
     result = []
     for row in rows:
         if row['key'] == 'QoS_Specs_Name':
-            member = {}
-            member['name'] = row['value']
-            member.update(dict(id=row['id']))
+            member = {'name': row['value'], 'id': row['id']}
             if row.specs:
                 spec_dict = _dict_with_children_specs(row.specs)
-                member.update(dict(consumer=spec_dict['consumer']))
+                member['consumer'] = spec_dict['consumer']
                 del spec_dict['consumer']
                 member.update(dict(specs=spec_dict))
             result.append(member)
@@ -3228,7 +4076,6 @@ def _dict_with_qos_specs(rows):
 @require_admin_context
 def qos_specs_get(context, qos_specs_id, inactive=False):
     rows = _qos_specs_get_ref(context, qos_specs_id, None, inactive)
-
     return _dict_with_qos_specs(rows)[0]
 
 
@@ -3321,8 +4168,6 @@ def qos_specs_associations_get(context, qos_specs_id):
     extend qos specs association to other entities, such as volumes,
     sometime in future.
     """
-    # Raise QoSSpecsNotFound if no specs found
-    _qos_specs_get_ref(context, qos_specs_id, None)
     return volume_type_qos_associations_get(context, qos_specs_id)
 
 
@@ -3355,7 +4200,6 @@ def qos_specs_disassociate_all(context, qos_specs_id):
 def qos_specs_item_delete(context, qos_specs_id, key):
     session = get_session()
     with session.begin():
-        _qos_specs_get_item(context, qos_specs_id, key)
         session.query(models.QualityOfServiceSpecs). \
             filter(models.QualityOfServiceSpecs.key == key). \
             filter(models.QualityOfServiceSpecs.specs_id == qos_specs_id). \
@@ -3369,13 +4213,16 @@ def qos_specs_delete(context, qos_specs_id):
     session = get_session()
     with session.begin():
         _qos_specs_get_ref(context, qos_specs_id, session)
+        updated_values = {'deleted': True,
+                          'deleted_at': timeutils.utcnow(),
+                          'updated_at': literal_column('updated_at')}
         session.query(models.QualityOfServiceSpecs).\
             filter(or_(models.QualityOfServiceSpecs.id == qos_specs_id,
                        models.QualityOfServiceSpecs.specs_id ==
                        qos_specs_id)).\
-            update({'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
-                    'updated_at': literal_column('updated_at')})
+            update(updated_values)
+    del updated_values['updated_at']
+    return updated_values
 
 
 @require_admin_context
@@ -3396,7 +4243,7 @@ def _qos_specs_get_item(context, qos_specs_id, key, session=None):
 
 @handle_db_data_error
 @require_admin_context
-def qos_specs_update(context, qos_specs_id, specs):
+def qos_specs_update(context, qos_specs_id, updates):
     """Make updates to an existing qos specs.
 
     Perform add, update or delete key/values to a qos specs.
@@ -3406,6 +4253,13 @@ def qos_specs_update(context, qos_specs_id, specs):
     with session.begin():
         # make sure qos specs exists
         _qos_specs_get_ref(context, qos_specs_id, session)
+        specs = updates.get('specs', {})
+
+        if 'consumer' in updates:
+            # Massage consumer to the right place for DB and copy specs
+            # before updating so we don't modify dict for caller
+            specs = specs.copy()
+            specs['consumer'] = updates['consumer']
         spec_ref = None
         for key in specs.keys():
             try:
@@ -3873,12 +4727,15 @@ def backup_update(context, backup_id, values):
 
 @require_admin_context
 def backup_destroy(context, backup_id):
+    updated_values = {'status': fields.BackupStatus.DELETED,
+                      'deleted': True,
+                      'deleted_at': timeutils.utcnow(),
+                      'updated_at': literal_column('updated_at')}
     model_query(context, models.Backup).\
         filter_by(id=backup_id).\
-        update({'status': fields.BackupStatus.DELETED,
-                'deleted': True,
-                'deleted_at': timeutils.utcnow(),
-                'updated_at': literal_column('updated_at')})
+        update(updated_values)
+    del updated_values['updated_at']
+    return updated_values
 
 
 ###############################
@@ -3964,6 +4821,7 @@ def transfer_create(context, values):
 @require_context
 @_retry_on_deadlock
 def transfer_destroy(context, transfer_id):
+    utcnow = timeutils.utcnow()
     session = get_session()
     with session.begin():
         transfer_ref = _transfer_get(context,
@@ -3981,11 +4839,16 @@ def transfer_destroy(context, transfer_id):
             volume_ref['status'] = 'available'
         volume_ref.update(volume_ref)
         volume_ref.save(session=session)
+        updated_values = {'deleted': True,
+                          'deleted_at': utcnow,
+                          'updated_at': literal_column('updated_at')}
         model_query(context, models.Transfer, session=session).\
             filter_by(id=transfer_id).\
             update({'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
+                    'deleted_at': utcnow,
                     'updated_at': literal_column('updated_at')})
+    del updated_values['updated_at']
+    return updated_values
 
 
 @require_context
@@ -4209,14 +5072,21 @@ def consistencygroup_update(context, consistencygroup_id, values):
 
 @require_admin_context
 def consistencygroup_destroy(context, consistencygroup_id):
+    utcnow = timeutils.utcnow()
     session = get_session()
     with session.begin():
+        updated_values = {'status': fields.ConsistencyGroupStatus.DELETED,
+                          'deleted': True,
+                          'deleted_at': utcnow,
+                          'updated_at': literal_column('updated_at')}
         model_query(context, models.ConsistencyGroup, session=session).\
             filter_by(id=consistencygroup_id).\
             update({'status': fields.ConsistencyGroupStatus.DELETED,
                     'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
+                    'deleted_at': utcnow,
                     'updated_at': literal_column('updated_at')})
+    del updated_values['updated_at']
+    return updated_values
 
 
 def cg_has_cgsnapshot_filter():
@@ -4272,6 +5142,304 @@ def cg_creating_from_src(cg_id=None, cgsnapshot_id=None):
     else:
         msg = _('cg_creating_from_src must be called with cg_id or '
                 'cgsnapshot_id parameter.')
+        raise exception.ProgrammingError(reason=msg)
+
+    return sql.exists([subq]).where(match_id)
+
+
+@require_admin_context
+def consistencygroup_include_in_cluster(context, cluster,
+                                        partial_rename=True, **filters):
+    """Include all consistency groups matching the filters into a cluster."""
+    return _include_in_cluster(context, cluster, models.ConsistencyGroup,
+                               partial_rename, filters)
+
+
+###############################
+
+
+@require_admin_context
+def _group_data_get_for_project(context, project_id,
+                                session=None):
+    query = model_query(context,
+                        func.count(models.Group.id),
+                        read_deleted="no",
+                        session=session).\
+        filter_by(project_id=project_id)
+
+    result = query.first()
+
+    return (0, result[0] or 0)
+
+
+@require_context
+def _group_get(context, group_id, session=None):
+    result = (model_query(context, models.Group, session=session,
+                          project_only=True).
+              filter_by(id=group_id).
+              first())
+
+    if not result:
+        raise exception.GroupNotFound(group_id=group_id)
+
+    return result
+
+
+@require_context
+def group_get(context, group_id):
+    return _group_get(context, group_id)
+
+
+def _groups_get_query(context, session=None, project_only=False):
+    return model_query(context, models.Group, session=session,
+                       project_only=project_only)
+
+
+def _process_groups_filters(query, filters):
+    if filters:
+        # Ensure that filters' keys exist on the model
+        if not is_valid_model_filters(models.Group, filters):
+            return
+        query = query.filter_by(**filters)
+    return query
+
+
+def _group_get_all(context, filters=None, marker=None, limit=None,
+                   offset=None, sort_keys=None, sort_dirs=None):
+    if filters and not is_valid_model_filters(models.Group,
+                                              filters):
+        return []
+
+    session = get_session()
+    with session.begin():
+        # Generate the paginate query
+        query = _generate_paginate_query(context, session, marker,
+                                         limit, sort_keys, sort_dirs, filters,
+                                         offset, models.Group)
+
+        return query.all()if query else []
+
+
+@require_admin_context
+def group_get_all(context, filters=None, marker=None, limit=None,
+                  offset=None, sort_keys=None, sort_dirs=None):
+    """Retrieves all groups.
+
+    If no sort parameters are specified then the returned groups are sorted
+    first by the 'created_at' key and then by the 'id' key in descending
+    order.
+
+    :param context: context to query under
+    :param marker: the last item of the previous page, used to determine the
+                   next page of results to return
+    :param limit: maximum number of items to return
+    :param sort_keys: list of attributes by which results should be sorted,
+                      paired with corresponding item in sort_dirs
+    :param sort_dirs: list of directions in which results should be sorted,
+                      paired with corresponding item in sort_keys
+    :param filters: Filters for the query in the form of key/value.
+    :returns: list of matching  groups
+    """
+    return _group_get_all(context, filters, marker, limit, offset,
+                          sort_keys, sort_dirs)
+
+
+@require_context
+def group_get_all_by_project(context, project_id, filters=None,
+                             marker=None, limit=None, offset=None,
+                             sort_keys=None, sort_dirs=None):
+    """Retrieves all groups in a project.
+
+    If no sort parameters are specified then the returned groups are sorted
+    first by the 'created_at' key and then by the 'id' key in descending
+    order.
+
+    :param context: context to query under
+    :param marker: the last item of the previous page, used to determine the
+                   next page of results to return
+    :param limit: maximum number of items to return
+    :param sort_keys: list of attributes by which results should be sorted,
+                      paired with corresponding item in sort_dirs
+    :param sort_dirs: list of directions in which results should be sorted,
+                      paired with corresponding item in sort_keys
+    :param filters: Filters for the query in the form of key/value.
+    :returns: list of matching groups
+    """
+    authorize_project_context(context, project_id)
+    if not filters:
+        filters = {}
+    else:
+        filters = filters.copy()
+
+    filters['project_id'] = project_id
+    return _group_get_all(context, filters, marker, limit, offset,
+                          sort_keys, sort_dirs)
+
+
+@handle_db_data_error
+@require_context
+def group_create(context, values, group_snapshot_id=None,
+                 source_group_id=None):
+    group_model = models.Group
+
+    values = values.copy()
+    if not values.get('id'):
+        values['id'] = six.text_type(uuid.uuid4())
+
+    session = get_session()
+    with session.begin():
+        if group_snapshot_id:
+            conditions = [group_model.id == models.GroupSnapshot.group_id,
+                          models.GroupSnapshot.id == group_snapshot_id]
+        elif source_group_id:
+            conditions = [group_model.id == source_group_id]
+        else:
+            conditions = None
+
+        if conditions:
+            # We don't want duplicated field values
+            values.pop('group_type_id', None)
+            values.pop('availability_zone', None)
+            values.pop('host', None)
+
+            sel = session.query(group_model.group_type_id,
+                                group_model.availability_zone,
+                                group_model.host,
+                                *(bindparam(k, v) for k, v in values.items())
+                                ).filter(*conditions)
+            names = ['group_type_id', 'availability_zone', 'host']
+            names.extend(values.keys())
+            insert_stmt = group_model.__table__.insert().from_select(
+                names, sel)
+            result = session.execute(insert_stmt)
+            # If we couldn't insert the row because of the conditions raise
+            # the right exception
+            if not result.rowcount:
+                if source_group_id:
+                    raise exception.GroupNotFound(
+                        group_id=source_group_id)
+                raise exception.GroupSnapshotNotFound(
+                    group_snapshot_id=group_snapshot_id)
+        else:
+            mappings = []
+            for item in values.get('volume_type_ids') or []:
+                mapping = models.GroupVolumeTypeMapping()
+                mapping['volume_type_id'] = item
+                mapping['group_id'] = values['id']
+                mappings.append(mapping)
+
+            values['volume_types'] = mappings
+
+            group = group_model()
+            group.update(values)
+            session.add(group)
+
+        return _group_get(context, values['id'], session=session)
+
+
+@handle_db_data_error
+@require_context
+def group_volume_type_mapping_create(context, group_id, volume_type_id):
+    """Add group volume_type mapping entry."""
+    # Verify group exists
+    _group_get(context, group_id)
+    # Verify volume type exists
+    _volume_type_get_id_from_volume_type(context, volume_type_id)
+
+    existing = _group_volume_type_mapping_get_all_by_group_volume_type(
+        context, group_id, volume_type_id)
+    if existing:
+        raise exception.GroupVolumeTypeMappingExists(
+            group_id=group_id,
+            volume_type_id=volume_type_id)
+
+    mapping = models.GroupVolumeTypeMapping()
+    mapping.update({"group_id": group_id,
+                    "volume_type_id": volume_type_id})
+
+    session = get_session()
+    with session.begin():
+        try:
+            mapping.save(session=session)
+        except db_exc.DBDuplicateEntry:
+            raise exception.GroupVolumeTypeMappingExists(
+                group_id=group_id,
+                volume_type_id=volume_type_id)
+        return mapping
+
+
+@handle_db_data_error
+@require_context
+def group_update(context, group_id, values):
+    session = get_session()
+    with session.begin():
+        result = (model_query(context, models.Group,
+                              project_only=True).
+                  filter_by(id=group_id).
+                  first())
+
+        if not result:
+            raise exception.GroupNotFound(
+                _("No group with id %s") % group_id)
+
+        result.update(values)
+        result.save(session=session)
+    return result
+
+
+@require_admin_context
+def group_destroy(context, group_id):
+    session = get_session()
+    with session.begin():
+        (model_query(context, models.Group, session=session).
+         filter_by(id=group_id).
+         update({'status': fields.GroupStatus.DELETED,
+                 'deleted': True,
+                 'deleted_at': timeutils.utcnow(),
+                 'updated_at': literal_column('updated_at')}))
+
+        (session.query(models.GroupVolumeTypeMapping).
+         filter_by(group_id=group_id).
+         update({'deleted': True,
+                 'deleted_at': timeutils.utcnow(),
+                 'updated_at': literal_column('updated_at')}))
+
+
+def group_has_group_snapshot_filter():
+    return sql.exists().where(and_(
+        models.GroupSnapshot.group_id == models.Group.id,
+        ~models.GroupSnapshot.deleted))
+
+
+def group_has_volumes_filter(attached_or_with_snapshots=False):
+    query = sql.exists().where(
+        and_(models.Volume.group_id == models.Group.id,
+             ~models.Volume.deleted))
+
+    if attached_or_with_snapshots:
+        query = query.where(or_(
+            models.Volume.attach_status == 'attached',
+            sql.exists().where(
+                and_(models.Volume.id == models.Snapshot.volume_id,
+                     ~models.Snapshot.deleted))))
+    return query
+
+
+def group_creating_from_src(group_id=None, group_snapshot_id=None):
+    # NOTE(geguileo): As explained in devref api_conditional_updates we use a
+    # subquery to trick MySQL into using the same table in the update and the
+    # where clause.
+    subq = sql.select([models.Group]).where(
+        and_(~models.Group.deleted,
+             models.Group.status == 'creating')).alias('group2')
+
+    if group_id:
+        match_id = subq.c.source_group_id == group_id
+    elif group_snapshot_id:
+        match_id = subq.c.group_snapshot_id == group_snapshot_id
+    else:
+        msg = _('group_creating_from_src must be called with group_id or '
+                'group_snapshot_id parameter.')
         raise exception.ProgrammingError(reason=msg)
 
     return sql.exists([subq]).where(match_id)
@@ -4411,12 +5579,15 @@ def cgsnapshot_update(context, cgsnapshot_id, values):
 def cgsnapshot_destroy(context, cgsnapshot_id):
     session = get_session()
     with session.begin():
+        updated_values = {'status': 'deleted',
+                          'deleted': True,
+                          'deleted_at': timeutils.utcnow(),
+                          'updated_at': literal_column('updated_at')}
         model_query(context, models.Cgsnapshot, session=session).\
             filter_by(id=cgsnapshot_id).\
-            update({'status': 'deleted',
-                    'deleted': True,
-                    'deleted_at': timeutils.utcnow(),
-                    'updated_at': literal_column('updated_at')})
+            update(updated_values)
+    del updated_values['updated_at']
+    return updated_values
 
 
 def cgsnapshot_creating_from_src():
@@ -4430,6 +5601,148 @@ def cgsnapshot_creating_from_src():
 ###############################
 
 
+@require_context
+def _group_snapshot_get(context, group_snapshot_id, session=None):
+    result = model_query(context, models.GroupSnapshot, session=session,
+                         project_only=True).\
+        filter_by(id=group_snapshot_id).\
+        first()
+
+    if not result:
+        raise exception.GroupSnapshotNotFound(
+            group_snapshot_id=group_snapshot_id)
+
+    return result
+
+
+@require_context
+def group_snapshot_get(context, group_snapshot_id):
+    return _group_snapshot_get(context, group_snapshot_id)
+
+
+def _group_snapshot_get_all(context, project_id=None, group_id=None,
+                            filters=None):
+    query = model_query(context, models.GroupSnapshot)
+
+    if filters:
+        if not is_valid_model_filters(models.GroupSnapshot, filters):
+            return []
+        query = query.filter_by(**filters)
+
+    if project_id:
+        query = query.filter_by(project_id=project_id)
+
+    if group_id:
+        query = query.filter_by(group_id=group_id)
+
+    return query.all()
+
+
+@require_admin_context
+def group_snapshot_get_all(context, filters=None):
+    return _group_snapshot_get_all(context, filters=filters)
+
+
+@require_admin_context
+def group_snapshot_get_all_by_group(context, group_id, filters=None):
+    return _group_snapshot_get_all(context, group_id=group_id, filters=filters)
+
+
+@require_context
+def group_snapshot_get_all_by_project(context, project_id, filters=None):
+    authorize_project_context(context, project_id)
+    return _group_snapshot_get_all(context, project_id=project_id,
+                                   filters=filters)
+
+
+@handle_db_data_error
+@require_context
+def group_snapshot_create(context, values):
+    if not values.get('id'):
+        values['id'] = six.text_type(uuid.uuid4())
+
+    group_id = values.get('group_id')
+    session = get_session()
+    model = models.GroupSnapshot
+    with session.begin():
+        if group_id:
+            # There has to exist at least 1 volume in the group and the group
+            # cannot be updating the composing volumes or being created.
+            conditions = [
+                sql.exists().where(and_(
+                    ~models.Volume.deleted,
+                    models.Volume.group_id == group_id)),
+                ~models.Group.deleted,
+                models.Group.id == group_id,
+                ~models.Group.status.in_(('creating', 'updating'))]
+
+            # NOTE(geguileo): We build a "fake" from_select clause instead of
+            # using transaction isolation on the session because we would need
+            # SERIALIZABLE level and that would have a considerable performance
+            # penalty.
+            binds = (bindparam(k, v) for k, v in values.items())
+            sel = session.query(*binds).filter(*conditions)
+            insert_stmt = model.__table__.insert().from_select(values.keys(),
+                                                               sel)
+            result = session.execute(insert_stmt)
+            # If we couldn't insert the row because of the conditions raise
+            # the right exception
+            if not result.rowcount:
+                msg = _("Source group cannot be empty or in 'creating' or "
+                        "'updating' state. No group snapshot will be created.")
+                raise exception.InvalidGroup(reason=msg)
+        else:
+            group_snapshot = model()
+            group_snapshot.update(values)
+            session.add(group_snapshot)
+        return _group_snapshot_get(context, values['id'], session=session)
+
+
+@require_context
+@handle_db_data_error
+def group_snapshot_update(context, group_snapshot_id, values):
+    session = get_session()
+    with session.begin():
+        result = model_query(context, models.GroupSnapshot,
+                             project_only=True).\
+            filter_by(id=group_snapshot_id).\
+            first()
+
+        if not result:
+            raise exception.GroupSnapshotNotFound(
+                _("No group snapshot with id %s") % group_snapshot_id)
+
+        result.update(values)
+        result.save(session=session)
+    return result
+
+
+@require_admin_context
+def group_snapshot_destroy(context, group_snapshot_id):
+    session = get_session()
+    with session.begin():
+        updated_values = {'status': 'deleted',
+                          'deleted': True,
+                          'deleted_at': timeutils.utcnow(),
+                          'updated_at': literal_column('updated_at')}
+        model_query(context, models.GroupSnapshot, session=session).\
+            filter_by(id=group_snapshot_id).\
+            update(updated_values)
+    del updated_values['updated_at']
+    return updated_values
+
+
+def group_snapshot_creating_from_src():
+    """Get a filter to check if a grp snapshot is being created from a grp."""
+    return sql.exists().where(and_(
+        models.GroupSnapshot.group_id == models.Group.id,
+        ~models.GroupSnapshot.deleted,
+        models.GroupSnapshot.status == 'creating'))
+
+
+###############################
+
+
 @require_admin_context
 def purge_deleted_rows(context, age_in_days):
     """Purge deleted rows older than age from cinder tables."""
@@ -4438,10 +5751,6 @@ def purge_deleted_rows(context, age_in_days):
     except ValueError:
         msg = _('Invalid value for age, %(age)s') % {'age': age_in_days}
         LOG.exception(msg)
-        raise exception.InvalidParameterValue(msg)
-    if age_in_days <= 0:
-        msg = _('Must supply a positive value for age')
-        LOG.error(msg)
         raise exception.InvalidParameterValue(msg)
 
     engine = get_engine()
@@ -4457,7 +5766,8 @@ def purge_deleted_rows(context, age_in_days):
 
     # Reorder the list so the volumes and volume_types tables are last
     # to avoid FK constraints
-    for table in ("volume_types", "snapshots", "volumes"):
+    for table in ("volume_types", "quality_of_service_specs",
+                  "snapshots", "volumes", "clusters"):
         tables.remove(table)
         tables.append(table)
 
@@ -4469,6 +5779,14 @@ def purge_deleted_rows(context, age_in_days):
         deleted_age = timeutils.utcnow() - dt.timedelta(days=age_in_days)
         try:
             with session.begin():
+                # Delete child records first from quality_of_service_specs
+                # table to avoid FK constraints
+                if table == "quality_of_service_specs":
+                    session.query(models.QualityOfServiceSpecs).filter(
+                        and_(models.QualityOfServiceSpecs.specs_id.isnot(
+                            None), models.QualityOfServiceSpecs.deleted == 1,
+                            models.QualityOfServiceSpecs.deleted_at <
+                            deleted_age)).delete()
                 result = session.execute(
                     t.delete()
                     .where(t.c.deleted_at < deleted_age))
@@ -4592,11 +5910,14 @@ def message_destroy(context, message):
     session = get_session()
     now = timeutils.utcnow()
     with session.begin():
+        updated_values = {'deleted': True,
+                          'deleted_at': now,
+                          'updated_at': literal_column('updated_at')}
         (model_query(context, models.Message, session=session).
             filter_by(id=message.get('id')).
-            update({'deleted': True,
-                    'deleted_at': now,
-                    'updated_at': literal_column('updated_at')}))
+            update(updated_values))
+    del updated_values['updated_at']
+    return updated_values
 
 
 ###############################
@@ -4644,7 +5965,12 @@ PAGINATION_HELPERS = {
                               _process_consistencygroups_filters,
                               _consistencygroup_get),
     models.Message: (_messages_get_query, _process_messages_filters,
-                     _message_get)
+                     _message_get),
+    models.GroupTypes: (_group_type_get_query, _process_group_types_filters,
+                        _group_type_get_db_object),
+    models.Group: (_groups_get_query,
+                   _process_groups_filters,
+                   _group_get),
 }
 
 
@@ -4710,6 +6036,107 @@ def image_volume_cache_get_all_for_host(context, host):
             all()
 
 
+###################
+
+
+def _worker_query(context, session=None, until=None, db_filters=None,
+                  **filters):
+    # Remove all filters based on the workers table that are set to None
+    filters = _clean_filters(filters)
+
+    if filters and not is_valid_model_filters(models.Worker, filters):
+        return None
+
+    query = model_query(context, models.Worker, session=session)
+
+    if until:
+        db_filters = list(db_filters) if db_filters else []
+        # Since we set updated_at at creation time we don't need to check
+        # created_at field.
+        db_filters.append(models.Worker.updated_at <= until)
+
+    if db_filters:
+        query = query.filter(and_(*db_filters))
+
+    if filters:
+        query = query.filter_by(**filters)
+
+    return query
+
+
+def worker_create(context, **values):
+    """Create a worker entry from optional arguments."""
+    worker = models.Worker(**values)
+    session = get_session()
+    try:
+        with session.begin():
+            worker.save(session)
+    except db_exc.DBDuplicateEntry:
+        raise exception.WorkerExists(type=values.get('resource_type'),
+                                     id=values.get('resource_id'))
+    return worker
+
+
+def worker_get(context, **filters):
+    """Get a worker or raise exception if it does not exist."""
+    query = _worker_query(context, **filters)
+    worker = query.first() if query else None
+    if not worker:
+        raise exception.WorkerNotFound(**filters)
+    return worker
+
+
+def worker_get_all(context, **filters):
+    """Get all workers that match given criteria."""
+    query = _worker_query(context, **filters)
+    return query.all() if query else []
+
+
+def _orm_worker_update(worker, values):
+    if not worker:
+        return
+    for key, value in values.items():
+        setattr(worker, key, value)
+
+
+def worker_update(context, id, filters=None, orm_worker=None, **values):
+    """Update a worker with given values."""
+    filters = filters or {}
+    query = _worker_query(context, id=id, **filters)
+    result = query.update(values)
+    if not result:
+        raise exception.WorkerNotFound(id=id, **filters)
+    _orm_worker_update(orm_worker, values)
+    return result
+
+
+def worker_claim_for_cleanup(context, claimer_id, orm_worker):
+    """Claim a worker entry for cleanup."""
+    # We set updated_at value so we are sure we update the DB entry even if the
+    # service_id is the same in the DB, thus flagging the claim.
+    values = {'service_id': claimer_id,
+              'updated_at': timeutils.utcnow()}
+
+    # We only update the worker entry if it hasn't been claimed by other host
+    # or thread
+    query = _worker_query(context,
+                          status=orm_worker.status,
+                          service_id=orm_worker.service_id,
+                          until=orm_worker.updated_at,
+                          id=orm_worker.id)
+
+    result = query.update(values, synchronize_session=False)
+    if result:
+        _orm_worker_update(orm_worker, values)
+    return result
+
+
+def worker_destroy(context, **filters):
+    """Delete a worker (no soft delete)."""
+    query = _worker_query(context, **filters)
+    return query.delete()
+
+
 ###############################
 
 
@@ -4731,9 +6158,14 @@ def get_model_for_versioned_object(versioned_object):
         'BackupImport': models.Backup,
         'VolumeType': models.VolumeTypes,
         'CGSnapshot': models.Cgsnapshot,
+        'GroupType': models.GroupTypes,
+        'GroupSnapshot': models.GroupSnapshot,
     }
 
-    model_name = versioned_object.obj_name()
+    if isinstance(versioned_object, six.string_types):
+        model_name = versioned_object
+    else:
+        model_name = versioned_object.obj_name()
     return (VO_TO_MODEL_EXCEPTIONS.get(model_name) or
             getattr(models, model_name))
 
@@ -4745,6 +6177,8 @@ def _get_get_method(model):
     GET_EXCEPTIONS = {
         models.ConsistencyGroup: consistencygroup_get,
         models.VolumeTypes: _volume_type_get_full,
+        models.QualityOfServiceSpecs: qos_specs_get,
+        models.GroupTypes: _group_type_get_full,
     }
 
     if model in GET_EXCEPTIONS:

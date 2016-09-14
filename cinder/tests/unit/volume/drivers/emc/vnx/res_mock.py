@@ -27,6 +27,7 @@ from cinder.tests.unit.volume.drivers.emc.vnx import utils
 from cinder.volume.drivers.emc.vnx import adapter
 from cinder.volume.drivers.emc.vnx import client
 from cinder.volume.drivers.emc.vnx import common
+from cinder.volume.drivers.emc.vnx import driver
 from cinder.volume.drivers.emc.vnx import utils as vnx_utils
 
 SYMBOL_TYPE = '_type'
@@ -365,7 +366,6 @@ def _build_client():
 
 def patch_client(func):
     @six.wraps(func)
-    @utils.patch_looping_call
     def decorated(cls, *args, **kwargs):
         storage_res = (
             STORAGE_RES_MAPPING[cls.__class__.__name__][func.__name__])
@@ -388,7 +388,6 @@ PROTOCOL_MAPPING = {
 def patch_adapter_init(protocol):
     def inner_patch_adapter(func):
         @six.wraps(func)
-        @utils.patch_looping_call
         def decorated(cls, *args, **kwargs):
             storage_res = (
                 STORAGE_RES_MAPPING[cls.__class__.__name__][func.__name__])
@@ -406,12 +405,12 @@ def _patch_adapter_prop(adapter, client):
         adapter.serial_number = client.get_serial()
     except KeyError:
         adapter.serial_number = 'faked_serial_number'
+    adapter.VERSION = driver.EMCVNXDriver.VERSION
 
 
 def patch_adapter(protocol):
     def inner_patch_adapter(func):
         @six.wraps(func)
-        @utils.patch_looping_call
         def decorated(cls, *args, **kwargs):
             storage_res = (
                 STORAGE_RES_MAPPING[cls.__class__.__name__][func.__name__])

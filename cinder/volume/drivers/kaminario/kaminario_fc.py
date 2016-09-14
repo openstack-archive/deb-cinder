@@ -17,17 +17,33 @@ import six
 
 from oslo_log import log as logging
 
+from cinder import coordination
 from cinder import exception
 from cinder.i18n import _, _LE
+from cinder.objects import fields
 from cinder.volume.drivers.kaminario import kaminario_common as common
 from cinder.zonemanager import utils as fczm_utils
 
+K2_REP_FAILED_OVER = fields.ReplicationStatus.FAILED_OVER
 LOG = logging.getLogger(__name__)
 kaminario_logger = common.kaminario_logger
 
 
 class KaminarioFCDriver(common.KaminarioCinderDriver):
-    """Kaminario K2 FC Volume Driver."""
+    """Kaminario K2 FC Volume Driver.
+
+    Version history:
+        1.0 - Initial driver
+        1.1 - Added manage/unmanage and extra-specs support for nodedup
+        1.2 - Added replication support
+        1.3 - Added retype support
+        1.4 - Added replication failback support
+    """
+
+    VERSION = '1.4'
+
+    # ThirdPartySystems wiki page name
+    CI_WIKI_NAME = "Kaminario_K2_CI"
 
     @kaminario_logger
     def __init__(self, *args, **kwargs):
@@ -37,20 +53,30 @@ class KaminarioFCDriver(common.KaminarioCinderDriver):
 
     @fczm_utils.AddFCZone
     @kaminario_logger
+    @coordination.synchronized('{self.k2_lock_name}')
     def initialize_connection(self, volume, connector):
         """Attach K2 volume to host."""
         # Check wwpns in host connector.
-        if not connector['wwpns']:
+        if not connector.get('wwpns'):
             msg = _("No wwpns found in host connector.")
             LOG.error(msg)
             raise exception.KaminarioCinderDriverException(reason=msg)
+        # To support replication failback
+        temp_client = None
+        if (hasattr(volume, 'replication_status') and
+                volume.replication_status == K2_REP_FAILED_OVER):
+            temp_client = self.client
+            self.client = self.target
         # Get target wwpns.
-        target_wwpns = self.get_target_info()
+        target_wwpns = self.get_target_info(volume)
         # Map volume.
         lun = self.k2_initialize_connection(volume, connector)
         # Create initiator-target mapping.
         target_wwpns, init_target_map = self._build_initiator_target_map(
             connector, target_wwpns)
+        # To support replication failback
+        if temp_client:
+            self.client = temp_client
         # Return target volume information.
         return {'driver_volume_type': 'fibre_channel',
                 'data': {"target_discovered": True,
@@ -59,7 +85,15 @@ class KaminarioFCDriver(common.KaminarioCinderDriver):
                          "initiator_target_map": init_target_map}}
 
     @fczm_utils.RemoveFCZone
+    @kaminario_logger
+    @coordination.synchronized('{self.k2_lock_name}')
     def terminate_connection(self, volume, connector, **kwargs):
+        # To support replication failback
+        temp_client = None
+        if (hasattr(volume, 'replication_status') and
+                volume.replication_status == K2_REP_FAILED_OVER):
+            temp_client = self.client
+            self.client = self.target
         super(KaminarioFCDriver, self).terminate_connection(volume, connector)
         properties = {"driver_volume_type": "fibre_channel", "data": {}}
         host_name = self.get_initiator_host_name(connector)
@@ -68,15 +102,18 @@ class KaminarioFCDriver(common.KaminarioCinderDriver):
         # is not attached to any volume
         if host_rs.total == 0:
             # Get target wwpns.
-            target_wwpns = self.get_target_info()
+            target_wwpns = self.get_target_info(volume)
             target_wwpns, init_target_map = self._build_initiator_target_map(
                 connector, target_wwpns)
             properties["data"] = {"target_wwn": target_wwpns,
                                   "initiator_target_map": init_target_map}
+        # To support replication failback
+        if temp_client:
+            self.client = temp_client
         return properties
 
     @kaminario_logger
-    def get_target_info(self):
+    def get_target_info(self, volume):
         LOG.debug("Searching target wwpns in K2.")
         fc_ports_rs = self.client.search("system/fc_ports")
         target_wwpns = []
@@ -140,7 +177,7 @@ class KaminarioFCDriver(common.KaminarioCinderDriver):
         if self.lookup_service is not None:
             # use FC san lookup.
             dev_map = self.lookup_service.get_device_mapping_from_network(
-                connector['wwpns'],
+                connector.get('wwpns'),
                 all_target_wwns)
 
             for fabric_name in dev_map:
@@ -154,7 +191,7 @@ class KaminarioFCDriver(common.KaminarioCinderDriver):
                         init_targ_map[initiator]))
             target_wwns = list(set(target_wwns))
         else:
-            initiator_wwns = connector['wwpns']
+            initiator_wwns = connector.get('wwpns', [])
             target_wwns = all_target_wwns
 
             for initiator in initiator_wwns:

@@ -17,15 +17,14 @@
 import datetime
 
 from iso8601 import iso8601
-from oslo_utils import timeutils
+import mock
 import webob.exc
 
 from cinder.api.contrib import services
 from cinder.api import extensions
+from cinder.api.openstack import api_version_request as api_version
 from cinder import context
-from cinder import db
 from cinder import exception
-from cinder import policy
 from cinder import test
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit import fake_constants as fake
@@ -34,6 +33,7 @@ from cinder.tests.unit import fake_constants as fake
 fake_services_list = [
     {'binary': 'cinder-scheduler',
      'host': 'host1',
+     'cluster_name': None,
      'availability_zone': 'cinder',
      'id': 1,
      'disabled': True,
@@ -43,6 +43,7 @@ fake_services_list = [
      'modified_at': ''},
     {'binary': 'cinder-volume',
      'host': 'host1',
+     'cluster_name': None,
      'availability_zone': 'cinder',
      'id': 2,
      'disabled': True,
@@ -52,6 +53,7 @@ fake_services_list = [
      'modified_at': ''},
     {'binary': 'cinder-scheduler',
      'host': 'host2',
+     'cluster_name': 'cluster1',
      'availability_zone': 'cinder',
      'id': 3,
      'disabled': False,
@@ -61,6 +63,7 @@ fake_services_list = [
      'modified_at': ''},
     {'binary': 'cinder-volume',
      'host': 'host2',
+     'cluster_name': 'cluster1',
      'availability_zone': 'cinder',
      'id': 4,
      'disabled': True,
@@ -70,6 +73,7 @@ fake_services_list = [
      'modified_at': ''},
     {'binary': 'cinder-volume',
      'host': 'host2',
+     'cluster_name': 'cluster2',
      'availability_zone': 'cinder',
      'id': 5,
      'disabled': True,
@@ -79,6 +83,7 @@ fake_services_list = [
      'modified_at': datetime.datetime(2012, 10, 29, 13, 42, 5)},
     {'binary': 'cinder-volume',
      'host': 'host2',
+     'cluster_name': 'cluster2',
      'availability_zone': 'cinder',
      'id': 6,
      'disabled': False,
@@ -88,8 +93,9 @@ fake_services_list = [
      'modified_at': datetime.datetime(2012, 9, 18, 8, 1, 38)},
     {'binary': 'cinder-scheduler',
      'host': 'host2',
+     'cluster_name': None,
      'availability_zone': 'cinder',
-     'id': 6,
+     'id': 7,
      'disabled': False,
      'updated_at': None,
      'created_at': datetime.datetime(2012, 9, 18, 2, 46, 28),
@@ -100,53 +106,65 @@ fake_services_list = [
 
 class FakeRequest(object):
     environ = {"cinder.context": context.get_admin_context()}
-    GET = {}
+
+    def __init__(self, version='3.0', **kwargs):
+        self.GET = kwargs
+        self.headers = {'OpenStack-API-Version': 'volume ' + version}
+        self.api_version_request = api_version.APIVersionRequest(version)
 
 
 # NOTE(uni): deprecating service request key, binary takes precedence
 # Still keeping service key here for API compatibility sake.
-class FakeRequestWithService(object):
-    environ = {"cinder.context": context.get_admin_context()}
-    GET = {"service": "cinder-volume"}
+class FakeRequestWithService(FakeRequest):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('service', 'cinder-volume')
+        super(FakeRequestWithService, self).__init__(**kwargs)
 
 
-class FakeRequestWithBinary(object):
-    environ = {"cinder.context": context.get_admin_context()}
-    GET = {"binary": "cinder-volume"}
+class FakeRequestWithBinary(FakeRequest):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('binary', 'cinder-volume')
+        super(FakeRequestWithBinary, self).__init__(**kwargs)
 
 
-class FakeRequestWithHost(object):
-    environ = {"cinder.context": context.get_admin_context()}
-    GET = {"host": "host1"}
+class FakeRequestWithHost(FakeRequest):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('host', 'host1')
+        super(FakeRequestWithHost, self).__init__(**kwargs)
 
 
 # NOTE(uni): deprecating service request key, binary takes precedence
 # Still keeping service key here for API compatibility sake.
-class FakeRequestWithHostService(object):
-    environ = {"cinder.context": context.get_admin_context()}
-    GET = {"host": "host1", "service": "cinder-volume"}
+class FakeRequestWithHostService(FakeRequestWithService):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('host', 'host1')
+        super(FakeRequestWithHostService, self).__init__(**kwargs)
 
 
-class FakeRequestWithHostBinary(object):
-    environ = {"cinder.context": context.get_admin_context()}
-    GET = {"host": "host1", "binary": "cinder-volume"}
+class FakeRequestWithHostBinary(FakeRequestWithBinary):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('host', 'host1')
+        super(FakeRequestWithHostBinary, self).__init__(**kwargs)
 
 
-def fake_service_get_all(context, filters=None):
-    filters = filters or {}
-    host = filters.get('host')
-    binary = filters.get('binary')
-    return [s for s in fake_services_list
-            if (not host or s['host'] == host or
-                s['host'].startswith(host + '@'))
-            and (not binary or s['binary'] == binary)]
-
-
-def fake_service_get_by_host_binary(context, host, binary):
+def fake_service_get_all(context, **filters):
+    result = []
+    host = filters.pop('host', None)
     for service in fake_services_list:
-        if service['host'] == host and service['binary'] == binary:
-            return service
-    return None
+        if (host and service['host'] != host and
+                not service['host'].startswith(host + '@')):
+            continue
+
+        if all(v is None or service.get(k) == v for k, v in filters.items()):
+            result.append(service)
+    return result
+
+
+def fake_service_get(context, service_id=None, **filters):
+    result = fake_service_get_all(context, id=service_id, **filters)
+    if not result:
+        raise exception.ServiceNotFound(service_id=service_id)
+    return result[0]
 
 
 def fake_service_get_by_id(value):
@@ -174,17 +192,15 @@ def fake_utcnow(with_timezone=False):
     return datetime.datetime(2012, 10, 29, 13, 42, 11, tzinfo=tzinfo)
 
 
+@mock.patch('cinder.db.service_get_all', fake_service_get_all)
+@mock.patch('cinder.db.service_get', fake_service_get)
+@mock.patch('oslo_utils.timeutils.utcnow', fake_utcnow)
+@mock.patch('cinder.db.sqlalchemy.api.service_update', fake_service_update)
+@mock.patch('cinder.policy.enforce', fake_policy_enforce)
 class ServicesTest(test.TestCase):
 
     def setUp(self):
         super(ServicesTest, self).setUp()
-
-        self.stubs.Set(db, "service_get_all", fake_service_get_all)
-        self.stubs.Set(timeutils, "utcnow", fake_utcnow)
-        self.stubs.Set(db, "service_get_by_args",
-                       fake_service_get_by_host_binary)
-        self.stubs.Set(db, "service_update", fake_service_update)
-        self.stubs.Set(policy, "enforce", fake_policy_enforce)
 
         self.context = context.get_admin_context()
         self.ext_mgr = extensions.ExtensionManager()
@@ -230,6 +246,59 @@ class ServicesTest(test.TestCase):
                                   'updated_at': datetime.datetime(
                                       2012, 9, 18, 8, 3, 38)},
                                  {'binary': 'cinder-scheduler',
+                                  'host': 'host2',
+                                  'zone': 'cinder',
+                                  'status': 'enabled', 'state': 'down',
+                                  'updated_at': None},
+                                 ]}
+        self.assertEqual(response, res_dict)
+
+    def test_services_list_with_cluster_name(self):
+        req = FakeRequest(version='3.7')
+        res_dict = self.controller.index(req)
+
+        response = {'services': [{'binary': 'cinder-scheduler',
+                                  'cluster': None,
+                                  'host': 'host1', 'zone': 'cinder',
+                                  'status': 'disabled', 'state': 'up',
+                                  'updated_at': datetime.datetime(
+                                      2012, 10, 29, 13, 42, 2)},
+                                 {'binary': 'cinder-volume',
+                                  'cluster': None,
+                                  'host': 'host1', 'zone': 'cinder',
+                                  'status': 'disabled', 'state': 'up',
+                                  'updated_at': datetime.datetime(
+                                      2012, 10, 29, 13, 42, 5)},
+                                 {'binary': 'cinder-scheduler',
+                                  'cluster': 'cluster1',
+                                  'host': 'host2',
+                                  'zone': 'cinder',
+                                  'status': 'enabled', 'state': 'down',
+                                  'updated_at': datetime.datetime(
+                                      2012, 9, 19, 6, 55, 34)},
+                                 {'binary': 'cinder-volume',
+                                  'cluster': 'cluster1',
+                                  'host': 'host2',
+                                  'zone': 'cinder',
+                                  'status': 'disabled', 'state': 'down',
+                                  'updated_at': datetime.datetime(
+                                      2012, 9, 18, 8, 3, 38)},
+                                 {'binary': 'cinder-volume',
+                                  'cluster': 'cluster2',
+                                  'host': 'host2',
+                                  'zone': 'cinder',
+                                  'status': 'disabled', 'state': 'down',
+                                  'updated_at': datetime.datetime(
+                                      2012, 10, 29, 13, 42, 5)},
+                                 {'binary': 'cinder-volume',
+                                  'cluster': 'cluster2',
+                                  'host': 'host2',
+                                  'zone': 'cinder',
+                                  'status': 'enabled', 'state': 'down',
+                                  'updated_at': datetime.datetime(
+                                      2012, 9, 18, 8, 3, 38)},
+                                 {'binary': 'cinder-scheduler',
+                                  'cluster': None,
                                   'host': 'host2',
                                   'zone': 'cinder',
                                   'status': 'enabled', 'state': 'down',

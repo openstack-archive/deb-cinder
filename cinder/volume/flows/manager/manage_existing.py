@@ -45,10 +45,8 @@ class PrepareForQuotaReservationTask(flow_utils.CinderTask):
             driver_name = self.driver.__class__.__name__
             LOG.error(_LE("Unable to manage existing volume. "
                           "Volume driver %s not initialized.") % driver_name)
-            flow_common.error_out_volume(context, self.db, volume_id,
-                                         reason=_("Volume driver %s "
-                                                  "not initialized.") %
-                                         driver_name)
+            flow_common.error_out(volume_ref, _("Volume driver %s not "
+                                                "initialized.") % driver_name)
             raise exception.DriverNotInitialized()
 
         size = self.driver.manage_existing_get_size(volume_ref,
@@ -59,7 +57,13 @@ class PrepareForQuotaReservationTask(flow_utils.CinderTask):
                 'volume_properties': volume_ref,
                 'volume_spec': {'status': volume_ref.status,
                                 'volume_name': volume_ref.name,
-                                'volume_id': volume_ref.id}}
+                                'volume_id': volume_id}}
+
+    def revert(self, context, result, flow_failures, volume_ref, **kwargs):
+        volume_id = volume_ref.id
+        reason = _('Volume manage failed.')
+        flow_common.error_out(volume_ref, reason=reason)
+        LOG.error(_LE("Volume %s: manage failed."), volume_id)
 
 
 class ManageExistingTask(flow_utils.CinderTask):
@@ -75,6 +79,7 @@ class ManageExistingTask(flow_utils.CinderTask):
     def execute(self, context, volume_ref, manage_existing_ref, size):
         model_update = self.driver.manage_existing(volume_ref,
                                                    manage_existing_ref)
+
         if not model_update:
             model_update = {}
         model_update.update({'size': size})

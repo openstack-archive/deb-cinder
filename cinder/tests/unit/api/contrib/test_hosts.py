@@ -21,7 +21,7 @@ import webob.exc
 
 from cinder.api.contrib import hosts as os_hosts
 from cinder import context
-from cinder import db
+from cinder import exception
 from cinder import test
 
 
@@ -69,10 +69,6 @@ def stub_utcnow(with_timezone=False):
     return datetime.datetime(2013, 7, 3, 0, 0, 2, tzinfo=tzinfo)
 
 
-def stub_service_get_all(context, filters=None):
-    return SERVICE_LIST
-
-
 class FakeRequest(object):
     environ = {'cinder.context': context.get_admin_context()}
     GET = {}
@@ -90,9 +86,9 @@ class HostTestCase(test.TestCase):
         super(HostTestCase, self).setUp()
         self.controller = os_hosts.HostController()
         self.req = FakeRequest()
-        self.stubs.Set(db, 'service_get_all',
-                       stub_service_get_all)
-        self.stubs.Set(timeutils, 'utcnow', stub_utcnow)
+        self.patch('cinder.db.service_get_all', autospec=True,
+                   return_value=SERVICE_LIST)
+        self.mock_object(timeutils, 'utcnow', stub_utcnow)
 
     def _test_host_update(self, host, key, val, expected_value):
         body = {key: val}
@@ -139,7 +135,7 @@ class HostTestCase(test.TestCase):
                           self.req, 'test.host.1', body=body)
 
     def test_bad_host(self):
-        self.assertRaises(webob.exc.HTTPNotFound,
+        self.assertRaises(exception.HostNotFound,
                           self.controller.update,
                           self.req,
                           'bogus_host_name',
@@ -157,6 +153,6 @@ class HostTestCase(test.TestCase):
         """A host given as an argument does not exists."""
         self.req.environ['cinder.context'].is_admin = True
         dest = 'dummydest'
-        self.assertRaises(webob.exc.HTTPNotFound,
+        self.assertRaises(exception.ServiceNotFound,
                           self.controller.show,
                           self.req, dest)

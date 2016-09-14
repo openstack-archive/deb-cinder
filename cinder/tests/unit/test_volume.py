@@ -47,7 +47,7 @@ from cinder import coordination
 from cinder import db
 from cinder import exception
 from cinder.image import image_utils
-from cinder import keymgr
+from cinder import keymgr as key_manager
 from cinder.message import defined_messages
 from cinder.message import resource_types
 from cinder import objects
@@ -55,11 +55,11 @@ from cinder.objects import fields
 import cinder.policy
 from cinder import quota
 from cinder import test
+from cinder.tests import fake_driver
 from cinder.tests.unit.api import fakes
 from cinder.tests.unit.brick import fake_lvm
 from cinder.tests.unit import conf_fixture
 from cinder.tests.unit import fake_constants as fake
-from cinder.tests.unit import fake_driver
 from cinder.tests.unit import fake_service
 from cinder.tests.unit import fake_snapshot
 from cinder.tests.unit import fake_volume
@@ -127,7 +127,7 @@ class FakeImageService(object):
 class BaseVolumeTestCase(test.TestCase):
     """Test Case for volumes."""
 
-    FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa'
+    FAKE_UUID = fake.IMAGE_ID
 
     def setUp(self):
         super(BaseVolumeTestCase, self).setUp()
@@ -153,7 +153,7 @@ class BaseVolumeTestCase(test.TestCase):
         self.stubs.Set(brick_lvm.LVM,
                        'get_all_volume_groups',
                        self.fake_get_all_volume_groups)
-        fake_image.stub_out_image_service(self.stubs)
+        fake_image.mock_image_service(self)
         self.stubs.Set(brick_lvm.LVM, '_vg_exists', lambda x: True)
         self.stubs.Set(os.path, 'exists', lambda x: True)
         self.volume.driver.set_initialized()
@@ -168,16 +168,6 @@ class BaseVolumeTestCase(test.TestCase):
             shutil.rmtree(CONF.volumes_dir)
         except OSError:
             pass
-
-    def assert_notify_called(self, mock_notify, calls):
-        for i in range(0, len(calls)):
-            mock_call = mock_notify.call_args_list[i]
-            call = calls[i]
-
-            posargs = mock_call[0]
-
-            self.assertEqual(call[0], posargs[0])
-            self.assertEqual(call[1], posargs[2])
 
     def fake_get_all_volume_groups(obj, vg_name=None, no_suffix=True):
         return [{'name': 'cinder-volumes',
@@ -250,104 +240,70 @@ class BaseVolumeTestCase(test.TestCase):
 
 
 class AvailabilityZoneTestCase(BaseVolumeTestCase):
+    def setUp(self):
+        super(AvailabilityZoneTestCase, self).setUp()
+        self.get_all = self.patch(
+            'cinder.db.service_get_all', autospec=True,
+            return_value = [{'availability_zone': 'a', 'disabled': False}])
+
     def test_list_availability_zones_cached(self):
-        volume_api = cinder.volume.api.API()
-        with mock.patch.object(volume_api.db,
-                               'service_get_all_by_topic') as get_all:
-            get_all.return_value = [
-                {
-                    'availability_zone': 'a',
-                    'disabled': False,
-                },
-            ]
-            azs = volume_api.list_availability_zones(enable_cache=True)
-            self.assertEqual([{"name": 'a', 'available': True}], list(azs))
-            self.assertIsNotNone(volume_api.availability_zones_last_fetched)
-            self.assertTrue(get_all.called)
-            volume_api.list_availability_zones(enable_cache=True)
-            self.assertEqual(1, get_all.call_count)
+        azs = self.volume_api.list_availability_zones(enable_cache=True)
+        self.assertEqual([{"name": 'a', 'available': True}], list(azs))
+        self.assertIsNotNone(self.volume_api.availability_zones_last_fetched)
+        self.assertTrue(self.get_all.called)
+        self.volume_api.list_availability_zones(enable_cache=True)
+        self.assertEqual(1, self.get_all.call_count)
 
     def test_list_availability_zones_no_cached(self):
-        volume_api = cinder.volume.api.API()
-        with mock.patch.object(volume_api.db,
-                               'service_get_all_by_topic') as get_all:
-            get_all.return_value = [
-                {
-                    'availability_zone': 'a',
-                    'disabled': False,
-                },
-            ]
-            azs = volume_api.list_availability_zones(enable_cache=False)
-            self.assertEqual([{"name": 'a', 'available': True}], list(azs))
-            self.assertIsNone(volume_api.availability_zones_last_fetched)
+        azs = self.volume_api.list_availability_zones(enable_cache=False)
+        self.assertEqual([{"name": 'a', 'available': True}], list(azs))
+        self.assertIsNone(self.volume_api.availability_zones_last_fetched)
 
-        with mock.patch.object(volume_api.db,
-                               'service_get_all_by_topic') as get_all:
-            get_all.return_value = [
-                {
-                    'availability_zone': 'a',
-                    'disabled': True,
-                },
-            ]
-            azs = volume_api.list_availability_zones(enable_cache=False)
-            self.assertEqual([{"name": 'a', 'available': False}], list(azs))
-            self.assertIsNone(volume_api.availability_zones_last_fetched)
+        self.get_all.return_value[0]['disabled'] = True
+        azs = self.volume_api.list_availability_zones(enable_cache=False)
+        self.assertEqual([{"name": 'a', 'available': False}], list(azs))
+        self.assertIsNone(self.volume_api.availability_zones_last_fetched)
 
     def test_list_availability_zones_refetched(self):
         timeutils.set_time_override()
         self.addCleanup(timeutils.clear_time_override)
-        volume_api = cinder.volume.api.API()
-        with mock.patch.object(volume_api.db,
-                               'service_get_all_by_topic') as get_all:
-            get_all.return_value = [
-                {
-                    'availability_zone': 'a',
-                    'disabled': False,
-                },
-            ]
-            azs = volume_api.list_availability_zones(enable_cache=True)
-            self.assertEqual([{"name": 'a', 'available': True}], list(azs))
-            self.assertIsNotNone(volume_api.availability_zones_last_fetched)
-            last_fetched = volume_api.availability_zones_last_fetched
-            self.assertTrue(get_all.called)
-            volume_api.list_availability_zones(enable_cache=True)
-            self.assertEqual(1, get_all.call_count)
+        azs = self.volume_api.list_availability_zones(enable_cache=True)
+        self.assertEqual([{"name": 'a', 'available': True}], list(azs))
+        self.assertIsNotNone(self.volume_api.availability_zones_last_fetched)
+        last_fetched = self.volume_api.availability_zones_last_fetched
+        self.assertTrue(self.get_all.called)
+        self.volume_api.list_availability_zones(enable_cache=True)
+        self.assertEqual(1, self.get_all.call_count)
 
-            # The default cache time is 3600, push past that...
-            timeutils.advance_time_seconds(3800)
-            get_all.return_value = [
-                {
-                    'availability_zone': 'a',
-                    'disabled': False,
-                },
-                {
-                    'availability_zone': 'b',
-                    'disabled': False,
-                },
-            ]
-            azs = volume_api.list_availability_zones(enable_cache=True)
-            azs = sorted([n['name'] for n in azs])
-            self.assertEqual(['a', 'b'], azs)
-            self.assertEqual(2, get_all.call_count)
-            self.assertGreater(volume_api.availability_zones_last_fetched,
-                               last_fetched)
+        # The default cache time is 3600, push past that...
+        timeutils.advance_time_seconds(3800)
+        self.get_all.return_value = [
+            {
+                'availability_zone': 'a',
+                'disabled': False,
+            },
+            {
+                'availability_zone': 'b',
+                'disabled': False,
+            },
+        ]
+        azs = self.volume_api.list_availability_zones(enable_cache=True)
+        azs = sorted([n['name'] for n in azs])
+        self.assertEqual(['a', 'b'], azs)
+        self.assertEqual(2, self.get_all.call_count)
+        self.assertGreater(self.volume_api.availability_zones_last_fetched,
+                           last_fetched)
 
     def test_list_availability_zones_enabled_service(self):
-        services = [
+        def sort_func(obj):
+            return obj['name']
+
+        self.get_all.return_value = [
             {'availability_zone': 'ping', 'disabled': 0},
             {'availability_zone': 'ping', 'disabled': 1},
             {'availability_zone': 'pong', 'disabled': 0},
             {'availability_zone': 'pung', 'disabled': 1},
         ]
-
-        def stub_service_get_all_by_topic(*args, **kwargs):
-            return services
-
-        self.stubs.Set(db, 'service_get_all_by_topic',
-                       stub_service_get_all_by_topic)
-
-        def sort_func(obj):
-            return obj['name']
 
         volume_api = cinder.volume.api.API()
         azs = volume_api.list_availability_zones()
@@ -362,6 +318,7 @@ class AvailabilityZoneTestCase(BaseVolumeTestCase):
         self.assertEqual(expected, azs)
 
 
+@ddt.ddt
 class VolumeTestCase(BaseVolumeTestCase):
 
     def setUp(self):
@@ -517,6 +474,27 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.volume.delete_snapshot(self.context, snap1_obj)
         self.volume.delete_volume(self.context, vol0.id)
         self.volume.delete_volume(self.context, vol1.id)
+
+    @mock.patch('cinder.volume.manager.VolumeManager.'
+                '_include_resources_in_cluster')
+    def test_init_host_cluster_not_changed(self, include_in_cluster_mock):
+        self.volume.init_host(False)
+        include_in_cluster_mock.assert_not_called()
+
+    @mock.patch('cinder.objects.volume.VolumeList.include_in_cluster')
+    @mock.patch('cinder.objects.consistencygroup.ConsistencyGroupList.'
+                'include_in_cluster')
+    def test_init_host_added_to_cluster(self, vol_include_mock,
+                                        cg_include_mock):
+        self.mock_object(self.volume, 'cluster', mock.sentinel.cluster)
+        self.volume.init_host(True)
+
+        vol_include_mock.assert_called_once_with(mock.ANY,
+                                                 mock.sentinel.cluster,
+                                                 host=self.volume.host)
+        cg_include_mock.assert_called_once_with(mock.ANY,
+                                                mock.sentinel.cluster,
+                                                host=self.volume.host)
 
     @mock.patch('cinder.objects.service.Service.get_minimum_rpc_version')
     @mock.patch('cinder.objects.service.Service.get_minimum_obj_version')
@@ -777,20 +755,28 @@ class VolumeTestCase(BaseVolumeTestCase):
                           self.context,
                           volume_id)
 
-    def test_create_volume_with_invalid_metadata(self):
-        """Test volume create with too much metadata fails."""
-        volume_api = cinder.volume.api.API()
-        test_meta = {'fake_key': 'fake_value' * 256}
-        self.assertRaises(exception.InvalidVolumeMetadataSize,
-                          volume_api.create,
+    @mock.patch('cinder.db.volume_metadata_update')
+    def test_create_volume_metadata(self, metadata_update):
+        metadata = {'fake_key': 'fake_value'}
+        metadata_update.return_value = metadata
+        volume = tests_utils.create_volume(self.context, **self.volume_params)
+        res = self.volume_api.create_volume_metadata(self.context,
+                                                     volume, metadata)
+        metadata_update.assert_called_once_with(self.context, volume.id,
+                                                metadata, False,
+                                                common.METADATA_TYPES.user)
+        self.assertEqual(metadata, res)
+
+    @ddt.data('maintenance', 'uploading')
+    def test_create_volume_metadata_maintenance(self, status):
+        metadata = {'fake_key': 'fake_value'}
+        volume = tests_utils.create_volume(self.context, **self.volume_params)
+        volume['status'] = status
+        self.assertRaises(exception.InvalidVolume,
+                          self.volume_api.create_volume_metadata,
                           self.context,
-                          1,
-                          'name',
-                          'description',
-                          None,
-                          None,
-                          None,
-                          test_meta)
+                          volume,
+                          metadata)
 
     def test_update_volume_metadata_with_metatype(self):
         """Test update volume metadata with different metadata type."""
@@ -800,11 +786,8 @@ class VolumeTestCase(BaseVolumeTestCase):
         volume = tests_utils.create_volume(self.context, metadata=test_meta1,
                                            **self.volume_params)
         self.volume.create_volume(self.context, volume.id, volume=volume)
-
-        volume_api = cinder.volume.api.API()
-
         # update user metadata associated with the volume.
-        result_meta = volume_api.update_volume_metadata(
+        result_meta = self.volume_api.update_volume_metadata(
             self.context,
             volume,
             test_meta2,
@@ -813,7 +796,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(test_meta2, result_meta)
 
         # create image metadata associated with the volume.
-        result_meta = volume_api.update_volume_metadata(
+        result_meta = self.volume_api.update_volume_metadata(
             self.context,
             volume,
             test_meta1,
@@ -822,7 +805,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(test_meta1, result_meta)
 
         # update image metadata associated with the volume.
-        result_meta = volume_api.update_volume_metadata(
+        result_meta = self.volume_api.update_volume_metadata(
             self.context,
             volume,
             test_meta2,
@@ -832,7 +815,7 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         # update volume metadata with invalid metadta type.
         self.assertRaises(exception.InvalidMetadataType,
-                          volume_api.update_volume_metadata,
+                          self.volume_api.update_volume_metadata,
                           self.context,
                           volume,
                           test_meta1,
@@ -846,9 +829,8 @@ class VolumeTestCase(BaseVolumeTestCase):
         volume = tests_utils.create_volume(self.context, metadata=test_meta1,
                                            **self.volume_params)
         volume['status'] = 'maintenance'
-        volume_api = cinder.volume.api.API()
         self.assertRaises(exception.InvalidVolume,
-                          volume_api.update_volume_metadata,
+                          self.volume_api.update_volume_metadata,
                           self.context,
                           volume,
                           test_meta1,
@@ -859,9 +841,8 @@ class VolumeTestCase(BaseVolumeTestCase):
     def test_update_with_ovo(self, volume_update):
         """Test update volume using oslo_versionedobject."""
         volume = tests_utils.create_volume(self.context, **self.volume_params)
-        volume_api = cinder.volume.api.API()
         updates = {'display_name': 'foobbar'}
-        volume_api.update(self.context, volume, updates)
+        self.volume_api.update(self.context, volume, updates)
         volume_update.assert_called_once_with(self.context, volume.id,
                                               updates)
         self.assertEqual('foobbar', volume.display_name)
@@ -875,11 +856,8 @@ class VolumeTestCase(BaseVolumeTestCase):
                                            **self.volume_params)
         volume_id = volume['id']
         self.volume.create_volume(self.context, volume_id, volume=volume)
-
-        volume_api = cinder.volume.api.API()
-
         # delete user metadata associated with the volume.
-        volume_api.delete_volume_metadata(
+        self.volume_api.delete_volume_metadata(
             self.context,
             volume,
             'fake_key2',
@@ -889,7 +867,7 @@ class VolumeTestCase(BaseVolumeTestCase):
                          db.volume_metadata_get(self.context, volume_id))
 
         # create image metadata associated with the volume.
-        result_meta = volume_api.update_volume_metadata(
+        result_meta = self.volume_api.update_volume_metadata(
             self.context,
             volume,
             test_meta1,
@@ -899,7 +877,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(test_meta1, result_meta)
 
         # delete image metadata associated with the volume.
-        volume_api.delete_volume_metadata(
+        self.volume_api.delete_volume_metadata(
             self.context,
             volume,
             'fake_key2',
@@ -914,7 +892,7 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         # delete volume metadata with invalid metadta type.
         self.assertRaises(exception.InvalidMetadataType,
-                          volume_api.delete_volume_metadata,
+                          self.volume_api.delete_volume_metadata,
                           self.context,
                           volume,
                           'fake_key1',
@@ -927,9 +905,8 @@ class VolumeTestCase(BaseVolumeTestCase):
         volume = tests_utils.create_volume(self.context, metadata=test_meta1,
                                            **self.volume_params)
         volume['status'] = 'maintenance'
-        volume_api = cinder.volume.api.API()
         self.assertRaises(exception.InvalidVolume,
-                          volume_api.delete_volume_metadata,
+                          self.volume_api.delete_volume_metadata,
                           self.context,
                           volume,
                           'fake_key1',
@@ -941,9 +918,8 @@ class VolumeTestCase(BaseVolumeTestCase):
         volume = tests_utils.create_volume(self.context, metadata=test_meta1,
                                            **self.volume_params)
         volume['status'] = 'maintenance'
-        volume_api = cinder.volume.api.API()
         self.assertRaises(exception.InvalidVolume,
-                          volume_api.attach,
+                          self.volume_api.attach,
                           self.context,
                           volume, None, None, None, None)
 
@@ -1069,9 +1045,13 @@ class VolumeTestCase(BaseVolumeTestCase):
                                    volume_type=db_vol_type)
         self.assertEqual(db_vol_type.get('id'), volume['volume_type_id'])
 
-    @mock.patch.object(keymgr, 'API', fake_keymgr.fake_api)
-    def test_create_volume_with_encrypted_volume_type(self):
+    @mock.patch.object(key_manager, 'API', fake_keymgr.fake_api)
+    def test_create_volume_with_encrypted_volume_type_aes(self):
         ctxt = context.get_admin_context()
+
+        cipher = 'aes-xts-plain64'
+        key_size = 256
+        control_location = 'front-end'
 
         db.volume_type_create(ctxt,
                               {'id': '61298380-0c12-11e3-bfd6-4b48424183be',
@@ -1079,7 +1059,10 @@ class VolumeTestCase(BaseVolumeTestCase):
         db.volume_type_encryption_create(
             ctxt,
             '61298380-0c12-11e3-bfd6-4b48424183be',
-            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER})
+            {'control_location': control_location,
+             'provider': ENCRYPTION_PROVIDER,
+             'cipher': cipher,
+             'key_size': key_size})
 
         volume_api = cinder.volume.api.API()
 
@@ -1090,7 +1073,55 @@ class VolumeTestCase(BaseVolumeTestCase):
                                    'name',
                                    'description',
                                    volume_type=db_vol_type)
+
+        key_manager = volume_api.key_manager
+        key = key_manager.get(self.context, volume['encryption_key_id'])
+        self.assertEqual(key_size, len(key.get_encoded()) * 8)
+        self.assertEqual('aes', key.algorithm)
+
+        metadata = db.volume_encryption_metadata_get(self.context, volume.id)
         self.assertEqual(db_vol_type.get('id'), volume['volume_type_id'])
+        self.assertEqual(cipher, metadata.get('cipher'))
+        self.assertEqual(key_size, metadata.get('key_size'))
+        self.assertIsNotNone(volume['encryption_key_id'])
+
+    @mock.patch.object(key_manager, 'API', fake_keymgr.fake_api)
+    def test_create_volume_with_encrypted_volume_type_blowfish(self):
+        ctxt = context.get_admin_context()
+
+        cipher = 'blowfish-cbc'
+        key_size = 32
+        control_location = 'front-end'
+
+        db.volume_type_create(ctxt,
+                              {'id': '61298380-0c12-11e3-bfd6-4b48424183be',
+                               'name': 'LUKS'})
+        db.volume_type_encryption_create(
+            ctxt,
+            '61298380-0c12-11e3-bfd6-4b48424183be',
+            {'control_location': control_location,
+             'provider': ENCRYPTION_PROVIDER,
+             'cipher': cipher,
+             'key_size': key_size})
+
+        volume_api = cinder.volume.api.API()
+
+        db_vol_type = db.volume_type_get_by_name(ctxt, 'LUKS')
+
+        volume = volume_api.create(self.context,
+                                   1,
+                                   'name',
+                                   'description',
+                                   volume_type=db_vol_type)
+
+        key_manager = volume_api.key_manager
+        key = key_manager.get(self.context, volume['encryption_key_id'])
+        self.assertEqual('blowfish', key.algorithm)
+
+        metadata = db.volume_encryption_metadata_get(self.context, volume.id)
+        self.assertEqual(db_vol_type.get('id'), volume['volume_type_id'])
+        self.assertEqual(cipher, metadata.get('cipher'))
+        self.assertEqual(key_size, metadata.get('key_size'))
         self.assertIsNotNone(volume['encryption_key_id'])
 
     def test_create_volume_with_provider_id(self):
@@ -1103,13 +1134,18 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.volume.create_volume(self.context, volume['id'])
         self.assertEqual(fake.PROVIDER_ID, volume['provider_id'])
 
-    @mock.patch.object(keymgr, 'API', new=fake_keymgr.fake_api)
+    @mock.patch.object(key_manager, 'API', new=fake_keymgr.fake_api)
     def test_create_delete_volume_with_encrypted_volume_type(self):
-        db_vol_type = db.volume_type_create(
-            self.context, {'id': fake.VOLUME_TYPE_ID, 'name': 'LUKS'})
+        cipher = 'aes-xts-plain64'
+        key_size = 256
+        db.volume_type_create(self.context,
+                              {'id': fake.VOLUME_TYPE_ID, 'name': 'LUKS'})
         db.volume_type_encryption_create(
             self.context, fake.VOLUME_TYPE_ID,
-            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER})
+            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER,
+             'cipher': cipher, 'key_size': key_size})
+
+        db_vol_type = db.volume_type_get_by_name(self.context, 'LUKS')
 
         volume = self.volume_api.create(self.context,
                                         1,
@@ -1126,7 +1162,13 @@ class VolumeTestCase(BaseVolumeTestCase):
         db.volume_update(self.context, volume['id'], {'status': 'available'})
         self.volume_api.delete(self.context, volume)
 
-        volume = db.volume_get(self.context, volume['id'])
+        volume = objects.Volume.get_by_id(self.context, volume.id)
+        while volume.status == 'available':
+            # Must wait for volume_api delete request to process enough to
+            # change the volume status.
+            time.sleep(0.5)
+            volume.refresh()
+
         self.assertEqual('deleting', volume['status'])
 
         db.volume_destroy(self.context, volume['id'])
@@ -1503,8 +1545,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         snapshot_obj = fake_snapshot.fake_snapshot_obj(self.context,
                                                        **snapshot)
 
-        with mock.patch.object(db,
-                               'service_get_all_by_topic') as mock_get_service, \
+        with mock.patch('cinder.db.service_get_all') as mock_get_service, \
             mock.patch.object(volume_api,
                               'list_availability_zones') as mock_get_azs:
             mock_get_service.return_value = [{'host': 'foo'}]
@@ -1973,10 +2014,12 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertRaises(exception.VolumeNotFound, db.volume_get,
                           self.context, src_vol_id)
 
-    @mock.patch.object(keymgr, 'API', fake_keymgr.fake_api)
+    @mock.patch.object(key_manager, 'API', fake_keymgr.fake_api)
     def test_create_volume_from_snapshot_with_encryption(self):
         """Test volume can be created from a snapshot of an encrypted volume"""
         ctxt = context.get_admin_context()
+        cipher = 'aes-xts-plain64'
+        key_size = 256
 
         db.volume_type_create(ctxt,
                               {'id': '61298380-0c12-11e3-bfd6-4b48424183be',
@@ -1984,7 +2027,8 @@ class VolumeTestCase(BaseVolumeTestCase):
         db.volume_type_encryption_create(
             ctxt,
             '61298380-0c12-11e3-bfd6-4b48424183be',
-            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER})
+            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER,
+             'cipher': cipher, 'key_size': key_size})
 
         volume_api = cinder.volume.api.API()
 
@@ -2021,15 +2065,17 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertIsNotNone(volume_dst['encryption_key_id'])
 
         key_manager = volume_api.key_manager  # must use *same* key manager
-        volume_src_key = key_manager.get_key(self.context,
-                                             volume_src['encryption_key_id'])
-        volume_dst_key = key_manager.get_key(self.context,
-                                             volume_dst['encryption_key_id'])
+        volume_src_key = key_manager.get(self.context,
+                                         volume_src['encryption_key_id'])
+        volume_dst_key = key_manager.get(self.context,
+                                         volume_dst['encryption_key_id'])
         self.assertEqual(volume_src_key, volume_dst_key)
 
     def test_create_volume_from_encrypted_volume(self):
         """Test volume can be created from an encrypted volume."""
-        self.stubs.Set(keymgr, 'API', fake_keymgr.fake_api)
+        self.stubs.Set(key_manager, 'API', fake_keymgr.fake_api)
+        cipher = 'aes-xts-plain64'
+        key_size = 256
 
         volume_api = cinder.volume.api.API()
 
@@ -2041,7 +2087,8 @@ class VolumeTestCase(BaseVolumeTestCase):
         db.volume_type_encryption_create(
             ctxt,
             '61298380-0c12-11e3-bfd6-4b48424183be',
-            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER})
+            {'control_location': 'front-end', 'provider': ENCRYPTION_PROVIDER,
+             'cipher': cipher, 'key_size': key_size})
 
         db_vol_type = db.volume_type_get_by_name(context.get_admin_context(),
                                                  'LUKS')
@@ -2067,11 +2114,11 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertIsNotNone(volume_src['encryption_key_id'])
         self.assertIsNotNone(volume_dst['encryption_key_id'])
 
-        key_manager = volume_api.key_manager  # must use *same* key manager
-        volume_src_key = key_manager.get_key(self.context,
-                                             volume_src['encryption_key_id'])
-        volume_dst_key = key_manager.get_key(self.context,
-                                             volume_dst['encryption_key_id'])
+        km = volume_api.key_manager  # must use *same* key manager
+        volume_src_key = km.get(self.context,
+                                volume_src['encryption_key_id'])
+        volume_dst_key = km.get(self.context,
+                                volume_dst['encryption_key_id'])
         self.assertEqual(volume_src_key, volume_dst_key)
 
     def test_delete_encrypted_volume(self):
@@ -2081,7 +2128,7 @@ class VolumeTestCase(BaseVolumeTestCase):
         vol_api = cinder.volume.api.API()
         with mock.patch.object(
                 vol_api.key_manager,
-                'delete_key',
+                'delete',
                 side_effect=Exception):
             self.assertRaises(exception.InvalidVolume,
                               vol_api.delete,
@@ -2166,16 +2213,19 @@ class VolumeTestCase(BaseVolumeTestCase):
                                             _mock_volume_admin_metadata_get,
                                             mock_get_target):
         """Make sure initialize_connection returns correct information."""
-        _fake_admin_meta = {'fake-key': 'fake-value'}
+        _fake_admin_meta = [{'key': 'fake-key', 'value': 'fake-value'}]
         _fake_volume = {'volume_type_id': fake.VOLUME_TYPE_ID,
                         'name': 'fake_name',
                         'host': 'fake_host',
                         'id': fake.VOLUME_ID,
                         'volume_admin_metadata': _fake_admin_meta}
+        fake_volume_obj = fake_volume.fake_volume_obj(self.context,
+                                                      **_fake_volume)
 
         _mock_volume_get.return_value = _fake_volume
         _mock_volume_update.return_value = _fake_volume
-        _mock_volume_admin_metadata_get.return_value = _fake_admin_meta
+        _mock_volume_admin_metadata_get.return_value = {
+            'fake-key': 'fake-value'}
 
         connector = {'ip': 'IP', 'initiator': 'INITIATOR'}
         qos_values = {'consumer': 'front-end',
@@ -2186,7 +2236,7 @@ class VolumeTestCase(BaseVolumeTestCase):
 
         with mock.patch.object(cinder.volume.volume_types,
                                'get_volume_type_qos_specs') as type_qos, \
-            mock.patch.object(cinder.tests.unit.fake_driver.FakeISCSIDriver,
+            mock.patch.object(cinder.tests.fake_driver.FakeISCSIDriver,
                               'initialize_connection') as driver_init:
             type_qos.return_value = dict(qos_specs=qos_values)
             driver_init.return_value = {'data': {}}
@@ -2195,53 +2245,42 @@ class VolumeTestCase(BaseVolumeTestCase):
                                   'key2': 'value2'}
             # initialize_connection() passes qos_specs that is designated to
             # be consumed by front-end or both front-end and back-end
-            conn_info = self.volume.initialize_connection(self.context,
-                                                          fake.VOLUME_ID,
-                                                          connector)
+            conn_info = self.volume.initialize_connection(
+                self.context, fake.VOLUME_ID, connector,
+                volume=fake_volume_obj)
             self.assertDictMatch(qos_specs_expected,
                                  conn_info['data']['qos_specs'])
 
             qos_values.update({'consumer': 'both'})
-            conn_info = self.volume.initialize_connection(self.context,
-                                                          fake.VOLUME_ID,
-                                                          connector)
+            conn_info = self.volume.initialize_connection(
+                self.context, fake.VOLUME_ID, connector,
+                volume=fake_volume_obj)
             self.assertDictMatch(qos_specs_expected,
                                  conn_info['data']['qos_specs'])
             # initialize_connection() skips qos_specs that is designated to be
             # consumed by back-end only
             qos_values.update({'consumer': 'back-end'})
             type_qos.return_value = dict(qos_specs=qos_values)
-            conn_info = self.volume.initialize_connection(self.context,
-                                                          fake.VOLUME_ID,
-                                                          connector)
+            conn_info = self.volume.initialize_connection(
+                self.context, fake.VOLUME_ID, connector,
+                volume=fake_volume_obj)
             self.assertIsNone(conn_info['data']['qos_specs'])
 
     @mock.patch.object(fake_driver.FakeISCSIDriver, 'create_export')
-    @mock.patch.object(db.sqlalchemy.api, 'volume_get')
-    @mock.patch.object(db, 'volume_update')
     def test_initialize_connection_export_failure(self,
-                                                  _mock_volume_update,
-                                                  _mock_volume_get,
                                                   _mock_create_export):
         """Test exception path for create_export failure."""
-        _fake_admin_meta = {'fake-key': 'fake-value'}
-        _fake_volume = {'volume_type_id': fake.VOLUME_TYPE_ID,
-                        'name': 'fake_name',
-                        'host': 'fake_host',
-                        'id': fake.VOLUME_ID,
-                        'volume_admin_metadata': _fake_admin_meta}
-
-        _mock_volume_get.return_value = _fake_volume
-        _mock_volume_update.return_value = _fake_volume
+        volume = tests_utils.create_volume(
+            self.context, admin_metadata={'fake-key': 'fake-value'},
+            volume_type_id=fake.VOLUME_TYPE_ID, **self.volume_params)
         _mock_create_export.side_effect = exception.CinderException
 
         connector = {'ip': 'IP', 'initiator': 'INITIATOR'}
 
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.volume.initialize_connection,
-                          self.context,
-                          fake.VOLUME_ID,
-                          connector)
+                          self.context, fake.VOLUME_ID, connector,
+                          volume=volume)
 
     def test_run_attach_detach_volume_for_instance(self):
         """Make sure volume can be attached and detached from instance."""
@@ -3178,7 +3217,6 @@ class VolumeTestCase(BaseVolumeTestCase):
                           [test_volume],
                           'fake_name',
                           'fake_description',
-                          False,
                           fake.CONSISTENCY_GROUP_ID)
 
     def test_cannot_delete_volume_in_use(self):
@@ -3704,7 +3742,7 @@ class VolumeTestCase(BaseVolumeTestCase):
             volume_api = cinder.volume.api.API(
                 image_service=FakeImageService())
             volume = volume_api.create(self.context, 2, 'name', 'description',
-                                       image_id=1)
+                                       image_id=self.FAKE_UUID)
             volume_id = volume['id']
             self.assertEqual('creating', volume['status'])
 
@@ -4193,17 +4231,22 @@ class VolumeTestCase(BaseVolumeTestCase):
                        fake_error_create_cloned_volume)
         volume_src = tests_utils.create_volume(self.context,
                                                **self.volume_params)
+        self.assertEqual('creating', volume_src.status)
         self.volume.create_volume(self.context, volume_src.id,
                                   volume=volume_src)
+        self.assertEqual('available', volume_src.status)
         volume_dst = tests_utils.create_volume(self.context,
                                                source_volid=volume_src['id'],
                                                **self.volume_params)
+        self.assertEqual('creating', volume_dst.status)
         self.assertRaises(exception.CinderException,
                           self.volume.create_volume,
                           self.context,
                           volume_dst.id,
                           volume=volume_dst)
-        self.assertEqual('creating', volume_src['status'])
+        # Source volume's status is still available and dst is set to error
+        self.assertEqual('available', volume_src.status)
+        self.assertEqual('error', volume_dst.status)
         self.volume.delete_volume(self.context, volume_dst.id,
                                   volume=volume_dst)
         self.volume.delete_volume(self.context, volume_src.id,
@@ -4596,6 +4639,10 @@ class VolumeTestCase(BaseVolumeTestCase):
                            'secure_enabled': False,
                            'is_snapshot': False}
         self.assertEqual(expected_result, result)
+
+    def test_backup_use_temp_snapshot_config(self):
+        local_conf = self.volume.driver.configuration.local_conf
+        self.assertFalse(local_conf.backup_use_temp_snapshot)
 
     @mock.patch.object(QUOTAS, 'reserve',
                        side_effect = OVER_SNAPSHOT_QUOTA_EXCEPTION)
@@ -5172,7 +5219,8 @@ class VolumeMigrationTestCase(BaseVolumeTestCase):
     def _retype_volume_exec(self, driver, mock_notify,
                             snap=False, policy='on-demand',
                             migrate_exc=False, exc=None, diff_equal=False,
-                            replica=False, reserve_vol_type_only=False):
+                            replica=False, reserve_vol_type_only=False,
+                            encryption_changed=False):
         elevated = context.get_admin_context()
         project_id = self.context.project_id
 
@@ -5232,7 +5280,10 @@ class VolumeMigrationTestCase(BaseVolumeTestCase):
                 mock.patch.object(db.sqlalchemy.api, 'volume_get') as mock_get:
             mock_get.return_value = volume
             _retype.return_value = driver
-            _diff.return_value = ({}, diff_equal)
+            returned_diff = {}
+            if encryption_changed:
+                returned_diff = {'encryption': 'fake'}
+            _diff.return_value = (returned_diff, diff_equal)
             if migrate_exc:
                 _mig.side_effect = KeyError
             else:
@@ -5297,6 +5348,8 @@ class VolumeMigrationTestCase(BaseVolumeTestCase):
             self.assertEqual(CONF.host, volume.host)
             self.assertEqual(0, volumes_in_use)
             mock_notify.assert_not_called()
+        if encryption_changed:
+            self.assertTrue(_mig.called)
 
     def test_retype_volume_driver_success(self):
         self._retype_volume_exec(True)
@@ -5325,6 +5378,9 @@ class VolumeMigrationTestCase(BaseVolumeTestCase):
 
     def test_retype_volume_with_type_only(self):
         self._retype_volume_exec(True, reserve_vol_type_only=True)
+
+    def test_retype_volume_migration_encryption(self):
+        self._retype_volume_exec(False, encryption_changed=True)
 
     def test_migrate_driver_not_initialized(self):
         volume = tests_utils.create_volume(self.context, size=0,
@@ -5371,7 +5427,7 @@ class ReplicationTestCase(BaseVolumeTestCase):
 
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'failover_host')
     @mock.patch.object(cinder.db, 'conditional_update')
-    @mock.patch.object(cinder.db, 'service_get_by_args')
+    @mock.patch.object(cinder.db, 'service_get')
     def test_failover_host(self, mock_db_args, mock_db_update,
                            mock_failover):
         """Test replication failover_host."""
@@ -5386,7 +5442,7 @@ class ReplicationTestCase(BaseVolumeTestCase):
 
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'failover_host')
     @mock.patch.object(cinder.db, 'conditional_update')
-    @mock.patch.object(cinder.db, 'service_get_by_args')
+    @mock.patch.object(cinder.db, 'service_get')
     def test_failover_host_unexpected_status(self, mock_db_args,
                                              mock_db_update,
                                              mock_failover):
@@ -5404,7 +5460,7 @@ class ReplicationTestCase(BaseVolumeTestCase):
 
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'freeze_host')
     @mock.patch.object(cinder.db, 'conditional_update')
-    @mock.patch.object(cinder.db, 'service_get_by_args')
+    @mock.patch.object(cinder.db, 'service_get')
     def test_freeze_host(self, mock_db_args, mock_db_update,
                          mock_freeze):
         """Test replication freeze_host."""
@@ -5419,7 +5475,7 @@ class ReplicationTestCase(BaseVolumeTestCase):
 
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'freeze_host')
     @mock.patch.object(cinder.db, 'conditional_update')
-    @mock.patch.object(cinder.db, 'service_get_by_args')
+    @mock.patch.object(cinder.db, 'service_get')
     def test_freeze_host_unexpected_status(self, mock_db_args,
                                            mock_db_update,
                                            mock_freeze):
@@ -5437,7 +5493,7 @@ class ReplicationTestCase(BaseVolumeTestCase):
 
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'thaw_host')
     @mock.patch.object(cinder.db, 'conditional_update')
-    @mock.patch.object(cinder.db, 'service_get_by_args')
+    @mock.patch.object(cinder.db, 'service_get')
     def test_thaw_host(self, mock_db_args, mock_db_update,
                        mock_thaw):
         """Test replication thaw_host."""
@@ -5453,7 +5509,7 @@ class ReplicationTestCase(BaseVolumeTestCase):
 
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'thaw_host')
     @mock.patch.object(cinder.db, 'conditional_update')
-    @mock.patch.object(cinder.db, 'service_get_by_args')
+    @mock.patch.object(cinder.db, 'service_get')
     def test_thaw_host_unexpected_status(self, mock_db_args,
                                          mock_db_update,
                                          mock_thaw):
@@ -5948,9 +6004,10 @@ class DriverTestCase(test.TestCase):
             self.volume.delete_volume(self.context, volume_id)
 
 
+@ddt.ddt
 class GenericVolumeDriverTestCase(DriverTestCase):
     """Test case for VolumeDriver."""
-    driver_name = "cinder.tests.unit.fake_driver.LoggingVolumeDriver"
+    driver_name = "cinder.tests.fake_driver.LoggingVolumeDriver"
 
     @mock.patch.object(utils, 'temporary_chown')
     @mock.patch('six.moves.builtins.open')
@@ -5964,9 +6021,8 @@ class GenericVolumeDriverTestCase(DriverTestCase):
         vol = tests_utils.create_volume(self.context)
         self.context.user_id = fake.USER_ID
         self.context.project_id = fake.PROJECT_ID
-        backup = tests_utils.create_backup(self.context,
-                                           vol['id'])
-        backup_obj = objects.Backup.get_by_id(self.context, backup.id)
+        backup_obj = tests_utils.create_backup(self.context,
+                                               vol['id'])
         properties = {}
         attach_info = {'device': {'path': '/dev/null'}}
         backup_service = mock.Mock()
@@ -5999,15 +6055,15 @@ class GenericVolumeDriverTestCase(DriverTestCase):
                                             status='backing-up')
             cloned_vol = self.volume.driver._create_temp_cloned_volume(
                 self.context, vol)
-            self.assertEqual('dummy', cloned_vol['provider_location'])
-            self.assertEqual('available', cloned_vol['status'])
+            self.assertEqual('dummy', cloned_vol.provider_location)
+            self.assertEqual('available', cloned_vol.status)
 
             mock_create_cloned_volume.return_value = None
             vol = tests_utils.create_volume(self.context,
                                             status='backing-up')
             cloned_vol = self.volume.driver._create_temp_cloned_volume(
                 self.context, vol)
-            self.assertEqual('available', cloned_vol['status'])
+            self.assertEqual('available', cloned_vol.status)
 
     @mock.patch.object(utils, 'temporary_chown')
     @mock.patch('six.moves.builtins.open')
@@ -6024,9 +6080,8 @@ class GenericVolumeDriverTestCase(DriverTestCase):
         temp_vol = tests_utils.create_volume(self.context)
         self.context.user_id = fake.USER_ID
         self.context.project_id = fake.PROJECT_ID
-        backup = tests_utils.create_backup(self.context,
-                                           vol['id'])
-        backup_obj = objects.Backup.get_by_id(self.context, backup.id)
+        backup_obj = tests_utils.create_backup(self.context,
+                                               vol['id'])
         properties = {}
         attach_info = {'device': {'path': '/dev/null'}}
         backup_service = mock.Mock()
@@ -6117,16 +6172,15 @@ class GenericVolumeDriverTestCase(DriverTestCase):
         vol = tests_utils.create_volume(self.context)
         self.context.user_id = fake.USER_ID
         self.context.project_id = fake.PROJECT_ID
-        backup = tests_utils.create_backup(self.context,
-                                           vol['id'])
-        backup_obj = objects.Backup.get_by_id(self.context, backup.id)
+        backup_obj = tests_utils.create_backup(self.context,
+                                               vol['id'])
         (backup_device, is_snapshot) = self.volume.driver.get_backup_device(
             self.context, backup_obj)
         volume = objects.Volume.get_by_id(self.context, vol.id)
         self.assertEqual(volume, backup_device)
         self.assertFalse(is_snapshot)
-        backup_obj = objects.Backup.get_by_id(self.context, backup.id)
-        self.assertIsNone(backup.temp_volume_id)
+        backup_obj.refresh()
+        self.assertIsNone(backup_obj.temp_volume_id)
 
     def test_get_backup_device_in_use(self):
         vol = tests_utils.create_volume(self.context,
@@ -6135,9 +6189,8 @@ class GenericVolumeDriverTestCase(DriverTestCase):
         temp_vol = tests_utils.create_volume(self.context)
         self.context.user_id = fake.USER_ID
         self.context.project_id = fake.PROJECT_ID
-        backup = tests_utils.create_backup(self.context,
-                                           vol['id'])
-        backup_obj = objects.Backup.get_by_id(self.context, backup.id)
+        backup_obj = tests_utils.create_backup(self.context,
+                                               vol['id'])
         with mock.patch.object(
                 self.volume.driver,
                 '_create_temp_cloned_volume') as mock_create_temp:
@@ -6147,7 +6200,7 @@ class GenericVolumeDriverTestCase(DriverTestCase):
                                                      backup_obj))
             self.assertEqual(temp_vol, backup_device)
             self.assertFalse(is_snapshot)
-            backup_obj = objects.Backup.get_by_id(self.context, backup.id)
+            backup_obj.refresh()
             self.assertEqual(temp_vol.id, backup_obj.temp_volume_id)
 
     def test__create_temp_volume_from_snapshot(self):
@@ -6164,15 +6217,20 @@ class GenericVolumeDriverTestCase(DriverTestCase):
             temp_vol = self.volume.driver._create_temp_volume_from_snapshot(
                 self.context,
                 vol, snapshot)
-            self.assertEqual('detached', temp_vol['attach_status'])
-            self.assertEqual('fakezone', temp_vol['availability_zone'])
+            self.assertEqual('detached', temp_vol.attach_status)
+            self.assertEqual('fakezone', temp_vol.availability_zone)
 
     @mock.patch.object(utils, 'brick_get_connector_properties')
     @mock.patch.object(cinder.volume.manager.VolumeManager, '_attach_volume')
     @mock.patch.object(cinder.volume.manager.VolumeManager, '_detach_volume')
     @mock.patch.object(volutils, 'copy_volume')
     @mock.patch.object(volume_rpcapi.VolumeAPI, 'get_capabilities')
+    @mock.patch.object(cinder.volume.volume_types,
+                       'volume_types_encryption_changed')
+    @ddt.data(False, True)
     def test_copy_volume_data_mgr(self,
+                                  encryption_changed,
+                                  mock_encryption_changed,
                                   mock_get_capabilities,
                                   mock_copy,
                                   mock_detach,
@@ -6185,17 +6243,24 @@ class GenericVolumeDriverTestCase(DriverTestCase):
         dest_vol = tests_utils.create_volume(self.context, size=1,
                                              host=CONF.host)
         mock_get_connector.return_value = {}
+        mock_encryption_changed.return_value = encryption_changed
         self.volume.driver._throttle = mock.MagicMock()
 
         attach_expected = [
-            mock.call(self.context, dest_vol, {}, remote=False),
-            mock.call(self.context, src_vol, {}, remote=False)]
+            mock.call(self.context, dest_vol, {},
+                      remote=False,
+                      attach_encryptor=encryption_changed),
+            mock.call(self.context, src_vol, {},
+                      remote=False,
+                      attach_encryptor=encryption_changed)]
 
         detach_expected = [
             mock.call(self.context, {'device': {'path': 'bar'}},
-                      dest_vol, {}, force=False, remote=False),
+                      dest_vol, {}, force=False, remote=False,
+                      attach_encryptor=encryption_changed),
             mock.call(self.context, {'device': {'path': 'foo'}},
-                      src_vol, {}, force=False, remote=False)]
+                      src_vol, {}, force=False, remote=False,
+                      attach_encryptor=encryption_changed)]
 
         attach_volume_returns = [
             {'device': {'path': 'bar'}},
@@ -6229,6 +6294,148 @@ class GenericVolumeDriverTestCase(DriverTestCase):
         # cleanup resource
         db.volume_destroy(self.context, src_vol['id'])
         db.volume_destroy(self.context, dest_vol['id'])
+
+    @mock.patch.object(os_brick.initiator.connector,
+                       'get_connector_properties')
+    @mock.patch.object(image_utils, 'fetch_to_raw')
+    @mock.patch.object(cinder.volume.driver.VolumeDriver, '_attach_volume')
+    @mock.patch.object(cinder.volume.driver.VolumeDriver, '_detach_volume')
+    @mock.patch.object(cinder.utils, 'brick_attach_volume_encryptor')
+    @mock.patch.object(cinder.utils, 'brick_detach_volume_encryptor')
+    def test_copy_image_to_encrypted_volume(self,
+                                            mock_detach_encryptor,
+                                            mock_attach_encryptor,
+                                            mock_detach_volume,
+                                            mock_attach_volume,
+                                            mock_fetch_to_raw,
+                                            mock_get_connector_properties):
+        properties = {}
+        volume = tests_utils.create_volume(
+            self.context, status='available',
+            size=2,
+            encryption_key_id=fake.ENCRYPTION_KEY_ID)
+        volume_id = volume['id']
+        volume = db.volume_get(context.get_admin_context(), volume_id)
+        image_service = fake_image.FakeImageService()
+        local_path = 'dev/sda'
+        attach_info = {'device': {'path': local_path},
+                       'conn': {'driver_volume_type': 'iscsi',
+                                'data': {}, }}
+
+        mock_get_connector_properties.return_value = properties
+        mock_attach_volume.return_value = [attach_info, volume]
+
+        self.volume.driver.copy_image_to_encrypted_volume(
+            self.context, volume, image_service, fake.IMAGE_ID)
+
+        encryption = {'encryption_key_id': fake.ENCRYPTION_KEY_ID}
+        mock_attach_volume.assert_called_once_with(
+            self.context, volume, properties)
+        mock_attach_encryptor.assert_called_once_with(
+            self.context, attach_info, encryption)
+        mock_fetch_to_raw.assert_called_once_with(
+            self.context, image_service, fake.IMAGE_ID,
+            local_path, '1M', size=2)
+        mock_detach_encryptor.assert_called_once_with(
+            attach_info, encryption)
+        mock_detach_volume.assert_called_once_with(
+            self.context, attach_info, volume, properties)
+
+    @mock.patch.object(os_brick.initiator.connector,
+                       'get_connector_properties')
+    @mock.patch.object(image_utils, 'fetch_to_raw')
+    @mock.patch.object(cinder.volume.driver.VolumeDriver, '_attach_volume')
+    @mock.patch.object(cinder.volume.driver.VolumeDriver, '_detach_volume')
+    @mock.patch.object(cinder.utils, 'brick_attach_volume_encryptor')
+    @mock.patch.object(cinder.utils, 'brick_detach_volume_encryptor')
+    def test_copy_image_to_encrypted_volume_failed_attach_encryptor(
+            self,
+            mock_detach_encryptor,
+            mock_attach_encryptor,
+            mock_detach_volume,
+            mock_attach_volume,
+            mock_fetch_to_raw,
+            mock_get_connector_properties):
+        properties = {}
+        volume = tests_utils.create_volume(
+            self.context, status='available',
+            size=2,
+            encryption_key_id=fake.ENCRYPTION_KEY_ID)
+        volume_id = volume['id']
+        volume = db.volume_get(context.get_admin_context(), volume_id)
+        image_service = fake_image.FakeImageService()
+        attach_info = {'device': {'path': 'dev/sda'},
+                       'conn': {'driver_volume_type': 'iscsi',
+                                'data': {}, }}
+
+        mock_get_connector_properties.return_value = properties
+        mock_attach_volume.return_value = [attach_info, volume]
+        raised_exception = os_brick.exception.VolumeEncryptionNotSupported(
+            volume_id = "123",
+            volume_type = "abc")
+        mock_attach_encryptor.side_effect = raised_exception
+
+        self.assertRaises(os_brick.exception.VolumeEncryptionNotSupported,
+                          self.volume.driver.copy_image_to_encrypted_volume,
+                          self.context, volume, image_service, fake.IMAGE_ID)
+
+        encryption = {'encryption_key_id': fake.ENCRYPTION_KEY_ID}
+        mock_attach_volume.assert_called_once_with(
+            self.context, volume, properties)
+        mock_attach_encryptor.assert_called_once_with(
+            self.context, attach_info, encryption)
+        self.assertFalse(mock_fetch_to_raw.called)
+        self.assertFalse(mock_detach_encryptor.called)
+        mock_detach_volume.assert_called_once_with(
+            self.context, attach_info, volume, properties)
+
+    @mock.patch.object(os_brick.initiator.connector,
+                       'get_connector_properties')
+    @mock.patch.object(image_utils, 'fetch_to_raw')
+    @mock.patch.object(cinder.volume.driver.VolumeDriver, '_attach_volume')
+    @mock.patch.object(cinder.volume.driver.VolumeDriver, '_detach_volume')
+    @mock.patch.object(cinder.utils, 'brick_attach_volume_encryptor')
+    @mock.patch.object(cinder.utils, 'brick_detach_volume_encryptor')
+    def test_copy_image_to_encrypted_volume_failed_fetch(
+            self,
+            mock_detach_encryptor, mock_attach_encryptor,
+            mock_detach_volume, mock_attach_volume, mock_fetch_to_raw,
+            mock_get_connector_properties):
+        properties = {}
+        volume = tests_utils.create_volume(
+            self.context, status='available',
+            size=2,
+            encryption_key_id=fake.ENCRYPTION_KEY_ID)
+        volume_id = volume['id']
+        volume = db.volume_get(context.get_admin_context(), volume_id)
+        image_service = fake_image.FakeImageService()
+        local_path = 'dev/sda'
+        attach_info = {'device': {'path': local_path},
+                       'conn': {'driver_volume_type': 'iscsi',
+                                'data': {}, }}
+
+        mock_get_connector_properties.return_value = properties
+        mock_attach_volume.return_value = [attach_info, volume]
+        raised_exception = exception.ImageUnacceptable(reason='fake',
+                                                       image_id=fake.IMAGE_ID)
+        mock_fetch_to_raw.side_effect = raised_exception
+
+        encryption = {'encryption_key_id': fake.ENCRYPTION_KEY_ID}
+        self.assertRaises(exception.ImageUnacceptable,
+                          self.volume.driver.copy_image_to_encrypted_volume,
+                          self.context, volume, image_service, fake.IMAGE_ID)
+
+        mock_attach_volume.assert_called_once_with(
+            self.context, volume, properties)
+        mock_attach_encryptor.assert_called_once_with(
+            self.context, attach_info, encryption)
+        mock_fetch_to_raw.assert_called_once_with(
+            self.context, image_service, fake.IMAGE_ID,
+            local_path, '1M', size=2)
+        mock_detach_encryptor.assert_called_once_with(
+            attach_info, encryption)
+        mock_detach_volume.assert_called_once_with(
+            self.context, attach_info, volume, properties)
 
 
 class FibreChannelTestCase(DriverTestCase):
@@ -6373,7 +6580,7 @@ class ImageVolumeCacheTestCase(BaseVolumeTestCase):
         volume = tests_utils.create_volume(self.context, **volume_params)
 
         with mock.patch.object(
-                volume_api.key_manager, 'delete_key') as key_del_mock:
+                volume_api.key_manager, 'delete') as key_del_mock:
             key_del_mock.side_effect = Exception("Key not found")
             volume_api.delete(self.context, volume)
 
@@ -6384,8 +6591,6 @@ class DiscardFlagTestCase(BaseVolumeTestCase):
     def setUp(self):
         super(DiscardFlagTestCase, self).setUp()
         self.volume.driver = mock.MagicMock()
-        self.mock_db = mock.MagicMock()
-        self.volume.db = self.mock_db
 
     @ddt.data(dict(config_discard_flag=True,
                    driver_discard_flag=None,
@@ -6413,15 +6618,6 @@ class DiscardFlagTestCase(BaseVolumeTestCase):
                                                 config_discard_flag,
                                                 driver_discard_flag,
                                                 expected_flag):
-        volume_properties = {'volume_type_id': None}
-
-        def _get_item(key):
-            return volume_properties[key]
-
-        mock_volume = mock.MagicMock()
-        mock_volume.__getitem__.side_effect = _get_item
-        self.mock_db.volume_get.return_value = mock_volume
-        self.mock_db.volume_update.return_value = mock_volume
         self.volume.driver.create_export.return_value = None
         connector = {'ip': 'IP', 'initiator': 'INITIATOR'}
 
@@ -6444,7 +6640,13 @@ class DiscardFlagTestCase(BaseVolumeTestCase):
 
         self.volume.driver.configuration.safe_get.side_effect = _safe_get
 
-        conn_info = self.volume.initialize_connection(self.context, 'id',
-                                                      connector)
+        with mock.patch.object(objects, 'Volume') as mock_vol:
+            volume = tests_utils.create_volume(self.context)
+            volume.volume_type_id = None
+            mock_vol.get_by_id.return_value = volume
+
+            conn_info = self.volume.initialize_connection(self.context,
+                                                          volume.id,
+                                                          connector)
 
         self.assertEqual(expected_flag, conn_info['data'].get('discard'))

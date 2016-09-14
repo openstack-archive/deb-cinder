@@ -48,14 +48,13 @@ class SnapshotUnmanageController(wsgi.Controller):
         context = req.environ['cinder.context']
         authorize(context)
 
-        LOG.info(_LI("Unmanage snapshot with id: %s"), id, context=context)
+        LOG.info(_LI("Unmanage snapshot with id: %s"), id)
 
         try:
             snapshot = self.volume_api.get_snapshot(context, id)
             self.volume_api.delete_snapshot(context, snapshot,
                                             unmanage_only=True)
-        except exception.SnapshotNotFound as ex:
-            raise exc.HTTPNotFound(explanation=ex.msg)
+        # Not found exception will be handled at the wsgi level
         except exception.InvalidSnapshot as ex:
             raise exc.HTTPBadRequest(explanation=ex.msg)
         return webob.Response(status_int=202)

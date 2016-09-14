@@ -33,6 +33,10 @@ class NetAppCmodeFibreChannelDriver(driver.BaseVD,
 
     DRIVER_NAME = 'NetApp_FibreChannel_Cluster_direct'
 
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "NetApp_CI"
+    VERSION = block_cmode.NetAppBlockStorageCmodeLibrary.VERSION
+
     def __init__(self, *args, **kwargs):
         super(NetAppCmodeFibreChannelDriver, self).__init__(*args, **kwargs)
         self.library = block_cmode.NetAppBlockStorageCmodeLibrary(
@@ -129,3 +133,7 @@ class NetAppCmodeFibreChannelDriver(driver.BaseVD,
         return self.library.create_consistencygroup_from_src(
             group, volumes, cgsnapshot=cgsnapshot, snapshots=snapshots,
             source_cg=source_cg, source_vols=source_vols)
+
+    def failover_host(self, context, volumes, secondary_id=None):
+        return self.library.failover_host(
+            context, volumes, secondary_id=secondary_id)

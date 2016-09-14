@@ -35,6 +35,10 @@ class NetAppEseriesISCSIDriver(driver.BaseVD,
 
     DRIVER_NAME = 'NetApp_iSCSI_ESeries'
 
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "NetApp_CI"
+    VERSION = library.NetAppESeriesLibrary.VERSION
+
     def __init__(self, *args, **kwargs):
         super(NetAppEseriesISCSIDriver, self).__init__(*args, **kwargs)
         na_utils.validate_instantiation(**kwargs)

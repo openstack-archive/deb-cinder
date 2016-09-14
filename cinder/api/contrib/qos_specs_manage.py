@@ -36,10 +36,8 @@ authorize = extensions.extension_authorizer('volume', 'qos_specs_manage')
 
 
 def _check_specs(context, specs_id):
-    try:
-        qos_specs.get_qos_specs(context, specs_id)
-    except exception.QoSSpecsNotFound as ex:
-        raise webob.exc.HTTPNotFound(explanation=six.text_type(ex))
+    # Not found exception will be handled at the wsgi level
+    qos_specs.get_qos_specs(context, specs_id)
 
 
 class QoSSpecsController(wsgi.Controller):
@@ -88,10 +86,14 @@ class QoSSpecsController(wsgi.Controller):
         self.validate_string_length(name, 'name', min_length=1,
                                     max_length=255, remove_whitespaces=True)
         name = name.strip()
+        # Remove name from 'specs' since passing it in as separate param
+        del specs['name']
+
+        # Validate the key-value pairs in the qos spec.
+        utils.validate_dictionary_string_length(specs)
 
         try:
-            qos_specs.create(context, name, specs)
-            spec = qos_specs.get_qos_specs_by_name(context, name)
+            spec = qos_specs.create(context, name, specs)
             notifier_info = dict(name=name, specs=specs)
             rpc.get_notifier('QoSSpecs').info(context,
                                               'qos_specs.create',
@@ -130,18 +132,13 @@ class QoSSpecsController(wsgi.Controller):
             rpc.get_notifier('QoSSpecs').info(context,
                                               'qos_specs.update',
                                               notifier_info)
-        except exception.QoSSpecsNotFound as err:
+        except (exception.QoSSpecsNotFound, exception.InvalidQoSSpecs) as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
                                          'qos_specs.update',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
-        except exception.InvalidQoSSpecs as err:
-            notifier_err = dict(id=id, error_message=err)
-            self._notify_qos_specs_error(context,
-                                         'qos_specs.update',
-                                         notifier_err)
-            raise webob.exc.HTTPBadRequest(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.QoSSpecsUpdateFailed as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
@@ -157,10 +154,8 @@ class QoSSpecsController(wsgi.Controller):
         context = req.environ['cinder.context']
         authorize(context)
 
-        try:
-            spec = qos_specs.get_qos_specs(context, id)
-        except exception.QoSSpecsNotFound as err:
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
+        # Not found exception will be handled at the wsgi level
+        spec = qos_specs.get_qos_specs(context, id)
 
         return self._view_builder.detail(req, spec)
 
@@ -185,7 +180,8 @@ class QoSSpecsController(wsgi.Controller):
             self._notify_qos_specs_error(context,
                                          'qos_specs.delete',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.QoSSpecsInUse as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
@@ -217,18 +213,13 @@ class QoSSpecsController(wsgi.Controller):
             notifier_info = dict(id=id)
             rpc.get_notifier('QoSSpecs').info(context, 'qos_specs.delete_keys',
                                               notifier_info)
-        except exception.QoSSpecsNotFound as err:
+        except exception.NotFound as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
                                          'qos_specs.delete_keys',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
-        except exception.QoSSpecsKeyNotFound as err:
-            notifier_err = dict(id=id, error_message=err)
-            self._notify_qos_specs_error(context,
-                                         'qos_specs.delete_keys',
-                                         notifier_err)
-            raise webob.exc.HTTPBadRequest(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
 
         return webob.Response(status_int=202)
 
@@ -250,7 +241,8 @@ class QoSSpecsController(wsgi.Controller):
             self._notify_qos_specs_error(context,
                                          'qos_specs.associations',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.CinderException as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
@@ -284,18 +276,13 @@ class QoSSpecsController(wsgi.Controller):
             rpc.get_notifier('QoSSpecs').info(context,
                                               'qos_specs.associate',
                                               notifier_info)
-        except exception.VolumeTypeNotFound as err:
+        except exception.NotFound as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
                                          'qos_specs.associate',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
-        except exception.QoSSpecsNotFound as err:
-            notifier_err = dict(id=id, error_message=err)
-            self._notify_qos_specs_error(context,
-                                         'qos_specs.associate',
-                                         notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.InvalidVolumeType as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
@@ -338,18 +325,13 @@ class QoSSpecsController(wsgi.Controller):
             rpc.get_notifier('QoSSpecs').info(context,
                                               'qos_specs.disassociate',
                                               notifier_info)
-        except exception.VolumeTypeNotFound as err:
+        except exception.NotFound as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
                                          'qos_specs.disassociate',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
-        except exception.QoSSpecsNotFound as err:
-            notifier_err = dict(id=id, error_message=err)
-            self._notify_qos_specs_error(context,
-                                         'qos_specs.disassociate',
-                                         notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.QoSSpecsDisassociateFailed as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,
@@ -378,7 +360,8 @@ class QoSSpecsController(wsgi.Controller):
             self._notify_qos_specs_error(context,
                                          'qos_specs.disassociate_all',
                                          notifier_err)
-            raise webob.exc.HTTPNotFound(explanation=six.text_type(err))
+            # Not found exception will be handled at the wsgi level
+            raise
         except exception.QoSSpecsDisassociateFailed as err:
             notifier_err = dict(id=id, error_message=err)
             self._notify_qos_specs_error(context,

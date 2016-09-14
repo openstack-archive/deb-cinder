@@ -16,15 +16,14 @@
 Client side of the volume RPC API.
 """
 
-from oslo_config import cfg
 from oslo_serialization import jsonutils
 
+from cinder.common import constants
 from cinder import quota
 from cinder import rpc
 from cinder.volume import utils
 
 
-CONF = cfg.CONF
 QUOTAS = quota.QUOTAS
 
 
@@ -100,12 +99,25 @@ class VolumeAPI(rpc.RPCAPI):
 
         2.0  - Remove 1.x compatibility
         2.1  - Add get_manageable_volumes() and get_manageable_snapshots().
-        2.2 - Adds support for sending objects over RPC in manage_existing().
+        2.2  - Adds support for sending objects over RPC in manage_existing().
+        2.3  - Adds support for sending objects over RPC in
+               initialize_connection().
+        2.4  - Sends request_spec as object in create_volume().
+        2.5  - Adds create_group, delete_group, and update_group
+        2.6  - Adds create_group_snapshot, delete_group_snapshot, and
+               create_group_from_src().
     """
 
-    RPC_API_VERSION = '2.2'
-    TOPIC = CONF.volume_topic
+    RPC_API_VERSION = '2.6'
+    TOPIC = constants.VOLUME_TOPIC
     BINARY = 'cinder-volume'
+
+    def _compat_ver(self, current, *legacy):
+        versions = (current,) + legacy
+        for version in versions[:-1]:
+            if self.client.can_send_version(version):
+                return version
+        return versions[-1]
 
     def _get_cctxt(self, host, version):
         new_host = utils.get_volume_rpc_host(host)
@@ -147,12 +159,19 @@ class VolumeAPI(rpc.RPCAPI):
 
     def create_volume(self, ctxt, volume, host, request_spec,
                       filter_properties, allow_reschedule=True):
-        request_spec_p = jsonutils.to_primitive(request_spec)
-        cctxt = self._get_cctxt(host, '2.0')
-        cctxt.cast(ctxt, 'create_volume', volume_id=volume.id,
-                   request_spec=request_spec_p,
-                   filter_properties=filter_properties,
-                   allow_reschedule=allow_reschedule, volume=volume)
+        msg_args = {'volume_id': volume.id, 'request_spec': request_spec,
+                    'filter_properties': filter_properties,
+                    'allow_reschedule': allow_reschedule,
+                    'volume': volume,
+                    }
+        version = '2.4'
+        if not self.client.can_send_version('2.4'):
+            # Send request_spec as dict
+            version = '2.0'
+            msg_args['request_spec'] = jsonutils.to_primitive(request_spec)
+
+        cctxt = self._get_cctxt(host, version)
+        cctxt.cast(ctxt, 'create_volume', **msg_args)
 
     def delete_volume(self, ctxt, volume, unmanage_only=False, cascade=False):
         cctxt = self._get_cctxt(volume.host, '2.0')
@@ -190,10 +209,15 @@ class VolumeAPI(rpc.RPCAPI):
                    image_meta=image_meta)
 
     def initialize_connection(self, ctxt, volume, connector):
-        cctxt = self._get_cctxt(volume['host'], '2.0')
-        return cctxt.call(ctxt, 'initialize_connection',
-                          volume_id=volume['id'],
-                          connector=connector)
+        version = self._compat_ver('2.3', '2.0')
+        msg_args = {'volume_id': volume.id, 'connector': connector,
+                    'volume': volume}
+
+        if version == '2.0':
+            del msg_args['volume']
+
+        cctxt = self._get_cctxt(volume['host'], version=version)
+        return cctxt.call(ctxt, 'initialize_connection', **msg_args)
 
     def terminate_connection(self, ctxt, volume, connector, force=False):
         cctxt = self._get_cctxt(volume['host'], '2.0')
@@ -319,3 +343,39 @@ class VolumeAPI(rpc.RPCAPI):
         return cctxt.call(ctxt, 'get_manageable_snapshots', marker=marker,
                           limit=limit, offset=offset, sort_keys=sort_keys,
                           sort_dirs=sort_dirs)
+
+    def create_group(self, ctxt, group, host):
+        cctxt = self._get_cctxt(host, '2.5')
+        cctxt.cast(ctxt, 'create_group',
+                   group=group)
+
+    def delete_group(self, ctxt, group):
+        cctxt = self._get_cctxt(group.host, '2.5')
+        cctxt.cast(ctxt, 'delete_group',
+                   group=group)
+
+    def update_group(self, ctxt, group, add_volumes=None,
+                     remove_volumes=None):
+        cctxt = self._get_cctxt(group.host, '2.5')
+        cctxt.cast(ctxt, 'update_group',
+                   group=group,
+                   add_volumes=add_volumes,
+                   remove_volumes=remove_volumes)
+
+    def create_group_from_src(self, ctxt, group, group_snapshot=None,
+                              source_group=None):
+        cctxt = self._get_cctxt(group.host, '2.6')
+        cctxt.cast(ctxt, 'create_group_from_src',
+                   group=group,
+                   group_snapshot=group_snapshot,
+                   source_group=source_group)
+
+    def create_group_snapshot(self, ctxt, group_snapshot):
+        cctxt = self._get_cctxt(group_snapshot.group.host, '2.6')
+        cctxt.cast(ctxt, 'create_group_snapshot',
+                   group_snapshot=group_snapshot)
+
+    def delete_group_snapshot(self, ctxt, group_snapshot):
+        cctxt = self._get_cctxt(group_snapshot.group.host, '2.6')
+        cctxt.cast(ctxt, 'delete_group_snapshot',
+                   group_snapshot=group_snapshot)

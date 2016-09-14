@@ -15,9 +15,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 9.0.0.0b2.dev1\n"
+"Project-Id-Version: cinder 9.0.0.0b3.dev544\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-01 22:30+0000\n"
+"POT-Creation-Date: 2016-09-01 04:08+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -258,9 +258,6 @@ msgstr "必须指定“status”。"
 msgid "'volume_id' must be specified"
 msgstr "必须指定“volume_id”"
 
-msgid "'{}' object has no attribute '{}'"
-msgstr "'{}' 对象没有属性 '{}'"
-
 #, python-format
 msgid ""
 "(Command: %(cmd)s) (Return Code: %(exit_code)s) (Stdout: %(stdout)s) "
@@ -408,20 +405,8 @@ msgstr "所指定的要管理的所有存储池都不存在。请检查配置。
 msgid "An API version request must be compared to a VersionedMethod object."
 msgstr "必须将 API 版本请求与 VersionedMethod 对象进行比较。"
 
-#, python-format
-msgid "An error has occured in SheepdogDriver. (Reason: %(reason)s)"
-msgstr "SheepdogDriver 中发生了错误。（原因：%(reason)s）"
-
 msgid "An error has occurred during backup operation"
 msgstr "在备份过程中出现一个错误"
-
-#, python-format
-msgid "An error occured while attempting to modifySnapshot '%s'."
-msgstr "尝试修改快照“%s”时发生了错误。"
-
-#, python-format
-msgid "An error occured while seeking for volume \"%s\"."
-msgstr "查找卷“%s”时发生错误。"
 
 #, python-format
 msgid ""
@@ -520,15 +505,9 @@ msgstr "在 CloudByte 存储器中找不到认证组 [%s] 详细信息。"
 msgid "Auth user details not found in CloudByte storage."
 msgstr "在 CloudByte 存储器中找不到认证用户详细信息。"
 
-msgid "Authentication error"
-msgstr "认证错误"
-
 #, python-format
 msgid "Authentication failed, verify the switch credentials, error code %s."
 msgstr "认证失败，请验证交换机凭证，错误代码：%s。"
-
-msgid "Authorization error"
-msgstr "授权错误"
 
 #, python-format
 msgid "Availability zone '%(s_az)s' is invalid."
@@ -546,9 +525,6 @@ msgstr "在此存储器系列和 ONTAP 版本上，后端 QoS 规范不受支持
 msgid "Backend doesn't exist (%(backend)s)"
 msgstr "后端不存在 (%(backend)s)"
 
-msgid "Backend has already been failed over. Unable to fail back."
-msgstr "后端已故障转移。无法故障返回。"
-
 #, python-format
 msgid "Backend reports: %(message)s"
 msgstr "后端报告：%(message)s"
@@ -558,9 +534,6 @@ msgstr "后端报告：项已存在"
 
 msgid "Backend reports: item not found"
 msgstr "后端报告：找不到项"
-
-msgid "Backend server not NaServer."
-msgstr "后端服务器不是 NaServer。"
 
 #, python-format
 msgid "Backend service retry timeout hit: %(timeout)s sec"
@@ -652,10 +625,6 @@ msgstr "从存储卷后端 API 返回了不正确或意外的响应：%(data)s"
 msgid "Bad project format: project is not in proper format (%s)"
 msgstr "项目格式不正确：项目没有采用正确格式 (%s)"
 
-#, python-format
-msgid "Bad request sent to Datera cluster:Invalid args: %(args)s | %(message)s"
-msgstr "已将错误请求发送至 Datera 集群：无效参数：%(args)s | %(message)s"
-
 msgid "Bad response from Datera API"
 msgstr "来自 Datera API 的响应不正确"
 
@@ -671,18 +640,6 @@ msgstr "二进制"
 
 msgid "Blank components"
 msgstr "空组件"
-
-msgid "Blockbridge API authentication scheme (token or password)"
-msgstr "Blockbridge API 认证方案（令牌或密码）"
-
-msgid "Blockbridge API password (for auth scheme 'password')"
-msgstr "Blockbridge API 密码（对于认证方案“密码”）"
-
-msgid "Blockbridge API token (for auth scheme 'token')"
-msgstr "Blockbridge API 令牌（对于认证方案“令牌”）"
-
-msgid "Blockbridge API user (for auth scheme 'password')"
-msgstr "Blockbridge API 用户（对于认证方案“密码”）"
 
 msgid "Blockbridge api host not configured"
 msgstr "未配置 Blockbridge API 主机"
@@ -794,9 +751,6 @@ msgstr "无法把 %s 转换成整数"
 msgid "Can't access 'scality_sofs_config': %s"
 msgstr "无法访问“scality_sofs_config”：%s"
 
-msgid "Can't attach snapshot."
-msgstr "无法附加快照。"
-
 msgid "Can't decode backup record."
 msgstr "无法将备份记录解码。"
 
@@ -889,10 +843,6 @@ msgid ""
 "status is not online."
 msgstr "无法将 LUN %s 导入至 Cinder。快照状态异常或运行状态并非“在线”。"
 
-#, python-format
-msgid "Can't open config file: %s"
-msgstr "无法打开配置文件 %s"
-
 msgid "Can't parse backup record."
 msgstr "无法解析备份记录。"
 
@@ -961,11 +911,6 @@ msgstr "无法连接至 ECOM 服务器。"
 
 #, python-format
 msgid ""
-"Cannot create clone of size %(vol_size)s from volume of size %(src_vol_size)s"
-msgstr "无法根据大小为 %(src_vol_size)s 的卷创建大小为 %(vol_size)s 的克隆"
-
-#, python-format
-msgid ""
 "Cannot create consistency group %(group)s because snapshot %(snap)s is not "
 "in a valid state. Valid states are: %(valid)s."
 msgstr ""
@@ -1007,11 +952,6 @@ msgstr ""
 #, python-format
 msgid "Cannot create or find an storage group with name %(sgGroupName)s."
 msgstr "无法创建或找到名称为 %(sgGroupName)s 的存储器组。"
-
-#, python-format
-msgid ""
-"Cannot create volume of size %(vol_size)s from snapshot of size %(snap_size)s"
-msgstr "无法根据大小为 %(snap_size)s 的快照创建大小为 %(vol_size)s 的卷"
 
 #, python-format
 msgid "Cannot create volume of size %s: not multiple of 8GB."
@@ -1302,10 +1242,6 @@ msgid "Command %(cmd)s blocked in the CLI and was cancelled"
 msgstr "命令 %(cmd)s 在 CLI 中被阻塞，并且已取消"
 
 #, python-format
-msgid "CommandLineHelper._wait_for_a_condition: %s timeout"
-msgstr "CommandLineHelper._wait_for_a_condition：%s 超时"
-
-#, python-format
 msgid "CommandLineHelper._wait_for_condition: %s timeout."
 msgstr "CommandLineHelper._wait_for_condition：%s 超时。"
 
@@ -1454,16 +1390,8 @@ msgid "Could not find GPFS file system device: %s."
 msgstr "找不到 GPFS 文件系统设备：%s。"
 
 #, python-format
-msgid "Could not find a host for volume %(volume_id)s with type %(type_id)s."
-msgstr "对于类型为 %(type_id)s 的卷 %(volume_id)s，找不到主机。"
-
-#, python-format
 msgid "Could not find config at %(path)s"
 msgstr "在 %(path)s 找不到配置文件。"
-
-#, python-format
-msgid "Could not find iSCSI export  for volume %(volumeName)s."
-msgstr "对于卷 %(volumeName)s，找不到 iSCSI 导出。"
 
 #, python-format
 msgid "Could not find iSCSI export for volume %s"
@@ -1545,15 +1473,6 @@ msgstr ""
 "备份创建已异常中止，需要的卷状态为 %(expected_status)s，但实际为 "
 "%(actual_status)s。"
 
-msgid "Create consistency group failed."
-msgstr "创建一致性组失败。"
-
-#, python-format
-msgid ""
-"Create encrypted volumes with type %(type)s from image %(image)s is not "
-"supported."
-msgstr "不支持从映像 %(image)s 创建类型为 %(type)s的加密卷。"
-
 msgid "Create export for volume failed."
 msgstr "为卷创建导出失败。"
 
@@ -1633,12 +1552,6 @@ msgid ""
 "%(group)s."
 msgstr "卷 %(vol)s 的当前已映射的主机位于具有 %(group)s 的不受支持的主机组中。"
 
-msgid "DEPRECATED: Deploy v1 of the Cinder API."
-msgstr "建议不要使用：请部署 Cinder API V1。"
-
-msgid "DEPRECATED: Deploy v2 of the Cinder API."
-msgstr "已不推荐使用：Cinder API 的 Deploy v2。"
-
 #, python-format
 msgid ""
 "DRBDmanage driver error: expected key \"%s\" not in answer, wrong DRBDmanage "
@@ -1709,13 +1622,6 @@ msgstr ""
 msgid "Dedup luns cannot be extended"
 msgstr "无法扩展 Dedup lun"
 
-msgid ""
-"Deduplication Enabler is not installed. Can not create deduplicated volume"
-msgstr "未安装去重启用程序。无法创建去重卷"
-
-msgid "Default pool name if unspecified."
-msgstr "缺省池名称（如果未指定）。"
-
 #, python-format
 msgid ""
 "Default quota for resource: %(res)s is set by the default quota flag: quota_"
@@ -1727,10 +1633,6 @@ msgstr ""
 
 msgid "Default volume type can not be found."
 msgstr "找不到缺省卷类型。"
-
-msgid ""
-"Defines the set of exposed pools and their associated backend query strings"
-msgstr "定义一组公开池及其相关联的后端查询字符串"
 
 msgid "Delete LUNcopy error."
 msgstr "删除 LUNcopy 时发生错误。"
@@ -1814,9 +1716,6 @@ msgstr "直接连接不支持 Dell Cinder 驱动程序配置错误复制。"
 msgid "Dell Cinder driver configuration error replication_device %s not found"
 msgstr "找不到 Dell Cinder 驱动程序配置错误 replication_device %s"
 
-msgid "Deploy v3 of the Cinder API."
-msgstr "Cinder API 的 Deploy v3。"
-
 msgid "Describe-resource is admin only functionality"
 msgstr "Describe-resource是只有管理员才能执行的功能。"
 
@@ -1865,11 +1764,6 @@ msgstr ""
 #, python-format
 msgid "Driver initialize connection failed (error: %(err)s)."
 msgstr "驱动程序初始化连接失败（错误：%(err)s）。"
-
-msgid ""
-"Driver is not able to do retype because the volume (LUN {}) has snapshot "
-"which is forbidden to migrate."
-msgstr "驱动程序无法转型，因为卷 (LUN {}) 的快照被禁止迁移。"
 
 msgid "Driver must implement initialize_connection"
 msgstr "驱动程序必须实现 initialize_connection"
@@ -2320,10 +2214,6 @@ msgstr ""
 "误描述：%(errordesc)s。"
 
 #, python-format
-msgid "Error attaching volume %s. Target limit might be reached!"
-msgstr "连接卷 %s 时出错。可能已到达目标限制！"
-
-#, python-format
 msgid ""
 "Error break clone relationship: Sync Name: %(syncName)s Return code: "
 "%(rc)lu.  Error: %(error)s."
@@ -2484,10 +2374,6 @@ msgid "Error managing volume: %s."
 msgstr "管理卷 %s 时出错。"
 
 #, python-format
-msgid "Error mapping volume %(vol)s. %(error)s."
-msgstr "映射卷 %(vol)s 时出错。%(error)s。"
-
-#, python-format
 msgid ""
 "Error modify replica synchronization: %(sv)s operation: %(operation)s. "
 "Return code: %(rc)lu.  Error: %(error)s."
@@ -2528,16 +2414,8 @@ msgstr "删除 cg 快照 %s 时发生了错误。"
 msgid "Error occurred when updating consistency group %s."
 msgstr "更新一致性组 %s 时发生了错误。"
 
-#, python-format
-msgid "Error parsing config file: %s"
-msgstr "解析配置文件 %s 时出错"
-
 msgid "Error promoting secondary volume to primary"
 msgstr "将辅助卷升级为主卷时出错"
-
-#, python-format
-msgid "Error removing volume %(vol)s. %(error)s."
-msgstr "移除卷 %(vol)s 时出错。%(error)s。"
 
 #, python-format
 msgid "Error renaming volume %(vol)s: %(err)s."
@@ -2795,10 +2673,6 @@ msgstr "不存在任何快照时，扩展卷仅受此驱动程序支持。"
 msgid "Extend volume not implemented"
 msgstr "扩展卷未实现"
 
-msgid ""
-"FAST VP Enabler is not installed. Can't set tiering policy for the volume"
-msgstr "未安装 FAST VP 启用程序。无法对该卷设置分层策略"
-
 msgid "FAST is not supported on this array."
 msgstr "快速策略在此阵列上不受支持。"
 
@@ -2862,10 +2736,6 @@ msgid ""
 msgstr ""
 "未能获取资源锁定。（序列为 %(serial)s，实例为 %(inst)s，返回为 %(ret)s，标准"
 "错误为 %(err)s）"
-
-#, python-format
-msgid "Failed to add %(vol)s into %(sg)s after %(retries)s tries."
-msgstr "%(retries)s 次尝试后将 %(vol)s 添加至 %(sg)s 失败。"
 
 msgid "Failed to add the logical device."
 msgstr "未能添加逻辑设备。"
@@ -2944,9 +2814,6 @@ msgstr "未能从快照 %(cgSnapshot)s 创建 CG %(cgName)s。"
 #, python-format
 msgid "Failed to create IG, %s"
 msgstr "未能创建映像 %s"
-
-msgid "Failed to create SolidFire Image-Volume"
-msgstr "未能创建 SolidFire 映像卷"
 
 #, python-format
 msgid "Failed to create Volume Group: %(vg_name)s"
@@ -3050,9 +2917,6 @@ msgstr "未能创建调度程序管理器卷流"
 #, python-format
 msgid "Failed to create snapshot %s"
 msgstr "未能创建快照 %s"
-
-msgid "Failed to create snapshot as no LUN ID is specified"
-msgstr "未能创建快照，因为没有指定任何 LUN 标识"
 
 #, python-format
 msgid "Failed to create snapshot for cg: %(cgName)s."
@@ -3186,9 +3050,6 @@ msgid ""
 "Failed to ensure snapshot resource area, could not locate volume for id %s"
 msgstr "未能确保快照资源区域，找不到标识 %s 的卷"
 
-msgid "Failed to establish SSC connection."
-msgstr "未能建立 SSC 连接。"
-
 msgid "Failed to establish connection with Coho cluster"
 msgstr "无法建立与 Coho 集群的连接。"
 
@@ -3237,10 +3098,6 @@ msgstr "未能找到主机 %s。"
 #, python-format
 msgid "Failed to find iSCSI initiator group containing %(initiator)s."
 msgstr "找不到包含 %(initiator)s 的 iSCSI 启动程序组。"
-
-#, python-format
-msgid "Failed to find storage pool for source volume %s."
-msgstr "找不到源卷 %s 的存储池。"
 
 #, python-format
 msgid "Failed to get CloudByte account details for account [%s]."
@@ -3443,21 +3300,6 @@ msgid ""
 "Failed to manage existing volume %(name)s, because reported size %(size)s "
 "was not a floating-point number."
 msgstr "未能管理现有卷 %(name)s，因为已报告的大小 %(size)s 不是浮点数。"
-
-msgid ""
-"Failed to manage existing volume because the pool of the volume type chosen "
-"does not match the NFS share passed in the volume reference."
-msgstr "未能管理现有卷，因为所选卷类型的池与传入卷引用的 NFS 共享不匹配。"
-
-msgid ""
-"Failed to manage existing volume because the pool of the volume type chosen "
-"does not match the file system passed in the volume reference."
-msgstr "未能管理现有卷，因为所选卷类型的池与传入卷引用的文件系统不匹配。"
-
-msgid ""
-"Failed to manage existing volume because the pool of the volume type chosen "
-"does not match the pool of the host."
-msgstr "未能管理现有卷，因为所选卷类型的池与主机的池不匹配。"
 
 #, python-format
 msgid ""
@@ -3759,9 +3601,6 @@ msgstr "查找主机 LUN 标识时发生错误。"
 
 msgid "Find lun group from mapping view error."
 msgstr "从映射视图查找 LUN 组时发生错误。"
-
-msgid "Find lun number error."
-msgstr "查找 LUN 号时发生错误。"
 
 msgid "Find mapping view error."
 msgstr "查找映射视图时发生错误。"
@@ -4104,9 +3943,6 @@ msgstr "从 DRBDmanage 中获得了错误路径信息！(%s)"
 msgid "HBSD error occurs."
 msgstr "发生 HBSD 错误。"
 
-msgid "HNAS has disconnected SSC"
-msgstr "HNAS 已断开 SSC "
-
 msgid "HPELeftHand url not found"
 msgstr "找不到 HPELeftHand URL"
 
@@ -4144,14 +3980,6 @@ msgid "Host %s has no FC initiators"
 msgstr "主机 %s 没有 FC 启动程序"
 
 #, python-format
-msgid "Host %s has no iSCSI initiator"
-msgstr "主机 %s 没有 iSCSI 启动程序"
-
-#, python-format
-msgid "Host '%s' could not be found."
-msgstr "找不到主机“%s”。"
-
-#, python-format
 msgid "Host group with name %s not found"
 msgstr "找不到名称为 %s 的主机组"
 
@@ -4164,9 +3992,6 @@ msgstr "主机未冻结。"
 
 msgid "Host is already Frozen."
 msgstr "主机已冻结。"
-
-msgid "Host not found"
-msgstr "没有找到主机"
 
 #, python-format
 msgid "Host not found. Failed to remove %(service)s on %(host)s."
@@ -4193,9 +4018,6 @@ msgstr "I/O 组 %(iogrp)d 无效；可用的 I/O 组为 %(avail)s。"
 
 msgid "ID"
 msgstr "ID"
-
-msgid "IP address/hostname of Blockbridge API."
-msgstr "Blockbridge API 的 IP 地址/主机名。"
 
 msgid ""
 "If compression is set to True, rsize must also be set (not equal to -1)."
@@ -4283,12 +4105,6 @@ msgstr ""
 "Infortrend CLI 异常：%(err)s 参数：%(param)s（返回码：%(rc)s）（输出："
 "%(out)s）"
 
-msgid "Initial tier: {}, policy: {} is not valid."
-msgstr "初始层：{}，策略：{} 无效。"
-
-msgid "Input type {} is not supported."
-msgstr "不支持输入类型 {}。"
-
 msgid "Input volumes or snapshots are invalid."
 msgstr "输入卷或快照无效。"
 
@@ -4304,13 +4120,6 @@ msgstr "可用空间不足，无法扩展卷。"
 
 msgid "Insufficient privileges"
 msgstr "特权不足"
-
-msgid "Interval value (in seconds) between connection retries to ceph cluster."
-msgstr "连接至 ceph 集群的连接重试之间的时间间隔值（秒）。"
-
-#, python-format
-msgid "Invalid %(protocol)s ports %(port)s specified for io_port_list."
-msgstr "为 io_port_list 指定了无效 %(protocol)s 端口 %(port)s。"
 
 #, python-format
 msgid "Invalid 3PAR Domain: %(err)s"
@@ -4355,10 +4164,6 @@ msgid "Invalid Replication Target: %(reason)s"
 msgstr "无效复制目标：%(reason)s"
 
 #, python-format
-msgid "Invalid VNX authentication type: %s"
-msgstr "无效 VNX 认证类型：%s"
-
-#, python-format
 msgid ""
 "Invalid Virtuozzo Storage share specification: %r. Must be: [MDS1[,"
 "MDS2],...:/]<CLUSTER NAME>[:PASSWORD]."
@@ -4399,14 +4204,6 @@ msgstr "认证密钥无效：%(reason)s"
 #, python-format
 msgid "Invalid backup: %(reason)s"
 msgstr "备份无效：%(reason)s"
-
-#, python-format
-msgid ""
-"Invalid barbican api url: version is required, e.g. 'http[s]://<ipaddr>|"
-"<fqdn>[:port]/<version>' url specified is: %s"
-msgstr ""
-"无效 barbican api URL：需要版本，例如，“http[s]://<ipaddr>|<fqdn>[:port]/"
-"<version>”，指定的 URL 为：%s"
 
 msgid "Invalid chap user details found in CloudByte storage."
 msgstr "在 CloudByte 存储器中找到了无效 chap 用户详细信息。"
@@ -4572,24 +4369,12 @@ msgstr "指定的存储池 %s 无效。"
 msgid "Invalid storage pool is configured."
 msgstr "配置了无效存储池。"
 
-#, python-format
-msgid "Invalid synchronize mode specified, allowed mode is %s."
-msgstr "指定了无效同步方式，允许的方式为 %s。"
-
 msgid "Invalid transport type."
 msgstr "无效传输类型。"
 
 #, python-format
 msgid "Invalid update setting: '%s'"
 msgstr "无效的更新设置：'%s'"
-
-#, python-format
-msgid ""
-"Invalid url: must be in the form 'http[s]://<ipaddr>|<fqdn>[:port]/"
-"<version>', url specified is: %s"
-msgstr ""
-"URL 无效：必须为“http[s]://<ipaddr>|<fqdn>[:port]/<version>”格式，指定的 URL "
-"为：%s"
 
 #, python-format
 msgid "Invalid value '%s' for force."
@@ -4727,9 +4512,6 @@ msgid ""
 "Issuing a fail-over failed because replication is not properly configured."
 msgstr "发出故障转移失败，因为未正确配置复制。"
 
-msgid "Item not found"
-msgstr "条目没有找到"
-
 #, python-format
 msgid "Job id not found in CloudByte's create volume [%s] response."
 msgstr "在 CloudByte 的创建卷 [%s] 响应中找不到作业标识。"
@@ -4757,18 +4539,12 @@ msgstr "卷 %s 没有 LU"
 msgid "LUN export failed!"
 msgstr "LUN 导出失败！"
 
-msgid "LUN id({}) is not valid."
-msgstr "LUN 标识 ({}) 无效。"
-
 msgid "LUN map overflow on every channel."
 msgstr "LUN 映射在每个通道上溢出。"
 
 #, python-format
 msgid "LUN not found with given ref %s."
 msgstr "找不到具有给定引用 %s 的 LUN。"
-
-msgid "LUN number ({}) is not an integer."
-msgstr "LUN 编号 ({}) 并非整数。"
 
 #, python-format
 msgid "LUN number is out of bound on channel id: %(ch_id)s."
@@ -4942,52 +4718,14 @@ msgstr "对于此卷，已存在元数据备份"
 msgid "Metadata backup object '%s' already exists"
 msgstr "元数据备份对象“%s”已存在"
 
-msgid "Metadata item was not found"
-msgstr "元数据项目未找到"
-
-msgid "Metadata item was not found."
-msgstr "找不到元数据项。"
-
-#, python-format
-msgid "Metadata property key %s greater than 255 characters"
-msgstr "元数据属性关键字 %s 超过 255 个字符"
-
-#, python-format
-msgid "Metadata property key %s value greater than 255 characters"
-msgstr "元数据属性关键字 %s 值超过 255 个字符"
-
-msgid "Metadata property key blank"
-msgstr "元数据属性关键字为空白"
-
 msgid "Metadata property key blank."
 msgstr "元数据属性关键字为空白。"
-
-msgid "Metadata property key greater than 255 characters."
-msgstr "元数据属性关键字超过 255 个字符。"
-
-msgid "Metadata property value greater than 255 characters."
-msgstr "元数据属性值超过 255 个字符。"
 
 msgid "Metadata restore failed due to incompatible version"
 msgstr "由于版本不兼容，元数据复原失败"
 
 msgid "Metadata restore failed due to incompatible version."
 msgstr "由于版本不兼容，元数据复原失败。"
-
-#, python-format
-msgid "Migrate volume %(src)s failed."
-msgstr "迁移卷 %(src)s 失败。"
-
-#, python-format
-msgid "Migrate volume failed between source vol %(src)s and dest vol %(dst)s."
-msgstr "在源卷 %(src)s 与目标卷 %(dst)s 之间迁移卷失败。"
-
-#, python-format
-msgid "Migration of LUN %s has been stopped or faulted."
-msgstr "LUN %s 的迁移已停止或者发生故障。"
-
-msgid "MirrorView/S enabler is not installed."
-msgstr "未安装 MirrorView/S 启用程序。"
 
 msgid ""
 "Missing 'purestorage' python module, ensure the library is installed and "
@@ -5013,9 +4751,6 @@ msgstr "请求主体中缺少必需元素“%s”。"
 
 msgid "Missing required element 'consistencygroup' in request body."
 msgstr "请求主体中缺少必需元素“consistencygroup”。"
-
-msgid "Missing required element 'host' in request body."
-msgstr "请求主体中缺少必需元素“host”。"
 
 msgid "Missing required element quota_class_set in request body."
 msgstr "在请求主体中缺少必需元素 quota_class_set。"
@@ -5129,9 +4864,6 @@ msgstr "必须指定存储池名称或标识。"
 
 msgid "Must specify storage pools. Option: sio_storage_pools."
 msgstr "必须指定存储库。选项：sio_storage_pools。"
-
-msgid "Must supply a positive value for age"
-msgstr "必须为 age 提供正值"
 
 msgid "Must supply a positive, non-zero value for age"
 msgstr "必须为时效提供非零正值"
@@ -5502,9 +5234,6 @@ msgstr ""
 "在 CloudByte 存储器中查询基于 [%(operation)s] 的作业[%(job)s] 时接收到空响"
 "应。"
 
-msgid "Number of retries if connection to ceph cluster failed."
-msgstr "连接至 ceph 集群失败时的重试次数。"
-
 msgid "Object Count"
 msgstr "对象计数"
 
@@ -5559,15 +5288,9 @@ msgstr "选项 gpfs_images_share_mode 未正确设置。"
 msgid "Option gpfs_mount_point_base is not set correctly."
 msgstr "选项 gpfs_mount_point_base 未正确设置。"
 
-msgid "Option map (cls._map) is not defined."
-msgstr "未定义选项映射 (cls._map)。"
-
 #, python-format
 msgid "Originating %(res)s %(prop)s must be one of '%(vals)s' values"
 msgstr "始发 %(res)s %(prop)s 必须为其中一个“%(vals)s”值"
-
-msgid "Override HTTPS port to connect to Blockbridge API server."
-msgstr "覆盖 HTTPS 端口以连接至 Blockbridge API 服务器。"
 
 #, python-format
 msgid "ParseException: %s"
@@ -5803,14 +5526,6 @@ msgid "Raid did not have MCS Channel."
 msgstr "RAID 不具备 MCS 通道。"
 
 #, python-format
-msgid ""
-"Reach limitation set by configuration option max_luns_per_storage_group. "
-"Operation to add %(vol)s into Storage Group %(sg)s is rejected."
-msgstr ""
-"达到配置选项 max_luns_per_storage_group 设置的限制。将 %(vol)s 添加至存储器"
-"组 %(sg)s 的操作被拒绝。"
-
-#, python-format
 msgid "Received error string: %s"
 msgstr "接收到错误字符串：%s"
 
@@ -5980,9 +5695,6 @@ msgstr "找不到必需的配置选项"
 #, python-format
 msgid "Required flag %s is not set"
 msgstr "未设置必需标记 %s"
-
-msgid "Requires an NaServer instance."
-msgstr "需要 NaServer 实例。"
 
 #, python-format
 msgid ""
@@ -6166,10 +5878,6 @@ msgstr "在主机 %(host)s 上找不到服务 %(service_id)s。"
 msgid "Service %(service_id)s could not be found."
 msgstr "服务 %(service_id)s 没有找到。"
 
-#, python-format
-msgid "Service %s not found."
-msgstr "找不到服务 %s。"
-
 msgid "Service is too old to fulfil this request."
 msgstr "服务太旧，无法实现此请求。"
 
@@ -6248,10 +5956,6 @@ msgid "Snapshot %(snapshot_id)s has no metadata with key %(metadata_key)s."
 msgstr "快照 %(snapshot_id)s 没有任何具有键 %(metadata_key)s 的元数据。"
 
 #, python-format
-msgid "Snapshot %s must not be part of a consistency group."
-msgstr "快照 %s 不能属于某个一致性组。"
-
-#, python-format
 msgid "Snapshot '%s' doesn't exist on array."
 msgstr "快照“%s”在阵列上不存在。"
 
@@ -6274,9 +5978,6 @@ msgstr "不支持对处于以下状态的卷生成快照：%s。"
 #, python-format
 msgid "Snapshot res \"%s\" that is not deployed anywhere?"
 msgstr "未在任何位置部署的快照资源“%s”？"
-
-msgid "Snapshot size must be multiple of 1 GB."
-msgstr "快照大小必须是 1 GB 的倍数。"
 
 #, python-format
 msgid "Snapshot status %(cur)s not allowed for update_snapshot_status"
@@ -6420,9 +6121,6 @@ msgstr "未设置存储系统标识。"
 msgid "Storage system not found for pool %(poolNameInStr)s."
 msgstr "找不到池 %(poolNameInStr)s 的存储系统。"
 
-msgid "Storage-assisted migration failed during manage volume."
-msgstr "管理卷期间，存储器辅助进行的迁移失败。"
-
 #, python-format
 msgid "StorageSystem %(array)s is not found."
 msgstr "找不到存储系统 %(array)s。"
@@ -6466,10 +6164,6 @@ msgstr "在帐户 [%(account)s] 的 CloudByte 存储器中找不到 TSM [%(tsm)s
 
 msgid "Target volume type is still in use."
 msgstr "目标卷类型仍在使用中。"
-
-#, python-format
-msgid "Tenant ID: %s does not exist."
-msgstr "租户标识 %s 不存在。"
 
 msgid "Terminate connection failed"
 msgstr "终止连接发生故障"
@@ -6559,10 +6253,6 @@ msgid "The end time (%(end)s) must be after the start time (%(start)s)."
 msgstr "结束时间 (%(end)s) 必须在开始时间 (%(start)s) 之后。"
 
 #, python-format
-msgid "The extra_spec: %s is invalid."
-msgstr "extra_spec %s 无效。"
-
-#, python-format
 msgid "The extraspec: %(extraspec)s is not valid."
 msgstr "额外规范 %(extraspec)s 无效。"
 
@@ -6606,14 +6296,6 @@ msgstr "主机未准备好故障返回。请重新同步卷并在 Storwize 后�
 #, python-format
 msgid "The iSCSI CHAP user %(user)s does not exist."
 msgstr "iSCSI CHAP 用户 %(user)s 不存在。"
-
-#, python-format
-msgid ""
-"The imported lun %(lun_id)s is in pool %(lun_pool)s which is not managed by "
-"the host %(host)s."
-msgstr ""
-"已导入的 LUN %(lun_id)s 位于池 %(lun_pool)s 中，该池并非由主机 %(host)s 管"
-"理。"
 
 msgid "The key cannot be None."
 msgstr "键不能为“无”。"
@@ -6688,11 +6370,6 @@ msgstr "保留计数不得高于 %s。"
 
 msgid "The snapshot cannot be created when the volume is in maintenance mode."
 msgstr "当卷处于维护方式时，无法创建快照。"
-
-#, python-format
-msgid ""
-"The source volume %s is not in the pool which is managed by the current host."
-msgstr "源卷 %s 不在由当前主机管理的池中。"
 
 msgid "The source volume for this WebDAV operation not found."
 msgstr "找不到此 WebDAV 操作的源卷。"
@@ -6840,10 +6517,6 @@ msgstr "不存在任何可供使用的资源。（资源：%(resource)s）"
 msgid "There are no valid ESX hosts."
 msgstr "不存在有效的 ESX 主机。"
 
-#, python-format
-msgid "There are no valid datastores attached to %s."
-msgstr "不存在任何已连接至 %s 的有效数据存储器。"
-
 msgid "There are no valid datastores."
 msgstr "不存在任何有效数据存储器。"
 
@@ -6929,9 +6602,6 @@ msgstr "未配置 Quobyte 卷 (%s)。示例：quobyte://<DIR host>/<volume name>
 msgid "Thin provisioning not supported on this version of LVM."
 msgstr "在此版本的 LVM 上，不支持瘦供应。"
 
-msgid "ThinProvisioning Enabler is not installed. Can not create thin volume"
-msgstr "未安装瘦供应启用程序。无法创建瘦卷"
-
 msgid "This driver does not support deleting in-use snapshots."
 msgstr "此驱动程序不支持对正在使用的快照进行删除。"
 
@@ -6959,13 +6629,6 @@ msgstr "等待 Nova 更新（以便创建快照 %s）时超时。"
 msgid ""
 "Timed out while waiting for Nova update for deletion of snapshot %(id)s."
 msgstr "等待 Nova 更新（以便删除快照 %(id)s）时超时。"
-
-msgid ""
-"Timeout value (in seconds) used when connecting to ceph cluster. If value < "
-"0, no timeout is set and default librados value is used."
-msgstr ""
-"连接至 CEPH 集群时使用的超时值（以秒计）。如果值小于 0，那么不会设置超时并且"
-"会使用缺省 librados 值。"
 
 #, python-format
 msgid "Timeout while calling %s "
@@ -7045,9 +6708,6 @@ msgstr "无法完成 %s 的故障转移。"
 
 msgid "Unable to connect or find connection to host"
 msgstr "无法连接至主机，或找不到与主机的连接"
-
-msgid "Unable to create Barbican Client without project_id."
-msgstr "不具备 project_id，无法创建 Barbican 客户机。"
 
 #, python-format
 msgid "Unable to create consistency group %s"
@@ -7139,9 +6799,6 @@ msgid ""
 msgstr ""
 "无法使用 Purity REST API 版本 %(api_version)s 执行复制，需要 "
 "%(required_versions)s 的其中之一。"
-
-msgid "Unable to enable replication and snapcopy at the same time."
-msgstr "无法同时启用复制和 snapcopy。"
 
 #, python-format
 msgid "Unable to establish the partnership with the Storwize cluster %s."
@@ -7492,9 +7149,6 @@ msgstr "未知协议：%(protocol)s。"
 msgid "Unknown quota resources %(unknown)s."
 msgstr "配额资源 %(unknown)s 未知。"
 
-msgid "Unknown service"
-msgstr "未知服务"
-
 msgid "Unknown sort direction, must be 'desc' or 'asc'"
 msgstr "排序方向未知，必须为“降序”或“升序”"
 
@@ -7599,9 +7253,6 @@ msgstr "用户ID"
 
 msgid "User does not have admin privileges"
 msgstr "用户没有管理员权限"
-
-msgid "User is not authorized to use key manager."
-msgstr "用户无权使用密钥管理器。"
 
 msgid "User not authorized to perform WebDAV operations."
 msgstr "用户无权执行 WebDAV 操作。"
@@ -7811,12 +7462,6 @@ msgid ""
 msgstr "卷 %s 已联机。将该卷设置为脱机以便使用 OpenStack 进行管理。"
 
 #, python-format
-msgid ""
-"Volume %s must not be migrating, attached, belong to a consistency group or "
-"have snapshots."
-msgstr "卷 %s 不能正在迁移、已附加、属于某个一致性组或具有快照。"
-
-#, python-format
 msgid "Volume %s must not be part of a consistency group."
 msgstr "卷 %s 不得是一致性组的一部分。"
 
@@ -7843,10 +7488,6 @@ msgstr "卷组 %s 不存在"
 #, python-format
 msgid "Volume Type %(id)s already exists."
 msgstr "卷类型 %(id)s 已存在。"
-
-#, python-format
-msgid "Volume Type %(type_id)s has no extra spec with key %(id)s."
-msgstr "卷类型 %(type_id)s 没有任何具有键 %(id)s 的额外规范。"
 
 #, python-format
 msgid ""
@@ -8030,9 +7671,6 @@ msgstr "自从最近一次备份以来，卷大小已增加。请执行完全备
 msgid "Volume size must be a multiple of 1 GB."
 msgstr "卷大小必须为 1 GB 的倍数。"
 
-msgid "Volume size must be multiple of 1 GB."
-msgstr "卷大小必须为 1 GB 的倍数。"
-
 msgid "Volume size must multiple of 1 GB."
 msgstr "卷大小必须是 1 GB 的倍数。"
 
@@ -8102,10 +7740,6 @@ msgid "Volume type with name %(volume_type_name)s could not be found."
 msgstr "名为 %(volume_type_name)s 的卷类型没有找到。"
 
 #, python-format
-msgid "Volume with volume id %s does not exist."
-msgstr "卷标识为 %s 的卷不存在。"
-
-#, python-format
 msgid ""
 "Volume: %(volumeName)s is not a concatenated volume. You can only perform "
 "extend on concatenated volume. Exiting..."
@@ -8116,15 +7750,8 @@ msgid "Volume: %(volumeName)s was not added to storage group %(sgGroupName)s."
 msgstr "卷 %(volumeName)s 未添加至存储器组 %(sgGroupName)s。"
 
 #, python-format
-msgid "Volume: %s could not be found."
-msgstr "找不到卷 %s。"
-
-#, python-format
 msgid "Volume: %s is already being managed by Cinder."
 msgstr "卷 %s 已由 Cinder 管理。"
-
-msgid "Volumes will be chunked into objects of this size (in megabytes)."
-msgstr "卷将分块为此大小（以兆字节计）的对象。"
 
 msgid ""
 "Volumes/account exceeded on both primary and secondary SolidFire accounts."
@@ -8726,13 +8353,6 @@ msgstr ""
 "create_consistencygroup_from_src 仅支持 cgsnapshot 源或一致性组源。不能使用多"
 "个源。"
 
-msgid ""
-"create_consistencygroup_from_src supports a cgsnapshot source or a "
-"consistency group source. Multiple sources cannot be used."
-msgstr ""
-"create_consistencygroup_from_src 支持 cgsnapshot 源或一致性组源。不能使用多个"
-"源。"
-
 #, python-format
 msgid "create_copy: Source vdisk %(src)s (%(src_id)s) does not exist."
 msgstr "create_copy：源 vdisk %(src)s (%(src_id)s) 不存在。"
@@ -8832,16 +8452,10 @@ msgstr ""
 "create_volume_from_snapshot：快照状态必须为“可用”，以便创建卷。无效状态为 "
 "%s。"
 
-msgid "create_volume_from_snapshot: Source and destination size differ."
-msgstr "create_volume_from_snapshot：源和目标大小不同。"
-
 msgid ""
 "create_volume_from_snapshot: Volume size is different from snapshot based "
 "volume."
 msgstr "create_volume_from_snapshot：卷大小不同于基于快照的卷。"
-
-msgid "deduplicated and auto tiering can't be both enabled."
-msgstr "不能同时启用去重和自动分层。"
 
 #, python-format
 msgid ""
@@ -8883,9 +8497,6 @@ msgstr "从远程节点拆离快照"
 
 msgid "do_setup: No configured nodes."
 msgstr "do_setup：不存在任何已配置的节点。"
-
-msgid "eqlx_cli_max_retries must be greater than or equal to 0"
-msgstr "eqlx_cli_max_retries 必须大于或等于 0"
 
 #, python-format
 msgid ""
@@ -9073,20 +8684,11 @@ msgstr "iscsiadm 执行失败。"
 msgid "key manager error: %(reason)s"
 msgstr "发生密钥管理器错误：%(reason)s"
 
-msgid "keymgr.fixed_key not defined"
-msgstr "未定义 keymgr.fixed_key"
-
 msgid "limit param must be an integer"
 msgstr "limit 参数必须是整数"
 
 msgid "limit param must be positive"
 msgstr "limit参数必须是正数"
-
-msgid ""
-"manage_existing cannot manage a volume connected to hosts. Please disconnect "
-"this volume from existing hosts before importing"
-msgstr ""
-"manage_existing 无法管理连接至主机的卷。请断开此卷与现有主机的连接，然后导入"
 
 msgid "manage_existing requires a 'name' key to identify an existing volume."
 msgstr "manage_existing 需要“name”键以标识现有卷。"
@@ -9129,10 +8731,6 @@ msgstr "找到多个快照标识为 %s 的资源"
 
 msgid "name cannot be None"
 msgstr "name不能是None"
-
-#, python-format
-msgid "naviseccli_path: Could not find NAVISECCLI tool %(path)s."
-msgstr "naviseccli_path：找不到 NAVISECCLI 工具 %(path)s。"
 
 #, python-format
 msgid "no REPLY but %r"
@@ -9197,14 +8795,6 @@ msgid "read_deleted can only be one of 'no', 'yes' or 'only', not %r"
 msgstr "read_deleted 只能是“no”、“yes”或“only”其中一项，而不能是 %r"
 
 #, python-format
-msgid "replication_device should be configured on backend: %s."
-msgstr "应在后端上配置 replication_device：%s。"
-
-#, python-format
-msgid "replication_device with backend_id [%s] is missing."
-msgstr "缺少 backend_id 为 [%s] 的 replication_device。"
-
-#, python-format
 msgid "replication_failover failed. %s not found."
 msgstr "replication_failover 失败。找不到 %s。"
 
@@ -9258,9 +8848,6 @@ msgstr "未设置 san_ip。"
 msgid "san_ip must be set"
 msgstr "san_ip必须设置"
 
-msgid "san_ip: Mandatory field configuration. san_ip is not set."
-msgstr "san_ip：必需字段配置。未设置 san_ip。"
-
 msgid ""
 "san_login and/or san_password is not set for Datera driver in the cinder."
 "conf. Set this information and start the cinder-volume service again."
@@ -9271,16 +8858,6 @@ msgstr ""
 msgid "serve() can only be called once"
 msgstr "serve() 只能调用一次"
 
-msgid "service not found"
-msgstr "找不到服务"
-
-msgid "snapshot does not exist"
-msgstr "快照不存在"
-
-#, python-format
-msgid "snapshot id:%s not found"
-msgstr "找不到快照标识 %s"
-
 #, python-format
 msgid "snapshot-%s"
 msgstr "快照 - %s"
@@ -9290,10 +8867,6 @@ msgstr "已更改快照"
 
 msgid "snapshots changed"
 msgstr "已更改快照"
-
-#, python-format
-msgid "source vol id:%s not found"
-msgstr "找不到源卷标识 %s"
 
 #, python-format
 msgid "source volume id:%s is not replicated"
@@ -9389,9 +8962,6 @@ msgstr "卷已分配"
 msgid "volume changed"
 msgstr "卷已更改"
 
-msgid "volume does not exist"
-msgstr "卷不存在"
-
 msgid "volume is already attached"
 msgstr "卷已连接"
 
@@ -9406,9 +8976,6 @@ msgstr "卷大小 %(volume_size)d 太小，无法复原大小为 %(size)d 的备
 #, python-format
 msgid "volume size %d is invalid."
 msgstr "卷大小 %d 无效。"
-
-msgid "volume_type cannot be None"
-msgstr "volume_type 不能为 None"
 
 msgid ""
 "volume_type must be provided when creating a volume in a consistency group."
@@ -9440,6 +9007,3 @@ msgid ""
 "zfssa_manage_policy property needs to be set to 'strict' or 'loose'. Current "
 "value is: %s."
 msgstr "zfssa_manage_policy 属性需要设置为“strict”或“loose”。当前值为：%s。"
-
-msgid "{} is not a valid option."
-msgstr "{} 是无效选项。"

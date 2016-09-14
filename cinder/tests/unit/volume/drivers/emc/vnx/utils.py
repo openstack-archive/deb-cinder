@@ -20,22 +20,14 @@ import mock
 import six
 import yaml
 
-from cinder.tests.unit import utils
 from cinder.volume.drivers.emc.vnx import client
 from cinder.volume.drivers.emc.vnx import common
 
-
-patch_looping_call = mock.patch(
-    'oslo_service.loopingcall.FixedIntervalLoopingCall',
-    new=utils.ZeroIntervalLoopingCall)
 
 patch_sleep = mock.patch('time.sleep')
 
 
 patch_vnxsystem = mock.patch('storops.VNXSystem')
-
-
-patch_no_sleep = mock.patch('time.sleep', new=lambda x: None)
 
 
 def load_yaml(file_name):

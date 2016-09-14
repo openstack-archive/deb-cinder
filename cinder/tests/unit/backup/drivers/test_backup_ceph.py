@@ -644,7 +644,7 @@ class BackupCephTestCase(test.TestCase):
 
     @common_mocks
     def test_discard_bytes(self):
-        # Lower the chunksize to a memory managable number
+        # Lower the chunksize to a memory manageable number
         self.service.chunk_size = 1024
         image = self.mock_rbd.Image.return_value
         wrapped_rbd = self._get_wrapped_rbd_io(image)
@@ -763,7 +763,7 @@ class BackupCephTestCase(test.TestCase):
 
         self.assertTrue(rbd.list.called)
         self.assertTrue(rbd.remove.called)
-        self.assertTrue(MockImageBusyException in RAISED_EXCEPTIONS)
+        self.assertIn(MockImageBusyException, RAISED_EXCEPTIONS)
 
     @common_mocks
     @mock.patch('cinder.backup.drivers.ceph.VolumeMetadataBackup', spec=True)

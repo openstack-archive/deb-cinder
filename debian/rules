@@ -39,6 +39,7 @@ override_dh_install:
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
 		--output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
 		--wrap-width 80 \
+		--namespace castellan.config \
 		--namespace cinder \
 		--namespace keystonemiddleware.auth_token \
 		--namespace oslo.config \
@@ -103,7 +104,7 @@ override_dh_auto_build:
 
 override_dh_sphinxdoc:
 ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
-	python setup.py build_sphinx
+	PYTHONPATH=. python setup.py build_sphinx
 	cp -rf doc/build/html $(CURDIR)/debian/cinder-doc/usr/share/doc/cinder-doc
 	dh_sphinxdoc -O--buildsystem=python_distutils
 endif

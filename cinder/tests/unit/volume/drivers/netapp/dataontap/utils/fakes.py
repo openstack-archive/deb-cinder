@@ -13,6 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from cinder.volume import configuration
+from cinder.volume import driver
+from cinder.volume.drivers.netapp import options as na_opts
+
 SSC_VSERVER = 'fake_vserver'
 SSC_VOLUMES = ('volume1', 'volume2')
 SSC_VOLUME_MAP = {
@@ -30,24 +34,26 @@ SSC = {
         'thick_provisioning_support': True,
         'thin_provisioning_support': False,
         'netapp_thin_provisioned': 'false',
-        'aggregate': 'aggr1',
+        'netapp_aggregate': 'aggr1',
         'netapp_compression': 'false',
         'netapp_dedup': 'true',
         'netapp_mirrored': 'false',
         'netapp_raid_type': 'raid_dp',
         'netapp_disk_type': 'SSD',
+        'netapp_hybrid_aggregate': False,
         'pool_name': 'volume1',
     },
     'volume2': {
         'thick_provisioning_support': False,
         'thin_provisioning_support': True,
         'netapp_thin_provisioned': 'true',
-        'aggregate': 'aggr2',
+        'netapp_aggregate': 'aggr2',
         'netapp_compression': 'true',
         'netapp_dedup': 'true',
         'netapp_mirrored': 'true',
         'netapp_raid_type': 'raid_dp',
         'netapp_disk_type': 'FCAL',
+        'netapp_hybrid_aggregate': True,
         'pool_name': 'volume2',
     },
 }
@@ -57,13 +63,13 @@ SSC_FLEXVOL_INFO = {
         'thick_provisioning_support': True,
         'thin_provisioning_support': False,
         'netapp_thin_provisioned': 'false',
-        'aggregate': 'aggr1',
+        'netapp_aggregate': 'aggr1',
     },
     'volume2': {
         'thick_provisioning_support': False,
         'thin_provisioning_support': True,
         'netapp_thin_provisioned': 'true',
-        'aggregate': 'aggr2',
+        'netapp_aggregate': 'aggr2',
     },
 }
 
@@ -91,9 +97,39 @@ SSC_AGGREGATE_INFO = {
     'volume1': {
         'netapp_disk_type': 'SSD',
         'netapp_raid_type': 'raid_dp',
+        'netapp_hybrid_aggregate': False,
     },
     'volume2': {
         'netapp_disk_type': 'FCAL',
         'netapp_raid_type': 'raid_dp',
+        'netapp_hybrid_aggregate': True,
     },
 }
+
+PROVISIONING_OPTS = {
+    'aggregate': 'fake_aggregate',
+    'thin_provisioned': True,
+    'snapshot_policy': None,
+    'language': 'en_US',
+    'dedupe_enabled': False,
+    'compression_enabled': False,
+    'snapshot_reserve': '12',
+    'volume_type': 'rw',
+    'size': 20,
+}
+
+
+def get_fake_cmode_config(backend_name):
+
+    config = configuration.Configuration(driver.volume_opts,
+                                         config_group=backend_name)
+    config.append_config_values(na_opts.netapp_proxy_opts)
+    config.append_config_values(na_opts.netapp_connection_opts)
+    config.append_config_values(na_opts.netapp_transport_opts)
+    config.append_config_values(na_opts.netapp_basicauth_opts)
+    config.append_config_values(na_opts.netapp_provisioning_opts)
+    config.append_config_values(na_opts.netapp_cluster_opts)
+    config.append_config_values(na_opts.netapp_san_opts)
+    config.append_config_values(na_opts.netapp_replication_opts)
+
+    return config

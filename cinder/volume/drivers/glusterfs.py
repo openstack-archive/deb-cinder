@@ -24,6 +24,7 @@ from oslo_log import log as logging
 from oslo_utils import fileutils
 from oslo_utils import units
 
+from cinder import coordination
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
 from cinder.image import image_utils
@@ -49,7 +50,7 @@ CONF.register_opts(volume_opts)
 
 
 @interface.volumedriver
-class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
+class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriverDistributed,
                       driver.ExtendVD):
     """Gluster based cinder driver.
 
@@ -64,6 +65,9 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
     driver_prefix = 'glusterfs'
     volume_backend_name = 'GlusterFS'
     VERSION = '1.3.0'
+
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "Cinder_Jenkins"
 
     def __init__(self, execute=processutils.execute, *args, **kwargs):
         self._remotefsclient = None
@@ -80,6 +84,9 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
     def do_setup(self, context):
         """Any initialization the volume driver does while starting."""
         super(GlusterfsDriver, self).do_setup(context)
+
+        LOG.warning(_LW("The GlusterFS volume driver is deprecated and "
+                        "will be removed during the Ocata cycle."))
 
         config = self.configuration.glusterfs_shares_config
         if not config:
@@ -181,7 +188,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
 
         self._stats = data
 
-    @remotefs_drv.locked_volume_id_operation
+    @coordination.synchronized('{self.driver_prefix}-{volume[id]}')
     def create_volume(self, volume):
         """Creates a volume."""
 
@@ -235,7 +242,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
 
         self._set_rw_permissions_for_all(path_to_new_vol)
 
-    @remotefs_drv.locked_volume_id_operation
+    @coordination.synchronized('{self.driver_prefix}-{volume[id]}')
     def delete_volume(self, volume):
         """Deletes a logical volume."""
 
@@ -280,7 +287,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
     def validate_connector(self, connector):
         pass
 
-    @remotefs_drv.locked_volume_id_operation
+    @coordination.synchronized('{self.driver_prefix}-{volume[id]}')
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
 
@@ -312,7 +319,7 @@ class GlusterfsDriver(remotefs_drv.RemoteFSSnapDriver,
         """Disallow connection from connector."""
         pass
 
-    @remotefs_drv.locked_volume_id_operation
+    @coordination.synchronized('{self.driver_prefix}-{volume[id]}')
     def extend_volume(self, volume, size_gb):
         volume_path = self._active_volume_path(volume)
 

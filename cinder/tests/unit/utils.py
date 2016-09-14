@@ -47,6 +47,7 @@ def create_volume(ctxt,
                   replication_extended_status=None,
                   replication_driver_data=None,
                   consistencygroup_id=None,
+                  group_id=None,
                   previous_status=None,
                   testcase_instance=None,
                   **kwargs):
@@ -65,6 +66,8 @@ def create_volume(ctxt,
     vol['availability_zone'] = availability_zone
     if consistencygroup_id:
         vol['consistencygroup_id'] = consistencygroup_id
+    if group_id:
+        vol['group_id'] = group_id
     if volume_type_id:
         vol['volume_type_id'] = volume_type_id
     for key in kwargs:
@@ -166,6 +169,38 @@ def create_consistencygroup(ctxt,
     return cg
 
 
+def create_group(ctxt,
+                 host='test_host@fakedrv#fakepool',
+                 name='test_group',
+                 description='this is a test group',
+                 status=fields.GroupStatus.AVAILABLE,
+                 availability_zone='fake_az',
+                 group_type_id=None,
+                 volume_type_ids=None,
+                 **kwargs):
+    """Create a group object in the DB."""
+
+    grp = objects.Group(ctxt)
+    grp.host = host
+    grp.user_id = ctxt.user_id or fake.USER_ID
+    grp.project_id = ctxt.project_id or fake.PROJECT_ID
+    grp.status = status
+    grp.name = name
+    grp.description = description
+    grp.availability_zone = availability_zone
+    if group_type_id:
+        grp.group_type_id = group_type_id
+    if volume_type_ids:
+        grp.volume_type_ids = volume_type_ids
+    new_id = kwargs.pop('id', None)
+    grp.update(kwargs)
+    grp.create()
+    if new_id and new_id != grp.id:
+        db.group_update(ctxt, grp.id, {'id': new_id})
+        grp = objects.Group.get_by_id(ctxt, new_id)
+    return grp
+
+
 def create_cgsnapshot(ctxt,
                       consistencygroup_id,
                       name='test_cgsnapshot',
@@ -207,8 +242,55 @@ def create_cgsnapshot(ctxt,
     return objects.CGSnapshot.get_by_id(ctxt, cgsnap.id)
 
 
+def create_group_snapshot(ctxt,
+                          group_id,
+                          group_type_id=None,
+                          name='test_group_snapshot',
+                          description='this is a test group snapshot',
+                          status='creating',
+                          recursive_create_if_needed=True,
+                          return_vo=True,
+                          **kwargs):
+    """Create a group snapshot object in the DB."""
+    values = {
+        'user_id': ctxt.user_id or fake.USER_ID,
+        'project_id': ctxt.project_id or fake.PROJECT_ID,
+        'status': status,
+        'name': name,
+        'description': description,
+        'group_id': group_id}
+    values.update(kwargs)
+
+    if recursive_create_if_needed and group_id:
+        create_grp = False
+        try:
+            objects.Group.get_by_id(ctxt,
+                                    group_id)
+            create_vol = not db.volume_get_all_by_generic_group(
+                ctxt, group_id)
+        except exception.GroupNotFound:
+            create_grp = True
+            create_vol = True
+        if create_grp:
+            create_group(ctxt, id=group_id, group_type_id=group_type_id)
+        if create_vol:
+            create_volume(ctxt, group_id=group_id)
+
+    if not return_vo:
+        return db.group_snapshot_create(ctxt, values)
+    else:
+        group_snapshot = objects.GroupSnapshot(ctxt)
+        new_id = values.pop('id', None)
+        group_snapshot.update(values)
+        group_snapshot.create()
+        if new_id and new_id != group_snapshot.id:
+            db.group_snapshot_update(ctxt, group_snapshot.id, {'id': new_id})
+            group_snapshot = objects.GroupSnapshot.get_by_id(ctxt, new_id)
+        return group_snapshot
+
+
 def create_backup(ctxt,
-                  volume_id,
+                  volume_id=fake.VOLUME_ID,
                   display_name='test_backup',
                   display_description='This is a test backup',
                   status=fields.BackupStatus.CREATING,
@@ -216,27 +298,32 @@ def create_backup(ctxt,
                   temp_volume_id=None,
                   temp_snapshot_id=None,
                   snapshot_id=None,
-                  data_timestamp=None):
-    backup = {}
-    backup['volume_id'] = volume_id
-    backup['user_id'] = ctxt.user_id
-    backup['project_id'] = ctxt.project_id
-    backup['host'] = socket.gethostname()
-    backup['availability_zone'] = '1'
-    backup['display_name'] = display_name
-    backup['display_description'] = display_description
-    backup['container'] = 'fake'
-    backup['status'] = status
-    backup['fail_reason'] = ''
-    backup['service'] = 'fake'
-    backup['parent_id'] = parent_id
-    backup['size'] = 5 * 1024 * 1024
-    backup['object_count'] = 22
-    backup['temp_volume_id'] = temp_volume_id
-    backup['temp_snapshot_id'] = temp_snapshot_id
-    backup['snapshot_id'] = snapshot_id
-    backup['data_timestamp'] = data_timestamp
-    return db.backup_create(ctxt, backup)
+                  data_timestamp=None,
+                  **kwargs):
+    """Create a backup object."""
+    values = {
+        'user_id': ctxt.user_id or fake.USER_ID,
+        'project_id': ctxt.project_id or fake.PROJECT_ID,
+        'volume_id': volume_id,
+        'status': status,
+        'display_name': display_name,
+        'display_description': display_description,
+        'container': 'fake',
+        'availability_zone': 'fake',
+        'service': 'fake',
+        'size': 5 * 1024 * 1024,
+        'object_count': 22,
+        'host': socket.gethostname(),
+        'parent_id': parent_id,
+        'temp_volume_id': temp_volume_id,
+        'temp_snapshot_id': temp_snapshot_id,
+        'snapshot_id': snapshot_id,
+        'data_timestamp': data_timestamp, }
+
+    values.update(kwargs)
+    backup = objects.Backup(ctxt, **values)
+    backup.create()
+    return backup
 
 
 def create_message(ctxt,

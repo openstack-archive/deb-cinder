@@ -3,8 +3,8 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
 Last-Update: 2015-01-22
 
---- a/cinder/tests/unit/test_zfssa.py	2016-03-04 03:58:20.261889747 +0000
-+++ /dev/null	2015-11-25 10:13:06.495404578 +0000
+--- a/cinder/tests/unit/volume/drivers/test_zfssa.py	2016-09-14 21:16:41.075013368 +0200
++++ /dev/null	2016-09-01 16:08:01.266394396 +0200
 @@ -1,1718 +0,0 @@
 -# Copyright (c) 2014, 2016, Oracle and/or its affiliates. All rights reserved.
 -#

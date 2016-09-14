@@ -47,7 +47,7 @@ class BrickLvmTestCase(test.TestCase):
     def fake_customised_lvm_version(obj, *cmd, **kwargs):
         return ("  LVM version:     2.02.100(2)-RHEL6 (2013-09-12)\n", "")
 
-    def fake_execute(obj, *cmd, **kwargs):
+    def fake_execute(obj, *cmd, **kwargs):  # noqa
         cmd_string = ', '.join(cmd)
         data = "\n"
 
@@ -115,8 +115,18 @@ class BrickLvmTestCase(test.TestCase):
               cmd_string):
             if 'test-volumes' in cmd_string:
                 data = '  wi-a-'
+            elif 'snapshot' in cmd_string:
+                data = '  swi-a-s--'
+            elif 'open' in cmd_string:
+                data = '  -wi-ao---'
             else:
                 data = '  owi-a-'
+        elif ('env, LC_ALL=C, lvdisplay, --noheading, -C, -o, Origin' in
+              cmd_string):
+            if 'snapshot' in cmd_string:
+                data = '  fake-volume-1'
+            else:
+                data = '       '
         elif 'env, LC_ALL=C, pvs, --noheadings' in cmd_string:
             data = "  fake-vg|/dev/sda|10.00|1.00\n"
             data += "  fake-vg|/dev/sdb|10.00|1.00\n"
@@ -322,6 +332,19 @@ class BrickLvmTestCase(test.TestCase):
         self.assertTrue(self.vg.lv_has_snapshot('fake-vg'))
         self.assertFalse(self.vg.lv_has_snapshot('test-volumes'))
 
+    def test_lv_is_snapshot(self):
+        self.assertTrue(self.vg.lv_is_snapshot('fake-snapshot'))
+        self.assertFalse(self.vg.lv_is_snapshot('test-volumes'))
+
+    def test_lv_is_open(self):
+        self.assertTrue(self.vg.lv_is_open('fake-open'))
+        self.assertFalse(self.vg.lv_is_open('fake-snapshot'))
+
+    def test_lv_get_origin(self):
+        self.assertEqual('fake-volume-1',
+                         self.vg.lv_get_origin('fake-snapshot'))
+        self.assertFalse(None, self.vg.lv_get_origin('test-volumes'))
+
     def test_activate_lv(self):
         with mock.patch.object(self.vg, '_execute'):
             self.vg._supports_lvchange_ignoreskipactivation = True
@@ -349,3 +372,20 @@ class BrickLvmTestCase(test.TestCase):
         self.vg.vg_name = "test-volumes"
         self.vg.extend_volume("test", "2G")
         self.assertFalse(self.vg.deactivate_lv.called)
+
+    def test_lv_deactivate(self):
+        with mock.patch.object(self.vg, '_execute'):
+            is_active_mock = mock.Mock()
+            is_active_mock.return_value = False
+            self.vg._lv_is_active = is_active_mock
+            self.vg.create_volume('test', '1G')
+            self.vg.deactivate_lv('test')
+
+    def test_lv_deactivate_timeout(self):
+        with mock.patch.object(self.vg, '_execute'):
+            is_active_mock = mock.Mock()
+            is_active_mock.return_value = True
+            self.vg._lv_is_active = is_active_mock
+            self.vg.create_volume('test', '1G')
+            self.assertRaises(exception.VolumeNotDeactivated,
+                              self.vg.deactivate_lv, 'test')

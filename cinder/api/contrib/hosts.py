@@ -22,6 +22,7 @@ import webob.exc
 
 from cinder.api import extensions
 from cinder.api.openstack import wsgi
+from cinder.common import constants
 from cinder import db
 from cinder import exception
 from cinder.i18n import _, _LI
@@ -79,9 +80,7 @@ def check_host(fn):
         hosts = [h["host_name"] for h in listed_hosts]
         if id in hosts:
             return fn(self, req, id, *args, **kwargs)
-        else:
-            message = _("Host '%s' could not be found.") % id
-            raise webob.exc.HTTPNotFound(explanation=message)
+        raise exception.HostNotFound(host=id)
     return wrapped
 
 
@@ -149,11 +148,9 @@ class HostController(wsgi.Controller):
             msg = _("Describe-resource is admin only functionality")
             raise webob.exc.HTTPForbidden(explanation=msg)
 
-        try:
-            host_ref = objects.Service.get_by_host_and_topic(
-                context, host, CONF.volume_topic)
-        except exception.ServiceNotFound:
-            raise webob.exc.HTTPNotFound(explanation=_("Host not found"))
+        # Not found exception will be handled at the wsgi level
+        host_ref = objects.Service.get_by_host_and_topic(
+            context, host, constants.VOLUME_TOPIC)
 
         # Getting total available/used resource
         # TODO(jdg): Add summary info for Snapshots

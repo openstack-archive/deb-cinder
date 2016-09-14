@@ -577,6 +577,18 @@ class LVM(executor.Executor):
             return name
         return '_' + name
 
+    def _lv_is_active(self, name):
+        cmd = LVM.LVM_CMD_PREFIX + ['lvdisplay', '--noheading', '-C', '-o',
+                                    'Attr', '%s/%s' % (self.vg_name, name)]
+        out, _err = self._execute(*cmd,
+                                  root_helper=self._root_helper,
+                                  run_as_root=True)
+        if out:
+            out = out.strip()
+            if (out[4] == 'a'):
+                return True
+        return False
+
     def deactivate_lv(self, name):
         lv_path = self.vg_name + '/' + self._mangle_lv_name(name)
         cmd = ['lvchange', '-a', 'n']
@@ -591,6 +603,21 @@ class LVM(executor.Executor):
             LOG.error(_LE('StdOut  :%s'), err.stdout)
             LOG.error(_LE('StdErr  :%s'), err.stderr)
             raise
+
+        # Wait until lv is deactivated to return in
+        # order to prevent a race condition.
+        self._wait_for_volume_deactivation(name)
+
+    @utils.retry(exceptions=exception.VolumeNotDeactivated, retries=3,
+                 backoff_rate=1)
+    def _wait_for_volume_deactivation(self, name):
+        LOG.debug("Checking to see if volume %s has been deactivated.",
+                  name)
+        if self._lv_is_active(name):
+            LOG.debug("Volume %s is still active.", name)
+            raise exception.VolumeNotDeactivated(name=name)
+        else:
+            LOG.debug("Volume %s has been deactivated.", name)
 
     def activate_lv(self, name, is_snapshot=False, permanent=False):
         """Ensure that logical volume/snapshot logical volume is activated.
@@ -702,6 +729,44 @@ class LVM(executor.Executor):
             if (out[0] == 'o') or (out[0] == 'O'):
                 return True
         return False
+
+    def lv_is_snapshot(self, name):
+        """Return True if LV is a snapshot, False otherwise."""
+        cmd = LVM.LVM_CMD_PREFIX + ['lvdisplay', '--noheading', '-C', '-o',
+                                    'Attr', '%s/%s' % (self.vg_name, name)]
+        out, _err = self._execute(*cmd,
+                                  root_helper=self._root_helper,
+                                  run_as_root=True)
+        out = out.strip()
+        if out:
+            if (out[0] == 's'):
+                return True
+        return False
+
+    def lv_is_open(self, name):
+        """Return True if LV is currently open, False otherwise."""
+        cmd = LVM.LVM_CMD_PREFIX + ['lvdisplay', '--noheading', '-C', '-o',
+                                    'Attr', '%s/%s' % (self.vg_name, name)]
+        out, _err = self._execute(*cmd,
+                                  root_helper=self._root_helper,
+                                  run_as_root=True)
+        out = out.strip()
+        if out:
+            if (out[5] == 'o'):
+                return True
+        return False
+
+    def lv_get_origin(self, name):
+        """Return the origin of an LV that is a snapshot, None otherwise."""
+        cmd = LVM.LVM_CMD_PREFIX + ['lvdisplay', '--noheading', '-C', '-o',
+                                    'Origin', '%s/%s' % (self.vg_name, name)]
+        out, _err = self._execute(*cmd,
+                                  root_helper=self._root_helper,
+                                  run_as_root=True)
+        out = out.strip()
+        if out:
+            return out
+        return None
 
     def extend_volume(self, lv_name, new_size):
         """Extend the size of an existing volume."""

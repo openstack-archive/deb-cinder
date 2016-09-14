@@ -85,6 +85,11 @@ class ServiceController(wsgi.Controller):
                           'zone': svc.availability_zone,
                           'status': active, 'state': art,
                           'updated_at': updated_at}
+
+            # On V3.7 we added cluster support
+            if req.api_version_request.matches('3.7'):
+                ret_fields['cluster'] = svc.cluster_name
+
             if detailed:
                 ret_fields['disabled_reason'] = svc.disabled_reason
                 if svc.binary == "cinder-volume":
@@ -148,13 +153,12 @@ class ServiceController(wsgi.Controller):
             )
             return webob.Response(status_int=202)
         else:
-            raise webob.exc.HTTPNotFound(explanation=_("Unknown action"))
+            raise exception.InvalidInput(reason=_("Unknown action"))
 
         try:
             host = body['host']
         except (TypeError, KeyError):
-            msg = _("Missing required element 'host' in request body.")
-            raise webob.exc.HTTPBadRequest(explanation=msg)
+            raise exception.MissingRequired(element='host')
 
         ret_val['disabled'] = disabled
         if id == "disable-log-reason" and ext_loaded:
@@ -173,17 +177,13 @@ class ServiceController(wsgi.Controller):
         if not binary_key:
             raise webob.exc.HTTPBadRequest()
 
-        try:
-            svc = objects.Service.get_by_args(context, host, binary_key)
-            if not svc:
-                raise webob.exc.HTTPNotFound(explanation=_('Unknown service'))
+        # Not found exception will be handled at the wsgi level
+        svc = objects.Service.get_by_args(context, host, binary_key)
 
-            svc.disabled = ret_val['disabled']
-            if 'disabled_reason' in ret_val:
-                svc.disabled_reason = ret_val['disabled_reason']
-            svc.save()
-        except exception.ServiceNotFound:
-            raise webob.exc.HTTPNotFound(explanation=_("service not found"))
+        svc.disabled = ret_val['disabled']
+        if 'disabled_reason' in ret_val:
+            svc.disabled_reason = ret_val['disabled_reason']
+        svc.save()
 
         ret_val.update({'host': host, 'service': service,
                         'binary': binary, 'status': status})
