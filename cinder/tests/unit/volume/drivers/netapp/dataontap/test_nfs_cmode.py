@@ -23,6 +23,7 @@ from oslo_service import loopingcall
 from oslo_utils import units
 
 from cinder import exception
+from cinder.image import image_utils
 from cinder import test
 from cinder.tests.unit.volume.drivers.netapp.dataontap import fakes as fake
 from cinder.tests.unit.volume.drivers.netapp.dataontap.utils import fakes as \
@@ -34,6 +35,8 @@ from cinder.volume.drivers.netapp.dataontap.client import client_cmode
 from cinder.volume.drivers.netapp.dataontap import nfs_base
 from cinder.volume.drivers.netapp.dataontap import nfs_cmode
 from cinder.volume.drivers.netapp.dataontap.performance import perf_cmode
+from cinder.volume.drivers.netapp.dataontap.utils import data_motion
+from cinder.volume.drivers.netapp.dataontap.utils import utils as config_utils
 from cinder.volume.drivers.netapp import utils as na_utils
 from cinder.volume.drivers import nfs
 from cinder.volume import utils as volume_utils
@@ -44,7 +47,10 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
     def setUp(self):
         super(NetAppCmodeNfsDriverTestCase, self).setUp()
 
-        kwargs = {'configuration': self.get_config_cmode()}
+        kwargs = {
+            'configuration': self.get_config_cmode(),
+            'host': 'openstack@nfscmode',
+        }
 
         with mock.patch.object(utils, 'get_root_helper',
                                return_value=mock.Mock()):
@@ -71,18 +77,75 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         config.netapp_copyoffload_tool_path = 'copyoffload_tool_path'
         return config
 
+    @ddt.data({'active_backend_id': None, 'targets': ['dev1', 'dev2']},
+              {'active_backend_id': None, 'targets': []},
+              {'active_backend_id': 'dev1', 'targets': []},
+              {'active_backend_id': 'dev1', 'targets': ['dev1', 'dev2']})
+    @ddt.unpack
+    def test_init_driver_for_replication(self, active_backend_id,
+                                         targets):
+        kwargs = {
+            'configuration': self.get_config_cmode(),
+            'host': 'openstack@nfscmode',
+            'active_backend_id': active_backend_id,
+        }
+        self.mock_object(data_motion.DataMotionMixin,
+                         'get_replication_backend_names',
+                         mock.Mock(return_value=targets))
+        with mock.patch.object(utils, 'get_root_helper',
+                               return_value=mock.Mock()):
+            with mock.patch.object(remotefs_brick, 'RemoteFsClient',
+                                   return_value=mock.Mock()):
+                nfs_driver = nfs_cmode.NetAppCmodeNfsDriver(**kwargs)
+
+                self.assertEqual(active_backend_id,
+                                 nfs_driver.failed_over_backend_name)
+                self.assertEqual(active_backend_id is not None,
+                                 nfs_driver.failed_over)
+                self.assertEqual(len(targets) > 0,
+                                 nfs_driver.replication_enabled)
+
     @mock.patch.object(perf_cmode, 'PerformanceCmodeLibrary', mock.Mock())
     @mock.patch.object(client_cmode, 'Client', mock.Mock())
     @mock.patch.object(nfs.NfsDriver, 'do_setup')
     @mock.patch.object(na_utils, 'check_flags')
     def test_do_setup(self, mock_check_flags, mock_super_do_setup):
+        self.mock_object(
+            config_utils, 'get_backend_configuration',
+            mock.Mock(return_value=self.get_config_cmode()))
         self.driver.do_setup(mock.Mock())
 
         self.assertTrue(mock_check_flags.called)
         self.assertTrue(mock_super_do_setup.called)
 
+    def test__update_volume_stats(self):
+        mock_debug_log = self.mock_object(nfs_cmode.LOG, 'debug')
+        self.mock_object(self.driver, 'get_filter_function')
+        self.mock_object(self.driver, 'get_goodness_function')
+        self.mock_object(self.driver, '_spawn_clean_cache_job')
+        self.driver.zapi_client = mock.Mock()
+        self.mock_object(
+            self.driver, '_get_pool_stats', mock.Mock(return_value={}))
+        expected_stats = {
+            'driver_version': self.driver.VERSION,
+            'pools': {},
+            'sparse_copy_volume': True,
+            'replication_enabled': False,
+            'storage_protocol': 'nfs',
+            'vendor_name': 'NetApp',
+            'volume_backend_name': 'NetApp_NFS_Cluster_direct',
+        }
+
+        retval = self.driver._update_volume_stats()
+
+        self.assertIsNone(retval)
+        self.assertTrue(self.driver._spawn_clean_cache_job.called)
+        self.assertEqual(1, mock_debug_log.call_count)
+        self.assertEqual(expected_stats, self.driver._stats)
+
     def test_get_pool_stats(self):
 
+        self.driver.zapi_client = mock.Mock()
         ssc = {
             'vola': {
                 'pool_name': '10.10.10.10:/vola',
@@ -92,14 +155,18 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
                 'netapp_compression': 'false',
                 'netapp_mirrored': 'false',
                 'netapp_dedup': 'true',
-                'aggregate': 'aggr1',
+                'netapp_aggregate': 'aggr1',
                 'netapp_raid_type': 'raid_dp',
                 'netapp_disk_type': 'SSD',
+                'consistencygroup_support': True,
             },
         }
         mock_get_ssc = self.mock_object(self.driver.ssc_library,
                                         'get_ssc',
                                         mock.Mock(return_value=ssc))
+        mock_get_aggrs = self.mock_object(self.driver.ssc_library,
+                                          'get_ssc_aggregates',
+                                          mock.Mock(return_value=['aggr1']))
 
         total_capacity_gb = na_utils.round_down(
             fake.TOTAL_BYTES // units.Gi, '0.01')
@@ -117,6 +184,17 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
                          '_get_share_capacity_info',
                          mock.Mock(return_value=capacity))
 
+        aggr_capacities = {
+            'aggr1': {
+                'percent-used': 45,
+                'size-available': 59055800320.0,
+                'size-total': 107374182400.0,
+            },
+        }
+        mock_get_aggr_capacities = self.mock_object(
+            self.driver.zapi_client, 'get_aggregate_capacities',
+            mock.Mock(return_value=aggr_capacities))
+
         self.driver.perf_library.get_node_utilization_for_pool = (
             mock.Mock(return_value=30.0))
 
@@ -128,9 +206,11 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
             'QoS_support': True,
             'reserved_percentage': fake.RESERVED_PERCENTAGE,
             'max_over_subscription_ratio': fake.MAX_OVER_SUBSCRIPTION_RATIO,
+            'multiattach': True,
             'total_capacity_gb': total_capacity_gb,
             'free_capacity_gb': free_capacity_gb,
             'provisioned_capacity_gb': provisioned_capacity_gb,
+            'netapp_aggregate_used_percent': 45,
             'utilization': 30.0,
             'filter_function': 'filter',
             'goodness_function': 'goodness',
@@ -140,13 +220,16 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
             'netapp_compression': 'false',
             'netapp_mirrored': 'false',
             'netapp_dedup': 'true',
-            'aggregate': 'aggr1',
+            'netapp_aggregate': 'aggr1',
             'netapp_raid_type': 'raid_dp',
             'netapp_disk_type': 'SSD',
+            'consistencygroup_support': True,
         }]
 
         self.assertEqual(expected, result)
         mock_get_ssc.assert_called_once_with()
+        mock_get_aggrs.assert_called_once_with()
+        mock_get_aggr_capacities.assert_called_once_with(['aggr1'])
 
     @ddt.data({}, None)
     def test_get_pool_stats_no_ssc_vols(self, ssc):
@@ -234,11 +317,71 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
         self.assertEqual({}, result)
 
+    @ddt.data(['/mnt/img-id1', '/mnt/img-id2'], [])
+    def test__shortlist_del_eligible_files(self, old_files):
+        self.driver.zapi_client = mock.Mock()
+        self.driver.zapi_client.get_file_usage = mock.Mock(return_value='1000')
+        mock_debug_log = self.mock_object(nfs_cmode.LOG, 'debug')
+        self.mock_object(self.driver, '_get_vserver_and_exp_vol',
+                         mock.Mock(return_value=('openstack', 'fake_share')))
+        expected_list = [(o, '1000') for o in old_files]
+
+        observed_list = self.driver._shortlist_del_eligible_files(
+            'fake_ip:fake_share', old_files)
+
+        self.assertEqual(expected_list, observed_list)
+        self.assertEqual(1, mock_debug_log.call_count)
+
+    @ddt.data({'ip': None, 'shares': None},
+              {'ip': 'fake_ip', 'shares': ['fip:/fsh1']})
+    @ddt.unpack
+    def test__share_match_for_ip_no_match(self, ip, shares):
+        def side_effect(arg):
+            if arg == 'fake_ip':
+                return 'openstack'
+            return None
+
+        self.mock_object(self.driver, '_get_vserver_for_ip',
+                         mock.Mock(side_effect=side_effect))
+        mock_debug_log = self.mock_object(nfs_cmode.LOG, 'debug')
+
+        retval = self.driver._share_match_for_ip(ip, shares)
+
+        self.assertIsNone(retval)
+        self.assertEqual(1, mock_debug_log.call_count)
+
+    def test__share_match_for_ip(self):
+        shares = ['fip:/fsh1']
+        self.mock_object(self.driver, '_get_vserver_for_ip',
+                         mock.Mock(return_value='openstack'))
+        mock_debug_log = self.mock_object(nfs_cmode.LOG, 'debug')
+
+        retval = self.driver._share_match_for_ip('fip', shares)
+
+        self.assertEqual('fip:/fsh1', retval)
+        self.assertEqual(1, mock_debug_log.call_count)
+
+    def test__get_vserver_for_ip_ignores_zapi_exception(self):
+        self.driver.zapi_client = mock.Mock()
+        self.driver.zapi_client.get_if_info_by_ip = mock.Mock(
+            side_effect=exception.NotFound)
+
+        vserver = self.driver._get_vserver_for_ip('FAKE_IP')
+
+        self.assertIsNone(vserver)
+
+    def test__get_vserver_for_ip(self):
+        self.driver.zapi_client = mock.Mock()
+        self.driver.zapi_client.get_if_info_by_ip = mock.Mock(
+            return_value=fake.get_fake_ifs())
+
+        vserver = self.driver._get_vserver_for_ip('FAKE_IP')
+
+        self.assertIsNone(vserver)
+
     def test_check_for_setup_error(self):
         super_check_for_setup_error = self.mock_object(
             nfs_base.NetAppNfsDriver, 'check_for_setup_error')
-        mock_start_periodic_tasks = self.mock_object(
-            self.driver, '_start_periodic_tasks')
         mock_check_api_permissions = self.mock_object(
             self.driver.ssc_library, 'check_api_permissions')
 
@@ -246,7 +389,51 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
         self.assertEqual(1, super_check_for_setup_error.call_count)
         mock_check_api_permissions.assert_called_once_with()
-        self.assertEqual(1, mock_start_periodic_tasks.call_count)
+
+    def test_start_periodic_tasks(self):
+
+        mock_update_ssc = self.mock_object(
+            self.driver, '_update_ssc')
+        super_start_periodic_tasks = self.mock_object(
+            nfs_base.NetAppNfsDriver, '_start_periodic_tasks')
+
+        update_ssc_periodic_task = mock.Mock()
+        mock_loopingcall = self.mock_object(
+            loopingcall, 'FixedIntervalLoopingCall',
+            mock.Mock(return_value=update_ssc_periodic_task))
+
+        self.driver._start_periodic_tasks()
+
+        mock_loopingcall.assert_called_once_with(mock_update_ssc)
+        self.assertTrue(update_ssc_periodic_task.start.called)
+        mock_update_ssc.assert_called_once_with()
+        super_start_periodic_tasks.assert_called_once_with()
+
+    @ddt.data({'replication_enabled': True, 'failed_over': False},
+              {'replication_enabled': True, 'failed_over': True},
+              {'replication_enabled': False, 'failed_over': False})
+    @ddt.unpack
+    def test_handle_housekeeping_tasks(self, replication_enabled, failed_over):
+        ensure_mirrors = self.mock_object(data_motion.DataMotionMixin,
+                                          'ensure_snapmirrors')
+        self.mock_object(self.driver.ssc_library, 'get_ssc_flexvol_names',
+                         mock.Mock(return_value=fake_ssc.SSC.keys()))
+        self.driver.replication_enabled = replication_enabled
+        self.driver.failed_over = failed_over
+        super_handle_housekeeping_tasks = self.mock_object(
+            nfs_base.NetAppNfsDriver, '_handle_housekeeping_tasks')
+
+        self.driver._handle_housekeeping_tasks()
+
+        super_handle_housekeeping_tasks.assert_called_once_with()
+        (self.driver.zapi_client.remove_unused_qos_policy_groups.
+         assert_called_once_with())
+        if replication_enabled and not failed_over:
+            ensure_mirrors.assert_called_once_with(
+                self.driver.configuration, self.driver.backend_name,
+                fake_ssc.SSC.keys())
+        else:
+            self.assertFalse(ensure_mirrors.called)
 
     def test_delete_volume(self):
         fake_provider_location = 'fake_provider_location'
@@ -272,7 +459,10 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         self.mock_object(na_utils,
                          'get_valid_qos_policy_group_info',
                          mock.Mock(return_value='fake_qos_policy_group_info'))
-        self.driver.zapi_client = mock.Mock(side_effect=Exception)
+        self.mock_object(
+            self.driver.zapi_client,
+            'mark_qos_policy_group_for_deletion',
+            mock.Mock(side_effect=exception.NetAppDriverException))
 
         self.driver.delete_volume(fake_volume)
 
@@ -284,37 +474,33 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
          assert_called_once_with('fake_qos_policy_group_info'))
 
     def test_delete_backing_file_for_volume(self):
-        mock_filer_delete = self.mock_object(self.driver,
-                                             '_delete_volume_on_filer')
+        mock_filer_delete = self.mock_object(self.driver, '_delete_file')
         mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
                                              'delete_volume')
 
         self.driver._delete_backing_file_for_volume(fake.NFS_VOLUME)
 
-        mock_filer_delete.assert_called_once_with(fake.NFS_VOLUME)
+        mock_filer_delete.assert_called_once_with(
+            fake.NFS_VOLUME['id'], fake.NFS_VOLUME['name'])
         self.assertEqual(0, mock_super_delete.call_count)
 
-    def test_delete_backing_file_for_volume_exception_path(self):
-        mock_filer_delete = self.mock_object(self.driver,
-                                             '_delete_volume_on_filer')
+    @ddt.data(True, False)
+    def test_delete_backing_file_for_volume_exception_path(self, super_exc):
+        mock_exception_log = self.mock_object(nfs_cmode.LOG, 'exception')
+        exception_call_count = 2 if super_exc else 1
+        mock_filer_delete = self.mock_object(self.driver, '_delete_file')
         mock_filer_delete.side_effect = [Exception]
         mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
                                              'delete_volume')
+        if super_exc:
+            mock_super_delete.side_effect = [Exception]
 
         self.driver._delete_backing_file_for_volume(fake.NFS_VOLUME)
 
-        mock_filer_delete.assert_called_once_with(fake.NFS_VOLUME)
+        mock_filer_delete.assert_called_once_with(
+            fake.NFS_VOLUME['id'], fake.NFS_VOLUME['name'])
         mock_super_delete.assert_called_once_with(fake.NFS_VOLUME)
-
-    def test_delete_volume_on_filer(self):
-        mock_get_vs_ip = self.mock_object(self.driver, '_get_export_ip_path')
-        mock_get_vs_ip.return_value = (fake.VSERVER_NAME, '/%s' % fake.FLEXVOL)
-        mock_zapi_delete = self.driver.zapi_client.delete_file
-
-        self.driver._delete_volume_on_filer(fake.NFS_VOLUME)
-
-        mock_zapi_delete.assert_called_once_with(
-            '/vol/%s/%s' % (fake.FLEXVOL, fake.NFS_VOLUME['name']))
+        self.assertEqual(exception_call_count, mock_exception_log.call_count)
 
     def test_delete_snapshot(self):
         mock_get_location = self.mock_object(self.driver,
@@ -328,34 +514,41 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         mock_delete_backing.assert_called_once_with(fake.test_snapshot)
 
     def test_delete_backing_file_for_snapshot(self):
-        mock_filer_delete = self.mock_object(
-            self.driver, '_delete_snapshot_on_filer')
+        mock_filer_delete = self.mock_object(self.driver, '_delete_file')
         mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
                                              'delete_snapshot')
 
         self.driver._delete_backing_file_for_snapshot(fake.test_snapshot)
 
-        mock_filer_delete.assert_called_once_with(fake.test_snapshot)
+        mock_filer_delete.assert_called_once_with(
+            fake.test_snapshot['volume_id'], fake.test_snapshot['name'])
         self.assertEqual(0, mock_super_delete.call_count)
 
-    def test_delete_backing_file_for_snapshot_exception_path(self):
-        mock_filer_delete = self.mock_object(
-            self.driver, '_delete_snapshot_on_filer')
+    @ddt.data(True, False)
+    def test_delete_backing_file_for_snapshot_exception_path(self, super_exc):
+        mock_exception_log = self.mock_object(nfs_cmode.LOG, 'exception')
+        exception_call_count = 2 if super_exc else 1
+        mock_filer_delete = self.mock_object(self.driver, '_delete_file')
         mock_filer_delete.side_effect = [Exception]
         mock_super_delete = self.mock_object(nfs_base.NetAppNfsDriver,
                                              'delete_snapshot')
+        if super_exc:
+            mock_super_delete.side_effect = [Exception]
 
         self.driver._delete_backing_file_for_snapshot(fake.test_snapshot)
 
-        mock_filer_delete.assert_called_once_with(fake.test_snapshot)
+        mock_filer_delete.assert_called_once_with(
+            fake.test_snapshot['volume_id'], fake.test_snapshot['name'])
         mock_super_delete.assert_called_once_with(fake.test_snapshot)
+        self.assertEqual(exception_call_count, mock_exception_log.call_count)
 
-    def test_delete_snapshot_on_filer(self):
+    def test_delete_file(self):
         mock_get_vs_ip = self.mock_object(self.driver, '_get_export_ip_path')
         mock_get_vs_ip.return_value = (fake.VSERVER_NAME, '/%s' % fake.FLEXVOL)
         mock_zapi_delete = self.driver.zapi_client.delete_file
 
-        self.driver._delete_snapshot_on_filer(fake.test_snapshot)
+        self.driver._delete_file(
+            fake.test_snapshot['volume_id'], fake.test_snapshot['name'])
 
         mock_zapi_delete.assert_called_once_with(
             '/vol/%s/%s' % (fake.FLEXVOL, fake.test_snapshot['name']))
@@ -508,6 +701,185 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         self.assertEqual(0, mock_get_flex_vol_name.call_count)
         self.assertEqual(0, mock_file_assign_qos.call_count)
 
+    @ddt.data({'share': None, 'is_snapshot': False},
+              {'share': None, 'is_snapshot': True},
+              {'share': 'fake_share', 'is_snapshot': False},
+              {'share': 'fake_share', 'is_snapshot': True})
+    @ddt.unpack
+    def test_clone_backing_file_for_volume(self, share, is_snapshot):
+
+        mock_get_vserver_and_exp_vol = self.mock_object(
+            self.driver, '_get_vserver_and_exp_vol',
+            mock.Mock(return_value=(fake.VSERVER_NAME, fake.FLEXVOL)))
+
+        self.driver._clone_backing_file_for_volume(
+            fake.FLEXVOL, 'fake_clone', fake.VOLUME_ID, share=share,
+            is_snapshot=is_snapshot)
+
+        mock_get_vserver_and_exp_vol.assert_called_once_with(
+            fake.VOLUME_ID, share)
+        self.driver.zapi_client.clone_file.assert_called_once_with(
+            fake.FLEXVOL, fake.FLEXVOL, 'fake_clone', fake.VSERVER_NAME,
+            is_snapshot=is_snapshot)
+
+    def test__clone_backing_file_for_volume(self):
+        body = fake.get_fake_net_interface_get_iter_response()
+        self.driver.zapi_client.get_if_info_by_ip = mock.Mock(
+            return_value=[netapp_api.NaElement(body)])
+        self.driver.zapi_client.get_vol_by_junc_vserver = mock.Mock(
+            return_value='nfsvol')
+        self.mock_object(self.driver, '_get_export_ip_path',
+                         mock.Mock(return_value=('127.0.0.1', 'fakepath')))
+
+        retval = self.driver._clone_backing_file_for_volume(
+            'vol', 'clone', 'vol_id', share='share', is_snapshot=True)
+
+        self.assertIsNone(retval)
+        self.driver.zapi_client.clone_file.assert_called_once_with(
+            'nfsvol', 'vol', 'clone', None, is_snapshot=True)
+
+    def test__copy_from_img_service_copyoffload_nonexistent_binary_path(self):
+        self.mock_object(nfs_cmode.LOG, 'debug')
+        drv = self.driver
+        context = object()
+        volume = {'id': 'vol_id', 'name': 'name'}
+        image_service = mock.Mock()
+        image_service.get_location.return_value = (mock.Mock(), mock.Mock())
+        image_service.show.return_value = {'size': 0}
+        image_id = 'image_id'
+        drv._client = mock.Mock()
+        drv._client.get_api_version = mock.Mock(return_value=(1, 20))
+        drv._find_image_in_cache = mock.Mock(return_value=[])
+        drv._construct_image_nfs_url = mock.Mock(return_value=["nfs://1"])
+        drv._check_get_nfs_path_segs = mock.Mock(
+            return_value=("test:test", "dr"))
+        drv._get_ip_verify_on_cluster = mock.Mock(return_value="192.128.1.1")
+        drv._get_mount_point_for_share = mock.Mock(return_value='mnt_point')
+        drv._get_host_ip = mock.Mock()
+        drv._get_provider_location = mock.Mock()
+        drv._get_export_path = mock.Mock(return_value="dr")
+        drv._check_share_can_hold_size = mock.Mock()
+        # Raise error as if the copyoffload file can not be found
+        drv._clone_file_dst_exists = mock.Mock(side_effect=OSError())
+        drv._discover_file_till_timeout = mock.Mock()
+
+        # Verify the original error is propagated
+        self.assertRaises(OSError, drv._copy_from_img_service,
+                          context, volume, image_service, image_id)
+
+        drv._discover_file_till_timeout.assert_not_called()
+
+    @mock.patch.object(image_utils, 'qemu_img_info')
+    def test__copy_from_img_service_raw_copyoffload_workflow_success(
+            self, mock_qemu_img_info):
+        drv = self.driver
+        volume = {'id': 'vol_id', 'name': 'name', 'size': 1}
+        image_id = 'image_id'
+        context = object()
+        image_service = mock.Mock()
+        image_service.get_location.return_value = ('nfs://ip1/openstack/img',
+                                                   None)
+        image_service.show.return_value = {'size': 1, 'disk_format': 'raw'}
+
+        drv._check_get_nfs_path_segs =\
+            mock.Mock(return_value=('ip1', '/openstack'))
+        drv._get_ip_verify_on_cluster = mock.Mock(return_value='ip1')
+        drv._get_host_ip = mock.Mock(return_value='ip2')
+        drv._get_export_path = mock.Mock(return_value='/exp_path')
+        drv._get_provider_location = mock.Mock(return_value='share')
+        drv._execute = mock.Mock()
+        drv._get_mount_point_for_share = mock.Mock(return_value='mnt_point')
+        drv._discover_file_till_timeout = mock.Mock(return_value=True)
+        img_inf = mock.Mock()
+        img_inf.file_format = 'raw'
+        mock_qemu_img_info.return_value = img_inf
+        drv._check_share_can_hold_size = mock.Mock()
+        drv._move_nfs_file = mock.Mock(return_value=True)
+        drv._delete_file_at_path = mock.Mock()
+        drv._clone_file_dst_exists = mock.Mock()
+        drv._post_clone_image = mock.Mock()
+
+        retval = drv._copy_from_img_service(
+            context, volume, image_service, image_id)
+
+        self.assertIsNone(retval)
+        drv._get_ip_verify_on_cluster.assert_any_call('ip1')
+        drv._get_export_path.assert_called_with('vol_id')
+        drv._check_share_can_hold_size.assert_called_with('share', 1)
+        drv._post_clone_image.assert_called_with(volume)
+        self.assertEqual(1, drv._execute.call_count)
+
+    @mock.patch.object(image_utils, 'convert_image')
+    @mock.patch.object(image_utils, 'qemu_img_info')
+    @mock.patch('os.path.exists')
+    def test__copy_from_img_service_qcow2_copyoffload_workflow_success(
+            self, mock_exists, mock_qemu_img_info, mock_cvrt_image):
+        drv = self.driver
+        volume = {'id': 'vol_id', 'name': 'name', 'size': 1}
+        image_id = 'image_id'
+        context = object()
+        image_service = mock.Mock()
+        image_service.get_location.return_value = ('nfs://ip1/openstack/img',
+                                                   None)
+        image_service.show.return_value = {'size': 1,
+                                           'disk_format': 'qcow2'}
+        drv._check_get_nfs_path_segs =\
+            mock.Mock(return_value=('ip1', '/openstack'))
+
+        drv._get_ip_verify_on_cluster = mock.Mock(return_value='ip1')
+        drv._get_host_ip = mock.Mock(return_value='ip2')
+        drv._get_export_path = mock.Mock(return_value='/exp_path')
+        drv._get_provider_location = mock.Mock(return_value='share')
+        drv._execute = mock.Mock()
+        drv._get_mount_point_for_share = mock.Mock(return_value='mnt_point')
+        img_inf = mock.Mock()
+        img_inf.file_format = 'raw'
+        mock_qemu_img_info.return_value = img_inf
+        drv._check_share_can_hold_size = mock.Mock()
+
+        drv._move_nfs_file = mock.Mock(return_value=True)
+        drv._delete_file_at_path = mock.Mock()
+        drv._clone_file_dst_exists = mock.Mock()
+        drv._post_clone_image = mock.Mock()
+
+        retval = drv._copy_from_img_service(
+            context, volume, image_service, image_id)
+
+        self.assertIsNone(retval)
+        drv._get_ip_verify_on_cluster.assert_any_call('ip1')
+        drv._get_export_path.assert_called_with('vol_id')
+        drv._check_share_can_hold_size.assert_called_with('share', 1)
+        drv._post_clone_image.assert_called_with(volume)
+        self.assertEqual(1, mock_cvrt_image.call_count)
+        self.assertEqual(1, drv._execute.call_count)
+        self.assertEqual(2, drv._delete_file_at_path.call_count)
+        self.assertEqual(1, drv._clone_file_dst_exists.call_count)
+
+    def test__copy_from_cache_copyoffload_success(self):
+        drv = self.driver
+        volume = {'id': 'vol_id', 'name': 'name', 'size': 1}
+        image_id = 'image_id'
+        cache_result = [('ip1:/openstack', 'img-cache-imgid')]
+        drv._get_ip_verify_on_cluster = mock.Mock(return_value='ip1')
+        drv._get_host_ip = mock.Mock(return_value='ip2')
+        drv._get_export_path = mock.Mock(return_value='/exp_path')
+        drv._execute = mock.Mock()
+        drv._register_image_in_cache = mock.Mock()
+        drv._get_provider_location = mock.Mock(return_value='/share')
+        drv._post_clone_image = mock.Mock()
+
+        copied = drv._copy_from_cache(volume, image_id, cache_result)
+
+        self.assertTrue(copied)
+        drv._get_ip_verify_on_cluster.assert_any_call('ip1')
+        drv._get_export_path.assert_called_with('vol_id')
+        drv._execute.assert_called_once_with(
+            'copyoffload_tool_path', 'ip1', 'ip1',
+            '/openstack/img-cache-imgid', '/exp_path/name',
+            run_as_root=False, check_exit_code=0)
+        drv._post_clone_image.assert_called_with(volume)
+        drv._get_provider_location.assert_called_with('vol_id')
+
     def test_unmanage(self):
         mock_get_info = self.mock_object(na_utils,
                                          'get_valid_qos_policy_group_info')
@@ -536,29 +908,6 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
 
         mock_get_info.assert_has_calls([mock.call(fake.NFS_VOLUME)])
         super_unmanage.assert_has_calls([mock.call(fake.NFS_VOLUME)])
-
-    def test_start_periodic_tasks(self):
-
-        mock_update_ssc = self.mock_object(self.driver, '_update_ssc')
-        mock_remove_unused_qos_policy_groups = self.mock_object(
-            self.driver.zapi_client,
-            'remove_unused_qos_policy_groups')
-
-        update_ssc_periodic_task = mock.Mock()
-        harvest_qos_periodic_task = mock.Mock()
-        side_effect = [update_ssc_periodic_task, harvest_qos_periodic_task]
-        mock_loopingcall = self.mock_object(
-            loopingcall, 'FixedIntervalLoopingCall',
-            mock.Mock(side_effect=side_effect))
-
-        self.driver._start_periodic_tasks()
-
-        mock_loopingcall.assert_has_calls([
-            mock.call(mock_update_ssc),
-            mock.call(mock_remove_unused_qos_policy_groups)])
-        self.assertTrue(update_ssc_periodic_task.start.called)
-        self.assertTrue(harvest_qos_periodic_task.start.called)
-        mock_update_ssc.assert_called_once_with()
 
     @ddt.data({'has_space': True, 'type_match': True, 'expected': True},
               {'has_space': True, 'type_match': False, 'expected': False},
@@ -743,6 +1092,95 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         self.driver._get_host_ip.assert_called_once_with(fake.VOLUME_ID)
         self.driver._get_export_path.assert_called_once_with(fake.VOLUME_ID)
 
+    def test_copy_image_to_volume_copyoffload_non_cached_ssc_update(self):
+        mock_log = self.mock_object(nfs_cmode, 'LOG')
+        drv = self.driver
+        context = object()
+        volume = {'id': 'vol_id', 'name': 'name'}
+        image_service = object()
+        image_id = 'image_id'
+        drv.zapi_client = mock.Mock()
+        drv.zapi_client.get_ontapi_version = mock.Mock(return_value=(1, 20))
+        drv._copy_from_img_service = mock.Mock()
+        drv._get_provider_location = mock.Mock(return_value='share')
+        drv._get_vol_for_share = mock.Mock(return_value='vol')
+
+        retval = drv.copy_image_to_volume(
+            context, volume, image_service, image_id)
+
+        self.assertIsNone(retval)
+        drv._copy_from_img_service.assert_called_once_with(
+            context, volume, image_service, image_id)
+        self.assertEqual(1, mock_log.debug.call_count)
+        self.assertEqual(1, mock_log.info.call_count)
+
+    def test_copy_image_to_volume_copyoffload_from_cache_success(self):
+        mock_info_log = self.mock_object(nfs_cmode.LOG, 'info')
+        drv = self.driver
+        context = object()
+        volume = {'id': 'vol_id', 'name': 'name'}
+        image_service = object()
+        image_id = 'image_id'
+        drv.zapi_client = mock.Mock()
+        drv.zapi_client.get_ontapi_version = mock.Mock(return_value=(1, 20))
+        nfs_base.NetAppNfsDriver.copy_image_to_volume = mock.Mock()
+        drv._get_provider_location = mock.Mock(return_value='share')
+        drv._get_vol_for_share = mock.Mock(return_value='vol')
+        drv._find_image_in_cache = mock.Mock(return_value=[('share', 'img')])
+        drv._copy_from_cache = mock.Mock(return_value=True)
+
+        drv.copy_image_to_volume(context, volume, image_service, image_id)
+
+        drv._copy_from_cache.assert_called_once_with(
+            volume, image_id, [('share', 'img')])
+        self.assertEqual(1, mock_info_log.call_count)
+
+    def test_copy_image_to_volume_copyoffload_from_img_service(self):
+        drv = self.driver
+        context = object()
+        volume = {'id': 'vol_id', 'name': 'name'}
+        image_service = object()
+        image_id = 'image_id'
+        drv.zapi_client = mock.Mock()
+        drv.zapi_client.get_ontapi_version = mock.Mock(return_value=(1, 20))
+        nfs_base.NetAppNfsDriver.copy_image_to_volume = mock.Mock()
+        drv._get_provider_location = mock.Mock(return_value='share')
+        drv._get_vol_for_share = mock.Mock(return_value='vol')
+        drv._find_image_in_cache = mock.Mock(return_value=False)
+        drv._copy_from_img_service = mock.Mock()
+
+        retval = drv.copy_image_to_volume(
+            context, volume, image_service, image_id)
+
+        self.assertIsNone(retval)
+        drv._copy_from_img_service.assert_called_once_with(
+            context, volume, image_service, image_id)
+
+    def test_copy_image_to_volume_copyoffload_failure(self):
+        mock_log = self.mock_object(nfs_cmode, 'LOG')
+        drv = self.driver
+        context = object()
+        volume = {'id': 'vol_id', 'name': 'name'}
+        image_service = object()
+        image_id = 'image_id'
+        drv.zapi_client = mock.Mock()
+        drv.zapi_client.get_ontapi_version = mock.Mock(return_value=(1, 20))
+        drv._copy_from_img_service = mock.Mock(side_effect=Exception())
+        nfs_base.NetAppNfsDriver.copy_image_to_volume = mock.Mock()
+        drv._get_provider_location = mock.Mock(return_value='share')
+        drv._get_vol_for_share = mock.Mock(return_value='vol')
+
+        retval = drv.copy_image_to_volume(
+            context, volume, image_service, image_id)
+
+        self.assertIsNone(retval)
+        drv._copy_from_img_service.assert_called_once_with(
+            context, volume, image_service, image_id)
+        nfs_base.NetAppNfsDriver.copy_image_to_volume. \
+            assert_called_once_with(context, volume, image_service, image_id)
+        mock_log.info.assert_not_called()
+        self.assertEqual(1, mock_log.exception.call_count)
+
     def test_copy_from_remote_cache(self):
         source_ip = '192.0.1.1'
         source_path = '/openstack/img-cache-imgid'
@@ -832,3 +1270,107 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         self.driver._copy_from_remote_cache.assert_called_once_with(
             fake.VOLUME, fake.IMAGE_FILE_ID, cache_result[0])
         self.assertFalse(self.driver._post_clone_image.called)
+
+    @ddt.data({'secondary_id': 'dev0', 'configured_targets': ['dev1']},
+              {'secondary_id': 'dev3', 'configured_targets': ['dev1', 'dev2']},
+              {'secondary_id': 'dev1', 'configured_targets': []},
+              {'secondary_id': None, 'configured_targets': []})
+    @ddt.unpack
+    def test_failover_host_invalid_replication_target(self, secondary_id,
+                                                      configured_targets):
+        """This tests executes a method in the DataMotionMixin."""
+        self.driver.backend_name = 'dev0'
+        self.mock_object(data_motion.DataMotionMixin,
+                         'get_replication_backend_names',
+                         mock.Mock(return_value=configured_targets))
+        complete_failover_call = self.mock_object(
+            data_motion.DataMotionMixin, '_complete_failover')
+
+        self.assertRaises(exception.InvalidReplicationTarget,
+                          self.driver.failover_host, 'fake_context', [],
+                          secondary_id=secondary_id)
+        self.assertFalse(complete_failover_call.called)
+
+    def test_failover_host_unable_to_failover(self):
+        """This tests executes a method in the DataMotionMixin."""
+        self.driver.backend_name = 'dev0'
+        self.mock_object(
+            data_motion.DataMotionMixin, '_complete_failover',
+            mock.Mock(side_effect=exception.NetAppDriverException))
+        self.mock_object(data_motion.DataMotionMixin,
+                         'get_replication_backend_names',
+                         mock.Mock(return_value=['dev1', 'dev2']))
+        self.mock_object(self.driver.ssc_library, 'get_ssc_flexvol_names',
+                         mock.Mock(return_value=fake_ssc.SSC.keys()))
+        self.mock_object(self.driver, '_update_zapi_client')
+
+        self.assertRaises(exception.UnableToFailOver,
+                          self.driver.failover_host, 'fake_context', [],
+                          secondary_id='dev1')
+        data_motion.DataMotionMixin._complete_failover.assert_called_once_with(
+            'dev0', ['dev1', 'dev2'], fake_ssc.SSC.keys(), [],
+            failover_target='dev1')
+        self.assertFalse(self.driver._update_zapi_client.called)
+
+    def test_failover_host(self):
+        """This tests executes a method in the DataMotionMixin."""
+        self.driver.backend_name = 'dev0'
+        self.mock_object(data_motion.DataMotionMixin, '_complete_failover',
+                         mock.Mock(return_value=('dev1', [])))
+        self.mock_object(data_motion.DataMotionMixin,
+                         'get_replication_backend_names',
+                         mock.Mock(return_value=['dev1', 'dev2']))
+        self.mock_object(self.driver.ssc_library, 'get_ssc_flexvol_names',
+                         mock.Mock(return_value=fake_ssc.SSC.keys()))
+        self.mock_object(self.driver, '_update_zapi_client')
+
+        actual_active, vol_updates = self.driver.failover_host(
+            'fake_context', [], secondary_id='dev1')
+
+        data_motion.DataMotionMixin._complete_failover.assert_called_once_with(
+            'dev0', ['dev1', 'dev2'], fake_ssc.SSC.keys(), [],
+            failover_target='dev1')
+        self.driver._update_zapi_client.assert_called_once_with('dev1')
+        self.assertTrue(self.driver.failed_over)
+        self.assertEqual('dev1', self.driver.failed_over_backend_name)
+        self.assertEqual('dev1', actual_active)
+        self.assertEqual([], vol_updates)
+
+    def test_delete_cgsnapshot(self):
+        mock_delete_backing_file = self.mock_object(
+            self.driver, '_delete_backing_file_for_snapshot')
+        snapshots = [fake.CG_SNAPSHOT]
+
+        model_update, snapshots_model_update = (
+            self.driver.delete_cgsnapshot(
+                fake.CG_CONTEXT, fake.CG_SNAPSHOT, snapshots))
+
+        mock_delete_backing_file.assert_called_once_with(fake.CG_SNAPSHOT)
+        self.assertIsNone(model_update)
+        self.assertIsNone(snapshots_model_update)
+
+    def test_get_snapshot_backing_flexvol_names(self):
+        snapshots = [
+            {'volume': {'host': 'hostA@192.168.99.25#/fake/volume1'}},
+            {'volume': {'host': 'hostA@192.168.1.01#/fake/volume2'}},
+            {'volume': {'host': 'hostA@192.168.99.25#/fake/volume3'}},
+            {'volume': {'host': 'hostA@192.168.99.25#/fake/volume1'}},
+        ]
+
+        ssc = {
+            'volume1': {'pool_name': '/fake/volume1', },
+            'volume2': {'pool_name': '/fake/volume2', },
+            'volume3': {'pool_name': '/fake/volume3', },
+        }
+
+        mock_get_ssc = self.mock_object(self.driver.ssc_library, 'get_ssc')
+        mock_get_ssc.return_value = ssc
+
+        hosts = [snap['volume']['host'] for snap in snapshots]
+        flexvols = self.driver._get_backing_flexvol_names(hosts)
+
+        mock_get_ssc.assert_called_once_with()
+        self.assertEqual(3, len(flexvols))
+        self.assertIn('volume1', flexvols)
+        self.assertIn('volume2', flexvols)
+        self.assertIn('volume3', flexvols)

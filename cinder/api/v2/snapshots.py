@@ -48,11 +48,9 @@ class SnapshotsController(wsgi.Controller):
         """Return data about the given snapshot."""
         context = req.environ['cinder.context']
 
-        try:
-            snapshot = self.volume_api.get_snapshot(context, id)
-            req.cache_db_snapshot(snapshot)
-        except exception.SnapshotNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
+        snapshot = self.volume_api.get_snapshot(context, id)
+        req.cache_db_snapshot(snapshot)
 
         return self._view_builder.detail(req, snapshot)
 
@@ -60,13 +58,11 @@ class SnapshotsController(wsgi.Controller):
         """Delete a snapshot."""
         context = req.environ['cinder.context']
 
-        LOG.info(_LI("Delete snapshot with id: %s"), id, context=context)
+        LOG.info(_LI("Delete snapshot with id: %s"), id)
 
-        try:
-            snapshot = self.volume_api.get_snapshot(context, id)
-            self.volume_api.delete_snapshot(context, snapshot)
-        except exception.SnapshotNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
+        snapshot = self.volume_api.get_snapshot(context, id)
+        self.volume_api.delete_snapshot(context, snapshot)
 
         return webob.Response(status_int=202)
 
@@ -94,8 +90,7 @@ class SnapshotsController(wsgi.Controller):
 
         # NOTE(thingee): v2 API allows name instead of display_name
         if 'name' in search_opts:
-            search_opts['display_name'] = search_opts['name']
-            del search_opts['name']
+            search_opts['display_name'] = search_opts.pop('name')
 
         snapshots = self.volume_api.get_all_snapshots(context,
                                                       search_opts=search_opts,
@@ -130,13 +125,10 @@ class SnapshotsController(wsgi.Controller):
             msg = _("'volume_id' must be specified")
             raise exc.HTTPBadRequest(explanation=msg)
 
-        try:
-            volume = self.volume_api.get(context, volume_id)
-        except exception.VolumeNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        volume = self.volume_api.get(context, volume_id)
         force = snapshot.get('force', False)
         msg = _LI("Create snapshot from volume %s")
-        LOG.info(msg, volume_id, context=context)
+        LOG.info(msg, volume_id)
         self.validate_name_and_description(snapshot)
 
         # NOTE(thingee): v2 API allows name instead of display_name
@@ -205,13 +197,11 @@ class SnapshotsController(wsgi.Controller):
             if key in snapshot:
                 update_dict[key] = snapshot[key]
 
-        try:
-            snapshot = self.volume_api.get_snapshot(context, id)
-            volume_utils.notify_about_snapshot_usage(context, snapshot,
-                                                     'update.start')
-            self.volume_api.update_snapshot(context, snapshot, update_dict)
-        except exception.SnapshotNotFound as error:
-            raise exc.HTTPNotFound(explanation=error.msg)
+        # Not found exception will be handled at the wsgi level
+        snapshot = self.volume_api.get_snapshot(context, id)
+        volume_utils.notify_about_snapshot_usage(context, snapshot,
+                                                 'update.start')
+        self.volume_api.update_snapshot(context, snapshot, update_dict)
 
         snapshot.update(update_dict)
         req.cache_db_snapshot(snapshot)

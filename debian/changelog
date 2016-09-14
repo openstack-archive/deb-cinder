@@ -1,3 +1,18 @@
+cinder (2:9.0.0~b3-1) experimental; urgency=medium
+
+  * New upstream release.
+  * Fixed (build-)depends for this release.
+  * Fixed namespace list when generating cinder.conf.
+  * Using OpenStack's Gerrit as VCS URLs.
+  * Rebased nozfs patches.
+  * Added PYTHONPATH=. when building sphinx doc.
+  * Black list 3 unit tests that non-deterministically fail:
+    - test_volume.VolumeMigrationTestCase.test_retype_volume_migration_failed
+    - test_volume.VolumeMigrationTestCase.test_retype_volume_migration_bad_policy
+    - backup.test_backup.BackupTestCase.test_create_backup_with_temp_snapshot
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 14 Sep 2016 21:17:08 +0200
+
 cinder (2:9.0.0~b2-1) experimental; urgency=medium
 
   * New upstream release.

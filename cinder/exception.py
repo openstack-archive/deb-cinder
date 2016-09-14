@@ -204,6 +204,10 @@ class InvalidVolumeType(Invalid):
     message = _("Invalid volume type: %(reason)s")
 
 
+class InvalidGroupType(Invalid):
+    message = _("Invalid group type: %(reason)s")
+
+
 class InvalidVolume(Invalid):
     message = _("Invalid volume: %(reason)s")
 
@@ -265,6 +269,10 @@ class InvalidGlobalAPIVersion(Invalid):
                 "is %(min_ver)s and maximum is %(max_ver)s.")
 
 
+class MissingRequired(Invalid):
+    message = _("Missing required element '%(element)s' in request body.")
+
+
 class APIException(CinderException):
     message = _("Error while requesting %(service)s API.")
 
@@ -282,6 +290,10 @@ class RPCTimeout(CinderException):
     message = _("Timeout while requesting capabilities from backend "
                 "%(service)s.")
     code = 502
+
+
+class Duplicate(CinderException):
+    pass
 
 
 class NotFound(CinderException):
@@ -350,6 +362,30 @@ class VolumeTypeInUse(CinderException):
                 "volumes present with the type.")
 
 
+class GroupTypeNotFound(NotFound):
+    message = _("Group type %(group_type_id)s could not be found.")
+
+
+class GroupTypeNotFoundByName(GroupTypeNotFound):
+    message = _("Group type with name %(group_type_name)s "
+                "could not be found.")
+
+
+class GroupTypeAccessNotFound(NotFound):
+    message = _("Group type access not found for %(group_type_id)s / "
+                "%(project_id)s combination.")
+
+
+class GroupTypeSpecsNotFound(NotFound):
+    message = _("Group Type %(group_type_id)s has no specs with "
+                "key %(group_specs_key)s.")
+
+
+class GroupTypeInUse(CinderException):
+    message = _("Group Type %(group_type_id)s deletion is not allowed with "
+                "groups present with the type.")
+
+
 class SnapshotNotFound(NotFound):
     message = _("Snapshot %(snapshot_id)s could not be found.")
 
@@ -392,6 +428,32 @@ class ServiceNotFound(NotFound):
 
 class ServiceTooOld(Invalid):
     message = _("Service is too old to fulfil this request.")
+
+
+class WorkerNotFound(NotFound):
+    message = _("Worker with %s could not be found.")
+
+    def __init__(self, message=None, **kwargs):
+        keys_list = ('{0}=%({0})s'.format(key) for key in kwargs)
+        placeholder = ', '.join(keys_list)
+        self.message = self.message % placeholder
+        super(WorkerNotFound, self).__init__(message, **kwargs)
+
+
+class WorkerExists(Duplicate):
+    message = _("Worker for %(type)s %(id)s already exists.")
+
+
+class ClusterNotFound(NotFound):
+    message = _('Cluster %(id)s could not be found.')
+
+
+class ClusterHasHosts(Invalid):
+    message = _("Cluster %(id)s still has hosts.")
+
+
+class ClusterExists(Duplicate):
+    message = _("Cluster %(name)s already exists.")
 
 
 class HostNotFound(NotFound):
@@ -452,10 +514,6 @@ class FileNotFound(NotFound):
     message = _("File %(file_path)s could not be found.")
 
 
-class Duplicate(CinderException):
-    pass
-
-
 class VolumeTypeExists(Duplicate):
     message = _("Volume Type %(id)s already exists.")
 
@@ -471,6 +529,28 @@ class VolumeTypeEncryptionExists(Invalid):
 
 class VolumeTypeEncryptionNotFound(NotFound):
     message = _("Volume type encryption for type %(type_id)s does not exist.")
+
+
+class GroupTypeExists(Duplicate):
+    message = _("Group Type %(id)s already exists.")
+
+
+class GroupTypeAccessExists(Duplicate):
+    message = _("Group type access for %(group_type_id)s / "
+                "%(project_id)s combination already exists.")
+
+
+class GroupVolumeTypeMappingExists(Duplicate):
+    message = _("Group volume type mapping for %(group_id)s / "
+                "%(volume_type_id)s combination already exists.")
+
+
+class GroupTypeEncryptionExists(Invalid):
+    message = _("Group type encryption for type %(type_id)s already exists.")
+
+
+class GroupTypeEncryptionNotFound(NotFound):
+    message = _("Group type encryption for type %(type_id)s does not exist.")
 
 
 class MalformedRequestBody(CinderException):
@@ -563,6 +643,15 @@ class VolumeTypeCreateFailed(CinderException):
 
 class VolumeTypeUpdateFailed(CinderException):
     message = _("Cannot update volume_type %(id)s")
+
+
+class GroupTypeCreateFailed(CinderException):
+    message = _("Cannot create group_type with "
+                "name %(name)s and specs %(group_specs)s")
+
+
+class GroupTypeUpdateFailed(CinderException):
+    message = _("Cannot update group_type %(id)s")
 
 
 class UnknownCmd(VolumeDriverException):
@@ -791,6 +880,10 @@ class VolumeGroupCreationFailed(CinderException):
     message = _('Failed to create Volume Group: %(vg_name)s')
 
 
+class VolumeNotDeactivated(CinderException):
+    message = _('Volume %(name)s was not deactivated in time.')
+
+
 class VolumeDeviceNotFound(CinderException):
     message = _('Volume device not found at %(device)s.')
 
@@ -956,6 +1049,15 @@ class InvalidConsistencyGroup(Invalid):
     message = _("Invalid ConsistencyGroup: %(reason)s")
 
 
+# Group
+class GroupNotFound(NotFound):
+    message = _("Group %(group_id)s could not be found.")
+
+
+class InvalidGroup(Invalid):
+    message = _("Invalid Group: %(reason)s")
+
+
 # CgSnapshot
 class CgSnapshotNotFound(NotFound):
     message = _("CgSnapshot %(cgsnapshot_id)s could not be found.")
@@ -963,6 +1065,15 @@ class CgSnapshotNotFound(NotFound):
 
 class InvalidCgSnapshot(Invalid):
     message = _("Invalid CgSnapshot: %(reason)s")
+
+
+# GroupSnapshot
+class GroupSnapshotNotFound(NotFound):
+    message = _("GroupSnapshot %(group_snapshot_id)s could not be found.")
+
+
+class InvalidGroupSnapshot(Invalid):
+    message = _("Invalid GroupSnapshot: %(reason)s")
 
 
 # Hitachi Block Storage Driver
@@ -1187,13 +1298,17 @@ class KaminarioCinderDriverException(VolumeDriverException):
     message = _("KaminarioCinderDriver failure: %(reason)s")
 
 
+class KaminarioRetryableException(VolumeDriverException):
+    message = _("Kaminario retryable exception: %(reason)s")
+
+
 # Synology driver
 class SynoAPIHTTPError(CinderException):
     message = _("HTTP exit code: [%(code)s]")
 
 
 class SynoAuthError(CinderException):
-    pass
+    message = _("Synology driver authentication failed: %(reason)s.")
 
 
 class SynoLUNNotExist(CinderException):

@@ -41,6 +41,8 @@ except ImportError:
 STORAGEGROUPTYPE = 4
 POSTGROUPTYPE = 3
 CLONE_REPLICATION_TYPE = 10
+SYNC_SNAPSHOT_LOCAL = 6
+ASYNC_SNAPSHOT_LOCAL = 7
 MAX_POOL_LENGTH = 16
 MAX_FASTPOLICY_LENGTH = 14
 
@@ -976,7 +978,8 @@ class EMCVMAXUtils(object):
         :param conn: connection to the ecom server
         :param poolName: string value of the storage pool name
         :param storageSystemName: the storage system name
-        :returns: tuple -- (total_capacity_gb, free_capacity_gb)
+        :returns: tuple -- (total_capacity_gb, free_capacity_gb,
+        provisioned_capacity_gb)
         """
         LOG.debug(
             "Retrieving capacity for pool %(poolName)s on array %(array)s.",
@@ -995,10 +998,17 @@ class EMCVMAXUtils(object):
             poolInstanceName, LocalOnly=False)
         total_capacity_gb = self.convert_bits_to_gbs(
             storagePoolInstance['TotalManagedSpace'])
-        allocated_capacity_gb = self.convert_bits_to_gbs(
+        provisioned_capacity_gb = self.convert_bits_to_gbs(
             storagePoolInstance['EMCSubscribedCapacity'])
-        free_capacity_gb = total_capacity_gb - allocated_capacity_gb
-        return (total_capacity_gb, free_capacity_gb)
+        free_capacity_gb = self.convert_bits_to_gbs(
+            storagePoolInstance['RemainingManagedSpace'])
+        try:
+            array_max_over_subscription = self.get_ratio_from_max_sub_per(
+                storagePoolInstance['EMCMaxSubscriptionPercent'])
+        except KeyError:
+            array_max_over_subscription = 65534
+        return (total_capacity_gb, free_capacity_gb,
+                provisioned_capacity_gb, array_max_over_subscription)
 
     def get_pool_by_name(self, conn, storagePoolName, storageSystemName):
         """Returns the instance name associated with a storage pool name.
@@ -1072,6 +1082,28 @@ class EMCVMAXUtils(object):
             pass
 
         return extraSpecs
+
+    def get_volumetype_qosspecs(self, volume, volumeTypeId=None):
+        """Get the qos specs.
+
+        :param volume: the volume dictionary
+        :param volumeTypeId: Optional override for volume['volume_type_id']
+        :returns: dict -- qosSpecs - the qos specs
+        """
+        qosSpecs = {}
+
+        try:
+            if volumeTypeId:
+                type_id = volumeTypeId
+            else:
+                type_id = volume['volume_type_id']
+            if type_id is not None:
+                qosSpecs = volume_types.get_volume_type_qos_specs(type_id)
+
+        except Exception:
+            LOG.debug("Unable to get QoS specifications.")
+
+        return qosSpecs
 
     def get_volume_type_name(self, volume):
         """Get the volume type name.
@@ -1692,7 +1724,7 @@ class EMCVMAXUtils(object):
 
         return foundRepServCapability
 
-    def is_clone_licensed(self, conn, capabilityInstanceName):
+    def is_clone_licensed(self, conn, capabilityInstanceName, isV3):
         """Check if the clone feature is licensed and enabled.
 
         :param conn: the connection to the ecom server
@@ -1709,10 +1741,19 @@ class EMCVMAXUtils(object):
                 LOG.debug("Found supported replication types: "
                           "%(repTypes)s",
                           {'repTypes': repTypes})
-                if CLONE_REPLICATION_TYPE in repTypes:
-                    # Clone is a supported replication type.
-                    LOG.debug("Clone is licensed and enabled.")
-                    return True
+                if isV3:
+                    if (SYNC_SNAPSHOT_LOCAL in repTypes or
+                            ASYNC_SNAPSHOT_LOCAL in repTypes):
+                        # Snapshot is a supported replication type.
+                        LOG.debug("Snapshot for VMAX3 is licensed and "
+                                  "enabled.")
+                        return True
+                else:
+                    if CLONE_REPLICATION_TYPE in repTypes:
+                        # Clone is a supported replication type.
+                        LOG.debug("Clone for VMAX2 is licensed and "
+                                  "enabled.")
+                        return True
         return False
 
     def create_storage_hardwareId_instance_name(
@@ -2587,3 +2628,90 @@ class EMCVMAXUtils(object):
         sgInstanceName = self.find_storage_masking_group(
             conn, controllerConfigService, storageGroupName)
         return storageGroupName, controllerConfigService, sgInstanceName
+
+    def get_ratio_from_max_sub_per(self, max_subscription_percent):
+        """Get ratio from max subscription percent if it exists.
+
+        Check if the max subscription is set on the pool, if it is convert
+        it to a ratio.
+
+        :param max_subscription_percent: max subscription percent
+        :returns: max_over_subscription_ratio
+        """
+        if max_subscription_percent == '0':
+            return None
+        try:
+            max_subscription_percent_int = int(max_subscription_percent)
+        except ValueError:
+            LOG.error(_LE("Cannot convert max subscription percent to int."))
+            return None
+        return float(max_subscription_percent_int) / 100
+
+    def override_ratio(self, max_over_sub_ratio, max_sub_ratio_from_per):
+        """Override ratio if necessary
+
+        The over subscription ratio will be overriden if the max subscription
+        percent is less than the user supplied max oversubscription ratio.
+
+        :param max_over_sub_ratio: user supplied over subscription ratio
+        :param max_sub_ratio_from_per: property on the pool
+        :returns: max_over_sub_ratio
+        """
+        if max_over_sub_ratio:
+            try:
+                max_over_sub_ratio = max(float(max_over_sub_ratio),
+                                         float(max_sub_ratio_from_per))
+            except ValueError:
+                max_over_sub_ratio = float(max_sub_ratio_from_per)
+        elif max_sub_ratio_from_per:
+            max_over_sub_ratio = float(max_sub_ratio_from_per)
+
+        return max_over_sub_ratio
+
+    def update_storagegroup_qos(self, conn, storagegroup, extraspecs):
+        """Update the storagegroupinstance with qos details.
+
+        If MaxIOPS or maxMBPS is in extraspecs, then DistributionType can be
+        modified in addition to MaxIOPS or/and maxMBPS
+        If MaxIOPS or maxMBPS is NOT in extraspecs, we check to see if
+        either is set in StorageGroup. If so, then DistributionType can be
+        modified
+
+        :param conn: connection to the ecom server
+        :param storagegroup: the storagegroup instance name
+        :param extraSpecs: extra specifications
+        """
+        if type(storagegroup) is pywbem.cim_obj.CIMInstance:
+            storagegroupInstance = storagegroup
+        else:
+            storagegroupInstance = conn.GetInstance(storagegroup)
+        propertylist = []
+        if 'maxIOPS' in extraspecs.get('qos'):
+            maxiops = self.get_num(extraspecs.get('qos').get('maxIOPS'), '32')
+            if maxiops != storagegroupInstance['EMCMaximumIO']:
+                storagegroupInstance['EMCMaximumIO'] = maxiops
+                propertylist.append('EMCMaximumIO')
+        if 'maxMBPS' in extraspecs.get('qos'):
+            maxmbps = self.get_num(extraspecs.get('qos').get('maxMBPS'), '32')
+            if maxmbps != storagegroupInstance['EMCMaximumBandwidth']:
+                storagegroupInstance['EMCMaximumBandwidth'] = maxmbps
+                propertylist.append('EMCMaximumBandwidth')
+        if 'DistributionType' in extraspecs.get('qos') and (
+                propertylist or (
+                storagegroupInstance['EMCMaximumBandwidth'] != 0) or (
+                storagegroupInstance['EMCMaximumIO'] != 0)):
+            dynamicdict = {'never': 1, 'onfailure': 2, 'always': 3}
+            dynamicvalue = dynamicdict.get(
+                extraspecs.get('qos').get('DistributionType').lower())
+            if dynamicvalue:
+                distributiontype = self.get_num(dynamicvalue, '16')
+            if distributiontype != (
+                    storagegroupInstance['EMCMaxIODynamicDistributionType']
+            ):
+                storagegroupInstance['EMCMaxIODynamicDistributionType'] = (
+                    distributiontype)
+                propertylist.append('EMCMaxIODynamicDistributionType')
+        if propertylist:
+            modifiedInstance = conn.ModifyInstance(storagegroupInstance,
+                                                   PropertyList=propertylist)
+        return modifiedInstance

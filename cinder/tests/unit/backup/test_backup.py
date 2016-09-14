@@ -20,7 +20,7 @@ import tempfile
 import uuid
 
 import mock
-import os_brick
+from os_brick.initiator import connector
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_utils import importutils
@@ -35,8 +35,8 @@ from cinder import exception
 from cinder import objects
 from cinder.objects import fields
 from cinder import test
+from cinder.tests import fake_driver
 from cinder.tests.unit.backup import fake_service_with_verify as fake_service
-from cinder.tests.unit import fake_driver
 from cinder.tests.unit import utils
 from cinder.volume import driver
 
@@ -113,14 +113,15 @@ class BaseBackupTest(test.TestCase):
                                 display_description='this is a test volume',
                                 status='backing-up',
                                 previous_status='available',
-                                size=1):
+                                size=1,
+                                host='testhost'):
         """Create a volume entry in the DB.
 
         Return the entry ID
         """
         vol = {}
         vol['size'] = size
-        vol['host'] = 'testhost'
+        vol['host'] = host
         vol['user_id'] = str(uuid.uuid4())
         vol['project_id'] = str(uuid.uuid4())
         vol['status'] = status
@@ -205,11 +206,11 @@ class BaseBackupTest(test.TestCase):
 class BackupTestCase(BaseBackupTest):
     """Test Case for backups."""
 
-    @mock.patch.object(cinder.tests.unit.fake_driver.FakeISCSIDriver,
+    @mock.patch.object(cinder.tests.fake_driver.FakeISCSIDriver,
                        'set_initialized')
-    @mock.patch.object(cinder.tests.unit.fake_driver.FakeISCSIDriver,
+    @mock.patch.object(cinder.tests.fake_driver.FakeISCSIDriver,
                        'do_setup')
-    @mock.patch.object(cinder.tests.unit.fake_driver.FakeISCSIDriver,
+    @mock.patch.object(cinder.tests.fake_driver.FakeISCSIDriver,
                        'check_for_setup_error')
     @mock.patch('cinder.context.get_admin_context')
     def test_init_host(self, mock_get_admin_context, mock_check, mock_setup,
@@ -639,10 +640,18 @@ class BackupTestCase(BaseBackupTest):
                                                'secure_enabled': False,
                                                'is_snapshot': True, }
 
+        # TODO(walter-boring) This is to account for the missing FakeConnector
+        # in os-brick 1.6.0 and >
+        if hasattr(connector, 'FakeConnector'):
+            conn = connector.FakeConnector(None)
+        else:
+            from os_brick.initiator.connectors import fake
+            conn = fake.FakeConnector(None)
+
         attach_info = {
             'device': {'path': '/dev/null'},
             'conn': {'data': {}},
-            'connector': os_brick.initiator.connector.FakeConnector(None)}
+            'connector': conn}
         mock_detach_snapshot = self.mock_object(driver.BaseVD,
                                                 '_detach_snapshot')
         mock_attach_snapshot = self.mock_object(driver.BaseVD,
@@ -1277,8 +1286,23 @@ class BackupTestCaseWithVerify(BaseBackupTest):
         with mock.patch.object(manager.BackupManager,
                                '_map_service_to_driver') as \
                 mock_map_service_to_driver:
+            # It should works when the service name is a string
+            mock_map_service_to_driver.return_value = 'swift'
+            self.backup_mgr.reset_status(self.ctxt,
+                                         backup,
+                                         fields.BackupStatus.AVAILABLE)
+            mock_clean_temp.assert_called_once_with(self.ctxt, backup)
+            new_backup = db.backup_get(self.ctxt, backup.id)
+            self.assertEqual(fields.BackupStatus.AVAILABLE,
+                             new_backup['status'])
+
             mock_map_service_to_driver.return_value = \
                 fake_service.get_backup_driver(self.ctxt)
+            self.backup_mgr.reset_status(self.ctxt,
+                                         backup,
+                                         fields.BackupStatus.ERROR)
+            mock_clean_temp.reset_mock()
+
             self.backup_mgr.reset_status(self.ctxt,
                                          backup,
                                          fields.BackupStatus.AVAILABLE)
@@ -1455,6 +1479,20 @@ class BackupAPITestCase(BaseBackupTest):
                           description="test backup description",
                           volume_id=volume_id,
                           container='volumebackups')
+
+    @mock.patch('cinder.backup.rpcapi.BackupAPI.create_backup')
+    @mock.patch('cinder.backup.api.API._is_backup_service_enabled')
+    def test_create_backup_in_same_host(self, mock_is_enable,
+                                        mock_create):
+        self.override_config('backup_use_same_host', True)
+        mock_is_enable.return_value = True
+        self.ctxt.user_id = 'fake_user'
+        self.ctxt.project_id = 'fake_project'
+        volume_id = self._create_volume_db_entry(status='available',
+                                                 host='testhost#lvm',
+                                                 size=1)
+        backup = self.api.create(self.ctxt, None, None, volume_id, None)
+        self.assertEqual('testhost', backup.host)
 
     @mock.patch('cinder.backup.api.API._get_available_backup_service_host')
     @mock.patch('cinder.backup.rpcapi.BackupAPI.restore_backup')

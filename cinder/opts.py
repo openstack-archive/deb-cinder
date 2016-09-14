@@ -41,9 +41,7 @@ from cinder.db import base as cinder_db_base
 from cinder import exception as cinder_exception
 from cinder.image import glance as cinder_image_glance
 from cinder.image import image_utils as cinder_image_imageutils
-import cinder.keymgr
 from cinder.keymgr import conf_key_mgr as cinder_keymgr_confkeymgr
-from cinder.keymgr import key_mgr as cinder_keymgr_keymgr
 from cinder.message import api as cinder_message_api
 from cinder import quota as cinder_quota
 from cinder.scheduler import driver as cinder_scheduler_driver
@@ -89,6 +87,8 @@ from cinder.volume.drivers.emc.vnx import common as \
 from cinder.volume.drivers.emc import xtremio as \
     cinder_volume_drivers_emc_xtremio
 from cinder.volume.drivers import eqlx as cinder_volume_drivers_eqlx
+from cinder.volume.drivers.falconstor import fss_common as \
+    cinder_volume_drivers_falconstor_fsscommon
 from cinder.volume.drivers.fujitsu import eternus_dx_common as \
     cinder_volume_drivers_fujitsu_eternusdxcommon
 from cinder.volume.drivers.fusionstorage import dsware as \
@@ -107,6 +107,8 @@ from cinder.volume.drivers.hitachi import hnas_iscsi as \
     cinder_volume_drivers_hitachi_hnasiscsi
 from cinder.volume.drivers.hitachi import hnas_nfs as \
     cinder_volume_drivers_hitachi_hnasnfs
+from cinder.volume.drivers.hitachi import hnas_utils as \
+    cinder_volume_drivers_hitachi_hnasutils
 from cinder.volume.drivers.hpe import hpe_3par_common as \
     cinder_volume_drivers_hpe_hpe3parcommon
 from cinder.volume.drivers.hpe import hpe_lefthand_iscsi as \
@@ -122,14 +124,14 @@ from cinder.volume.drivers.ibm import flashsystem_fc as \
 from cinder.volume.drivers.ibm import flashsystem_iscsi as \
     cinder_volume_drivers_ibm_flashsystemiscsi
 from cinder.volume.drivers.ibm import gpfs as cinder_volume_drivers_ibm_gpfs
+from cinder.volume.drivers.ibm import ibm_storage as \
+    cinder_volume_drivers_ibm_ibmstorage
 from cinder.volume.drivers.ibm.storwize_svc import storwize_svc_common as \
     cinder_volume_drivers_ibm_storwize_svc_storwizesvccommon
 from cinder.volume.drivers.ibm.storwize_svc import storwize_svc_fc as \
     cinder_volume_drivers_ibm_storwize_svc_storwizesvcfc
 from cinder.volume.drivers.ibm.storwize_svc import storwize_svc_iscsi as \
     cinder_volume_drivers_ibm_storwize_svc_storwizesvciscsi
-from cinder.volume.drivers.ibm import xiv_ds8k as \
-    cinder_volume_drivers_ibm_xivds8k
 from cinder.volume.drivers.infortrend.eonstor_ds_cli import common_cli as \
     cinder_volume_drivers_infortrend_eonstor_ds_cli_commoncli
 from cinder.volume.drivers.kaminario import kaminario_common as \
@@ -192,19 +194,15 @@ def list_opts():
     return [
         ('FC-ZONE-MANAGER',
             itertools.chain(
-                cinder_zonemanager_fczonemanager.zone_manager_opts,
                 cinder_zonemanager_drivers_brocade_brcdfczonedriver.brcd_opts,
+                cinder_zonemanager_fczonemanager.zone_manager_opts,
                 cinder_zonemanager_drivers_cisco_ciscofczonedriver.cisco_opts,
-            )),
-        ('KEYMGR',
-            itertools.chain(
-                cinder_keymgr_keymgr.encryption_opts,
-                cinder.keymgr.keymgr_opts,
-                cinder_keymgr_confkeymgr.key_mgr_opts,
             )),
         ('DEFAULT',
             itertools.chain(
                 cinder_backup_driver.service_opts,
+                [cinder_cmd_volume.cluster_opt],
+                cinder_volume_drivers_hitachi_hnasutils.drivers_common_opts,
                 cinder_api_common.api_common_opts,
                 cinder_backup_drivers_ceph.service_opts,
                 cinder_volume_drivers_smbfs.volume_opts,
@@ -224,6 +222,7 @@ def list_opts():
                 cinder_volume_drivers_netapp_options.netapp_eseries_opts,
                 cinder_volume_drivers_netapp_options.netapp_nfs_extra_opts,
                 cinder_volume_drivers_netapp_options.netapp_san_opts,
+                cinder_volume_drivers_netapp_options.netapp_replication_opts,
                 cinder_volume_drivers_ibm_storwize_svc_storwizesvciscsi.
                 storwize_svc_iscsi_opts,
                 cinder_backup_drivers_glusterfs.glusterfsbackup_service_opts,
@@ -265,7 +264,7 @@ def list_opts():
                 cinder_volume_drivers_pure.PURE_OPTS,
                 cinder_context.context_opts,
                 cinder_scheduler_driver.scheduler_driver_opts,
-                cinder_volume_drivers_scality.volume_opts,
+                cinder_volume_drivers_ibm_ibmstorage.driver_opts,
                 cinder_volume_drivers_vmware_vmdk.vmdk_opts,
                 cinder_volume_drivers_lenovo_lenovocommon.common_opts,
                 cinder_volume_drivers_lenovo_lenovocommon.iscsi_opts,
@@ -278,9 +277,11 @@ def list_opts():
                 cinder_scheduler_weights_volumenumber.
                 volume_number_weight_opts,
                 cinder_volume_drivers_coho.coho_opts,
+                cinder_volume_drivers_scality.volume_opts,
                 cinder_volume_drivers_xio.XIO_OPTS,
                 cinder_volume_drivers_ibm_storwize_svc_storwizesvcfc.
                 storwize_svc_fc_opts,
+                cinder_volume_drivers_falconstor_fsscommon.FSS_OPTS,
                 cinder_volume_drivers_zfssa_zfssaiscsi.ZFSSA_OPTS,
                 cinder_volume_driver.volume_opts,
                 cinder_volume_driver.iser_opts,
@@ -349,7 +350,6 @@ def list_opts():
                 [cinder_volume_api.volume_host_opt],
                 [cinder_volume_api.volume_same_az_opt],
                 [cinder_volume_api.az_cache_time_opt],
-                cinder_volume_drivers_ibm_xivds8k.xiv_ds8k_opts,
                 cinder_volume_drivers_hpe_hpe3parcommon.hpe3par_opts,
                 cinder_volume_drivers_datera.d_opts,
                 cinder_volume_drivers_zadara.zadara_opts,
@@ -371,6 +371,10 @@ def list_opts():
         ('COORDINATION',
             itertools.chain(
                 cinder_coordination.coordination_opts,
+            )),
+        ('KEY_MANAGER',
+            itertools.chain(
+                cinder_keymgr_confkeymgr.key_mgr_opts,
             )),
         ('BACKEND',
             itertools.chain(

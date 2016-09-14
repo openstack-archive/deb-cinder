@@ -34,6 +34,10 @@ LOG = logging.getLogger(__name__)
 class FJDXFCDriver(driver.FibreChannelDriver):
     """FC Cinder Volume Driver for Fujitsu ETERNUS DX S3 series."""
 
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "Fujitsu_ETERNUS_CI"
+    VERSION = eternus_dx_common.FJDXCommon.VERSION
+
     def __init__(self, *args, **kwargs):
 
         super(FJDXFCDriver, self).__init__(*args, **kwargs)

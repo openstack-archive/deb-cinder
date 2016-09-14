@@ -25,11 +25,11 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import strutils
-from oslo_utils import versionutils
 from pytz import timezone
 import random
 
 from cinder.backup import rpcapi as backup_rpcapi
+from cinder.common import constants
 from cinder import context
 from cinder.db import base
 from cinder import exception
@@ -139,31 +139,13 @@ class API(base.Base):
 
         return backups
 
-    def _is_scalable_only(self):
-        """True if we're running in deployment where all c-bak are scalable.
-
-        We need this method to decide if we can assume that all of our c-bak
-        services are decoupled from c-vol.
-
-        FIXME(dulek): This shouldn't be needed in Newton.
-        """
-        cap = self.backup_rpcapi.client.version_cap
-        if cap:
-            cap = versionutils.convert_version_to_tuple(cap)
-            return cap >= (1, 3)  # Mitaka is marked by c-bak 1.3+.
-        else:
-            # NOTE(dulek): No version cap means we're running in an environment
-            # without c-bak services. Letting it pass as Mitaka, request will
-            # just fail anyway so it doesn't really matter.
-            return True
-
     def _az_matched(self, service, availability_zone):
         return ((not availability_zone) or
                 service.availability_zone == availability_zone)
 
     def _is_backup_service_enabled(self, availability_zone, host):
         """Check if there is a backup service available."""
-        topic = CONF.backup_topic
+        topic = constants.BACKUP_TOPIC
         ctxt = context.get_admin_context()
         services = objects.ServiceList.get_all_by_topic(
             ctxt, topic, disabled=False)
@@ -192,29 +174,10 @@ class API(base.Base):
             idx = idx + 1
         return None
 
-    def _get_available_backup_service_host(self, host, az, volume_host=None):
+    def _get_available_backup_service_host(self, host, az):
         """Return an appropriate backup service host."""
-
-        # FIXME(dulek): We need to keep compatibility with Liberty, where c-bak
-        # were coupled with c-vol. If we're running in mixed Liberty-Mitaka
-        # environment we will be scheduling backup jobs the old way.
-        #
-        # This snippet should go away in Newton. Note that volume_host
-        # parameter will also be unnecessary then.
-        if not self._is_scalable_only():
-            if volume_host:
-                volume_host = volume_utils.extract_host(volume_host,
-                                                        level='host')
-            if volume_host and self._is_backup_service_enabled(az,
-                                                               volume_host):
-                return volume_host
-            elif host and self._is_backup_service_enabled(az, host):
-                return host
-            else:
-                raise exception.ServiceNotFound(service_id='cinder-backup')
-
         backup_host = None
-        if (not host or not CONF.backup_use_same_host):
+        if not host or not CONF.backup_use_same_host:
             backup_host = self._get_any_available_backup_service(az)
         elif self._is_backup_service_enabled(az, host):
             backup_host = host
@@ -227,7 +190,7 @@ class API(base.Base):
 
         :returns: list -- hosts for services that are enabled for backup.
         """
-        topic = CONF.backup_topic
+        topic = constants.BACKUP_TOPIC
         ctxt = context.get_admin_context()
         services = objects.ServiceList.get_all_by_topic(
             ctxt, topic, disabled=False)
@@ -270,9 +233,9 @@ class API(base.Base):
             raise exception.InvalidSnapshot(reason=msg)
 
         previous_status = volume['status']
+        volume_host = volume_utils.extract_host(volume.host, 'host')
         host = self._get_available_backup_service_host(
-            None, volume.availability_zone,
-            volume_utils.extract_host(volume.host, 'host'))
+            volume_host, volume.availability_zone)
 
         # Reserve a quota before setting volume status and backup status
         try:
@@ -395,8 +358,7 @@ class API(base.Base):
 
             LOG.info(_LI("Creating volume of %(size)s GB for restore of "
                          "backup %(backup_id)s."),
-                     {'size': size, 'backup_id': backup_id},
-                     context=context)
+                     {'size': size, 'backup_id': backup_id})
             volume = self.volume_api.create(context, size, name, description)
             volume_id = volume['id']
 
@@ -422,13 +384,12 @@ class API(base.Base):
 
         LOG.info(_LI("Overwriting volume %(volume_id)s with restore of "
                      "backup %(backup_id)s"),
-                 {'volume_id': volume_id, 'backup_id': backup_id},
-                 context=context)
+                 {'volume_id': volume_id, 'backup_id': backup_id})
 
         # Setting the status here rather than setting at start and unrolling
         # for each error condition, it should be a very small window
         backup.host = self._get_available_backup_service_host(
-            backup.host, backup.availability_zone, volume_host=volume.host)
+            backup.host, backup.availability_zone)
         backup.status = fields.BackupStatus.RESTORING
         backup.restore_volume_id = volume.id
         backup.save()
@@ -588,4 +549,11 @@ class API(base.Base):
                                          backup_url,
                                          hosts)
 
+        return backup
+
+    def update(self, context, backup_id, fields):
+        check_policy(context, 'update')
+        backup = self.get(context, backup_id)
+        backup.update(fields)
+        backup.save()
         return backup

@@ -59,6 +59,11 @@ ignore_messages = [
     # during runtime.
     "Class 'ConsistencyGroup' has no '__table__' member",
     "Class 'Cgsnapshot' has no '__table__' member",
+
+    # NOTE(xyang): this error message is for code [E1120] when checking if
+    # there are already 'groups' entries in 'quota_classes' `in DB migration
+    # (078_add_groups_and_group_volume_type_mapping_table).
+    "No value passed for parameter 'functions' in function call",
 ]
 
 # Note(maoy):  We ignore cinder.tests for now due to high false
@@ -87,12 +92,24 @@ objects_ignore_messages = [
     "Module 'cinder.objects' has no 'CGSnapshotList' member",
     "Module 'cinder.objects' has no 'ConsistencyGroup' member",
     "Module 'cinder.objects' has no 'ConsistencyGroupList' member",
+    "Module 'cinder.objects' has no 'QualityOfServiceSpecs' member",
+    "Module 'cinder.objects' has no 'QualityOfServiceSpecsList' member",
+    "Module 'cinder.objects' has no 'RequestSpec' member",
     "Module 'cinder.objects' has no 'Service' member",
     "Module 'cinder.objects' has no 'ServiceList' member",
     "Module 'cinder.objects' has no 'Snapshot' member",
     "Module 'cinder.objects' has no 'SnapshotList' member",
     "Module 'cinder.objects' has no 'Volume' member",
     "Module 'cinder.objects' has no 'VolumeList' member",
+    "Module 'cinder.objects' has no 'VolumeProperties' member",
+    "Module 'cinder.objects' has no 'VolumeType' member",
+    "Module 'cinder.objects' has no 'VolumeTypeList' member",
+    "Module 'cinder.objects' has no 'Group' member",
+    "Module 'cinder.objects' has no 'GroupList' member",
+    "Module 'cinder.objects' has no 'GroupSnapshot' member",
+    "Module 'cinder.objects' has no 'GroupSnapshotList' member",
+    "Class 'Group' has no '__table__' member",
+    "Class 'GroupSnapshot' has no '__table__' member",
 ]
 objects_ignore_modules = ["cinder/objects/"]
 
@@ -174,8 +191,12 @@ class LintOutput(object):
 
     def review_str(self):
         return ("File %(filename)s\nLine %(lineno)d:%(line_content)s\n"
-                "%(code)s: %(message)s" % self.__dict__)
-
+                "%(code)s: %(message)s" %
+                {'filename': self.filename,
+                 'lineno': self.lineno,
+                 'line_content': self.line_content,
+                 'code': self.code,
+                 'message': self.message})
 
 class ErrorKeys(object):
 

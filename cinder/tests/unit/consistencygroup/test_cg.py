@@ -23,7 +23,7 @@ from cinder import quota
 from cinder.tests.unit import conf_fixture
 from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_snapshot
-from cinder.tests.unit.test_volume import BaseVolumeTestCase
+from cinder.tests.unit import test_volume
 from cinder.tests.unit import utils as tests_utils
 import cinder.volume
 from cinder.volume import driver
@@ -33,7 +33,7 @@ CGQUOTAS = quota.CGQUOTAS
 CONF = cfg.CONF
 
 
-class ConsistencyGroupTestCase(BaseVolumeTestCase):
+class ConsistencyGroupTestCase(test_volume.BaseVolumeTestCase):
     def test_delete_volume_in_consistency_group(self):
         """Test deleting a volume that's tied to a consistency group fails."""
         consistencygroup_id = fake.CONSISTENCY_GROUP_ID
@@ -65,8 +65,8 @@ class ConsistencyGroupTestCase(BaseVolumeTestCase):
             self.assertEqual('fakepool', pool)
             return {'status': 'available'}
 
-        self.stubs.Set(self.volume.driver, 'create_consistencygroup',
-                       fake_driver_create_cg)
+        self.mock_object(self.volume.driver, 'create_consistencygroup',
+                         fake_driver_create_cg)
 
         group = tests_utils.create_consistencygroup(
             self.context,
@@ -460,6 +460,7 @@ class ConsistencyGroupTestCase(BaseVolumeTestCase):
 
         return cgsnap, snaps
 
+    @mock.patch('cinder.tests.unit.fake_notifier.FakeNotifier._notify')
     @mock.patch('cinder.volume.driver.VolumeDriver.create_consistencygroup',
                 autospec=True,
                 return_value={'status': 'available'})
@@ -474,7 +475,8 @@ class ConsistencyGroupTestCase(BaseVolumeTestCase):
                 return_value=({'status': 'deleted'}, []))
     def test_create_delete_cgsnapshot(self,
                                       mock_del_cgsnap, mock_create_cgsnap,
-                                      mock_del_cg, _mock_create_cg):
+                                      mock_del_cg, _mock_create_cg,
+                                      mock_notify):
         """Test cgsnapshot can be created and deleted."""
 
         group = tests_utils.create_consistencygroup(
@@ -488,11 +490,9 @@ class ConsistencyGroupTestCase(BaseVolumeTestCase):
         volume_id = volume['id']
         self.volume.create_volume(self.context, volume_id)
 
-        if len(self.notifier.notifications) > 2:
-            self.assertFalse(self.notifier.notifications[2],
-                             self.notifier.notifications)
-        self.assertEqual(2, len(self.notifier.notifications),
-                         self.notifier.notifications)
+        self.assert_notify_called(mock_notify,
+                                  (['INFO', 'volume.create.start'],
+                                   ['INFO', 'volume.create.end']))
 
         cgsnapshot_returns = self._create_cgsnapshot(group.id, [volume_id])
         cgsnapshot = cgsnapshot_returns[0]
@@ -502,51 +502,27 @@ class ConsistencyGroupTestCase(BaseVolumeTestCase):
                              context.get_admin_context(),
                              cgsnapshot.id).id)
 
-        if len(self.notifier.notifications) > 6:
-            self.assertFalse(self.notifier.notifications[6],
-                             self.notifier.notifications)
-
-        msg = self.notifier.notifications[2]
-        self.assertEqual('cgsnapshot.create.start', msg['event_type'])
-        expected = {
-            'created_at': 'DONTCARE',
-            'name': None,
-            'cgsnapshot_id': cgsnapshot.id,
-            'status': 'creating',
-            'tenant_id': fake.PROJECT_ID,
-            'user_id': fake.USER_ID,
-            'consistencygroup_id': group.id
-        }
-        self.assertDictMatch(expected, msg['payload'])
-        msg = self.notifier.notifications[3]
-        self.assertEqual('snapshot.create.start', msg['event_type'])
-        msg = self.notifier.notifications[4]
-        expected['status'] = 'available'
-        self.assertEqual('cgsnapshot.create.end', msg['event_type'])
-        self.assertDictMatch(expected, msg['payload'])
-        msg = self.notifier.notifications[5]
-        self.assertEqual('snapshot.create.end', msg['event_type'])
-
-        self.assertEqual(6, len(self.notifier.notifications),
-                         self.notifier.notifications)
+        self.assert_notify_called(mock_notify,
+                                  (['INFO', 'volume.create.start'],
+                                   ['INFO', 'volume.create.end'],
+                                   ['INFO', 'cgsnapshot.create.start'],
+                                   ['INFO', 'snapshot.create.start'],
+                                   ['INFO', 'cgsnapshot.create.end'],
+                                   ['INFO', 'snapshot.create.end']))
 
         self.volume.delete_cgsnapshot(self.context, cgsnapshot)
 
-        if len(self.notifier.notifications) > 10:
-            self.assertFalse(self.notifier.notifications[10],
-                             self.notifier.notifications)
-
-        msg = self.notifier.notifications[6]
-        self.assertEqual('cgsnapshot.delete.start', msg['event_type'])
-        expected['status'] = 'available'
-        self.assertDictMatch(expected, msg['payload'])
-        msg = self.notifier.notifications[8]
-        self.assertEqual('cgsnapshot.delete.end', msg['event_type'])
-        expected['status'] = 'deleted'
-        self.assertDictMatch(expected, msg['payload'])
-
-        self.assertEqual(10, len(self.notifier.notifications),
-                         self.notifier.notifications)
+        self.assert_notify_called(mock_notify,
+                                  (['INFO', 'volume.create.start'],
+                                   ['INFO', 'volume.create.end'],
+                                   ['INFO', 'cgsnapshot.create.start'],
+                                   ['INFO', 'snapshot.create.start'],
+                                   ['INFO', 'cgsnapshot.create.end'],
+                                   ['INFO', 'snapshot.create.end'],
+                                   ['INFO', 'cgsnapshot.delete.start'],
+                                   ['INFO', 'snapshot.delete.start'],
+                                   ['INFO', 'cgsnapshot.delete.end'],
+                                   ['INFO', 'snapshot.delete.end']))
 
         cgsnap = objects.CGSnapshot.get_by_id(
             context.get_admin_context(read_deleted='yes'),

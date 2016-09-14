@@ -221,6 +221,9 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
     # 1.6.0 - support for manage existing
     VERSION = '1.6.0'
 
+    # ThirdaPartySystems wiki page
+    CI_WIKI_NAME = "VMware_CI"
+
     # Minimum supported vCenter version.
     MIN_SUPPORTED_VC_VERSION = dist_version.LooseVersion('5.1')
 
@@ -510,7 +513,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
         """
         connection_info = {'driver_volume_type': 'vmdk'}
 
-        backing = self.volumeops.get_backing(volume['name'])
+        backing = self.volumeops.get_backing(volume.name)
         if 'instance' in connector:
             # The instance exists
             instance = vim_util.get_moref(connector['instance'],
@@ -523,7 +526,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                 # Create a backing in case it does not exist under the
                 # host managing the instance.
                 LOG.info(_LI("There is no backing for the volume: %s. "
-                             "Need to create one."), volume['name'])
+                             "Need to create one."), volume.name)
                 backing = self._create_backing(volume, host)
             else:
                 # Relocate volume is necessary
@@ -536,18 +539,19 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                 # Create a backing in case it does not exist. It is a bad use
                 # case to boot from an empty volume.
                 LOG.warning(_LW("Trying to boot from an empty volume: %s."),
-                            volume['name'])
+                            volume.name)
                 # Create backing
                 backing = self._create_backing(volume)
 
-        # Set volume's moref value and name
+        # Set volume ID and backing moref value and name.
         connection_info['data'] = {'volume': backing.value,
-                                   'volume_id': volume['id']}
+                                   'volume_id': volume.id,
+                                   'name': volume.name}
 
         LOG.info(_LI("Returning connection_info: %(info)s for volume: "
                      "%(volume)s with connector: %(connector)s."),
                  {'info': connection_info,
-                  'volume': volume['name'],
+                  'volume': volume.name,
                   'connector': connector})
 
         return connection_info
@@ -1199,8 +1203,7 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                                     vmdk_file_path=vmdk_file_path,
                                     vmdk_size=volume['size'] * units.Gi,
                                     image_name=image_meta['name'],
-                                    image_version=1,
-                                    is_public=image_meta['is_public'])
+                                    image_version=1)
         LOG.info(_LI("Done copying volume %(vol)s to a new image %(img)s"),
                  {'vol': volume['name'], 'img': image_meta['name']})
 
@@ -1297,8 +1300,9 @@ class VMwareVcVmdkDriver(driver.VolumeDriver):
                 req[hub.DatastoreSelector.PROFILE_NAME] = new_profile
 
             # Select datastore satisfying the requirements.
-            best_candidate = self.ds_sel.select_datastore(req)
-            if not best_candidate:
+            try:
+                best_candidate = self._select_datastore(req)
+            except vmdk_exceptions.NoValidDatastoreException:
                 # No candidate datastores; can't retype.
                 LOG.warning(_LW("There are no datastores matching new "
                                 "requirements; can't retype volume: %s."),

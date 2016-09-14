@@ -26,20 +26,32 @@ object_data = {
     'Backup': '1.4-c50f7a68bb4c400dd53dd219685b3992',
     'BackupImport': '1.4-c50f7a68bb4c400dd53dd219685b3992',
     'BackupList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
+    'Cluster': '1.0-6f06e867c073e9d31722c53b0a9329b8',
+    'ClusterList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
     'CGSnapshot': '1.0-3212ac2b4c2811b7134fb9ba2c49ff74',
     'CGSnapshotList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
-    'ConsistencyGroup': '1.2-ff7638e03ae7a3bb7a43a6c5c4d0c94a',
+    'ConsistencyGroup': '1.3-7bf01a79b82516639fc03cd3ab6d9c01',
     'ConsistencyGroupList': '1.1-15ecf022a68ddbb8c2a6739cfc9f8f5e',
-    'Service': '1.3-d7c1e133791c9d766596a0528fc9a12f',
+    'QualityOfServiceSpecs': '1.0-0b212e0a86ee99092229874e03207fe8',
+    'QualityOfServiceSpecsList': '1.0-1b54e51ad0fc1f3a8878f5010e7e16dc',
+    'RequestSpec': '1.1-b0bd1a28d191d75648901fa853e8a733',
+    'Service': '1.4-c7d011989d1718ca0496ccf640b42712',
     'ServiceList': '1.1-15ecf022a68ddbb8c2a6739cfc9f8f5e',
-    'Snapshot': '1.1-37966f7141646eb29e9ad5298ff2ca8a',
+    'Snapshot': '1.1-d6a9d58f627bb2a5cf804b0dd7a12bc7',
     'SnapshotList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
-    'Volume': '1.3-15ff1f42d4e8eb321aa8217dd46aa1e1',
+    'Volume': '1.5-19919d8086d6a38ab9d3ab88139e70e0',
     'VolumeList': '1.1-15ecf022a68ddbb8c2a6739cfc9f8f5e',
     'VolumeAttachment': '1.0-b30dacf62b2030dd83d8a1603f1064ff',
     'VolumeAttachmentList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
-    'VolumeType': '1.1-6673dd9ce7c27e9c85279afb20833877',
+    'VolumeProperties': '1.1-cadac86b2bdc11eb79d1dcea988ff9e8',
+    'VolumeType': '1.2-02ecb0baac87528d041f4ddd95b95579',
     'VolumeTypeList': '1.1-15ecf022a68ddbb8c2a6739cfc9f8f5e',
+    'GroupType': '1.0-d4a7b272199d0b0d6fc3ceed58539d30',
+    'GroupTypeList': '1.0-1b54e51ad0fc1f3a8878f5010e7e16dc',
+    'Group': '1.1-bd853b1d1ee05949d9ce4b33f80ac1a0',
+    'GroupList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
+    'GroupSnapshot': '1.0-9af3e994e889cbeae4427c3e351fa91d',
+    'GroupSnapshotList': '1.0-15ecf022a68ddbb8c2a6739cfc9f8f5e',
 }
 
 
@@ -76,7 +88,12 @@ class TestObjectVersions(test.TestCase):
         # db model and object match.
         def _check_table_matched(db_model, cls):
             for column in db_model.__table__.columns:
-                if column.name in cls.fields:
+                # NOTE(xyang): Skip the comparison of the colume name
+                # group_type_id in table Group because group_type_id
+                # is in the object Group but it is stored in a different
+                # table in the database, not in the Group table.
+                if (column.name in cls.fields and
+                        (column.name != 'group_type_id' and name != 'Group')):
                     self.assertEqual(
                         column.nullable,
                         cls.fields[column.name].nullable,
@@ -86,7 +103,7 @@ class TestObjectVersions(test.TestCase):
 
         classes = base.CinderObjectRegistry.obj_classes()
         for name, cls in classes.items():
-            if not issubclass(cls[0], base.ObjectListBase):
+            if issubclass(cls[0], base.CinderPersistentObject):
                 db_model = db.get_model_for_versioned_object(cls[0])
                 _check_table_matched(db_model, cls[0])
 

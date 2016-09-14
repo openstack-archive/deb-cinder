@@ -68,7 +68,15 @@ scaleio_opts = [
     cfg.StrOpt('sio_storage_pool_name',
                help='Storage Pool name.'),
     cfg.StrOpt('sio_storage_pool_id',
-               help='Storage Pool ID.')
+               help='Storage Pool ID.'),
+    cfg.FloatOpt('sio_max_over_subscription_ratio',
+                 # This option exists to provide a default value for the
+                 # ScaleIO driver which is different than the global default.
+                 help='max_over_subscription_ratio setting for the ScaleIO '
+                      'driver. If set, this takes precedence over the '
+                      'general max_over_subscription_ratio option. If '
+                      'None, the general option is used.'
+                      'Maximum value allowed for ScaleIO is 10.0.')
 ]
 
 CONF.register_opts(scaleio_opts)
@@ -77,7 +85,8 @@ STORAGE_POOL_NAME = 'sio:sp_name'
 STORAGE_POOL_ID = 'sio:sp_id'
 PROTECTION_DOMAIN_NAME = 'sio:pd_name'
 PROTECTION_DOMAIN_ID = 'sio:pd_id'
-PROVISIONING_KEY = 'sio:provisioning_type'
+PROVISIONING_KEY = 'provisioning:type'
+OLD_PROVISIONING_KEY = 'sio:provisioning_type'
 IOPS_LIMIT_KEY = 'sio:iops_limit'
 BANDWIDTH_LIMIT = 'sio:bandwidth_limit'
 QOS_IOPS_LIMIT_KEY = 'maxIOPS'
@@ -88,9 +97,12 @@ QOS_BANDWIDTH_PER_GB = 'maxBWSperGB'
 BLOCK_SIZE = 8
 OK_STATUS_CODE = 200
 VOLUME_NOT_FOUND_ERROR = 79
+# This code belongs to older versions of ScaleIO
+OLD_VOLUME_NOT_FOUND_ERROR = 78
 VOLUME_NOT_MAPPED_ERROR = 84
 VOLUME_ALREADY_MAPPED_ERROR = 81
 MIN_BWS_SCALING_SIZE = 128
+SIO_MAX_OVERSUBSCRIPTION_RATIO = 10.0
 
 
 @interface.volumedriver
@@ -98,6 +110,10 @@ class ScaleIODriver(driver.VolumeDriver):
     """EMC ScaleIO Driver."""
 
     VERSION = "2.0"
+
+    # ThirdPartySystems wiki
+    CI_WIKI_NAME = "EMC_ScaleIO_CI"
+
     scaleio_qos_keys = (QOS_IOPS_LIMIT_KEY, QOS_BANDWIDTH_LIMIT,
                         QOS_IOPS_PER_GB, QOS_BANDWIDTH_PER_GB)
 
@@ -159,7 +175,9 @@ class ScaleIODriver(driver.VolumeDriver):
         LOG.info(_LI(
                  "Default provisioning type: %(provisioning_type)s."),
                  {'provisioning_type': self.provisioning_type})
-
+        if self.configuration.sio_max_over_subscription_ratio is not None:
+            self.configuration.max_over_subscription_ratio = (
+                self.configuration.sio_max_over_subscription_ratio)
         self.connector = connector.InitiatorConnector.factory(
             connector.SCALEIO, utils.get_root_helper(),
             device_scan_attempts=
@@ -222,6 +240,15 @@ class ScaleIODriver(driver.VolumeDriver):
                      "sio_storage_pools."))
             raise exception.InvalidInput(reason=msg)
 
+        if (self.configuration.max_over_subscription_ratio is not None and
+            (self.configuration.max_over_subscription_ratio -
+             SIO_MAX_OVERSUBSCRIPTION_RATIO > 1)):
+            msg = (_("Max over subscription is configured to %(ratio)1f "
+                     "while ScaleIO support up to %(sio_ratio)s.") %
+                   {'sio_ratio': SIO_MAX_OVERSUBSCRIPTION_RATIO,
+                    'ratio': self.configuration.max_over_subscription_ratio})
+            raise exception.InvalidInput(reason=msg)
+
     def _find_storage_pool_id_from_storage_type(self, storage_type):
         # Default to what was configured in configuration file if not defined.
         return storage_type.get(STORAGE_POOL_ID,
@@ -242,8 +269,25 @@ class ScaleIODriver(driver.VolumeDriver):
                                 self.protection_domain_name)
 
     def _find_provisioning_type(self, storage_type):
-        return storage_type.get(PROVISIONING_KEY,
-                                self.provisioning_type)
+        new_provisioning_type = storage_type.get(PROVISIONING_KEY)
+        old_provisioning_type = storage_type.get(OLD_PROVISIONING_KEY)
+        if new_provisioning_type is None and old_provisioning_type is not None:
+            LOG.info(_LI("Using sio:provisioning_type for defining "
+                         "thin or thick volume will be deprecated in the "
+                         "Ocata release of OpenStack. Please use "
+                         "provisioning:type configuration option."))
+            provisioning_type = old_provisioning_type
+        else:
+            provisioning_type = new_provisioning_type
+
+        if provisioning_type is not None:
+            if provisioning_type not in ('thick', 'thin'):
+                msg = _("Illegal provisioning type. The supported "
+                        "provisioning types are 'thick' or 'thin'.")
+                raise exception.VolumeBackendAPIException(data=msg)
+            return provisioning_type
+        else:
+            return self.provisioning_type
 
     def _find_limit(self, storage_type, qos_key, extraspecs_key):
         qos_limit = (storage_type.get(qos_key)
@@ -601,6 +645,9 @@ class ScaleIODriver(driver.VolumeDriver):
             return size
         return size + num - (size % num)
 
+    def _round_down_to_num_gran(self, size, num=8):
+        return size - (size % num)
+
     def create_cloned_volume(self, volume, src_vref):
         """Creates a cloned volume."""
         volume_id = src_vref['provider_id']
@@ -781,18 +828,18 @@ class ScaleIODriver(driver.VolumeDriver):
         stats['vendor_name'] = 'EMC'
         stats['driver_version'] = self.VERSION
         stats['storage_protocol'] = 'scaleio'
-        stats['total_capacity_gb'] = 'unknown'
-        stats['free_capacity_gb'] = 'unknown'
         stats['reserved_percentage'] = 0
         stats['QoS_support'] = True
         stats['consistencygroup_support'] = True
-
+        stats['thick_provisioning_support'] = True
+        stats['thin_provisioning_support'] = True
         pools = []
 
         verify_cert = self._get_verify_cert()
 
-        max_free_capacity = 0
+        free_capacity = 0
         total_capacity = 0
+        provisioned_capacity = 0
 
         for sp_name in self.storage_pools:
             splitted_name = sp_name.split(':')
@@ -874,8 +921,11 @@ class ScaleIODriver(driver.VolumeDriver):
             request = ("https://%(server_ip)s:%(server_port)s"
                        "/api/types/StoragePool/instances/action/"
                        "querySelectedStatistics") % req_vars
+            # The 'Km' in thinCapacityAllocatedInKm is a bug in REST API
             params = {'ids': [pool_id], 'properties': [
-                "capacityInUseInKb", "capacityLimitInKb"]}
+                "capacityAvailableForVolumeAllocationInKb",
+                "capacityLimitInKb", "spareCapacityInKb",
+                "thickCapacityInUseInKb", "thinCapacityAllocatedInKm"]}
             r = requests.post(
                 request,
                 data=json.dumps(params),
@@ -887,37 +937,50 @@ class ScaleIODriver(driver.VolumeDriver):
             response = r.json()
             LOG.info(_LI("Query capacity stats response: %s."), response)
             for res in response.values():
-                capacityInUse = res['capacityInUseInKb']
-                capacityLimit = res['capacityLimitInKb']
-                total_capacity_gb = capacityLimit / units.Mi
-                used_capacity_gb = capacityInUse / units.Mi
-                free_capacity_gb = total_capacity_gb - used_capacity_gb
+                # Divide by two because ScaleIO creates a copy for each volume
+                total_capacity_kb = (
+                    (res['capacityLimitInKb'] - res['spareCapacityInKb']) / 2)
+                total_capacity_gb = (self._round_down_to_num_gran
+                                     (total_capacity_kb / units.Mi))
+                # This property is already rounded
+                # to 8 GB granularity in backend
+                free_capacity_gb = (
+                    res['capacityAvailableForVolumeAllocationInKb'] / units.Mi)
+                # Divide by two because ScaleIO creates a copy for each volume
+                provisioned_capacity = (
+                    ((res['thickCapacityInUseInKb'] +
+                     res['thinCapacityAllocatedInKm']) / 2) / units.Mi)
                 LOG.info(_LI(
                          "free capacity of pool %(pool)s is: %(free)s, "
-                         "total capacity: %(total)s."),
+                         "total capacity: %(total)s, "
+                         "provisioned capacity: %(prov)s"),
                          {'pool': pool_name,
                           'free': free_capacity_gb,
-                          'total': total_capacity_gb})
+                          'total': total_capacity_gb,
+                          'prov': provisioned_capacity})
             pool = {'pool_name': sp_name,
                     'total_capacity_gb': total_capacity_gb,
                     'free_capacity_gb': free_capacity_gb,
                     'QoS_support': True,
                     'consistencygroup_support': True,
-                    'reserved_percentage': 0
+                    'reserved_percentage': 0,
+                    'thin_provisioning_support': True,
+                    'thick_provisioning_support': True,
+                    'provisioned_capacity_gb': provisioned_capacity,
+                    'max_over_subscription_ratio':
+                        self.configuration.max_over_subscription_ratio
                     }
 
             pools.append(pool)
-            if free_capacity_gb > max_free_capacity:
-                max_free_capacity = free_capacity_gb
-            total_capacity = total_capacity + total_capacity_gb
+            free_capacity += free_capacity_gb
+            total_capacity += total_capacity_gb
 
-        # Use zero capacities here so we always use a pool.
         stats['total_capacity_gb'] = total_capacity
-        stats['free_capacity_gb'] = max_free_capacity
+        stats['free_capacity_gb'] = free_capacity
         LOG.info(_LI(
                  "Free capacity for backend is: %(free)s, total capacity: "
                  "%(total)s."),
-                 {'free': max_free_capacity,
+                 {'free': free_capacity,
                   'total': total_capacity})
 
         stats['pools'] = pools
@@ -970,8 +1033,8 @@ class ScaleIODriver(driver.VolumeDriver):
         connection_properties = dict(self.connection_properties)
         connection_properties['scaleIO_volname'] = self._id_to_base64(
             volume.id)
+        connection_properties['scaleIO_volume_id'] = volume.provider_id
         device_info = self.connector.connect_volume(connection_properties)
-
         return device_info['path']
 
     def _sio_detach_volume(self, volume):
@@ -980,6 +1043,7 @@ class ScaleIODriver(driver.VolumeDriver):
         connection_properties = dict(self.connection_properties)
         connection_properties['scaleIO_volname'] = self._id_to_base64(
             volume.id)
+        connection_properties['scaleIO_volume_id'] = volume.provider_id
         self.connector.disconnect_volume(connection_properties, volume)
 
     def copy_image_to_volume(self, context, volume, image_service, image_id):
@@ -1078,10 +1142,16 @@ class ScaleIODriver(driver.VolumeDriver):
 
         if r.status_code != OK_STATUS_CODE:
             response = r.json()
-            msg = (_("Error renaming volume %(vol)s: %(err)s.") %
-                   {'vol': vol_id, 'err': response['message']})
-            LOG.error(msg)
-            raise exception.VolumeBackendAPIException(data=msg)
+            if ((response['errorCode'] == VOLUME_NOT_FOUND_ERROR or
+                 response['errorCode'] == OLD_VOLUME_NOT_FOUND_ERROR)):
+                LOG.info(_LI("Ignoring renaming action because the volume "
+                             "%(vol)s is not a ScaleIO volume."),
+                         {'vol': vol_id})
+            else:
+                msg = (_("Error renaming volume %(vol)s: %(err)s.") %
+                       {'vol': vol_id, 'err': response['message']})
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
         else:
             LOG.info(_LI("ScaleIO volume %(vol)s was renamed to "
                          "%(new_name)s."),

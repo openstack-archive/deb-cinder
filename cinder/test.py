@@ -24,7 +24,6 @@ inline callbacks.
 import copy
 import logging
 import os
-import shutil
 import uuid
 
 import fixtures
@@ -37,6 +36,7 @@ from oslo_messaging import conffixture as messaging_conffixture
 from oslo_utils import strutils
 from oslo_utils import timeutils
 from oslotest import moxstubout
+import six
 import testtools
 
 from cinder.common import config  # noqa Need to register global_opts
@@ -63,11 +63,8 @@ class TestingException(Exception):
 
 class Database(fixtures.Fixture):
 
-    def __init__(self, db_api, db_migrate, sql_connection,
-                 sqlite_db, sqlite_clean_db):
+    def __init__(self, db_api, db_migrate, sql_connection):
         self.sql_connection = sql_connection
-        self.sqlite_db = sqlite_db
-        self.sqlite_clean_db = sqlite_clean_db
 
         # Suppress logging for test runs
         migrate_logger = logging.getLogger('migrate')
@@ -77,26 +74,15 @@ class Database(fixtures.Fixture):
         self.engine.dispose()
         conn = self.engine.connect()
         db_migrate.db_sync()
-        if sql_connection == "sqlite://":
-            conn = self.engine.connect()
-            self._DB = "".join(line for line in conn.connection.iterdump())
-            self.engine.dispose()
-        else:
-            cleandb = os.path.join(CONF.state_path, sqlite_clean_db)
-            testdb = os.path.join(CONF.state_path, sqlite_db)
-            shutil.copyfile(testdb, cleandb)
+        self._DB = "".join(line for line in conn.connection.iterdump())
+        self.engine.dispose()
 
     def setUp(self):
         super(Database, self).setUp()
 
-        if self.sql_connection == "sqlite://":
-            conn = self.engine.connect()
-            conn.connection.executescript(self._DB)
-            self.addCleanup(self.engine.dispose)
-        else:
-            shutil.copyfile(
-                os.path.join(CONF.state_path, self.sqlite_clean_db),
-                os.path.join(CONF.state_path, self.sqlite_db))
+        conn = self.engine.connect()
+        conn.connection.executescript(self._DB)
+        self.addCleanup(self.engine.dispose)
 
 
 class TestCase(testtools.TestCase):
@@ -180,9 +166,7 @@ class TestCase(testtools.TestCase):
         global _DB_CACHE
         if not _DB_CACHE:
             _DB_CACHE = Database(sqla_api, migration,
-                                 sql_connection=CONF.database.connection,
-                                 sqlite_db=CONF.database.sqlite_db,
-                                 sqlite_clean_db='clean.sqlite')
+                                 sql_connection=CONF.database.connection)
         self.useFixture(_DB_CACHE)
 
         # NOTE(danms): Make sure to reset us back to non-remote objects
@@ -203,7 +187,7 @@ class TestCase(testtools.TestCase):
         self.injected = []
         self._services = []
 
-        fake_notifier.stub_notifier(self.stubs)
+        fake_notifier.mock_notifier(self)
 
         self.override_config('fatal_exception_format_errors', True)
         # This will be cleaned up by the NestedTempfile fixture
@@ -307,19 +291,24 @@ class TestCase(testtools.TestCase):
         self._services.append(svc)
         return svc
 
-    def mock_object(self, obj, attr_name, new_attr=None, **kwargs):
+    def mock_object(self, obj, attr_name, *args, **kwargs):
         """Use python mock to mock an object attribute
 
         Mocks the specified objects attribute with the given value.
         Automatically performs 'addCleanup' for the mock.
 
         """
-        if not new_attr:
-            new_attr = mock.Mock()
-        patcher = mock.patch.object(obj, attr_name, new_attr, **kwargs)
-        patcher.start()
+        patcher = mock.patch.object(obj, attr_name, *args, **kwargs)
+        result = patcher.start()
         self.addCleanup(patcher.stop)
-        return new_attr
+        return result
+
+    def patch(self, path, *args, **kwargs):
+        """Use python mock to mock a path with automatic cleanup."""
+        patcher = mock.patch(path, *args, **kwargs)
+        result = patcher.start()
+        self.addCleanup(patcher.stop)
+        return result
 
     # Useful assertions
     def assertDictMatch(self, d1, d2, approx_equal=False, tolerance=0.001):
@@ -378,3 +367,53 @@ class TestCase(testtools.TestCase):
                                     'd1value': d1value,
                                     'd2value': d2value,
                                 })
+
+    def assert_notify_called(self, mock_notify, calls):
+        for i in range(0, len(calls)):
+            mock_call = mock_notify.call_args_list[i]
+            call = calls[i]
+
+            posargs = mock_call[0]
+
+            self.assertEqual(call[0], posargs[0])
+            self.assertEqual(call[1], posargs[2])
+
+
+class ModelsObjectComparatorMixin(object):
+    def _dict_from_object(self, obj, ignored_keys):
+        if ignored_keys is None:
+            ignored_keys = []
+        if isinstance(obj, dict):
+            items = obj.items()
+        else:
+            items = obj.iteritems()
+        return {k: v for k, v in items
+                if k not in ignored_keys}
+
+    def _assertEqualObjects(self, obj1, obj2, ignored_keys=None):
+        obj1 = self._dict_from_object(obj1, ignored_keys)
+        obj2 = self._dict_from_object(obj2, ignored_keys)
+
+        self.assertEqual(
+            len(obj1), len(obj2),
+            "Keys mismatch: %s" % six.text_type(
+                set(obj1.keys()) ^ set(obj2.keys())))
+        for key, value in obj1.items():
+            self.assertEqual(value, obj2[key])
+
+    def _assertEqualListsOfObjects(self, objs1, objs2, ignored_keys=None,
+                                   msg=None):
+        obj_to_dict = lambda o: self._dict_from_object(o, ignored_keys)
+        sort_key = lambda d: [d[k] for k in sorted(d)]
+        conv_and_sort = lambda obj: sorted(map(obj_to_dict, obj), key=sort_key)
+
+        self.assertListEqual(conv_and_sort(objs1), conv_and_sort(objs2),
+                             msg=msg)
+
+    def _assertEqualListsOfPrimitivesAsSets(self, primitives1, primitives2):
+        self.assertEqual(len(primitives1), len(primitives2))
+        for primitive in primitives1:
+            self.assertIn(primitive, primitives2)
+
+        for primitive in primitives2:
+            self.assertIn(primitive, primitives1)

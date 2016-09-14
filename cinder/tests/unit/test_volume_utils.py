@@ -25,8 +25,10 @@ from oslo_concurrency import processutils
 from oslo_config import cfg
 
 from cinder import context
+from cinder import db
 from cinder.db.sqlalchemy import models
 from cinder import exception
+from cinder import keymgr
 from cinder.objects import fields
 from cinder import test
 from cinder.tests.unit.backup import fake_backup
@@ -36,6 +38,8 @@ from cinder.tests.unit import fake_volume
 from cinder import utils
 from cinder.volume import throttling
 from cinder.volume import utils as volume_utils
+from cinder.volume import volume_types
+
 
 CONF = cfg.CONF
 
@@ -437,24 +441,33 @@ class ClearVolumeTestCase(test.TestCase):
     @mock.patch('cinder.utils.execute')
     @mock.patch('cinder.volume.utils.CONF')
     def test_clear_volume_shred(self, mock_conf, mock_exec):
+        # 'shred' now uses 'dd'.  Remove this test when
+        # support for 'volume_clear=shred' is removed.
         mock_conf.volume_clear = 'shred'
         mock_conf.volume_clear_size = 1
         mock_conf.volume_clear_ionice = None
+        mock_conf.volume_dd_blocksize = '1M'
         output = volume_utils.clear_volume(1024, 'volume_path')
         self.assertIsNone(output)
-        mock_exec.assert_called_once_with(
-            'shred', '-n3', '-s1MiB', "volume_path", run_as_root=True)
+        mock_exec.assert_called_with(
+            'dd', 'if=/dev/zero', 'of=volume_path', 'count=1', 'bs=1M',
+            'oflag=direct', run_as_root=True)
 
     @mock.patch('cinder.utils.execute')
     @mock.patch('cinder.volume.utils.CONF')
     def test_clear_volume_shred_not_clear_size(self, mock_conf, mock_exec):
+        # 'shred' now uses 'dd'.  Remove this test when
+        # support for 'volume_clear=shred' is removed.
         mock_conf.volume_clear = 'shred'
         mock_conf.volume_clear_size = None
         mock_conf.volume_clear_ionice = None
+        mock_conf.volume_dd_blocksize = '1M'
+        mock_conf.volume_clear_size = 1
         output = volume_utils.clear_volume(1024, 'volume_path')
         self.assertIsNone(output)
-        mock_exec.assert_called_once_with(
-            'shred', '-n3', "volume_path", run_as_root=True)
+        mock_exec.assert_called_with(
+            'dd', 'if=/dev/zero', 'of=volume_path', 'count=1', 'bs=1M',
+            'oflag=direct', run_as_root=True)
 
     @mock.patch('cinder.volume.utils.CONF')
     def test_clear_volume_invalid_opt(self, mock_conf):
@@ -758,52 +771,116 @@ class VolumeUtilsTestCase(test.TestCase):
         host_2 = 'fake_host2@backend1'
         self.assertFalse(volume_utils.hosts_are_equivalent(host_1, host_2))
 
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_extract_id_from_volume_name_vol_id_pattern(self, conf_mock):
+        conf_mock.volume_name_template = 'volume-%s'
+        vol_id = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
+        vol_name = conf_mock.volume_name_template % vol_id
+        result = volume_utils.extract_id_from_volume_name(vol_name)
+        self.assertEqual(vol_id, result)
+
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_extract_id_from_volume_name_vol_id_vol_pattern(self, conf_mock):
+        conf_mock.volume_name_template = 'volume-%s-volume'
+        vol_id = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
+        vol_name = conf_mock.volume_name_template % vol_id
+        result = volume_utils.extract_id_from_volume_name(vol_name)
+        self.assertEqual(vol_id, result)
+
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_extract_id_from_volume_name_id_vol_pattern(self, conf_mock):
+        conf_mock.volume_name_template = '%s-volume'
+        vol_id = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
+        vol_name = conf_mock.volume_name_template % vol_id
+        result = volume_utils.extract_id_from_volume_name(vol_name)
+        self.assertEqual(vol_id, result)
+
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_extract_id_from_volume_name_no_match(self, conf_mock):
+        conf_mock.volume_name_template = '%s-volume'
+        vol_name = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
+        result = volume_utils.extract_id_from_volume_name(vol_name)
+        self.assertIsNone(result)
+        vol_name = 'blahblahblah'
+        result = volume_utils.extract_id_from_volume_name(vol_name)
+        self.assertIsNone(result)
+
     @mock.patch('cinder.db.sqlalchemy.api.resource_exists', return_value=True)
     def test_check_managed_volume_already_managed(self, exists_mock):
         id_ = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
-        vol_id = 'volume-' + id_
-        result = volume_utils.check_already_managed_volume(vol_id)
-        self.assertTrue(result)
-        exists_mock.assert_called_once_with(mock.ANY, models.Volume, id_)
-
-    @mock.patch('cinder.db.sqlalchemy.api.resource_exists', return_value=True)
-    def test_check_already_managed_with_vol_id_vol_pattern(self, exists_mock):
-        template = 'volume-%s-volume'
-        self.override_config('volume_name_template', template)
-        id_ = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
-        vol_id = template % id_
-
-        result = volume_utils.check_already_managed_volume(vol_id)
-        self.assertTrue(result)
-        exists_mock.assert_called_once_with(mock.ANY, models.Volume, id_)
-
-    @mock.patch('cinder.db.sqlalchemy.api.resource_exists', return_value=True)
-    def test_check_already_managed_with_id_vol_pattern(self, exists_mock):
-        template = '%s-volume'
-        self.override_config('volume_name_template', template)
-        id_ = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
-        vol_id = template % id_
-
-        result = volume_utils.check_already_managed_volume(vol_id)
+        result = volume_utils.check_already_managed_volume(id_)
         self.assertTrue(result)
         exists_mock.assert_called_once_with(mock.ANY, models.Volume, id_)
 
     @mock.patch('cinder.db.sqlalchemy.api.resource_exists', return_value=False)
-    def test_check_managed_volume_not_managed_cinder_like_name(self,
-                                                               exists_mock):
+    def test_check_managed_volume_not_managed_proper_uuid(self, exists_mock):
         id_ = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
-        vol_id = 'volume-' + id_
-        result = volume_utils.check_already_managed_volume(vol_id)
+        result = volume_utils.check_already_managed_volume(id_)
         self.assertFalse(result)
         exists_mock.assert_called_once_with(mock.ANY, models.Volume, id_)
 
-    def test_check_managed_volume_not_managed(self):
-        result = volume_utils.check_already_managed_volume('test-volume')
+    def test_check_managed_volume_not_managed_invalid_id(self):
+        result = volume_utils.check_already_managed_volume(1)
+        self.assertFalse(result)
+        result = volume_utils.check_already_managed_volume('not-a-uuid')
         self.assertFalse(result)
 
-    def test_check_managed_volume_not_managed_id_like_uuid(self):
-        result = volume_utils.check_already_managed_volume('volume-d8cd1fe')
-        self.assertFalse(result)
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_extract_id_from_snapshot_name(self, conf_mock):
+        conf_mock.snapshot_name_template = '%s-snapshot'
+        snap_id = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
+        snap_name = conf_mock.snapshot_name_template % snap_id
+        result = volume_utils.extract_id_from_snapshot_name(snap_name)
+        self.assertEqual(snap_id, result)
+
+    @mock.patch('cinder.volume.utils.CONF')
+    def test_extract_id_from_snapshot_name_no_match(self, conf_mock):
+        conf_mock.snapshot_name_template = '%s-snapshot'
+        snap_name = 'd8cd1feb-2dcc-404d-9b15-b86fe3bec0a1'
+        result = volume_utils.extract_id_from_snapshot_name(snap_name)
+        self.assertIsNone(result)
+        snap_name = 'blahblahblah'
+        result = volume_utils.extract_id_from_snapshot_name(snap_name)
+        self.assertIsNone(result)
+
+    def test_paginate_entries_list_with_marker(self):
+        entries = [{'reference': {'name': 'vol03'}, 'size': 1},
+                   {'reference': {'name': 'vol01'}, 'size': 3},
+                   {'reference': {'name': 'vol02'}, 'size': 3},
+                   {'reference': {'name': 'vol04'}, 'size': 2},
+                   {'reference': {'name': 'vol06'}, 'size': 3},
+                   {'reference': {'name': 'vol07'}, 'size': 1},
+                   {'reference': {'name': 'vol05'}, 'size': 1}]
+        expected = [{'reference': {'name': 'vol04'}, 'size': 2},
+                    {'reference': {'name': 'vol03'}, 'size': 1},
+                    {'reference': {'name': 'vol05'}, 'size': 1}]
+        res = volume_utils.paginate_entries_list(entries, {'name': 'vol02'}, 3,
+                                                 1, ['size', 'reference'],
+                                                 ['desc', 'asc'])
+        self.assertEqual(expected, res)
+
+    def test_paginate_entries_list_without_marker(self):
+        entries = [{'reference': {'name': 'vol03'}, 'size': 1},
+                   {'reference': {'name': 'vol01'}, 'size': 3},
+                   {'reference': {'name': 'vol02'}, 'size': 3},
+                   {'reference': {'name': 'vol04'}, 'size': 2},
+                   {'reference': {'name': 'vol06'}, 'size': 3},
+                   {'reference': {'name': 'vol07'}, 'size': 1},
+                   {'reference': {'name': 'vol05'}, 'size': 1}]
+        expected = [{'reference': {'name': 'vol07'}, 'size': 1},
+                    {'reference': {'name': 'vol06'}, 'size': 3},
+                    {'reference': {'name': 'vol05'}, 'size': 1}]
+        res = volume_utils.paginate_entries_list(entries, None, 3, None,
+                                                 ['reference'], ['desc'])
+        self.assertEqual(expected, res)
+
+    def test_paginate_entries_list_marker_not_found(self):
+        entries = [{'reference': {'name': 'vol03'}, 'size': 1},
+                   {'reference': {'name': 'vol01'}, 'size': 3}]
+        self.assertRaises(exception.InvalidInput,
+                          volume_utils.paginate_entries_list,
+                          entries, {'name': 'vol02'}, 3, None,
+                          ['size', 'reference'], ['desc', 'asc'])
 
     def test_convert_config_string_to_dict(self):
         test_string = "{'key-1'='val-1' 'key-2'='val-2' 'key-3'='val-3'}"
@@ -812,3 +889,43 @@ class VolumeUtilsTestCase(test.TestCase):
         self.assertEqual(
             expected_dict,
             volume_utils.convert_config_string_to_dict(test_string))
+
+    @mock.patch('cinder.volume.volume_types.is_encrypted', return_value=False)
+    def test_create_encryption_key_unencrypted(self, is_encrypted):
+        result = volume_utils.create_encryption_key(mock.ANY,
+                                                    mock.ANY,
+                                                    fake.VOLUME_TYPE_ID)
+        self.assertIsNone(result)
+
+    @mock.patch('cinder.volume.volume_types.is_encrypted', return_value=True)
+    @mock.patch('cinder.volume.volume_types.get_volume_type_encryption')
+    @mock.patch('cinder.keymgr.conf_key_mgr.ConfKeyManager.create_key')
+    def test_create_encryption_key_encrypted(self, create_key,
+                                             get_volume_type_encryption,
+                                             is_encryption):
+        enc_key = {'cipher': 'aes-xts-plain64',
+                   'key_size': 256,
+                   'provider': 'p1',
+                   'control_location': 'front-end',
+                   'encryption_id': 'uuid1'}
+        ctxt = context.get_admin_context()
+        type_ref1 = volume_types.create(ctxt, "type1")
+        encryption = db.volume_type_encryption_create(
+            ctxt, type_ref1['id'], enc_key)
+        get_volume_type_encryption.return_value = encryption
+        CONF.set_override(
+            'api_class',
+            'cinder.keymgr.conf_key_mgr.ConfKeyManager',
+            group='key_manager')
+        key_manager = keymgr.API()
+        volume_utils.create_encryption_key(ctxt,
+                                           key_manager,
+                                           fake.VOLUME_TYPE_ID)
+        is_encryption.assert_called_once_with(ctxt,
+                                              fake.VOLUME_TYPE_ID)
+        get_volume_type_encryption.assert_called_once_with(
+            ctxt,
+            fake.VOLUME_TYPE_ID)
+        create_key.assert_called_once_with(ctxt,
+                                           algorithm='aes',
+                                           length=256)

@@ -40,6 +40,10 @@ class CGSnapshot(base.CinderPersistentObject, base.CinderObject,
         'snapshots': fields.ObjectField('SnapshotList', nullable=True),
     }
 
+    @property
+    def service_topic_queue(self):
+        return self.consistencygroup.service_topic_queue
+
     @classmethod
     def _from_db_object(cls, context, cgsnapshot, db_cgsnapshots,
                         expected_attrs=None):
@@ -114,7 +118,9 @@ class CGSnapshot(base.CinderPersistentObject, base.CinderObject,
 
     def destroy(self):
         with self.obj_as_admin():
-            db.cgsnapshot_destroy(self._context, self.id)
+            updated_values = db.cgsnapshot_destroy(self._context, self.id)
+        self.update(updated_values)
+        self.obj_reset_changes(updated_values.keys())
 
 
 @base.CinderObjectRegistry.register

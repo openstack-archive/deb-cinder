@@ -31,6 +31,32 @@ from cinder.tests.unit import fake_objects
 from cinder.tests.unit import objects as test_objects
 
 
+class TestCinderObjectVersionHistory(test_objects.BaseObjectsTestCase):
+    def test_add(self):
+        history = test_objects.obj_base.CinderObjectVersionsHistory()
+        v10 = {'Backup': '2.0'}
+        v11 = {'Backup': '2.1'}
+        history.add('1.0', v10)
+        history.add('1.1', v11)
+        # We have 3 elements because we have the liberty version by default
+        self.assertEqual(2 + 1, len(history))
+
+        expected_v10 = history['liberty'].copy()
+        expected_v10.update(v10)
+        expected_v11 = history['liberty'].copy()
+        expected_v11.update(v11)
+
+        self.assertEqual('1.1', history.get_current())
+        self.assertEqual(expected_v11, history.get_current_versions())
+        self.assertEqual(expected_v10, history['1.0'])
+
+    def test_add_existing(self):
+        history = test_objects.obj_base.CinderObjectVersionsHistory()
+        history.add('1.0', {'Backup': '1.0'})
+        self.assertRaises(exception.ProgrammingError,
+                          history.add, '1.0', {'Backup': '1.0'})
+
+
 class TestCinderObject(test_objects.BaseObjectsTestCase):
     """Tests methods from CinderObject."""
 
@@ -90,6 +116,23 @@ class TestCinderObject(test_objects.BaseObjectsTestCase):
         test_obj = MyTestObject(id=fake.OBJECT_ID, name='foo')
         refresh_obj = MyTestObject(id=fake.OBJECT_ID, name='bar')
         get_by_id.return_value = refresh_obj
+
+        test_obj.refresh()
+        self._compare(self, refresh_obj, test_obj)
+
+    @mock.patch('cinder.objects.base.CinderPersistentObject.get_by_id')
+    def test_refresh_readonly(self, get_by_id_mock):
+        @objects.base.CinderObjectRegistry.register_if(False)
+        class MyTestObject(objects.base.CinderObject,
+                           objects.base.CinderObjectDictCompat,
+                           objects.base.CinderComparableObject,
+                           objects.base.CinderPersistentObject):
+            fields = {'id': fields.UUIDField(),
+                      'name': fields.StringField(read_only=True)}
+
+        test_obj = MyTestObject(id=fake.OBJECT_ID, name='foo')
+        refresh_obj = MyTestObject(id=fake.OBJECT_ID, name='bar')
+        get_by_id_mock.return_value = refresh_obj
 
         test_obj.refresh()
         self._compare(self, refresh_obj, test_obj)
@@ -655,7 +698,7 @@ class TestCinderObjectConditionalUpdate(test.TestCase):
         # is not relevant).
         self.assertEqual(1, update.call_count)
         arg = update.call_args[0][0]
-        self.assertTrue(isinstance(arg, dict))
+        self.assertIsInstance(arg, dict)
         self.assertEqual(set(values.keys()), set(arg.keys()))
 
     def test_conditional_update_multitable_fail(self):
@@ -700,9 +743,9 @@ class TestCinderDictObject(test_objects.BaseObjectsTestCase):
 
     def test_dict_objects(self):
         obj = self.TestDictObject()
-        self.assertIsNone(obj.get('non_existing'))
+        self.assertNotIn('non_existing', obj)
         self.assertEqual('val', obj.get('abc', 'val'))
-        self.assertIsNone(obj.get('abc'))
+        self.assertNotIn('abc', obj)
         obj.abc = 'val2'
         self.assertEqual('val2', obj.get('abc', 'val'))
         self.assertEqual(42, obj.get('foo'))
