@@ -33,9 +33,9 @@ from cinder.volume.drivers.coprhd import common as coprhd_common
 LOG = logging.getLogger(__name__)
 
 scaleio_opts = [
-    cfg.StrOpt('coprhd_scaleio_rest_gateway_ip',
+    cfg.StrOpt('coprhd_scaleio_rest_gateway_host',
                default='None',
-               help='Rest Gateway for Scaleio'),
+               help='Rest Gateway IP or FQDN for Scaleio'),
     cfg.PortOpt('coprhd_scaleio_rest_gateway_port',
                 default=4984,
                 help='Rest Gateway Port for Scaleio'),
@@ -61,7 +61,11 @@ CONF.register_opts(scaleio_opts)
 @interface.volumedriver
 class EMCCoprHDScaleIODriver(driver.VolumeDriver):
     """CoprHD ScaleIO Driver."""
+    VERSION = "3.0.0.0"
     server_token = None
+
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "EMC_CoprHD_CI"
 
     def __init__(self, *args, **kwargs):
         super(EMCCoprHDScaleIODriver, self).__init__(*args, **kwargs)
@@ -141,7 +145,7 @@ class EMCCoprHDScaleIODriver(driver.VolumeDriver):
         return self.common.create_consistencygroup(context, group, True)
 
     def update_consistencygroup(self, context, group,
-                                add_volumes, remove_volumes):
+                                add_volumes=None, remove_volumes=None):
         """Updates volumes in consistency group."""
         return self.common.update_consistencygroup(group, add_volumes,
                                                    remove_volumes)
@@ -170,9 +174,10 @@ class EMCCoprHDScaleIODriver(driver.VolumeDriver):
 
         properties = {}
         properties['scaleIO_volname'] = volname
+        properties['scaleIO_volume_id'] = volume['provider_id']
         properties['hostIP'] = connector['ip']
         properties[
-            'serverIP'] = self.configuration.coprhd_scaleio_rest_gateway_ip
+            'serverIP'] = self.configuration.coprhd_scaleio_rest_gateway_host
         properties[
             'serverPort'] = self.configuration.coprhd_scaleio_rest_gateway_port
         properties[
@@ -185,23 +190,23 @@ class EMCCoprHDScaleIODriver(driver.VolumeDriver):
         properties['bandwidthLimit'] = None
         properties['serverToken'] = self.server_token
 
-        initiatorPorts = []
-        initiatorPort = self._get_client_id(properties['serverIP'],
-                                            properties['serverPort'],
-                                            properties['serverUsername'],
-                                            properties['serverPassword'],
-                                            properties['hostIP'])
-        initiatorPorts.append(initiatorPort)
+        initiator_ports = []
+        initiator_port = self._get_client_id(properties['serverIP'],
+                                             properties['serverPort'],
+                                             properties['serverUsername'],
+                                             properties['serverPassword'],
+                                             properties['hostIP'])
+        initiator_ports.append(initiator_port)
 
         properties['serverToken'] = self.server_token
         self.common.initialize_connection(volume,
                                           'scaleio',
-                                          initiatorPorts,
+                                          initiator_ports,
                                           connector['host'])
 
         dictobj = {
             'driver_volume_type': 'scaleio',
-            'data': properties
+            'data': properties,
         }
 
         return dictobj
@@ -212,9 +217,10 @@ class EMCCoprHDScaleIODriver(driver.VolumeDriver):
         volname = volume['display_name']
         properties = {}
         properties['scaleIO_volname'] = volname
+        properties['scaleIO_volume_id'] = volume['provider_id']
         properties['hostIP'] = connector['ip']
         properties[
-            'serverIP'] = self.configuration.coprhd_scaleio_rest_gateway_ip
+            'serverIP'] = self.configuration.coprhd_scaleio_rest_gateway_host
         properties[
             'serverPort'] = self.configuration.coprhd_scaleio_rest_gateway_port
         properties[
@@ -225,16 +231,16 @@ class EMCCoprHDScaleIODriver(driver.VolumeDriver):
             self.configuration.coprhd_scaleio_rest_server_password)
         properties['serverToken'] = self.server_token
 
-        initiatorPort = self._get_client_id(properties['serverIP'],
-                                            properties['serverPort'],
-                                            properties['serverUsername'],
-                                            properties['serverPassword'],
-                                            properties['hostIP'])
-        initPorts = []
-        initPorts.append(initiatorPort)
+        initiator_port = self._get_client_id(properties['serverIP'],
+                                             properties['serverPort'],
+                                             properties['serverUsername'],
+                                             properties['serverPassword'],
+                                             properties['hostIP'])
+        init_ports = []
+        init_ports.append(initiator_port)
         self.common.terminate_connection(volume,
                                          'scaleio',
-                                         initPorts,
+                                         init_ports,
                                          connector['host'])
 
     def get_volume_stats(self, refresh=False):

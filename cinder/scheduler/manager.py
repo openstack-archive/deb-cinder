@@ -37,6 +37,7 @@ from cinder import objects
 from cinder import quota
 from cinder import rpc
 from cinder.scheduler.flows import create_volume
+from cinder.scheduler import rpcapi as scheduler_rpcapi
 from cinder.volume import rpcapi as volume_rpcapi
 
 
@@ -60,7 +61,7 @@ class SchedulerManager(manager.Manager):
     # create_consistencygroup(), create_volume(), migrate_volume_to_host(),
     # retype() and manage_existing() in v3.0 of RPC API.
 
-    RPC_API_VERSION = '2.1'
+    RPC_API_VERSION = scheduler_rpcapi.SchedulerAPI.RPC_API_VERSION
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -123,6 +124,35 @@ class SchedulerManager(manager.Manager):
                 group.status = 'error'
                 group.save()
 
+    def create_group(self, context, topic,
+                     group,
+                     group_spec=None,
+                     group_filter_properties=None,
+                     request_spec_list=None,
+                     filter_properties_list=None):
+
+        self._wait_for_scheduler()
+        try:
+            self.driver.schedule_create_group(
+                context, group,
+                group_spec,
+                request_spec_list,
+                group_filter_properties,
+                filter_properties_list)
+        except exception.NoValidHost:
+            LOG.error(_LE("Could not find a host for group "
+                          "%(group_id)s."),
+                      {'group_id': group.id})
+            group.status = 'error'
+            group.save()
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_LE("Failed to create generic group "
+                                  "%(group_id)s."),
+                              {'group_id': group.id})
+                group.status = 'error'
+                group.save()
+
     def create_volume(self, context, topic, volume_id, snapshot_id=None,
                       image_id=None, request_spec=None,
                       filter_properties=None, volume=None):
@@ -134,6 +164,11 @@ class SchedulerManager(manager.Manager):
             # For older clients, mimic the old behavior and look up the
             # volume by its volume_id.
             volume = objects.Volume.get_by_id(context, volume_id)
+
+        # FIXME(dulek): Remove this in v3.0 of RPC API.
+        if isinstance(request_spec, dict):
+            # We may receive request_spec as dict from older clients.
+            request_spec = objects.RequestSpec.from_primitives(request_spec)
 
         try:
             flow_engine = create_volume.get_flow(context,
@@ -214,7 +249,7 @@ class SchedulerManager(manager.Manager):
             volume = objects.Volume.get_by_id(context, volume_id)
 
         def _retype_volume_set_error(self, context, ex, request_spec,
-                                     volume_ref, msg, reservations):
+                                     volume_ref, reservations, msg=None):
             if reservations:
                 QUOTAS.rollback(context, reservations)
             previous_status = (
@@ -230,7 +265,7 @@ class SchedulerManager(manager.Manager):
             msg = _('New volume type not specified in request_spec.')
             ex = exception.ParameterNotFound(param='volume_type')
             _retype_volume_set_error(self, context, ex, request_spec,
-                                     volume, msg, reservations)
+                                     volume, reservations, msg)
 
         # Default migration policy is 'never'
         migration_policy = request_spec.get('migration_policy')
@@ -241,14 +276,11 @@ class SchedulerManager(manager.Manager):
             tgt_host = self.driver.find_retype_host(context, request_spec,
                                                     filter_properties,
                                                     migration_policy)
-        except exception.NoValidHost as ex:
-            msg = (_("Could not find a host for volume %(volume_id)s with "
-                     "type %(type_id)s.") %
-                   {'type_id': new_type['id'], 'volume_id': volume.id})
-            _retype_volume_set_error(self, context, ex, request_spec,
-                                     volume, msg, reservations)
         except Exception as ex:
-            with excutils.save_and_reraise_exception():
+            # Not having a valid host is an expected exception, so we don't
+            # reraise on it.
+            reraise = not isinstance(ex, exception.NoValidHost)
+            with excutils.save_and_reraise_exception(reraise=reraise):
                 _retype_volume_set_error(self, context, ex, request_spec,
                                          volume, None, reservations)
         else:

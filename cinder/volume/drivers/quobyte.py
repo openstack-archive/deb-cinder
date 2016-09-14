@@ -59,7 +59,7 @@ CONF.register_opts(volume_opts)
 
 
 @interface.volumedriver
-class QuobyteDriver(remotefs_drv.RemoteFSSnapDriver):
+class QuobyteDriver(remotefs_drv.RemoteFSSnapDriverDistributed):
     """Cinder driver for Quobyte USP.
 
     Volumes are stored as files on the mounted Quobyte volume. The hypervisor
@@ -85,6 +85,9 @@ class QuobyteDriver(remotefs_drv.RemoteFSSnapDriver):
     driver_prefix = 'quobyte'
     volume_backend_name = 'Quobyte'
     VERSION = VERSION
+
+    # ThirdPartySystems wiki page
+    CI_WIKI_NAME = "Quobyte_CI"
 
     def __init__(self, execute=processutils.execute, *args, **kwargs):
         super(QuobyteDriver, self).__init__(*args, **kwargs)

@@ -72,11 +72,9 @@ class SnapshotsController(wsgi.Controller):
         """Return data about the given snapshot."""
         context = req.environ['cinder.context']
 
-        try:
-            snapshot = self.volume_api.get_snapshot(context, id)
-            req.cache_db_snapshot(snapshot)
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
+        # Not found exception will be handled at the wsgi level
+        snapshot = self.volume_api.get_snapshot(context, id)
+        req.cache_db_snapshot(snapshot)
 
         return {'snapshot': _translate_snapshot_detail_view(snapshot)}
 
@@ -84,13 +82,11 @@ class SnapshotsController(wsgi.Controller):
         """Delete a snapshot."""
         context = req.environ['cinder.context']
 
-        LOG.info(_LI("Delete snapshot with id: %s"), id, context=context)
+        LOG.info(_LI("Delete snapshot with id: %s"), id)
 
-        try:
-            snapshot = self.volume_api.get_snapshot(context, id)
-            self.volume_api.delete_snapshot(context, snapshot)
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
+        # Not found exception will be handled at the wsgi level
+        snapshot = self.volume_api.get_snapshot(context, id)
+        self.volume_api.delete_snapshot(context, snapshot)
         return webob.Response(status_int=202)
 
     def index(self, req):
@@ -139,14 +135,12 @@ class SnapshotsController(wsgi.Controller):
             msg = _("'volume_id' must be specified")
             raise exc.HTTPBadRequest(explanation=msg)
 
-        try:
-            volume = self.volume_api.get(context, volume_id)
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
+        # Not found exception will be handled at the wsgi level
+        volume = self.volume_api.get(context, volume_id)
 
         force = snapshot.get('force', False)
         msg = _LI("Create snapshot from volume %s")
-        LOG.info(msg, volume_id, context=context)
+        LOG.info(msg, volume_id)
 
         if not utils.is_valid_boolstr(force):
             msg = _("Invalid value '%s' for force. ") % force
@@ -194,11 +188,9 @@ class SnapshotsController(wsgi.Controller):
             if key in snapshot:
                 update_dict[key] = snapshot[key]
 
-        try:
-            snapshot = self.volume_api.get_snapshot(context, id)
-            self.volume_api.update_snapshot(context, snapshot, update_dict)
-        except exception.NotFound:
-            raise exc.HTTPNotFound()
+        # Not found exception will be handled at the wsgi level
+        snapshot = self.volume_api.get_snapshot(context, id)
+        self.volume_api.update_snapshot(context, snapshot, update_dict)
 
         snapshot.update(update_dict)
         req.cache_db_snapshot(snapshot)

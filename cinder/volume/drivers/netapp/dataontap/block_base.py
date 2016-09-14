@@ -32,6 +32,7 @@ import uuid
 
 from oslo_log import log as logging
 from oslo_log import versionutils
+from oslo_service import loopingcall
 from oslo_utils import excutils
 from oslo_utils import units
 import six
@@ -46,6 +47,7 @@ from cinder.volume import utils as volume_utils
 from cinder.zonemanager import utils as fczm_utils
 
 LOG = logging.getLogger(__name__)
+HOUSEKEEPING_INTERVAL_SECONDS = 600  # ten minutes
 
 
 class NetAppLun(object):
@@ -103,6 +105,8 @@ class NetAppBlockStorageLibrary(object):
         self.lun_space_reservation = 'true'
         self.lookup_service = fczm_utils.create_lookup_service()
         self.app_version = kwargs.get("app_version", "unknown")
+        self.host = kwargs.get('host')
+        self.backend_name = self.host.split('@')[1]
 
         self.configuration = kwargs['configuration']
         self.configuration.append_config_values(na_opts.netapp_connection_opts)
@@ -166,6 +170,21 @@ class NetAppBlockStorageLibrary(object):
         lun_list = self.zapi_client.get_lun_list()
         self._extract_and_populate_luns(lun_list)
         LOG.debug("Success getting list of LUNs from server.")
+
+        self._start_periodic_tasks()
+
+    def _start_periodic_tasks(self):
+        """Start recurring tasks common to all Data ONTAP block drivers."""
+
+        # Start the task that runs other housekeeping tasks, such as deletion
+        # of previously soft-deleted storage artifacts.
+        housekeeping_periodic_task = loopingcall.FixedIntervalLoopingCall(
+            self._handle_housekeeping_tasks)
+        housekeeping_periodic_task.start(
+            interval=HOUSEKEEPING_INTERVAL_SECONDS, initial_delay=0)
+
+    def _handle_housekeeping_tasks(self):
+        """Handle various cleanup activities."""
 
     def get_pool(self, volume):
         """Return pool name where volume resides.
@@ -275,7 +294,8 @@ class NetAppBlockStorageLibrary(object):
         vol_name = snapshot['volume_name']
         snapshot_name = snapshot['name']
         lun = self._get_lun_from_table(vol_name)
-        self._clone_lun(lun.name, snapshot_name, space_reserved='false')
+        self._clone_lun(lun.name, snapshot_name, space_reserved='false',
+                        is_snapshot=True)
 
     def delete_snapshot(self, snapshot):
         """Driver entry point for deleting a snapshot."""
@@ -453,7 +473,7 @@ class NetAppBlockStorageLibrary(object):
 
     def _clone_lun(self, name, new_name, space_reserved='true',
                    qos_policy_group_name=None, src_block=0, dest_block=0,
-                   block_count=0, source_snapshot=None):
+                   block_count=0, source_snapshot=None, is_snapshot=False):
         """Clone LUN with the given name to the new name."""
         raise NotImplementedError()
 
@@ -1061,31 +1081,10 @@ class NetAppBlockStorageLibrary(object):
                             source_snapshot=cgsnapshot['id'])
 
         for flexvol in flexvols:
-            self._handle_busy_snapshot(flexvol, cgsnapshot['id'])
+            self.zapi_client.wait_for_busy_snapshot(flexvol, cgsnapshot['id'])
             self.zapi_client.delete_snapshot(flexvol, cgsnapshot['id'])
 
         return None, None
-
-    @utils.retry(exception.SnapshotIsBusy)
-    def _handle_busy_snapshot(self, flexvol, snapshot_name):
-        """Checks for and handles a busy snapshot.
-
-        If a snapshot is not busy, take no action.  If a snapshot is busy for
-        reasons other than a clone dependency, raise immediately.  Otherwise,
-        since we always start a clone split operation after cloning a share,
-        wait up to a minute for a clone dependency to clear before giving up.
-        """
-        snapshot = self.zapi_client.get_snapshot(flexvol, snapshot_name)
-        if not snapshot['busy']:
-            LOG.info(_LI("Backing consistency group snapshot %s "
-                         "available for deletion"), snapshot_name)
-            return
-        else:
-            LOG.debug('Snapshot %(snap)s for vol %(vol)s is busy, waiting '
-                      'for volume clone dependency to clear.',
-                      {'snap': snapshot_name, 'vol': flexvol})
-
-            raise exception.SnapshotIsBusy(snapshot_name=snapshot_name)
 
     def delete_cgsnapshot(self, cgsnapshot, snapshots):
         """Delete LUNs backing each snapshot in the cgsnapshot.

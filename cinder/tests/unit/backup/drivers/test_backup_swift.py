@@ -101,9 +101,9 @@ class BackupSwiftTestCase(test.TestCase):
         self.ctxt = context.get_admin_context()
         self.ctxt.service_catalog = service_catalog
 
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client.FakeSwiftClient.Connection)
-        self.stubs.Set(hashlib, 'md5', fake_md5)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client.FakeSwiftClient.Connection)
+        self.mock_object(hashlib, 'md5', fake_md5)
 
         self.volume_file = tempfile.NamedTemporaryFile()
         self.temp_dir = tempfile.mkdtemp()
@@ -178,13 +178,12 @@ class BackupSwiftTestCase(test.TestCase):
                                       u'endpoints': [{
                                           u'adminURL':
                                               u'http://example.com'}]}]
+
         self.ctxt.project_id = fake.PROJECT_ID
         self.override_config("backup_swift_auth_url",
-                             "http://public.example.com/")
+                             "http://public.example.com")
         backup = swift_dr.SwiftBackupDriver(self.ctxt)
-        self.assertEqual("%s%s" % (CONF.backup_swift_auth_url,
-                                   self.ctxt.project_id),
-                         backup.auth_url)
+        self.assertEqual(CONF.backup_swift_auth_url, backup.auth_url)
 
     def test_backup_swift_info(self):
         self.override_config("swift_catalog_info", "dummy")
@@ -409,17 +408,16 @@ class BackupSwiftTestCase(test.TestCase):
             prefix = volume + '_' + backup_name
             return prefix
 
-        # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver,
-                       '_generate_object_name_prefix',
-                       _fake_generate_object_name_prefix)
+        self.mock_object(swift_dr.SwiftBackupDriver,
+                         '_generate_object_name_prefix',
+                         _fake_generate_object_name_prefix)
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
         self._create_backup_db_entry(volume_id=volume_id,
                                      container=container_name)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP_ID)
@@ -442,18 +440,17 @@ class BackupSwiftTestCase(test.TestCase):
             prefix = volume + '_' + backup_name
             return prefix
 
-        # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver,
-                       '_generate_object_name_prefix',
-                       _fake_generate_object_name_prefix)
+        self.mock_object(swift_dr.SwiftBackupDriver,
+                         '_generate_object_name_prefix',
+                         _fake_generate_object_name_prefix)
 
         container_name = self.temp_dir.replace(tempfile.gettempdir() + '/',
                                                '', 1)
         self._create_backup_db_entry(volume_id=volume_id,
                                      container=container_name,
                                      backup_id=fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP_ID)
@@ -466,8 +463,8 @@ class BackupSwiftTestCase(test.TestCase):
                                      container=container_name,
                                      backup_id=fake.BACKUP2_ID,
                                      parent_id= fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         deltabackup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP2_ID)
@@ -492,10 +489,9 @@ class BackupSwiftTestCase(test.TestCase):
             prefix = volume + '_' + backup_name
             return prefix
 
-        # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver,
-                       '_generate_object_name_prefix',
-                       _fake_generate_object_name_prefix)
+        self.mock_object(swift_dr.SwiftBackupDriver,
+                         '_generate_object_name_prefix',
+                         _fake_generate_object_name_prefix)
 
         self.flags(backup_swift_object_size=8 * 1024)
         self.flags(backup_swift_block_size=1024)
@@ -505,8 +501,8 @@ class BackupSwiftTestCase(test.TestCase):
         self._create_backup_db_entry(volume_id=volume_id,
                                      container=container_name,
                                      backup_id=fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP_ID)
@@ -524,8 +520,8 @@ class BackupSwiftTestCase(test.TestCase):
                                      container=container_name,
                                      backup_id=fake.BACKUP2_ID,
                                      parent_id=fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         deltabackup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP2_ID)
@@ -550,10 +546,9 @@ class BackupSwiftTestCase(test.TestCase):
             prefix = volume + '_' + backup_name
             return prefix
 
-        # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver,
-                       '_generate_object_name_prefix',
-                       _fake_generate_object_name_prefix)
+        self.mock_object(swift_dr.SwiftBackupDriver,
+                         '_generate_object_name_prefix',
+                         _fake_generate_object_name_prefix)
 
         self.flags(backup_swift_object_size=8 * 1024)
         self.flags(backup_swift_block_size=1024)
@@ -563,8 +558,8 @@ class BackupSwiftTestCase(test.TestCase):
         self._create_backup_db_entry(volume_id=volume_id,
                                      container=container_name,
                                      backup_id=fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP_ID)
@@ -582,8 +577,8 @@ class BackupSwiftTestCase(test.TestCase):
                                      container=container_name,
                                      backup_id=fake.BACKUP2_ID,
                                      parent_id=fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         deltabackup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP2_ID)
@@ -628,8 +623,8 @@ class BackupSwiftTestCase(test.TestCase):
             raise exception.BackupDriverException(message=_('fake'))
 
         # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver, '_backup_metadata',
-                       fake_backup_metadata)
+        self.mock_object(swift_dr.SwiftBackupDriver, '_backup_metadata',
+                         fake_backup_metadata)
 
         # We expect that an exception be notified directly.
         self.assertRaises(exception.BackupDriverException,
@@ -655,14 +650,14 @@ class BackupSwiftTestCase(test.TestCase):
             raise exception.BackupDriverException(message=_('fake'))
 
         # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver, '_backup_metadata',
-                       fake_backup_metadata)
+        self.mock_object(swift_dr.SwiftBackupDriver, '_backup_metadata',
+                         fake_backup_metadata)
 
         def fake_delete(self, backup):
             raise exception.BackupOperationError()
 
         # Raise a pseudo exception.BackupOperationError.
-        self.stubs.Set(swift_dr.SwiftBackupDriver, 'delete', fake_delete)
+        self.mock_object(swift_dr.SwiftBackupDriver, 'delete', fake_delete)
 
         # We expect that the second exception is notified.
         self.assertRaises(exception.BackupOperationError,
@@ -688,10 +683,9 @@ class BackupSwiftTestCase(test.TestCase):
             prefix = volume + '_' + backup_name
             return prefix
 
-        # Raise a pseudo exception.BackupDriverException.
-        self.stubs.Set(swift_dr.SwiftBackupDriver,
-                       '_generate_object_name_prefix',
-                       _fake_generate_object_name_prefix)
+        self.mock_object(swift_dr.SwiftBackupDriver,
+                         '_generate_object_name_prefix',
+                         _fake_generate_object_name_prefix)
 
         self.flags(backup_swift_object_size=8 * 1024)
         self.flags(backup_swift_block_size=1024)
@@ -701,8 +695,8 @@ class BackupSwiftTestCase(test.TestCase):
         self._create_backup_db_entry(volume_id=volume_id,
                                      container=container_name,
                                      backup_id=fake.BACKUP_ID)
-        self.stubs.Set(swift, 'Connection',
-                       fake_swift_client2.FakeSwiftClient2.Connection)
+        self.mock_object(swift, 'Connection',
+                         fake_swift_client2.FakeSwiftClient2.Connection)
         service = swift_dr.SwiftBackupDriver(self.ctxt)
         self.volume_file.seek(0)
         backup = objects.Backup.get_by_id(self.ctxt, fake.BACKUP_ID)
@@ -784,9 +778,9 @@ class BackupSwiftTestCase(test.TestCase):
         def _fake_delete_object(self, container, object_name):
             raise AssertionError('delete_object method should not be called.')
 
-        self.stubs.Set(swift_dr.SwiftBackupDriver,
-                       'delete_object',
-                       _fake_delete_object)
+        self.mock_object(swift_dr.SwiftBackupDriver,
+                         'delete_object',
+                         _fake_delete_object)
 
         self._create_backup_db_entry(volume_id=volume_id)
         service = swift_dr.SwiftBackupDriver(self.ctxt)

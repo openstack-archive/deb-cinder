@@ -16,13 +16,10 @@
 Client side of the scheduler manager RPC API.
 """
 
-from oslo_config import cfg
 from oslo_serialization import jsonutils
 
+from cinder.common import constants
 from cinder import rpc
-
-
-CONF = cfg.CONF
 
 
 class SchedulerAPI(rpc.RPCAPI):
@@ -53,10 +50,12 @@ class SchedulerAPI(rpc.RPCAPI):
 
         2.0 - Remove 1.x compatibility
         2.1 - Adds support for sending objects over RPC in manage_existing()
+        2.2 - Sends request_spec as object in create_volume()
+        2.3 - Add create_group method
     """
 
-    RPC_API_VERSION = '2.1'
-    TOPIC = CONF.scheduler_topic
+    RPC_API_VERSION = '2.3'
+    TOPIC = constants.SCHEDULER_TOPIC
     BINARY = 'cinder-scheduler'
 
     # FIXME(caosf): Remove unused argument 'topic' from functions
@@ -79,6 +78,27 @@ class SchedulerAPI(rpc.RPCAPI):
                           request_spec_list=request_spec_p_list,
                           filter_properties_list=filter_properties_list)
 
+    def create_group(self, ctxt, topic, group,
+                     group_spec=None,
+                     request_spec_list=None,
+                     group_filter_properties=None,
+                     filter_properties_list=None):
+        version = '2.3'
+        cctxt = self.client.prepare(version=version)
+        request_spec_p_list = []
+        for request_spec in request_spec_list:
+            request_spec_p = jsonutils.to_primitive(request_spec)
+            request_spec_p_list.append(request_spec_p)
+        group_spec_p = jsonutils.to_primitive(group_spec)
+
+        return cctxt.cast(ctxt, 'create_group',
+                          topic=topic,
+                          group=group,
+                          group_spec=group_spec_p,
+                          request_spec_list=request_spec_p_list,
+                          group_filter_properties=group_filter_properties,
+                          filter_properties_list=filter_properties_list)
+
     def create_volume(self, ctxt, topic, volume_id, snapshot_id=None,
                       image_id=None, request_spec=None,
                       filter_properties=None, volume=None):
@@ -87,7 +107,11 @@ class SchedulerAPI(rpc.RPCAPI):
                     'snapshot_id': snapshot_id, 'image_id': image_id,
                     'request_spec': request_spec_p,
                     'filter_properties': filter_properties, 'volume': volume}
-        version = '2.0'
+        version = '2.2'
+        if not self.client.can_send_version('2.2'):
+            # Send request_spec as dict
+            version = '2.0'
+            msg_args['request_spec'] = jsonutils.to_primitive(request_spec)
 
         cctxt = self.client.prepare(version=version)
         return cctxt.cast(ctxt, 'create_volume', **msg_args)

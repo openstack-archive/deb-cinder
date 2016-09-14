@@ -131,6 +131,13 @@ class RestClient(object):
             self.device_id = device_id
             self.url = item_url + device_id
             self.headers['iBaseToken'] = result['data']['iBaseToken']
+            if (result['data']['accountstate']
+                    in (constants.PWD_EXPIRED, constants.PWD_RESET)):
+                self.logout()
+                msg = _("Password has expired or has been reset, "
+                        "please change the password.")
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
             break
 
         if device_id is None:
@@ -176,7 +183,7 @@ class RestClient(object):
         """Logout the session."""
         url = "/sessions"
         if self.url:
-            result = self.call(url, None, "DELETE")
+            result = self.do_call(url, None, "DELETE")
             self._assert_rest_result(result, _('Logout session error.'))
 
     def _assert_rest_result(self, result, err_str):
@@ -250,6 +257,9 @@ class RestClient(object):
             info['ID'] = pool['ID']
             info['CAPACITY'] = pool.get('DATASPACE', pool['USERFREECAPACITY'])
             info['TOTALCAPACITY'] = pool['USERTOTALCAPACITY']
+            info['TIER0CAPACITY'] = pool['TIER0CAPACITY']
+            info['TIER1CAPACITY'] = pool['TIER1CAPACITY']
+            info['TIER2CAPACITY'] = pool['TIER2CAPACITY']
 
         return info
 
@@ -414,7 +424,8 @@ class RestClient(object):
             return True
         return False
 
-    def do_mapping(self, lun_id, hostgroup_id, host_id, portgroup_id=None):
+    def do_mapping(self, lun_id, hostgroup_id, host_id, portgroup_id=None,
+                   lun_type=constants.LUN_TYPE):
         """Add hostgroup and lungroup to mapping view."""
         lungroup_name = constants.LUNGROUP_PREFIX + host_id
         mapping_view_name = constants.MAPPING_VIEW_PREFIX + host_id
@@ -434,9 +445,10 @@ class RestClient(object):
             if lungroup_id is None:
                 lungroup_id = self._create_lungroup(lungroup_name)
             is_associated = self._is_lun_associated_to_lungroup(lungroup_id,
-                                                                lun_id)
+                                                                lun_id,
+                                                                lun_type)
             if not is_associated:
-                self.associate_lun_to_lungroup(lungroup_id, lun_id)
+                self.associate_lun_to_lungroup(lungroup_id, lun_id, lun_type)
 
             if view_id is None:
                 view_id = self._add_mapping_view(mapping_view_name)
@@ -468,7 +480,7 @@ class RestClient(object):
                 LOG.error(_LE(
                     'Error occurred when adding hostgroup and lungroup to '
                     'view. Remove lun from lungroup now.'))
-                self.remove_lun_from_lungroup(lungroup_id, lun_id)
+                self.remove_lun_from_lungroup(lungroup_id, lun_id, lun_type)
 
         return map_info
 
@@ -602,9 +614,10 @@ class RestClient(object):
             return True
         return False
 
-    def get_host_lun_id(self, host_id, lun_id):
-        url = ("/lun/associate?TYPE=11&ASSOCIATEOBJTYPE=21"
-               "&ASSOCIATEOBJID=%s" % (host_id))
+    def get_host_lun_id(self, host_id, lun_id, lun_type=constants.LUN_TYPE):
+        cmd_type = 'lun' if lun_type == constants.LUN_TYPE else 'snapshot'
+        url = ("/%s/associate?TYPE=%s&ASSOCIATEOBJTYPE=21"
+               "&ASSOCIATEOBJID=%s" % (cmd_type, lun_type, host_id))
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Find host lun id error.'))
 
@@ -692,10 +705,13 @@ class RestClient(object):
 
         return False
 
-    def _is_lun_associated_to_lungroup(self, lungroup_id, lun_id):
+    def _is_lun_associated_to_lungroup(self, lungroup_id, lun_id,
+                                       lun_type=constants.LUN_TYPE):
         """Check whether the lun is associated to the lungroup."""
-        url = ("/lun/associate?TYPE=11&"
-               "ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID=%s" % lungroup_id)
+        cmd_type = 'lun' if lun_type == constants.LUN_TYPE else 'snapshot'
+        url = ("/%s/associate?TYPE=%s&"
+               "ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID=%s"
+               % (cmd_type, lun_type, lungroup_id))
 
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Check lungroup associate error.'))
@@ -716,19 +732,21 @@ class RestClient(object):
         self._assert_rest_result(result, _('Associate host to hostgroup '
                                  'error.'))
 
-    def associate_lun_to_lungroup(self, lungroup_id, lun_id):
+    def associate_lun_to_lungroup(self, lungroup_id, lun_id,
+                                  lun_type=constants.LUN_TYPE):
         """Associate lun to lungroup."""
         url = "/lungroup/associate"
         data = {"ID": lungroup_id,
-                "ASSOCIATEOBJTYPE": "11",
+                "ASSOCIATEOBJTYPE": lun_type,
                 "ASSOCIATEOBJID": lun_id}
         result = self.call(url, data)
         self._assert_rest_result(result, _('Associate lun to lungroup error.'))
 
-    def remove_lun_from_lungroup(self, lungroup_id, lun_id):
+    def remove_lun_from_lungroup(self, lungroup_id, lun_id,
+                                 lun_type=constants.LUN_TYPE):
         """Remove lun from lungroup."""
-        url = ("/lungroup/associate?ID=%s&ASSOCIATEOBJTYPE=11"
-               "&ASSOCIATEOBJID=%s" % (lungroup_id, lun_id))
+        url = ("/lungroup/associate?ID=%s&ASSOCIATEOBJTYPE=%s"
+               "&ASSOCIATEOBJID=%s" % (lungroup_id, lun_type, lun_id))
 
         result = self.call(url, None, 'DELETE')
         self._assert_rest_result(
@@ -942,16 +960,25 @@ class RestClient(object):
         result = self.call(url, None, "DELETE")
         self._assert_rest_result(result, _('Delete mapping view error.'))
 
-    def get_lunnum_from_lungroup(self, lungroup_id):
-        """Check if there are still other luns associated to the lungroup."""
+    def get_obj_count_from_lungroup(self, lungroup_id):
+        """Get all objects count associated to the lungroup."""
+        lun_count = self._get_obj_count_from_lungroup_by_type(
+            lungroup_id, constants.LUN_TYPE)
+        snapshot_count = self._get_obj_count_from_lungroup_by_type(
+            lungroup_id, constants.SNAPSHOT_TYPE)
+        return int(lun_count) + int(snapshot_count)
+
+    def _get_obj_count_from_lungroup_by_type(self, lungroup_id,
+                                             lun_type=constants.LUN_TYPE):
+        cmd_type = 'lun' if lun_type == constants.LUN_TYPE else 'snapshot'
         lunnum = 0
         if not lungroup_id:
             return lunnum
 
-        url = ("/lun/count?TYPE=11&ASSOCIATEOBJTYPE=256&"
-               "ASSOCIATEOBJID=%s" % lungroup_id)
+        url = ("/%s/count?TYPE=%s&ASSOCIATEOBJTYPE=256&"
+               "ASSOCIATEOBJID=%s" % (cmd_type, lun_type, lungroup_id))
         result = self.call(url, None, "GET")
-        self._assert_rest_result(result, _('Find lun number error.'))
+        self._assert_rest_result(result, _('Find obj number error.'))
         if 'data' in result:
             lunnum = int(result['data']['COUNT'])
         return lunnum
@@ -1003,6 +1030,22 @@ class RestClient(object):
             pool_capacity['free_capacity'] = free
 
         return pool_capacity
+
+    def _get_disk_type(self, pool_name, result):
+        """Get disk type of the pool."""
+        pool_info = self.get_pool_info(pool_name, result)
+        if not pool_info:
+            return None
+
+        pool_disk = []
+        for i, x in enumerate(['ssd', 'sas', 'nl_sas']):
+            if pool_info['TIER%dCAPACITY' % i] != '0':
+                pool_disk.append(x)
+
+        if len(pool_disk) > 1:
+            pool_disk = ['mix']
+
+        return pool_disk[0] if pool_disk else None
 
     def get_luncopy_info(self, luncopy_id):
         """Get LUNcopy information."""
@@ -1141,6 +1184,7 @@ class RestClient(object):
         result = self.get_all_pools()
         for pool_name in self.storage_pools:
             capacity = self._get_capacity(pool_name, result)
+            disk_type = self._get_disk_type(pool_name, result)
             pool = {}
             pool.update(dict(
                 location_info=self.device_id,
@@ -1160,6 +1204,9 @@ class RestClient(object):
                 hypermetro=True,
                 consistencygroup_support=True,
             ))
+            if disk_type:
+                pool['disk_type'] = disk_type
+
             data['pools'].append(pool)
         return data
 
@@ -1457,10 +1504,10 @@ class RestClient(object):
 
         return result['data']['IOCLASSID']
 
-    def get_lungroupids_by_lunid(self, lun_id):
+    def get_lungroupids_by_lunid(self, lun_id, lun_type=constants.LUN_TYPE):
         """Get lungroup ids by lun id."""
         url = ("/lungroup/associate?TYPE=256"
-               "&ASSOCIATEOBJTYPE=11&ASSOCIATEOBJID=%s" % lun_id)
+               "&ASSOCIATEOBJTYPE=%s&ASSOCIATEOBJID=%s" % (lun_type, lun_id))
 
         result = self.call(url, None, "GET")
         self._assert_rest_result(result, _('Get lungroup id by lun id error.'))
@@ -1472,8 +1519,9 @@ class RestClient(object):
 
         return lungroup_ids
 
-    def get_lun_info(self, lun_id):
-        url = "/lun/" + lun_id
+    def get_lun_info(self, lun_id, lun_type = constants.LUN_TYPE):
+        cmd_type = 'lun' if lun_type == constants.LUN_TYPE else 'snapshot'
+        url = ("/%s/%s" % (cmd_type, lun_id))
         result = self.call(url, None, "GET")
 
         msg = _('Get volume error.')

@@ -14,13 +14,9 @@ import mock
 import paramiko
 import uuid
 
-from oslo_config import cfg
-
 from cinder import exception
 from cinder import ssh_utils
 from cinder import test
-
-CONF = cfg.CONF
 
 
 class FakeSock(object):
@@ -306,8 +302,8 @@ class SSHPoolTestCase(test.TestCase):
                                     max_size=1)
 
         with sshpool.item() as ssh:
-            self.assertTrue(isinstance(ssh.get_policy(),
-                                       paramiko.RejectPolicy))
+            self.assertIsInstance(ssh.get_policy(),
+                                  paramiko.RejectPolicy)
 
     @mock.patch('six.moves.builtins.open')
     @mock.patch('paramiko.SSHClient')
@@ -326,5 +322,5 @@ class SSHPoolTestCase(test.TestCase):
                                     max_size=1)
 
         with sshpool.item() as ssh:
-            self.assertTrue(isinstance(ssh.get_policy(),
-                                       paramiko.AutoAddPolicy))
+            self.assertIsInstance(ssh.get_policy(),
+                                  paramiko.AutoAddPolicy)

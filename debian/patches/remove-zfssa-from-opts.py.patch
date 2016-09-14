@@ -1,12 +1,11 @@
-zigo@GPLHost:xen018401>_ ~/sources/openstack/newton/cinder/cinder cinder (debian/newton)$ cat ../remove-zfssa-from-opts.py.patch 
 Description: Remove zfssa from opts.py
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
-Last-Update: 2016-07-15
+Last-Update: 2016-09-14
 
---- cinder-9.0.0~b2.orig/cinder/opts.py
-+++ cinder-9.0.0~b2/cinder/opts.py
-@@ -169,10 +169,6 @@ from cinder.volume.drivers.windows impor
+--- cinder-9.0.0~b3.orig/cinder/opts.py
++++ cinder-9.0.0~b3/cinder/opts.py
+@@ -171,10 +171,6 @@ from cinder.volume.drivers.windows impor
      cinder_volume_drivers_windows_windows
  from cinder.volume.drivers import xio as cinder_volume_drivers_xio
  from cinder.volume.drivers import zadara as cinder_volume_drivers_zadara
@@ -17,15 +16,15 @@ Last-Update: 2016-07-15
  from cinder.volume.drivers.zte import zte_ks as cinder_volume_drivers_zte_zteks
  from cinder.volume import manager as cinder_volume_manager
  from cinder.wsgi import eventlet_server as cinder_wsgi_eventletserver
-@@ -281,7 +277,6 @@ def list_opts():
-                 cinder_volume_drivers_xio.XIO_OPTS,
+@@ -282,7 +278,6 @@ def list_opts():
                  cinder_volume_drivers_ibm_storwize_svc_storwizesvcfc.
                  storwize_svc_fc_opts,
+                 cinder_volume_drivers_falconstor_fsscommon.FSS_OPTS,
 -                cinder_volume_drivers_zfssa_zfssaiscsi.ZFSSA_OPTS,
                  cinder_volume_driver.volume_opts,
                  cinder_volume_driver.iser_opts,
                  cinder_api_views_versions.versions_opts,
-@@ -325,7 +320,6 @@ def list_opts():
+@@ -326,7 +321,6 @@ def list_opts():
                  cinder_volume_drivers_blockbridge.blockbridge_opts,
                  [cinder_scheduler_scheduleroptions.
                      scheduler_json_config_location_opt],

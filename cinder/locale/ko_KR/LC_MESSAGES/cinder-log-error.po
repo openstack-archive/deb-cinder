@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 9.0.0.0b2.dev1\n"
+"Project-Id-Version: cinder 9.0.0.0b3.dev487\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-01 22:30+0000\n"
+"POT-Creation-Date: 2016-08-30 03:17+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -101,10 +101,6 @@ msgid "Array Serial Number must be in the file %(fileName)s."
 msgstr "배열 일련 번호가 %(fileName)s 파일에 있어야 합니다."
 
 #, python-format
-msgid "Array mismatch %(myid)s vs %(arid)s"
-msgstr "%(myid)s과(와) %(arid)s 배열 불일치"
-
-#, python-format
 msgid "Array query failed - No response (%d)!"
 msgstr "배열 쿼리 실패 - 응답이 없음(%d)!"
 
@@ -176,23 +172,11 @@ msgid "Call to json.loads() raised an exception: %s."
 msgstr "json.loads() 호출에서 예외 발생: %s."
 
 #, python-format
-msgid "Can not add the lun %(lun)s to consistency group %(cg_name)s."
-msgstr "lun %(lun)s을(를) 일관성 그룹 %(cg_name)s에 추가할 수 없습니다."
-
-#, python-format
 msgid "Can not discovery in %(target_ip)s with %(target_iqn)s."
 msgstr "%(target_iqn)s(으)로 %(target_ip)s에서 검색할 수 없습니다."
 
 msgid "Can not open the recent url, login again."
 msgstr "최신 url을 열 수 없습니다. 다시 로그인하십시오."
-
-#, python-format
-msgid "Can not place new LUNs %(luns)s in consistency group %(cg_name)s."
-msgstr "일관성 그룹 %(cg_name)s에 새 LUNs %(luns)s을(를) 둘 수 없습니다."
-
-#, python-format
-msgid "Can not remove LUNs %(luns)s in consistency group %(cg_name)s."
-msgstr "일관성 그룹 %(cg_name)s의 LUNs %(luns)s을(를) 제거할 수 없습니다."
 
 #, python-format
 msgid "Can't find volume to map %(key)s, %(msg)s"
@@ -370,10 +354,6 @@ msgid "Connection to %s failed and no secondary!"
 msgstr "%s에 연결에 실패했으며 보조가 없습니다."
 
 #, python-format
-msgid "Consistency group %s: create failed"
-msgstr "일관성 그룹 %s: 작성 실패"
-
-#, python-format
 msgid "Controller GET failed (%d)"
 msgstr "제어기 GET 실패(%d)"
 
@@ -411,22 +391,6 @@ msgstr "이미지 볼륨 %(id)s을(를) 삭제할 수 없습니다."
 #, python-format
 msgid "Could not delete the image volume %(id)s."
 msgstr "이미지 볼륨 %(id)s을(를) 삭제할 수 없습니다."
-
-#, python-format
-msgid ""
-"Could not do delete of snapshot %s on filer, falling back to exec of \"rm\" "
-"command."
-msgstr ""
-"파일 프로그램에서 스냅샷 %s을(를) 삭제할 수 없어, \"rm\" 명령의 실행으로 장"
-"애 복구할 수 없습니다."
-
-#, python-format
-msgid ""
-"Could not do delete of volume %s on filer, falling back to exec of \"rm\" "
-"command."
-msgstr ""
-"파일 프로그램에서 볼륨 %s을(를) 삭제할 수 없어, \"rm\" 명령의 실행으로 장애 "
-"복구할 수 없습니다."
 
 #, python-format
 msgid "Could not find a host for consistency group %(group_id)s."
@@ -476,20 +440,12 @@ msgid "Could not validate device %s"
 msgstr "%s 장치를 검증할 수 없음"
 
 #, python-format
-msgid "Create cg snapshot %s failed."
-msgstr "cg 스냅샷 %s 작성에 실패했습니다."
-
-#, python-format
 msgid ""
 "Create clone_image_volume: %(volume_id)sfor image %(image_id)s, failed "
 "(Exception: %(except)s)"
 msgstr ""
 "이미지 %(image_id)s의 clone_image_volume: %(volume_id)s 작성 실패(예외: "
 "%(except)s)"
-
-#, python-format
-msgid "Create consistency group %s failed."
-msgstr "일관성 그룹 %s을(를) 생성하는 데 실패했습니다."
 
 #, python-format
 msgid ""
@@ -565,14 +521,6 @@ msgid ""
 "Default volume type is not found. Please check default_volume_type config:"
 msgstr ""
 "기본 볼륨 유형을 찾을 수 없습니다. default_volume_type 구성을 확인하십시오."
-
-#, python-format
-msgid "Delete cgsnapshot %s failed."
-msgstr "cgsnapshot %s 삭제에 실패했습니다."
-
-#, python-format
-msgid "Delete consistency group %s failed."
-msgstr "일관성 그룹 %s 삭제에 실패했습니다. "
 
 msgid "Delete consistency group failed to update usages."
 msgstr "일관성 그룹을 삭제하는 중 사용법을 업데이트하지 못했습니다."
@@ -692,9 +640,6 @@ msgstr "TypeError 오류. %s"
 msgid "Error activating LV"
 msgstr "LV 활성화 오류"
 
-msgid "Error adding HBA to server"
-msgstr "HBA를 서버에 추가하는 중 오류 발생"
-
 #, python-format
 msgid "Error changing Storage Profile for volume %(original)s to %(name)s"
 msgstr ""
@@ -717,12 +662,6 @@ msgstr ""
 "'%(method)s', %(extra)s의 Glance 서버 '%(netloc)s'에 접속하는 중 오류가 발생"
 "했습니다."
 
-msgid "Error copying key."
-msgstr "키 복사 오류."
-
-msgid "Error creating Barbican client."
-msgstr "Barbican 클라이언트 생성 오류."
-
 #, python-format
 msgid "Error creating QOS rule %s"
 msgstr "QOS 규칙 %s 작성 오류"
@@ -739,9 +678,6 @@ msgstr "chap 레코드를 작성하는 중에 오류가 발생했습니다."
 msgid "Error creating cloned volume"
 msgstr "복제된 볼륨 작성 오류"
 
-msgid "Error creating key."
-msgstr "키 작성 오류."
-
 msgid "Error creating snapshot"
 msgstr "스냅샷 작성 오류"
 
@@ -754,9 +690,6 @@ msgstr "볼륨을 작성하는 중에 오류가 발생했습니다. 메시지 - 
 
 msgid "Error deactivating LV"
 msgstr "LV 비활성화 오류"
-
-msgid "Error deleting key."
-msgstr "키 삭제 오류."
 
 msgid "Error deleting snapshot"
 msgstr "스냅샷 삭제 에러"
@@ -849,31 +782,14 @@ msgstr "배열, 풀, SLO 및 워크로드를 가져오는 중 오류가 발생�
 msgid "Error getting chap record."
 msgstr "chap 레코드를 가져오는 중에 오류가 발생했습니다."
 
-#, python-format
-msgid "Error getting iSCSI target info from EVS %(evs)s."
-msgstr "EVS %(evs)s에서 iSCSI 대상을 가져오는 중에 오류가 발생했습니다."
-
-msgid "Error getting key."
-msgstr "키 가져오기 오류."
-
 msgid "Error getting name server info."
 msgstr "이름 서버 정보 가져오기 오류."
-
-msgid "Error getting secret data."
-msgstr "시크릿 데이터 가져오기 오류."
-
-msgid "Error getting secret metadata."
-msgstr "시크릿 메타데이터 가져오기 오류."
 
 msgid "Error getting show fcns database info."
 msgstr "표시 fcns 데이터베이스 정보 가져오기 오류."
 
 msgid "Error getting target pool name and array."
 msgstr "대상 풀 이름과 배열을 가져오는 중 오류가 발생했습니다."
-
-#, python-format
-msgid "Error happened during storage pool querying, %s."
-msgstr "스토리지 풀 쿼리 중에 오류 발생, %s."
 
 #, python-format
 msgid "Error has occurred: %s"
@@ -1026,14 +942,6 @@ msgstr ""
 "이미지 %(image_id)s에서 볼륨 %(id)s을(를) 작성하는 중에 오류가 발생했습니다."
 
 #, python-format
-msgid "Error on adding lun to consistency group. %s"
-msgstr "일관성 그룹에 lun을 추가하는 중에 오류가 발생했습니다. %s"
-
-#, python-format
-msgid "Error on enable compression on lun %s."
-msgstr "lun %s에서 압축을 사용하는 중에 오류가 발생했습니다."
-
-#, python-format
 msgid ""
 "Error on execute %(command)s. Error code: %(exit_code)d Error msg: %(result)s"
 msgstr ""
@@ -1106,9 +1014,6 @@ msgstr "플래시 캐시 정책을 %s(으)로 설정하는 중 오류 발생 - �
 
 msgid "Error starting coordination backend."
 msgstr "조정 백엔드를 시작하는 중에 오류가 발생했습니다."
-
-msgid "Error storing key."
-msgstr "키 저장 오류."
 
 #, python-format
 msgid "Error trying to change %(opt)s from %(old)s to %(new)s"
@@ -1662,10 +1567,6 @@ msgstr ""
 msgid "Failed to find %(s)s.  Result %(r)s"
 msgstr "%(s)s을(를) 찾지 못했습니다. 결과 %(r)s"
 
-#, python-format
-msgid "Failed to find available iSCSI targets for %s."
-msgstr "%s의 사용 가능한 iSCSI 대상을 찾지 못했습니다."
-
 msgid "Failed to get IQN!"
 msgstr "IQN을 가져오는 데 실패"
 
@@ -1793,9 +1694,6 @@ msgstr "복제 장애 복구 수행 실패"
 #, python-format
 msgid "Failed to present volume %(name)s (%(status)d)!"
 msgstr "볼륨 %(name)s (%(status)d)을(를) 표시하는 데 실패했습니다."
-
-msgid "Failed to query migration status of LUN."
-msgstr "LUN의 마이그레이션 상태를 쿼리하지 못했습니다."
 
 msgid "Failed to re-export volume, setting to ERROR."
 msgstr "볼륨을 다시 내보내는 데 실패했습니다. ERROR로 설정합니다."
@@ -1987,14 +1885,6 @@ msgstr ""
 "를 업데이트하는 데 실패했습니다."
 
 #, python-format
-msgid ""
-"Failed to update initiator data for initiator %(initiator)s and backend "
-"%(backend)s"
-msgstr ""
-"개시자 %(initiator)s 및 백엔드 %(backend)s의 드라이버 개시자 데이터를 업데이"
-"트하는 데 실패"
-
-#, python-format
 msgid "Failed to update quota donating volume transfer id %s"
 msgstr "볼륨 전송 id %s를 제공하는 할당량을 업데이트하는 데 실패"
 
@@ -2046,10 +1936,6 @@ msgstr "/etc/scst.conf에 쓰지 못했습니다."
 #, python-format
 msgid "Failed to write persistence file: %(path)s."
 msgstr "영구 파일을 쓰는 데 실패: %(path)s."
-
-#, python-format
-msgid "Failed updating %(object_type)s %(object_id)s with %(update)s"
-msgstr "%(object_type)s %(object_id)s을(를) %(update)s(으)로 업데이트 실패"
 
 #, python-format
 msgid ""
@@ -2172,10 +2058,6 @@ msgid "Get replication status for volume failed."
 msgstr "볼륨의 복제본 상태를 가져오는 데 실패했습니다."
 
 #, python-format
-msgid "HDP not found: %s"
-msgstr "HDP를 찾을 수 없음: %s"
-
-#, python-format
 msgid "Host PUT failed (%s)."
 msgstr "호스트 PUT 실패(%s)."
 
@@ -2214,10 +2096,6 @@ msgstr "올바르지 않은 호스트 이름 %(host)s"
 
 msgid "Invalid replication target specified for failover"
 msgstr "장애 복구를 위해 올바르지 않은 복제 대상이 지정됨"
-
-#, python-format
-msgid "Invalid value for %(key)s, value is %(value)s."
-msgstr "%(key)s의 올바르지 않은 값입니다, 값은 %(value)s입니다."
 
 msgid ""
 "Issuing a fail-over failed because replication is not properly configured."
@@ -2288,10 +2166,6 @@ msgstr "볼륨 %(vol)s 스냅샷 %(snap)s의 Lun 작성 스냅샷 실패"
 msgid "Lun delete for %s failed!"
 msgstr "%s의 Lun 삭제 실패"
 
-#, python-format
-msgid "Lun delete snapshot for volume %(vol)s snapshot %(snap)s failed!"
-msgstr "볼륨 %(vol)s 스냅샷 %(snap)s의 Lun 삭제 스냅샷 실패"
-
 msgid "Lun mapping returned null!"
 msgstr "Lun 맵핑에서 널(null)을 리턴했습니다!"
 
@@ -2329,10 +2203,6 @@ msgstr ""
 msgid "Message: %s"
 msgstr "메시지: %s"
 
-#, python-format
-msgid "Migration of LUN %s failed to complete."
-msgstr "LUN %s의 마이그레이션을 완료하지 못했습니다."
-
 msgid "Model update failed."
 msgstr "모델 업데이트에 실패했습니다."
 
@@ -2351,10 +2221,6 @@ msgstr "%(share)s의 마운트 실패."
 #, python-format
 msgid "Multiple replay profiles under name %s"
 msgstr "%s(이)라는 이름의 여러 재생 프로파일"
-
-#, python-format
-msgid "NFS share %(share)s has no service entry: %(svc)s -> %(hdp)s"
-msgstr "NFS 공유 %(share)s에 서비스 항목이 없음: %(svc)s -> %(hdp)s"
 
 msgid "No CLI output for firmware version check"
 msgstr "펌웨어 버전 확인을 위한 CLI 출력이 없음"
@@ -2377,14 +2243,6 @@ msgid ""
 msgstr ""
 "작업이 필요하지 않습니다. 볼륨: %(volumeName)s이(가) 이미 slo/워크로드 조합: "
 "%(targetCombination)s의 일부입니다."
-
-#, python-format
-msgid "No configuration found for service: %s"
-msgstr "서비스의 구성을 찾을 수 없음: %s"
-
-#, python-format
-msgid "No configuration found for service: %s."
-msgstr "서비스의 구성을 찾을 수 없음: %s."
 
 #, python-format
 msgid ""
@@ -2708,9 +2566,6 @@ msgid ""
 "The connector does not contain the required information: wwpns is missing"
 msgstr "커넥터에 필수 정보가 없음: wwpns가 누락되어 있음"
 
-msgid "The given extra_spec or valid_values is None."
-msgstr "지정된 extra_spec 또는 valid_values가 None입니다."
-
 msgid "The list of iscsi_ip_addresses is empty"
 msgstr "iscsi_ip_addresses 목록이 비어 있음"
 
@@ -2933,12 +2788,6 @@ msgstr ""
 msgid "Unable to manage existing volume. Volume driver %s not initialized."
 msgstr ""
 "기존 볼륨을 관리할 수 없습니다. 볼륨 드라이버 %s이(가) 초기화되지 않았습니다."
-
-msgid "Unable to manage_existing snapshot on a disabled service."
-msgstr "사용되지 않는 서비스에서 기존 스냅샷을 관리할 수 없습니다."
-
-msgid "Unable to manage_existing volume on a disabled service."
-msgstr "사용되지 않는 서비스에서 기존 볼륨을 관리할 수 없습니다."
 
 #, python-format
 msgid "Unable to map %(vol)s to %(srv)s"
@@ -3338,9 +3187,6 @@ msgstr ""
 "삭제: %(vol_id)s이(가) stdout에 실패함. stdout: %(out)s\n"
 " stderr: %(err)s"
 
-msgid "delete_vol: provider location empty."
-msgstr "delete_vol: 제공자 위치가 비어 있습니다."
-
 #, python-format
 msgid "ensure_export: Volume %s not found on storage."
 msgstr "ensure_export: 스토리지에 볼륨 %s을(를) 찾을 수 없습니다."
@@ -3354,10 +3200,6 @@ msgstr "볼륨 상태를 새로 고치는 중 오류 발생"
 
 msgid "horcm command timeout."
 msgstr "horcm 명령의 제한시간이 초과되었습니다."
-
-#, python-format
-msgid "iSCSI portal not found for service: %s"
-msgstr "서비스의 iSCSI 포털을 찾을 수 없음: %s"
 
 msgid "import pywbem failed!! pywbem is necessary for this volume driver."
 msgstr ""

@@ -21,6 +21,7 @@ from cinder import objects
 from cinder.objects import fields
 from cinder.tests.unit import fake_constants as fake
 from cinder.tests.unit import fake_volume
+from cinder import utils
 
 
 DEFAULT_VOL_NAME = "displayname"
@@ -89,6 +90,7 @@ def stub_volume_create(self, context, size, name, description, snapshot=None,
     vol['source_volid'] = source_volume.get('id')
     vol['bootable'] = False
     vol['volume_attachment'] = []
+    vol['multiattach'] = utils.get_bool_param('multiattach', param)
     try:
         vol['snapshot_id'] = snapshot['id']
     except (KeyError, TypeError):
@@ -218,6 +220,10 @@ def stub_snapshot_get_all_by_project(context, project_id, filters=None,
 
 def stub_snapshot_update(self, context, *args, **param):
     pass
+
+
+def stub_service_get_all(*args, **kwargs):
+    return [{'availability_zone': "zone1:host1", "disabled": 0}]
 
 
 def stub_service_get_all_by_topic(context, topic, disabled=None):

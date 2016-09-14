@@ -16,7 +16,9 @@
 
 
 import ast
+import functools
 import math
+import operator
 import re
 import time
 import uuid
@@ -42,6 +44,7 @@ from cinder import objects
 from cinder import rpc
 from cinder import utils
 from cinder.volume import throttling
+from cinder.volume import volume_types
 
 
 CONF = cfg.CONF
@@ -241,6 +244,37 @@ def notify_about_consistencygroup_usage(context, group, event_suffix,
         usage_info)
 
 
+def _usage_from_group(group_ref, **kw):
+    usage_info = dict(tenant_id=group_ref.project_id,
+                      user_id=group_ref.user_id,
+                      availability_zone=group_ref.availability_zone,
+                      group_id=group_ref.id,
+                      group_type=group_ref.group_type_id,
+                      name=group_ref.name,
+                      created_at=group_ref.created_at.isoformat(),
+                      status=group_ref.status)
+
+    usage_info.update(kw)
+    return usage_info
+
+
+def notify_about_group_usage(context, group, event_suffix,
+                             extra_usage_info=None, host=None):
+    if not host:
+        host = CONF.host
+
+    if not extra_usage_info:
+        extra_usage_info = {}
+
+    usage_info = _usage_from_group(group,
+                                   **extra_usage_info)
+
+    rpc.get_notifier("group", host).info(
+        context,
+        'group.%s' % event_suffix,
+        usage_info)
+
+
 def _usage_from_cgsnapshot(cgsnapshot, **kw):
     usage_info = dict(
         tenant_id=cgsnapshot.project_id,
@@ -250,6 +284,21 @@ def _usage_from_cgsnapshot(cgsnapshot, **kw):
         consistencygroup_id=cgsnapshot.consistencygroup_id,
         created_at=cgsnapshot.created_at.isoformat(),
         status=cgsnapshot.status)
+
+    usage_info.update(kw)
+    return usage_info
+
+
+def _usage_from_group_snapshot(group_snapshot, **kw):
+    usage_info = dict(
+        tenant_id=group_snapshot.project_id,
+        user_id=group_snapshot.user_id,
+        group_snapshot_id=group_snapshot.id,
+        name=group_snapshot.name,
+        group_id=group_snapshot.group_id,
+        group_type=group_snapshot.group_type_id,
+        created_at=group_snapshot.created_at.isoformat(),
+        status=group_snapshot.status)
 
     usage_info.update(kw)
     return usage_info
@@ -269,6 +318,23 @@ def notify_about_cgsnapshot_usage(context, cgsnapshot, event_suffix,
     rpc.get_notifier("cgsnapshot", host).info(
         context,
         'cgsnapshot.%s' % event_suffix,
+        usage_info)
+
+
+def notify_about_group_snapshot_usage(context, group_snapshot, event_suffix,
+                                      extra_usage_info=None, host=None):
+    if not host:
+        host = CONF.host
+
+    if not extra_usage_info:
+        extra_usage_info = {}
+
+    usage_info = _usage_from_group_snapshot(group_snapshot,
+                                            **extra_usage_info)
+
+    rpc.get_notifier("group_snapshot", host).info(
+        context,
+        'group_snapshot.%s' % event_suffix,
         usage_info)
 
 
@@ -316,36 +382,36 @@ def check_for_odirect_support(src, dest, flag='oflag=direct'):
 def _copy_volume_with_path(prefix, srcstr, deststr, size_in_m, blocksize,
                            sync=False, execute=utils.execute, ionice=None,
                            sparse=False):
+    cmd = prefix[:]
+
+    if ionice:
+        cmd.extend(('ionice', ionice))
+
+    blocksize, count = _calculate_count(size_in_m, blocksize)
+    cmd.extend(('dd', 'if=%s' % srcstr, 'of=%s' % deststr,
+                'count=%d' % count, 'bs=%s' % blocksize))
+
     # Use O_DIRECT to avoid thrashing the system buffer cache
-    extra_flags = []
+    odirect = False
     if check_for_odirect_support(srcstr, deststr, 'iflag=direct'):
-        extra_flags.append('iflag=direct')
+        cmd.append('iflag=direct')
+        odirect = True
 
     if check_for_odirect_support(srcstr, deststr, 'oflag=direct'):
-        extra_flags.append('oflag=direct')
+        cmd.append('oflag=direct')
+        odirect = True
 
     # If the volume is being unprovisioned then
     # request the data is persisted before returning,
     # so that it's not discarded from the cache.
     conv = []
-    if sync and not extra_flags:
+    if sync and not odirect:
         conv.append('fdatasync')
     if sparse:
         conv.append('sparse')
     if conv:
         conv_options = 'conv=' + ",".join(conv)
-        extra_flags.append(conv_options)
-
-    blocksize, count = _calculate_count(size_in_m, blocksize)
-
-    cmd = ['dd', 'if=%s' % srcstr, 'of=%s' % deststr,
-           'count=%d' % count, 'bs=%s' % blocksize]
-    cmd.extend(extra_flags)
-
-    if ionice is not None:
-        cmd = ['ionice', ionice] + cmd
-
-    cmd = prefix + cmd
+        cmd.append(conv_options)
 
     # Perform the copy
     start_time = timeutils.utcnow()
@@ -488,6 +554,11 @@ def clear_volume(volume_size, volume_path, volume_clear=None,
 
     LOG.info(_LI("Performing secure delete on volume: %s"), volume_path)
 
+    if volume_clear == 'shred':
+        LOG.warning(_LW("volume_clear=shred has been deprecated and will "
+                        "be removed in the next release. Clearing with dd."))
+        volume_clear = 'zero'
+
     # We pass sparse=False explicitly here so that zero blocks are not
     # skipped in order to clear the volume.
     if volume_clear == 'zero':
@@ -496,25 +567,10 @@ def clear_volume(volume_size, volume_path, volume_clear=None,
                            sync=True, execute=utils.execute,
                            ionice=volume_clear_ionice,
                            throttle=throttle, sparse=False)
-    elif volume_clear == 'shred':
-        clear_cmd = ['shred', '-n3']
-        if volume_clear_size:
-            clear_cmd.append('-s%dMiB' % volume_clear_size)
     else:
         raise exception.InvalidConfigurationValue(
             option='volume_clear',
             value=volume_clear)
-
-    clear_cmd.append(volume_path)
-    start_time = timeutils.utcnow()
-    utils.execute(*clear_cmd, run_as_root=True)
-    duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
-
-    # NOTE(jdg): use a default of 1, mostly for unit test, but in
-    # some incredible event this is 0 (cirros image?) don't barf
-    if duration < 1:
-        duration = 1
-    LOG.info(_LI('Elapsed time for clear volume: %.2f sec'), duration)
 
 
 def supports_thin_provisioning():
@@ -664,26 +720,83 @@ def read_proc_mounts():
         return mounts.readlines()
 
 
-def _extract_id(vol_name):
+def extract_id_from_volume_name(vol_name):
     regex = re.compile(
         CONF.volume_name_template.replace('%s', '(?P<uuid>.+)'))
     match = regex.match(vol_name)
     return match.group('uuid') if match else None
 
 
-def check_already_managed_volume(vol_name):
+def check_already_managed_volume(vol_id):
     """Check cinder db for already managed volume.
 
-    :param vol_name: volume name parameter
+    :param vol_id: volume id parameter
     :returns: bool -- return True, if db entry with specified
-                      volume name exist, otherwise return False
+                      volume id exists, otherwise return False
     """
-    vol_id = _extract_id(vol_name)
     try:
-        return (vol_id and uuid.UUID(vol_id, version=4) and
+        return (vol_id and isinstance(vol_id, six.string_types) and
+                uuid.UUID(vol_id, version=4) and
                 objects.Volume.exists(context.get_admin_context(), vol_id))
     except ValueError:
         return False
+
+
+def extract_id_from_snapshot_name(snap_name):
+    """Return a snapshot's ID from its name on the backend."""
+    regex = re.compile(
+        CONF.snapshot_name_template.replace('%s', '(?P<uuid>.+)'))
+    match = regex.match(snap_name)
+    return match.group('uuid') if match else None
+
+
+def paginate_entries_list(entries, marker, limit, offset, sort_keys,
+                          sort_dirs):
+    """Paginate a list of entries.
+
+    :param entries: list of dictionaries
+    :marker: The last element previously returned
+    :limit: The maximum number of items to return
+    :offset: The number of items to skip from the marker or from the first
+             element.
+    :sort_keys: A list of keys in the dictionaries to sort by
+    :sort_dirs: A list of sort directions, where each is either 'asc' or 'dec'
+    """
+    comparers = [(operator.itemgetter(key.strip()), multiplier)
+                 for (key, multiplier) in zip(sort_keys, sort_dirs)]
+
+    def comparer(left, right):
+        for fn, d in comparers:
+            left_val = fn(left)
+            right_val = fn(right)
+            if isinstance(left_val, dict):
+                left_val = sorted(left_val.values())[0]
+            if isinstance(right_val, dict):
+                right_val = sorted(right_val.values())[0]
+            if left_val == right_val:
+                continue
+            if d == 'asc':
+                return -1 if left_val < right_val else 1
+            else:
+                return -1 if left_val > right_val else 1
+        else:
+            return 0
+    sorted_entries = sorted(entries, key=functools.cmp_to_key(comparer))
+
+    start_index = 0
+    if offset is None:
+        offset = 0
+    if marker:
+        start_index = -1
+        for i, entry in enumerate(sorted_entries):
+            if entry['reference'] == marker:
+                start_index = i + 1
+                break
+        if start_index < 0:
+            msg = _('marker not found: %s') % marker
+            raise exception.InvalidInput(reason=msg)
+    range_end = start_index + limit
+    return sorted_entries[start_index + offset:range_end + offset]
 
 
 def convert_config_string_to_dict(config_string):
@@ -708,3 +821,19 @@ def convert_config_string_to_dict(config_string):
                     {'config_string': config_string})
 
     return resultant_dict
+
+
+def create_encryption_key(context, key_manager, volume_type_id):
+    encryption_key_id = None
+    if volume_types.is_encrypted(context, volume_type_id):
+        volume_type_encryption = (
+            volume_types.get_volume_type_encryption(context,
+                                                    volume_type_id))
+        cipher = volume_type_encryption.cipher
+        length = volume_type_encryption.key_size
+        algorithm = cipher.split('-')[0] if cipher else None
+        encryption_key_id = key_manager.create_key(
+            context,
+            algorithm=algorithm,
+            length=length)
+    return encryption_key_id

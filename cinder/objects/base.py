@@ -79,6 +79,10 @@ class CinderObjectVersionsHistory(dict):
         return self[self.get_current()]
 
     def add(self, ver, updates):
+        if ver in self.versions:
+            msg = 'Version %s already exists in history.' % ver
+            raise exception.ProgrammingError(reason=msg)
+
         self[ver] = self[self.get_current()].copy()
         self.versions.append(ver)
         self[ver].update(updates)
@@ -100,6 +104,18 @@ OBJ_VERSIONS.add('1.2', {'Backup': '1.4', 'BackupImport': '1.4'})
 OBJ_VERSIONS.add('1.3', {'Service': '1.3'})
 OBJ_VERSIONS.add('1.4', {'Snapshot': '1.1'})
 OBJ_VERSIONS.add('1.5', {'VolumeType': '1.1'})
+OBJ_VERSIONS.add('1.6', {'QualityOfServiceSpecs': '1.0',
+                         'QualityOfServiceSpecsList': '1.0',
+                         'VolumeType': '1.2'})
+OBJ_VERSIONS.add('1.7', {'Cluster': '1.0', 'ClusterList': '1.0',
+                         'Service': '1.4', 'Volume': '1.4',
+                         'ConsistencyGroup': '1.3'})
+OBJ_VERSIONS.add('1.8', {'RequestSpec': '1.0', 'VolumeProperties': '1.0'})
+OBJ_VERSIONS.add('1.9', {'GroupType': '1.0', 'GroupTypeList': '1.0'})
+OBJ_VERSIONS.add('1.10', {'Group': '1.0', 'GroupList': '1.0', 'Volume': '1.5',
+                          'RequestSpec': '1.1', 'VolumeProperties': '1.1'})
+OBJ_VERSIONS.add('1.11', {'GroupSnapshot': '1.0', 'GroupSnapshotList': '1.0',
+                          'Group': '1.1'})
 
 
 class CinderObjectRegistry(base.VersionedObjectRegistry):
@@ -124,11 +140,6 @@ class CinderObject(base.VersionedObject):
     # cinder, and other objects can exist on the same bus and be distinguished
     # from one another.
     OBJ_PROJECT_NAMESPACE = 'cinder'
-
-    # NOTE(thangp): As more objects are added to cinder, each object should
-    # have a custom map of version compatibility.  This just anchors the base
-    # version compatibility.
-    VERSION_COMPATIBILITY = {'7.0.0': '1.0'}
 
     def cinder_obj_get_changes(self):
         """Returns a dict of changed fields with tz unaware datetimes.
@@ -259,7 +270,7 @@ class CinderPersistentObject(object):
             self._context = original_context
 
     @classmethod
-    def _get_expected_attrs(cls, context):
+    def _get_expected_attrs(cls, context, *args, **kwargs):
         return None
 
     @classmethod
@@ -271,9 +282,10 @@ class CinderPersistentObject(object):
                    (cls.obj_name()))
             raise NotImplementedError(msg)
 
-        model = db.get_model_for_versioned_object(cls)
-        orm_obj = db.get_by_id(context, model, id, *args, **kwargs)
+        orm_obj = db.get_by_id(context, cls.model, id, *args, **kwargs)
         expected_attrs = cls._get_expected_attrs(context)
+        # We pass parameters because fields to expect may depend on them
+        expected_attrs = cls._get_expected_attrs(context, *args, **kwargs)
         kargs = {}
         if expected_attrs:
             kargs = {'expected_attrs': expected_attrs}
@@ -407,19 +419,14 @@ class CinderPersistentObject(object):
 
         current = self.get_by_id(self._context, self.id)
 
-        for field in self.fields:
-            # Only update attributes that are already set.  We do not want to
-            # unexpectedly trigger a lazy-load.
-            if self.obj_attr_is_set(field):
-                current_field = getattr(current, field)
-                if getattr(self, field) != current_field:
-                    setattr(self, field, current_field)
-        self.obj_reset_changes()
+        # Copy contents retrieved from the DB into self
+        my_data = vars(self)
+        my_data.clear()
+        my_data.update(vars(current))
 
     @classmethod
     def exists(cls, context, id_):
-        model = db.get_model_for_versioned_object(cls)
-        return db.resource_exists(context, model, id_)
+        return db.resource_exists(context, cls.model, id_)
 
 
 class CinderComparableObject(base.ComparableVersionedObject):
@@ -437,6 +444,12 @@ class ObjectListBase(base.ObjectListBase):
         _log_backport(self, target_version)
         super(ObjectListBase, self).obj_make_compatible(primitive,
                                                         target_version)
+
+
+class ClusteredObject(object):
+    @property
+    def service_topic_queue(self):
+        return self.cluster_name or self.host
 
 
 class CinderObjectSerializer(base.VersionedObjectSerializer):

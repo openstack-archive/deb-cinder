@@ -14,7 +14,7 @@ ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 		rm -rf .testrepository ; \
 		testr-python$$PYMAJOR init ; \
 		TEMP_REZ=`mktemp -t` ; \
-		PYTHONPATH=$(CURDIR) PYTHON=python$$i testr-python$$PYMAJOR run --subunit 'cinder\.tests\.unit\.(?!(.*test_volume\.VolumeTestCase\.test_create_delete_volume.*|.*test_volume\.ConsistencyGroupTestCase\.test_create_delete_cgsnapshot.*|.*test_volume\.VolumeMigrationTestCase\.test_retype_volume_driver_success.*))' | tee $$TEMP_REZ | subunit2pyunit ; \
+		PYTHONPATH=$(CURDIR) PYTHON=python$$i testr-python$$PYMAJOR run --subunit 'cinder\.tests\.unit\.(?!(.*test_volume\.VolumeTestCase\.test_create_delete_volume.*|.*test_volume\.ConsistencyGroupTestCase\.test_create_delete_cgsnapshot.*|.*test_volume\.VolumeMigrationTestCase\.test_retype_volume_driver_success.*|.*test_volume\.VolumeMigrationTestCase\.test_retype_volume_migration_failed.*|.*backup\.test_backup\.BackupTestCase\.test_create_backup_with_temp_snapshot.*))' | tee $$TEMP_REZ | subunit2pyunit ; \
 		cat $$TEMP_REZ | subunit-filter -s --no-passthrough | subunit-stats ; \
 		rm -f $$TEMP_REZ ; \
 		testr-python$$PYMAJOR slowest ; \
@@ -39,6 +39,7 @@ override_dh_install:
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
 		--output-file $(CURDIR)/debian/cinder-common/usr/share/cinder-common/cinder.conf \
 		--wrap-width 80 \
+		--namespace castellan.config \
 		--namespace cinder \
 		--namespace keystonemiddleware.auth_token \
 		--namespace oslo.config \
@@ -103,7 +104,7 @@ override_dh_auto_build:
 
 override_dh_sphinxdoc:
 ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
-	python setup.py build_sphinx
+	PYTHONPATH=. python setup.py build_sphinx
 	cp -rf doc/build/html $(CURDIR)/debian/cinder-doc/usr/share/doc/cinder-doc
 	dh_sphinxdoc -O--buildsystem=python_distutils
 endif

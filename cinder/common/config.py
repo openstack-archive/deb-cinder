@@ -61,6 +61,7 @@ global_opts = [
                default=1,
                help='Version of the glance API to use'),
     cfg.IntOpt('glance_num_retries',
+               min=0,
                default=0,
                help='Number retries when downloading an image from glance'),
     cfg.BoolOpt('glance_api_insecure',
@@ -82,15 +83,6 @@ global_opts = [
                help='http/https timeout value for glance operations. If no '
                     'value (None) is supplied here, the glanceclient default '
                     'value is used.'),
-    cfg.StrOpt('scheduler_topic',
-               default='cinder-scheduler',
-               help='The topic that scheduler nodes listen on'),
-    cfg.StrOpt('volume_topic',
-               default='cinder-volume',
-               help='The topic that volume nodes listen on'),
-    cfg.StrOpt('backup_topic',
-               default='cinder-backup',
-               help='The topic that volume backup nodes listen on'),
     cfg.BoolOpt('enable_v1_api',
                 default=True,
                 deprecated_for_removal=True,
@@ -142,6 +134,8 @@ global_opts = [
                      'storage_availability_zone, instead of failing.'),
     cfg.StrOpt('default_volume_type',
                help='Default volume type to use'),
+    cfg.StrOpt('default_group_type',
+               help='Default group type to use'),
     cfg.StrOpt('volume_usage_audit_period',
                default='month',
                help='Time period for which to generate volume usages. '
@@ -187,6 +181,9 @@ global_opts = [
     cfg.StrOpt('consistencygroup_api_class',
                default='cinder.consistencygroup.api.API',
                help='The full class name of the consistencygroup API class'),
+    cfg.StrOpt('group_api_class',
+               default='cinder.group.api.API',
+               help='The full class name of the group API class'),
     cfg.StrOpt('os_privileged_user_name',
                help='OpenStack privileged account username. Used for requests '
                     'to other services (such as Nova) that require an account '

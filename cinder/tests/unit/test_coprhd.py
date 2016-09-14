@@ -16,6 +16,7 @@
 from mock import Mock
 
 from cinder import context
+from cinder import exception
 from cinder.objects import fields
 from cinder import test
 from cinder.volume.drivers.coprhd import common as coprhd_common
@@ -193,7 +194,9 @@ def get_test_volume_data(volume_type_id):
                    'project_id': 'project',
                    'display_name': 'test-vol1',
                    'display_description': 'test volume',
-                   'volume_type_id': volume_type_id}
+                   'volume_type_id': volume_type_id,
+                   'provider_id': '1',
+                   }
     return test_volume
 
 
@@ -261,7 +264,8 @@ def get_test_CG_snap_data(volume_type_id):
                         'consistencygroup_id': '123456789',
                         'status': fields.ConsistencyGroupStatus.AVAILABLE,
                         'snapshots': [],
-                        'consistencygroup': get_test_CG_data(volume_type_id)
+                        'consistencygroup': get_test_CG_data(volume_type_id),
+                        'cgsnapshot_id': '1',
                         }
     return test_CG_snapshot
 
@@ -351,7 +355,6 @@ class MockedEMCCoprHDDriverCommon(coprhd_common.EMCCoprHDDriverCommon):
 
         self.host_obj = Mock()
         self.host_obj.list_by_tenant.return_value = []
-        self.host_obj.search_by_name.return_value = []
         self.host_obj.list_all.return_value = [{'id': "host1_id",
                                                 'name': "host1"}]
         self.host_obj.list_initiators.return_value = [
@@ -398,9 +401,9 @@ class EMCCoprHDISCSIDriverTest(test.TestCase):
 
         self.volume_type_id = self.create_coprhd_volume_type()
 
-        self.stubs.Set(coprhd_iscsi.EMCCoprHDISCSIDriver,
-                       '_get_common_driver',
-                       self._get_mocked_common_driver)
+        self.mock_object(coprhd_iscsi.EMCCoprHDISCSIDriver,
+                         '_get_common_driver',
+                         self._get_mocked_common_driver)
         self.driver = coprhd_iscsi.EMCCoprHDISCSIDriver(
             configuration=self.configuration)
 
@@ -503,8 +506,8 @@ class EMCCoprHDISCSIDriverTest(test.TestCase):
         cg_data = get_test_CG_data(self.volume_type_id)
         ctx = context.get_admin_context()
         self.driver.create_consistencygroup(ctx, cg_data)
-        model_update, volumes_model_update = \
-            self.driver.delete_consistencygroup(ctx, cg_data, [])
+        model_update, volumes_model_update = (
+            self.driver.delete_consistencygroup(ctx, cg_data, []))
         self.assertEqual([], volumes_model_update, 'Unexpected return data')
 
     def test_create_update_delete_CG(self):
@@ -515,14 +518,14 @@ class EMCCoprHDISCSIDriverTest(test.TestCase):
         volume = get_test_volume_data(self.volume_type_id)
         self.driver.create_volume(volume)
 
-        model_update, ret1, ret2 = \
-            self.driver.update_consistencygroup(ctx, cg_data, [volume], [])
+        model_update, ret1, ret2 = (
+            self.driver.update_consistencygroup(ctx, cg_data, [volume], []))
 
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
 
-        model_update, volumes_model_update = \
-            self.driver.delete_consistencygroup(ctx, cg_data, [volume])
+        model_update, volumes_model_update = (
+            self.driver.delete_consistencygroup(ctx, cg_data, [volume]))
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
         self.assertEqual([{'status': 'deleted', 'id': '1'}],
@@ -532,14 +535,14 @@ class EMCCoprHDISCSIDriverTest(test.TestCase):
         cg_snap_data = get_test_CG_snap_data(self.volume_type_id)
         ctx = context.get_admin_context()
 
-        model_update, snapshots_model_update = \
-            self.driver.create_cgsnapshot(ctx, cg_snap_data, [])
+        model_update, snapshots_model_update = (
+            self.driver.create_cgsnapshot(ctx, cg_snap_data, []))
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
         self.assertEqual([], snapshots_model_update, 'Unexpected return data')
 
-        model_update, snapshots_model_update = \
-            self.driver.delete_cgsnapshot(ctx, cg_snap_data, [])
+        model_update, snapshots_model_update = (
+            self.driver.delete_cgsnapshot(ctx, cg_snap_data, []))
         self.assertEqual({}, model_update, 'Unexpected return data')
         self.assertEqual([], snapshots_model_update, 'Unexpected return data')
 
@@ -565,9 +568,9 @@ class EMCCoprHDFCDriverTest(test.TestCase):
 
         self.volume_type_id = self.create_coprhd_volume_type()
 
-        self.stubs.Set(coprhd_fc.EMCCoprHDFCDriver,
-                       '_get_common_driver',
-                       self._get_mocked_common_driver)
+        self.mock_object(coprhd_fc.EMCCoprHDFCDriver,
+                         '_get_common_driver',
+                         self._get_mocked_common_driver)
         self.driver = coprhd_fc.EMCCoprHDFCDriver(
             configuration=self.configuration)
 
@@ -640,6 +643,20 @@ class EMCCoprHDFCDriverTest(test.TestCase):
         self.driver.delete_volume(src_vol_data)
         self.driver.delete_volume(volume_data)
 
+    def test_create_volume_from_cg_snapshot(self):
+        ctx = context.get_admin_context()
+
+        volume_data = get_test_volume_data(self.volume_type_id)
+        cg_snap_data = get_test_CG_snap_data(self.volume_type_id)
+
+        self.driver.create_cgsnapshot(ctx, cg_snap_data, [])
+        self.assertRaises(exception.VolumeBackendAPIException,
+                          self.driver.create_volume_from_snapshot,
+                          volume_data, cg_snap_data)
+
+        self.driver.delete_cgsnapshot(ctx, cg_snap_data, [])
+        self.driver.delete_volume(volume_data)
+
     def test_extend_volume(self):
         volume_data = get_test_volume_data(self.volume_type_id)
         self.driver.create_volume(volume_data)
@@ -691,8 +708,8 @@ class EMCCoprHDFCDriverTest(test.TestCase):
         cg_data = get_test_CG_data(self.volume_type_id)
         ctx = context.get_admin_context()
         self.driver.create_consistencygroup(ctx, cg_data)
-        model_update, volumes_model_update = \
-            self.driver.delete_consistencygroup(ctx, cg_data, [])
+        model_update, volumes_model_update = (
+            self.driver.delete_consistencygroup(ctx, cg_data, []))
         self.assertEqual([], volumes_model_update, 'Unexpected return data')
 
     def test_create_update_delete_CG(self):
@@ -703,14 +720,14 @@ class EMCCoprHDFCDriverTest(test.TestCase):
         volume = get_test_volume_data(self.volume_type_id)
         self.driver.create_volume(volume)
 
-        model_update, ret1, ret2 = \
-            self.driver.update_consistencygroup(ctx, cg_data, [volume], [])
+        model_update, ret1, ret2 = (
+            self.driver.update_consistencygroup(ctx, cg_data, [volume], []))
 
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
 
-        model_update, volumes_model_update = \
-            self.driver.delete_consistencygroup(ctx, cg_data, [volume])
+        model_update, volumes_model_update = (
+            self.driver.delete_consistencygroup(ctx, cg_data, [volume]))
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
         self.assertEqual([{'status': 'deleted', 'id': '1'}],
@@ -720,14 +737,14 @@ class EMCCoprHDFCDriverTest(test.TestCase):
         cg_snap_data = get_test_CG_snap_data(self.volume_type_id)
         ctx = context.get_admin_context()
 
-        model_update, snapshots_model_update = \
-            self.driver.create_cgsnapshot(ctx, cg_snap_data, [])
+        model_update, snapshots_model_update = (
+            self.driver.create_cgsnapshot(ctx, cg_snap_data, []))
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
         self.assertEqual([], snapshots_model_update, 'Unexpected return data')
 
-        model_update, snapshots_model_update = \
-            self.driver.delete_cgsnapshot(ctx, cg_snap_data, [])
+        model_update, snapshots_model_update = (
+            self.driver.delete_cgsnapshot(ctx, cg_snap_data, []))
         self.assertEqual({}, model_update, 'Unexpected return data')
         self.assertEqual([], snapshots_model_update, 'Unexpected return data')
 
@@ -749,7 +766,7 @@ class EMCCoprHDScaleIODriverTest(test.TestCase):
         self.configuration.coprhd_tenant = "tenant"
         self.configuration.coprhd_project = "project"
         self.configuration.coprhd_varray = "varray"
-        self.configuration.coprhd_scaleio_rest_gateway_ip = "10.10.10.11"
+        self.configuration.coprhd_scaleio_rest_gateway_host = "10.10.10.11"
         self.configuration.coprhd_scaleio_rest_gateway_port = 443
         self.configuration.coprhd_scaleio_rest_server_username = (
             "scaleio_username")
@@ -761,12 +778,12 @@ class EMCCoprHDScaleIODriverTest(test.TestCase):
 
         self.volume_type_id = self.create_coprhd_volume_type()
 
-        self.stubs.Set(coprhd_scaleio.EMCCoprHDScaleIODriver,
-                       '_get_common_driver',
-                       self._get_mocked_common_driver)
-        self.stubs.Set(coprhd_scaleio.EMCCoprHDScaleIODriver,
-                       '_get_client_id',
-                       self._get_client_id)
+        self.mock_object(coprhd_scaleio.EMCCoprHDScaleIODriver,
+                         '_get_common_driver',
+                         self._get_mocked_common_driver)
+        self.mock_object(coprhd_scaleio.EMCCoprHDScaleIODriver,
+                         '_get_client_id',
+                         self._get_client_id)
         self.driver = coprhd_scaleio.EMCCoprHDScaleIODriver(
             configuration=self.configuration)
 
@@ -861,6 +878,7 @@ class EMCCoprHDScaleIODriverTest(test.TestCase):
                                         'hostIP': '10.0.0.2',
                                         'iopsLimit': None,
                                         'scaleIO_volname': 'test-vol1',
+                                        'scaleIO_volume_id': '1',
                                         'serverIP': '10.10.10.11',
                                         'serverPassword': 'scaleio_password',
                                         'serverPort': 443,
@@ -878,8 +896,8 @@ class EMCCoprHDScaleIODriverTest(test.TestCase):
         cg_data = get_test_CG_data(self.volume_type_id)
         ctx = context.get_admin_context()
         self.driver.create_consistencygroup(ctx, cg_data)
-        model_update, volumes_model_update = \
-            self.driver.delete_consistencygroup(ctx, cg_data, [])
+        model_update, volumes_model_update = (
+            self.driver.delete_consistencygroup(ctx, cg_data, []))
         self.assertEqual([], volumes_model_update, 'Unexpected return data')
 
     def test_create_update_delete_CG(self):
@@ -890,14 +908,14 @@ class EMCCoprHDScaleIODriverTest(test.TestCase):
         volume = get_test_volume_data(self.volume_type_id)
         self.driver.create_volume(volume)
 
-        model_update, ret1, ret2 = \
-            self.driver.update_consistencygroup(ctx, cg_data, [volume], [])
+        model_update, ret1, ret2 = (
+            self.driver.update_consistencygroup(ctx, cg_data, [volume], []))
 
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
 
-        model_update, volumes_model_update = \
-            self.driver.delete_consistencygroup(ctx, cg_data, [volume])
+        model_update, volumes_model_update = (
+            self.driver.delete_consistencygroup(ctx, cg_data, [volume]))
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
         self.assertEqual([{'status': 'deleted', 'id': '1'}],
@@ -907,13 +925,13 @@ class EMCCoprHDScaleIODriverTest(test.TestCase):
         cg_snap_data = get_test_CG_snap_data(self.volume_type_id)
         ctx = context.get_admin_context()
 
-        model_update, snapshots_model_update = \
-            self.driver.create_cgsnapshot(ctx, cg_snap_data, [])
+        model_update, snapshots_model_update = (
+            self.driver.create_cgsnapshot(ctx, cg_snap_data, []))
         self.assertEqual({'status': fields.ConsistencyGroupStatus.AVAILABLE},
                          model_update)
         self.assertEqual([], snapshots_model_update, 'Unexpected return data')
 
-        model_update, snapshots_model_update = \
-            self.driver.delete_cgsnapshot(ctx, cg_snap_data, [])
+        model_update, snapshots_model_update = (
+            self.driver.delete_cgsnapshot(ctx, cg_snap_data, []))
         self.assertEqual({}, model_update, 'Unexpected return data')
         self.assertEqual([], snapshots_model_update, 'Unexpected return data')

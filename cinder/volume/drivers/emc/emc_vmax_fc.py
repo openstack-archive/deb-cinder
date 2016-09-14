@@ -67,10 +67,16 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
               - Replacement of EMCGetTargetEndpoints api (bug #1512791)
               - VMAX3 snapvx improvements (bug #1522821)
               - Operations and timeout issues (bug #1538214)
-
+        2.4.0 - EMC VMAX - locking SG for concurrent threads (bug #1554634)
+              - SnapVX licensing checks for VMAX3 (bug #1587017)
+              - VMAX oversubscription Support (blueprint vmax-oversubscription)
+              - QoS support (blueprint vmax-qos)
     """
 
-    VERSION = "2.3.0"
+    VERSION = "2.4.0"
+
+    # ThirdPartySystems wiki
+    CI_WIKI_NAME = "EMC_VMAX_CI"
 
     def __init__(self, *args, **kwargs):
 

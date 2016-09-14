@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 9.0.0.0b2.dev1\n"
+"Project-Id-Version: cinder 9.0.0.0b3.dev522\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-01 22:30+0000\n"
+"POT-Creation-Date: 2016-08-31 10:23+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -66,10 +66,6 @@ msgstr ""
 "\n"
 
 #, python-format
-msgid "%(element)s: %(val)s"
-msgstr "%(element)s: %(val)s"
-
-#, python-format
 msgid "%(method)s %(url)s"
 msgstr "%(method)s %(url)s"
 
@@ -105,10 +101,6 @@ msgid ""
 msgstr ""
 "볼륨 '%(name)s' 의 3PAR vlun이 삭제되었지만, 다음 이유로 인해 호스트 "
 "'%(host)s'이(가) 삭제됨: %(reason)s"
-
-#, python-format
-msgid "AUTH properties: %(authProps)s"
-msgstr "AUTH 특성: %(authProps)s"
 
 #, python-format
 msgid "AUTH properties: %s."
@@ -185,28 +177,12 @@ msgid "Availability Zones retrieved successfully."
 msgstr "가용 구역이 성공적으로 검색되었습니다."
 
 #, python-format
-msgid "Available services: %s"
-msgstr "사용 가능한 서비스: %s"
-
-#, python-format
-msgid "Available services: %s."
-msgstr "사용 가능한 서비스: %s."
-
-#, python-format
 msgid "Backend name is %s."
 msgstr "백엔드 이름이 %s입니다."
 
 #, python-format
-msgid "Backend type: %s"
-msgstr "백엔드 유형: %s"
-
-#, python-format
 msgid "Backing VM: %(backing)s renamed to %(new_name)s."
 msgstr "백업 VM: %(backing)s의 이름이 %(new_name)s(으)로 변경되었습니다."
-
-#, python-format
-msgid "Backing consistency group snapshot %s available for deletion"
-msgstr "삭제할 수 있는 일관성 그룹 스냅샷 %s 백업"
 
 msgid "Backing not available, no operation to be performed."
 msgstr "백업을 사용할 수 없습니다. 작업이 수행되지 않습니다."
@@ -236,10 +212,6 @@ msgid "Backup service: %s."
 msgstr "백업 서비스: %s."
 
 #, python-format
-msgid "Bandwidth limit is: %s."
-msgstr "대역폭 한계: %s."
-
-#, python-format
 msgid "Begin backup of volume %s."
 msgstr "볼륨 %s의 백업을 시작하십시오."
 
@@ -267,10 +239,6 @@ msgstr "CONCERTO 버전: %s"
 
 msgid "Calling os-brick to detach ScaleIO volume."
 msgstr "ScaleIO 볼륨의 연결을 해제하기 위해 os-brick 호출."
-
-#, python-format
-msgid "Cancelling Migration from LUN %s."
-msgstr "LUN %s에서 마이그레이션 취소."
 
 #, python-format
 msgid ""
@@ -313,15 +281,6 @@ msgstr ""
 "할 수 없습니다."
 
 #, python-format
-msgid ""
-"Capacity stats for SRP pool %(poolName)s on array %(arrayName)s "
-"total_capacity_gb=%(total_capacity_gb)lu, free_capacity_gb="
-"%(free_capacity_gb)lu"
-msgstr ""
-"배열 %(arrayName)s의 SRP 풀 %(poolName)s에 대한 용량 통계  total_capacity_gb="
-"%(total_capacity_gb)lu, free_capacity_gb=%(free_capacity_gb)lu"
-
-#, python-format
 msgid "Cgsnapshot %s: creating."
 msgstr "Cgsnapshot %s: 작성 중."
 
@@ -339,20 +298,8 @@ msgstr "볼륨 %(volume)s의 원본 %(origin)s 확인."
 
 #, python-format
 msgid ""
-"Cinder ISCSI volume with current path %(path)s is no longer being managed. "
-"The new name is %(unm)s."
-msgstr ""
-"현재 경로가 %(path)s인 Cinder ISCSI 볼륨이 더 이상 관리되지 않습니다. 새 이름"
-"은 %(unm)s입니다."
-
-#, python-format
-msgid ""
 "Cinder NFS volume with current path \"%(cr)s\" is no longer being managed."
 msgstr "현재 경로가 \"%(cr)s\"인 Cinder NFS 볼륨이 더 이상 관리되지 않습니다."
-
-#, python-format
-msgid "Cinder NFS volume with current path %(cr)s is no longer being managed."
-msgstr "현재 경로 %(cr)s의 Cinder NFS 볼륨이 더 이상 관리되지 않습니다."
 
 msgid "Cinder secure environment indicator file exists."
 msgstr "Cinder 보안 환경 표시기 파일이 있습니다."
@@ -408,12 +355,6 @@ msgstr ""
 "%(encryption)s 암호=%(cipher)s 다중 개시자r=%(multi-initiator)s에서 볼륨 복제"
 
 #, python-format
-msgid ""
-"Cloning with volume_name %(vname)s clone_name %(cname)s export_path %(epath)s"
-msgstr ""
-"volume_name %(vname)s clone_name %(cname)s export_path %(epath)s(으)로 복제"
-
-#, python-format
 msgid "CloudByte API executed successfully for command [%s]."
 msgstr "명령 [%s]에 대해 CloudByte API가 성공적으로 실행되었습니다."
 
@@ -429,10 +370,6 @@ msgstr "볼륨 전체 마이그레이션이 성공적으로 완료되었습니�
 #, python-format
 msgid "Completed: convert_to_base_volume: id=%s."
 msgstr "완료됨: convert_to_base_volume: id=%s."
-
-#, python-format
-msgid "Configured pools: %s"
-msgstr "구성된 풀: %s"
 
 #, python-format
 msgid ""
@@ -452,22 +389,6 @@ msgstr "백엔드 사용 마이그레이션의 대상 호스트 %s에 연결."
 #, python-format
 msgid "Connector returning fcnsinfo-%s"
 msgstr "커넥터에서 fcnsinfo-%s 리턴"
-
-#, python-format
-msgid "Consistency group %(cg)s is created successfully."
-msgstr "일관성 그룹 %(cg)s이(가) 성공적으로 작성되었습니다."
-
-#, python-format
-msgid "Consistency group %s was deleted successfully."
-msgstr "일관성 그룹 %s이(가) 성공적으로 삭제되었습니다."
-
-#, python-format
-msgid "Consistency group %s: created successfully"
-msgstr "일관성 그룹 %s: 성공적으로 작성됨"
-
-#, python-format
-msgid "Consistency group %s: creating"
-msgstr "일관성 그룹 %s: 작성 중"
 
 #, python-format
 msgid "Converted %(sz).2f MB image at %(mbps).2f MB/s"
@@ -573,14 +494,6 @@ msgstr "스냅샷 %(snapshot_id)s에서 볼륨 %(volume_id)s 작성이 완료되
 
 #, python-format
 msgid ""
-"Create Volume: %(volume)s  Size: %(size)s pool: %(pool)s provisioning: "
-"%(provisioning)s tiering: %(tiering)s "
-msgstr ""
-"볼륨: %(volume)s  크기: %(size)s 풀: %(pool)s 프로비저닝: %(provisioning)s 계"
-"층: %(tiering)s 작성"
-
-#, python-format
-msgid ""
 "Create a replica from Volume: Clone Volume: %(cloneName)s Source Volume: "
 "%(sourceName)s."
 msgstr ""
@@ -593,9 +506,6 @@ msgstr "백업 작성이 완료됨. 백업: %s."
 #, python-format
 msgid "Create backup started, backup: %(backup_id)s volume: %(volume_id)s."
 msgstr "백업 작성이 시작됨, 백업: %(backup_id)s 볼륨: %(volume_id)s."
-
-msgid "Create consistency group completed successfully."
-msgstr "일관성 그룹 생성이 성공적으로 완료되었습니다."
 
 #, python-format
 msgid "Create consistency group from source-%(source)s completed successfully."
@@ -616,10 +526,6 @@ msgstr "일관성 그룹 %(cgId)s의 스냅샷 cgsnapshotID: %(cgsnapshot)s 작�
 #, python-format
 msgid "Create snapshot from volume %s"
 msgstr "%s 볼륨에서 스냅샷 작성"
-
-#, python-format
-msgid "Create snapshot: %(snapshot)s: volume: %(volume)s"
-msgstr "스냅샷 작성: %(snapshot)s: 볼륨: %(volume)s"
 
 #, python-format
 msgid ""
@@ -842,10 +748,6 @@ msgid "Delete Snapshot %(snapshot_id)s completed."
 msgstr "스냅샷 %(snapshot_id)s 삭제가 완료되었습니다."
 
 #, python-format
-msgid "Delete Snapshot: %(snapshot)s"
-msgstr "스냅샷 삭제: %(snapshot)s"
-
-#, python-format
 msgid "Delete Snapshot: %(snapshot)s."
 msgstr "스냅샷 %(snapshot)s 삭제"
 
@@ -977,10 +879,6 @@ msgid "Deleting stale snapshot: %s"
 msgstr "시간이 경과된 스냅샷 삭제: %s"
 
 #, python-format
-msgid "Deleting unneeded host %(host_name)r."
-msgstr "불필요한 호스트 %(host_name)r 삭제."
-
-#, python-format
 msgid "Deleting volume %s "
 msgstr "볼륨 %s 삭제"
 
@@ -1056,10 +954,6 @@ msgid "Driver post RPC initialization completed successfully."
 msgstr "드라이버 post RPC 초기화가 성공적으로 완료되었습니다."
 
 #, python-format
-msgid "Driver stats: %s"
-msgstr "드라이버 통계: %s"
-
-#, python-format
 msgid ""
 "E-series proxy API version %(version)s does not support full set of SSC "
 "extra specs. The proxy version must be at at least %(min_version)s."
@@ -1082,10 +976,6 @@ msgstr "EQL-드라이버: \"%s\" 실행."
 #, python-format
 msgid "Editing Volume %(vol)s with mask %(mask)s"
 msgstr "마스크 %(mask)s(으)로 볼륨 %(vol)s 편집"
-
-#, python-format
-msgid "Elapsed time for clear volume: %.2f sec"
-msgstr "볼륨 지우기를 위해 경과된 시간: %.2f sec"
 
 msgid "Embedded mode detected."
 msgstr "임베드된 모드가 발견되었습니다."
@@ -1161,10 +1051,6 @@ msgstr ""
 "total_capacity_gb=%(total_capacity_gb)lu, free_capacity_gb="
 "%(free_capacity_gb)lu."
 
-#, python-format
-msgid "FC Initiators %(in)s of %(ins)s need registration"
-msgstr "%(ins)s의 FC 개시자 %(in)s을(를) 등록해야 합니다."
-
 msgid "Failed over to replication target successfully."
 msgstr "복제 대상으로 장애 복구되었습니다."
 
@@ -1192,10 +1078,6 @@ msgstr "처리된 결함: %s"
 #, python-format
 msgid "Fetched vCenter server version: %s"
 msgstr "가져온 vCenter 서버 버전: %s"
-
-#, python-format
-msgid "Filter %(cls_name)s returned %(obj_len)d host(s)"
-msgstr "필터 %(cls_name)s에서 %(obj_len)d 호스트 리턴"
 
 #, python-format
 msgid "Filtered targets for SAN is: %(targets)s"
@@ -1292,18 +1174,6 @@ msgstr "구성 후의 선호 구역 이름: %(zonename)s"
 msgid "Generating transfer record for volume %s"
 msgstr "볼륨 %s의 전송 레코드 생성"
 
-#, python-format
-msgid "Get FC targets %(tg)s to register initiator %(in)s."
-msgstr "개시자 %(in)s을(를) 등록하기 위해 FC 대상 %(tg)s을(를) 가져옵니다."
-
-#, python-format
-msgid "Get ISCSI targets %(tg)s to register initiator %(in)s."
-msgstr "개시자 %(in)s을(를) 등록하기 위해 ISCSI 대상 %(tg)s을(를) 가져옵니다."
-
-#, python-format
-msgid "Get Volume response: %s"
-msgstr "볼륨 가져오기 응답: %s"
-
 msgid "Get all snapshots completed successfully."
 msgstr "모든 스냅샷 가져오기가 성공적으로 완료되었습니다."
 
@@ -1313,10 +1183,6 @@ msgstr "모든 볼륨 가져오기가 성공적으로 완료되었습니다."
 #, python-format
 msgid "Get domain by name response: %s"
 msgstr "이름별 도메인 가져오기 응답: %s"
-
-#, python-format
-msgid "Get service: %(lbl)s->%(svc)s"
-msgstr "서비스 가져오기: %(lbl)s->%(svc)s"
 
 msgid "Get snapshot metadata completed successfully."
 msgstr "스냅샷 메타데이터 가져오기가 성공적으로 완료되었습니다."
@@ -1349,10 +1215,6 @@ msgid "Going to perform request again %s with valid token."
 msgstr "올바른 토큰으로 %s 요청을 다시 수행합니다."
 
 #, python-format
-msgid "HDP list: %s"
-msgstr "HDP 목록: %s"
-
-#, python-format
 msgid "HPE3PARCommon %(common_ver)s,hpe3parclient %(rest_ver)s"
 msgstr "HPE3PARCommon %(common_ver)s,hpe3parclient %(rest_ver)s"
 
@@ -1368,16 +1230,8 @@ msgstr "HTTP 예외 처리: %s"
 msgid "Hypermetro id: %(metro_id)s. Remote lun id: %(remote_lun_id)s."
 msgstr "Hypermetro id: %(metro_id)s. 원격 lun id: %(remote_lun_id)s."
 
-#, python-format
-msgid "ISCSI properties: %(properties)s"
-msgstr "ISCSI 특성: %(properties)s"
-
 msgid "ISCSI provider_location not stored, using discovery."
 msgstr "ISCSI provider_location이 저장되지 않음, 검색 사용."
-
-#, python-format
-msgid "ISCSI volume is: %(volume)s"
-msgstr "ISCSI 볼륨: %(volume)s"
 
 #, python-format
 msgid "Ignored LU creation error \"%s\" while ensuring export."
@@ -1480,14 +1334,6 @@ msgstr "개시자  %(iname)s의 개시자 그룹 이름이 %(grp)s입니다."
 #, python-format
 msgid "LUN %(id)s extended to %(size)s GB."
 msgstr "LUN %(id)s이(가) %(size)sGB로 확장되었습니다."
-
-#, python-format
-msgid "LUN %(lun)s extended to %(size)s GB."
-msgstr "LUN %(lun)s이(가) %(size)sGB로 확장되었습니다."
-
-#, python-format
-msgid "LUN %(lun)s of size %(sz)s MB is created."
-msgstr "크기가 %(sz)sMB인 LUN %(lun)s이(가) 작성되었습니다."
 
 #, python-format
 msgid "LUN with given ref %s need not be renamed during manage operation."
@@ -1615,13 +1461,6 @@ msgstr "FC Zone을 제거해야 하며, 개시자 대상 맵 빌드"
 msgid "Need to remove FC Zone, building initiator target map."
 msgstr "FC Zone을 제거해야 하며, 개시자 대상 맵 빌드."
 
-msgid ""
-"Neither security file nor plain text credentials are specified. Security "
-"file under home directory will be used for authentication if present."
-msgstr ""
-"보안 파일 및 일반 텍스트 자격 증명이 모두 지정되지 않았습니다. 홈 디렉토리에 "
-"보안 파일이 있는 경우 이 파일을 인증에 사용합니다."
-
 #, python-format
 msgid ""
 "NetApp driver of family %(storage_family)s and protocol %(storage_protocol)s "
@@ -1715,19 +1554,12 @@ msgid "Params for add volume request: %s."
 msgstr "볼륨 요청 추가 매개 변수: %s."
 
 #, python-format
-msgid "Parse_loc: %s"
-msgstr "Parse_loc: %s"
-
-#, python-format
 msgid "Performing post clone for %s"
 msgstr "%s의 사후 복제 수행"
 
 #, python-format
 msgid "Performing secure delete on volume: %s"
 msgstr "%s 볼륨에서 보안 삭제 수행"
-
-msgid "Plain text credentials are being used for authentication"
-msgstr "일반 텍스트 자격 증명이 인증에 사용 중임"
 
 #, python-format
 msgid "Pool id is %s."
@@ -1971,14 +1803,6 @@ msgid "Resuming delete on backup: %s."
 msgstr "백업에서 삭제 재개: %s."
 
 #, python-format
-msgid "Retrieving secret for service: %s."
-msgstr "서비스의 시크릿 검색: %s."
-
-#, python-format
-msgid "Retrieving target for service: %s."
-msgstr "서비스의 대상 검색: %s."
-
-#, python-format
 msgid "Return FC info is: %s."
 msgstr "리턴 FC 정보: %s."
 
@@ -2053,20 +1877,8 @@ msgstr "볼륨 다시 입력 요청이 성공적으로 실행되었습니다."
 msgid "Retype was to same Storage Profile."
 msgstr "동일한 스토리지 프로파일에 다시 입력되었습니다."
 
-#, python-format
-msgid "Review shares: %s"
-msgstr "공유 검토: %s"
-
 msgid "Roll detaching of volume completed successfully."
 msgstr "볼륨 연결 해제가 성공적으로 롤링되었습니다."
-
-#, python-format
-msgid "Running cluster latest ssc job for %(server)s and vserver %(vs)s"
-msgstr "%(server)s 및 vserver %(vs)s의 클러스터 최신 ssc 작업 실행"
-
-#, python-format
-msgid "Running stale ssc refresh job for %(server)s and vserver %(vs)s"
-msgstr "%(server)s 및 vserver %(vs)s의 시간이 경과된 ssc 새로 고치기 작업 실행"
 
 #, python-format
 msgid "Running with vmemclient version: %s"
@@ -2075,10 +1887,6 @@ msgstr "vmemclient 버전으로 실행: %s"
 #, python-format
 msgid "SC server created %s"
 msgstr "SC 서버 작성 %s"
-
-#, python-format
-msgid "Save service info for %(svc)s -> %(hdp)s, %(path)s"
-msgstr "%(svc)s의 서비스 저장 -> %(hdp)s, %(path)s"
 
 #, python-format
 msgid ""
@@ -2166,10 +1974,6 @@ msgid "Set newly managed Cinder volume name to %(name)s."
 msgstr "새로 관리된 Cinder 볼륨 이름을 %(name)s(으)로 설정합니다."
 
 #, python-format
-msgid "Set tgt CHAP secret for service: %s."
-msgstr "서비스의 tgt CHAP 시크릿 설정: %s."
-
-#, python-format
 msgid "Setting host %(host)s to %(state)s."
 msgstr "%(host)s 호스트를 %(state)s(으)로 설정 중입니다. "
 
@@ -2203,12 +2007,6 @@ msgstr "볼륨 %s이(가) 없으므로 삭제를 건너뜁니다."
 
 msgid "Skipping ensure_export. Found existing iSCSI target."
 msgstr "ensure_export를 건너뜁니다. 기존 iSCSI 대상이 발견되었습니다."
-
-#, python-format
-msgid "Skipping ensure_export. No iscsi_target provision for volume: %s"
-msgstr ""
-"ensure_export를 건너뜁니다. %s 볼륨에 대한 iscsi_target을 프로비저닝하지 않습"
-"니다. "
 
 #, python-format
 msgid ""
@@ -2280,10 +2078,6 @@ msgstr "스냅샷 %s에 종속 복제본이 있으므로 나중에 삭제됩니�
 #, python-format
 msgid "Snapshot %s not found"
 msgstr "스냅샷 %s을(를) 찾을 수 없음"
-
-#, python-format
-msgid "Snapshot %s was deleted successfully."
-msgstr "스냅샷 %s이(가) 성공적으로 삭제되었습니다."
 
 #, python-format
 msgid "Snapshot '%(ref)s' renamed to '%(new)s'."
@@ -2359,10 +2153,6 @@ msgid "Storage Group %(storageGroupName)s successfully deleted."
 msgstr "스토리지 그룹 %(storageGroupName)s이(가) 성공적으로 삭제되었습니다."
 
 #, python-format
-msgid "Storage Group %s was empty."
-msgstr "스토리지 그룹 %s이(가) 비어 있습니다."
-
-#, python-format
 msgid "Storage group not associated with the policy. Exception is %s."
 msgstr "스토리지 그룹이 정책과 연관되지 않았습니다. 예외는 %s입니다."
 
@@ -2380,17 +2170,6 @@ msgstr "%s 사용자로 로그인 완료"
 #, python-format
 msgid "Successfully added %(volumeName)s to %(sgGroupName)s."
 msgstr "%(volumeName)s이(가) %(sgGroupName)s에 성공적으로 추가되었습니다."
-
-#, python-format
-msgid "Successfully completed ssc job for %(server)s and vserver %(vs)s"
-msgstr "%(server)s 및 vserver %(vs)s의 완료된 ssc 작업이 성공적으로 완료됨"
-
-#, python-format
-msgid ""
-"Successfully completed stale refresh job for %(server)s and vserver %(vs)s"
-msgstr ""
-"%(server)s 및 vserver %(vs)s의 시간이 경과된 새로 고치기 작업이 성공적으로 완"
-"료됨"
 
 #, python-format
 msgid "Successfully copied disk at: %(src)s to: %(dest)s."
@@ -2545,10 +2324,6 @@ msgid ""
 msgstr "제어기 주소가 [%s]인 시스템이 웹 서비스에 등록되지 않았습니다."
 
 #, python-format
-msgid "Target is %(map)s! Targetlist = %(tgtl)s."
-msgstr "대상은 %(map)s입니다. Targetlist = %(tgtl)s."
-
-#, python-format
 msgid "Target wwns in masking view %(maskingView)s: %(targetWwns)s."
 msgstr "마스킹 보기 %(maskingView)s의 wwns: %(targetWwns)s."
 
@@ -2653,10 +2428,6 @@ msgid ""
 msgstr ""
 "스냅샷이 작성된 볼륨 %(snap)s의 스냅샷 지점이 없습니다. 볼륨 %(vol)s의 백업"
 "을 작성하지 않습니다."
-
-#, python-format
-msgid "Toggle san_ip from %(current)s to %(new)s."
-msgstr "san_ip를 %(current)s에서 %(new)s(으)로 전환합니다."
 
 msgid "Token is invalid, going to re-login and get a new one."
 msgstr "토큰이 올바르지 않으므로, 다시 로그인하여 새 토큰을 얻으십시오."
@@ -2853,18 +2624,6 @@ msgstr "구성에서 겹쳐쓴 vmware_host_version 사용: %s"
 msgid "Using pool %(pool)s instead of %(cpg)s"
 msgstr "%(cpg)s 대신 풀 %(pool)s 사용"
 
-#, python-format
-msgid "Using security file in %s for authentication"
-msgstr "인증을 위해 %s에서 보안 파일 사용"
-
-#, python-format
-msgid "Using service label: %s"
-msgstr "서비스 레이블 사용: %s"
-
-#, python-format
-msgid "Using target label: %s."
-msgstr "대상 레이블 사용: %s."
-
 msgid "VF context is changed in the session."
 msgstr "VF 컨텍스트가 세션에서 변경되었습니다."
 
@@ -3046,10 +2805,6 @@ msgstr ""
 "지정된 ref %s이(가) 있는 볼륨은 관리 조작 중에 이름을 바꾸지 않아도 됩니다."
 
 #, python-format
-msgid "Volume with the name %s wasn't found, can't unmanage"
-msgstr "이름이 %s인 볼륨을 찾을 수 없음. 관리 취소할 수 없음"
-
-#, python-format
 msgid ""
 "Volume: %(vol_id)s, size: %(vol_size)d is larger than backup: %(backup_id)s, "
 "size: %(backup_size)d, continuing with restore."
@@ -3094,10 +2849,6 @@ msgstr "I-T 모드에 구역이 있습니다. %s의 구역 작성을 건너뜁�
 #, python-format
 msgid "Zone exists in I-T mode. Skipping zone creation for %(zonename)s"
 msgstr "I-T 모드에 구역이 있습니다. %(zonename)s의 구역 작성을 건너뜁니다."
-
-#, python-format
-msgid "Zone map to add: %(zonemap)s"
-msgstr "추가할 구역 맵: %(zonemap)s"
 
 #, python-format
 msgid "Zone map to add: %s"
@@ -3156,10 +2907,6 @@ msgstr ""
 "다. "
 
 #, python-format
-msgid "_get_service_target hdp: %s."
-msgstr "_get_service_target hdp: %s."
-
-#, python-format
 msgid "_get_tgt_ip_from_portgroup: Get ip: %s."
 msgstr "_get_tgt_ip_from_portgroup: ip 가져오기: %s."
 
@@ -3202,10 +2949,6 @@ msgstr "cgsnapshot %s: 성공적으로 삭제됨"
 #, python-format
 msgid "cgsnapshot %s: deleting"
 msgstr "cgsnapshot %s: 삭제"
-
-#, python-format
-msgid "config[services]: %s."
-msgstr "config[services]: %s."
 
 #, python-format
 msgid "create_cloned_volume, info: %s, Exit method."
@@ -3251,10 +2994,6 @@ msgid "create_volume, volume id: %s, Enter method."
 msgstr "create_volume, 볼륨 id: %s, 메소드를 입력합니다."
 
 #, python-format
-msgid "create_volume: create_lu returns %s"
-msgstr "create_volume: create_lu에서%s을(를) 리턴"
-
-#, python-format
 msgid "create_volume_from_snapshot, info: %s, Exit method."
 msgstr "create_volume_from_snapshot, 정보: %s, 메소드를 종료합니다."
 
@@ -3273,14 +3012,6 @@ msgid ""
 msgstr ""
 "create_volume_from_snapshot: src_lun_id: %(src_lun_id)s, tgt_lun_id: "
 "%(tgt_lun_id)s, copy_name: %(copy_name)s."
-
-#, python-format
-msgid "del_iscsi_conn: hlun not found %s."
-msgstr "del_iscsi_conn: hlun을 찾을 수 없음 %s."
-
-#, python-format
-msgid "delete lun loc %s"
-msgstr "lun loc %s 삭제"
 
 #, python-format
 msgid "delete_snapshot, delete: %s, Exit method."
@@ -3308,10 +3039,6 @@ msgstr ""
 "%(lun_id)s."
 
 #, python-format
-msgid "do_setup: %s"
-msgstr "do_setup: %s"
-
-#, python-format
 msgid "extend_volume, used pool name: %s, Exit method."
 msgstr "extend_volume, 사용된 풀 이름: %s, 메소드를 종료합니다."
 
@@ -3324,24 +3051,8 @@ msgid "free capacity of pool %(pool)s is: %(free)s, total capacity: %(total)s."
 msgstr "풀 %(pool)s의 사용 가능한 용량: %(free)s, 총 용량: %(total)s."
 
 #, python-format
-msgid "iSCSI Initiators %(in)s of %(ins)s need registration."
-msgstr "%(ins)s의 iSCSI 개시자 %(in)s을(를) 등록해야 합니다."
-
-#, python-format
-msgid "iSCSI portal found for service: %s"
-msgstr "서비스의 iSCSI 포털 발견: %s"
-
-#, python-format
 msgid "igroup %(grp)s found for initiator %(iname)s"
 msgstr "개시자 %(iname)s의 igroup %(grp)s을(를) 찾을 수 없음"
-
-#, python-format
-msgid "initialize volume %(vol)s connector %(conn)s"
-msgstr "볼륨 %(vol)s 커넥터 %(conn)s 초기화"
-
-#, python-format
-msgid "initialize_ connection: %(vol)s:%(initiator)s"
-msgstr "initialize_ connection: %(vol)s:%(initiator)s"
 
 #, python-format
 msgid "initialize_connection success. Return data: %s."
@@ -3396,35 +3107,12 @@ msgid ""
 "initialize_connection_fc, initiator: %(wwpns)s, volume name: %(volume)s."
 msgstr "initialize_connection_fc, 개시자: %(wwpns)s, 볼륨 이름: %(volume)s."
 
-#, python-format
-msgid "initiate: connection %s"
-msgstr "시작: 연결 %s"
-
 msgid "initiator has no password while using chap,adding it"
 msgstr "chap을 사용하는 동안 개시자의 비밀번호가 없음, 추가"
 
 #, python-format
 msgid "initiator name: %(initiator_name)s, LUN ID: %(lun_id)s."
 msgstr "개시자 이름: %(initiator_name)s, LUN ID: %(lun_id)s."
-
-msgid ""
-"initiator_auto_registration: False. Initiator auto registration is not "
-"enabled. Please register initiator manually."
-msgstr ""
-"initiator_auto_registration: False. 개시자 자동 등록이 사용되지 않습니다. 개"
-"시자를 수동으로 등록하십시오."
-
-#, python-format
-msgid "iops limit is: %s."
-msgstr "iops 한계: %s."
-
-#, python-format
-msgid "iscsi_initiators: %s"
-msgstr "iscsi_initiators: %s"
-
-#, python-format
-msgid "location is: %(location)s"
-msgstr "위치: %(location)s"
 
 #, python-format
 msgid ""
@@ -3446,10 +3134,6 @@ msgid "new cloned volume: %s"
 msgstr "새로 복제된 볼륨: %s"
 
 #, python-format
-msgid "nfs_info: %(key)s: %(path)s, HDP: %(fslabel)s FSID: %(hdp)s"
-msgstr "nfs_info: %(key)s: %(path)s, HDP: %(fslabel)s FSID: %(hdp)s"
-
-#, python-format
 msgid "open_connection to %(ssn)s at %(ip)s"
 msgstr "%(ip)s에서 %(ssn)s에 대한 open_connection"
 
@@ -3466,14 +3150,6 @@ msgid "setting volume %s to error_restoring (was restoring-backup)."
 msgstr "볼륨 %s을(를) error_restoring(으)로 설정(복원-백업)."
 
 #, python-format
-msgid "share: %(share)s -> %(info)s"
-msgstr "공유: %(share)s -> %(info)s"
-
-#, python-format
-msgid "share: %s incorrect entry"
-msgstr "공유: %s 올바르지 않은 항목"
-
-#, python-format
 msgid "smis_do_iscsi_discovery is: %(out)s."
 msgstr "smis_do_iscsi_discovery: %(out)s."
 
@@ -3486,20 +3162,8 @@ msgid "source volume for cloning: %s"
 msgstr "복제할 소스 볼륨: %s"
 
 #, python-format
-msgid "stats: stats: %s."
-msgstr "통계: 통계: %s."
-
-#, python-format
 msgid "stop_snapshot: snapshot name: %(snapshot)s, volume name: %(volume)s."
 msgstr "stop_snapshot: 스냅샷 이름: %(snapshot)s, 볼륨 이름: %(volume)s."
-
-#, python-format
-msgid "targetlist: %s"
-msgstr "targetlist: %s"
-
-#, python-format
-msgid "terminate: connection %s"
-msgstr "종료: 연결 %s"
 
 #, python-format
 msgid "terminate_connection volume: %(volume)s, connector: %(con)s"

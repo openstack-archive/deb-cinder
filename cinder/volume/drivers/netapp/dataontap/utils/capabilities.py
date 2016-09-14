@@ -88,10 +88,24 @@ class CapabilitiesLibrary(object):
 
         return copy.deepcopy(self.ssc)
 
+    def get_ssc_flexvol_names(self):
+        """Get the names of the FlexVols in the Storage Service Catalog."""
+        ssc = self.get_ssc()
+        return ssc.keys()
+
     def get_ssc_for_flexvol(self, flexvol_name):
         """Get map of Storage Service Catalog entries for a single flexvol."""
 
         return copy.deepcopy(self.ssc.get(flexvol_name, {}))
+
+    def get_ssc_aggregates(self):
+        """Get a list of aggregates for all SSC flexvols."""
+
+        aggregates = set()
+        for __, flexvol_info in self.ssc.items():
+            if 'netapp_aggregate' in flexvol_info:
+                aggregates.add(flexvol_info['netapp_aggregate'])
+        return list(aggregates)
 
     def update_ssc(self, flexvol_map):
         """Periodically runs to update Storage Service Catalog data.
@@ -117,12 +131,17 @@ class CapabilitiesLibrary(object):
             ssc_volume.update(self._get_ssc_mirror_info(flexvol_name))
 
             # Get aggregate info
-            aggregate_name = ssc_volume.get('aggregate')
+            aggregate_name = ssc_volume.get('netapp_aggregate')
             ssc_volume.update(self._get_ssc_aggregate_info(aggregate_name))
 
             ssc[flexvol_name] = ssc_volume
 
         self.ssc = ssc
+
+    def _update_for_failover(self, zapi_client, flexvol_map):
+
+        self.zapi_client = zapi_client
+        self.update_ssc(flexvol_map)
 
     def _get_ssc_flexvol_info(self, flexvol_name):
         """Gather flexvol info and recast into SSC-style volume stats."""
@@ -138,7 +157,7 @@ class CapabilitiesLibrary(object):
             'netapp_thin_provisioned': six.text_type(not netapp_thick).lower(),
             'thick_provisioning_support': thick,
             'thin_provisioning_support': not thick,
-            'aggregate': volume_info.get('aggregate'),
+            'netapp_aggregate': volume_info.get('aggregate'),
         }
 
     def _get_thick_provisioning_support(self, netapp_thick):
@@ -181,14 +200,15 @@ class CapabilitiesLibrary(object):
     def _get_ssc_aggregate_info(self, aggregate_name):
         """Gather aggregate info and recast into SSC-style volume stats."""
 
-        disk_type = self.zapi_client.get_aggregate_disk_type(aggregate_name)
-        aggr_info = self.zapi_client.get_aggregate(aggregate_name)
-
-        raid_type = aggr_info.get('raid-type')
+        aggregate = self.zapi_client.get_aggregate(aggregate_name)
+        hybrid = (six.text_type(aggregate.get('is-hybrid')).lower()
+                  if 'is-hybrid' in aggregate else None)
+        disk_types = self.zapi_client.get_aggregate_disk_types(aggregate_name)
 
         return {
-            'netapp_disk_type': disk_type,
-            'netapp_raid_type': raid_type,
+            'netapp_raid_type': aggregate.get('raid-type'),
+            'netapp_hybrid_aggregate': hybrid,
+            'netapp_disk_type': disk_types,
         }
 
     def get_matching_flexvols_for_extra_specs(self, extra_specs):
