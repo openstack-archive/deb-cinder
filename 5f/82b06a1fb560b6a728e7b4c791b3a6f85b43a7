@@ -1,0 +1,10 @@
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+1: melissaml <ma.lei@99cloud.net>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 14 Sep 2016 11:43:49 +0000
+Reviewed-on: https://review.openstack.org/364837
+Project: openstack/deb-cinder
+Branch: refs/heads/master
