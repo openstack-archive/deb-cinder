@@ -1,0 +1,11 @@
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Verified+1: VMware NSX CI
+Code-Review+1: Kendall Nelson <kennelson11@gmail.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 18 Sep 2016 15:57:52 +0000
+Reviewed-on: https://review.openstack.org/333164
+Project: openstack/deb-cinder
+Branch: refs/heads/master
