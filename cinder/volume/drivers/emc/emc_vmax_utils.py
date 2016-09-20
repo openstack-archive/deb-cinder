@@ -15,6 +15,8 @@
 
 import datetime
 import hashlib
+import os
+import pickle
 import random
 import re
 from xml.dom import minidom
@@ -50,6 +52,7 @@ EMC_ROOT = 'root/emc'
 CONCATENATED = 'concatenated'
 CINDER_EMC_CONFIG_FILE_PREFIX = '/etc/cinder/cinder_emc_config_'
 CINDER_EMC_CONFIG_FILE_POSTFIX = '.xml'
+LIVE_MIGRATION_FILE = '/etc/cinder/livemigrationarray'
 ISCSI = 'iscsi'
 FC = 'fc'
 JOB_RETRIES = 60
@@ -1543,6 +1546,11 @@ class EMCVMAXUtils(object):
         isValidSLO = False
         isValidWorkload = False
 
+        if not slo:
+            isValidSLO = True
+        if not workload:
+            isValidWorkload = True
+
         validSLOs = ['Bronze', 'Silver', 'Gold',
                      'Platinum', 'Diamond', 'Optimized',
                      'NONE']
@@ -1579,10 +1587,13 @@ class EMCVMAXUtils(object):
         :param workload: the workload string e.g DSS
         :returns: storageGroupName
         """
-        storageGroupName = ("OS-%(poolName)s-%(slo)s-%(workload)s-SG"
-                            % {'poolName': poolName,
-                               'slo': slo,
-                               'workload': workload})
+        if slo and workload:
+            storageGroupName = ("OS-%(poolName)s-%(slo)s-%(workload)s-SG"
+                                % {'poolName': poolName,
+                                   'slo': slo,
+                                   'workload': workload})
+        else:
+            storageGroupName = ("OS-no_SLO-SG")
         return storageGroupName
 
     def _get_fast_settings_from_storage_group(self, storageGroupInstance):
@@ -1884,12 +1895,11 @@ class EMCVMAXUtils(object):
         kwargs['EcomNoVerification'] = connargs['EcomNoVerification']
 
         slo = self._process_tag(element, 'SLO')
-        if slo is None:
-            slo = 'NONE'
         kwargs['SLO'] = slo
         workload = self._process_tag(element, 'Workload')
-        if workload is None:
+        if workload is None and slo:
             workload = 'NONE'
+
         kwargs['Workload'] = workload
         fastPolicy = self._process_tag(element, 'FastPolicy')
         kwargs['FastPolicy'] = fastPolicy
@@ -2715,3 +2725,110 @@ class EMCVMAXUtils(object):
             modifiedInstance = conn.ModifyInstance(storagegroupInstance,
                                                    PropertyList=propertylist)
         return modifiedInstance
+
+    def insert_live_migration_record(self, volume, maskingviewdict,
+                                     connector, extraSpecs):
+        """Insert a record of live migration destination into a temporary file
+
+        :param volume: the volume dictionary
+        :param maskingviewdict: the storage group instance name
+        :param connector: the connector Object
+        :param extraSpecs: the extraSpecs dict
+        """
+        live_migration_details = self.get_live_migration_record(volume, True)
+        if live_migration_details:
+            if volume['id'] not in live_migration_details:
+                live_migration_details[volume['id']] = [maskingviewdict,
+                                                        connector, extraSpecs]
+        else:
+            live_migration_details = {volume['id']: [maskingviewdict,
+                                                     connector, extraSpecs]}
+        try:
+            with open(LIVE_MIGRATION_FILE, "wb") as f:
+                pickle.dump(live_migration_details, f)
+        except Exception:
+            exceptionMessage = (_(
+                "Error in processing live migration file."))
+            LOG.exception(exceptionMessage)
+            raise exception.VolumeBackendAPIException(
+                data=exceptionMessage)
+
+    def delete_live_migration_record(self, volume):
+        """Delete record of live migration
+
+        Delete record of live migration destination from file and if
+        after deletion of record, delete file if empty.
+
+        :param volume: the volume dictionary
+        """
+        live_migration_details = self.get_live_migration_record(volume, True)
+        if live_migration_details:
+            if volume['id'] in live_migration_details:
+                del live_migration_details[volume['id']]
+                with open(LIVE_MIGRATION_FILE, "wb") as f:
+                    pickle.dump(live_migration_details, f)
+            else:
+                LOG.debug("%(Volume)s doesn't exist in live migration "
+                          "record.",
+                          {'Volume': volume['id']})
+            if not live_migration_details:
+                os.remove(LIVE_MIGRATION_FILE)
+
+    def get_live_migration_record(self, volume, returnallrecords):
+        """get record of live migration destination from a temporary file
+
+        :param volume: the volume dictionary
+        :param returnallrecords: if true, return all records in file
+        :returns: returns a single record or all records depending on
+        returnallrecords flag
+        """
+        returned_record = None
+        if os.path.isfile(LIVE_MIGRATION_FILE):
+            with open(LIVE_MIGRATION_FILE, "rb") as f:
+                live_migration_details = pickle.load(f)
+            if returnallrecords:
+                returned_record = live_migration_details
+            else:
+                if volume['id'] in live_migration_details:
+                    returned_record = live_migration_details[volume['id']]
+                else:
+                    LOG.debug("%(Volume)s doesn't exist in live migration "
+                              "record.",
+                              {'Volume': volume['id']})
+        return returned_record
+
+    def get_iqn(self, conn, ipendpointinstancename):
+        """Get the IPv4Address from the ip endpoint instance name.
+
+        :param conn: the ecom connection
+        :param ipendpointinstancename: the ip endpoint instance name
+        :returns: foundIqn
+        """
+        foundIqn = None
+        ipendpointinstance = conn.GetInstance(ipendpointinstancename)
+        propertiesList = ipendpointinstance.properties.items()
+        for properties in propertiesList:
+            if properties[0] == 'Name':
+                cimProperties = properties[1]
+                foundIqn = cimProperties.value
+        return foundIqn
+
+    def check_ig_instance_name(
+            self, conn, initiatorGroupInstanceName):
+        """Check if a given Initiator Group Instance Name has been deleted.
+
+        :param conn: the ecom connection
+        :param initiatorGroupInstanceName: the given IG instance name
+        :return: foundinitiatorGroupInstanceName or None if deleted
+        """
+        foundinitiatorGroupInstanceName = self.get_existing_instance(
+            conn, initiatorGroupInstanceName)
+        if foundinitiatorGroupInstanceName is not None:
+            LOG.debug("Found initiator group name: "
+                      "%(igName)s.",
+                      {'igName': foundinitiatorGroupInstanceName})
+        else:
+            LOG.debug("Could not find initiator group name: "
+                      "%(igName)s.",
+                      {'igName': foundinitiatorGroupInstanceName})
+        return foundinitiatorGroupInstanceName

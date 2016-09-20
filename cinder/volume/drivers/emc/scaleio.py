@@ -72,10 +72,11 @@ scaleio_opts = [
     cfg.FloatOpt('sio_max_over_subscription_ratio',
                  # This option exists to provide a default value for the
                  # ScaleIO driver which is different than the global default.
+                 default=10.0,
                  help='max_over_subscription_ratio setting for the ScaleIO '
-                      'driver. If set, this takes precedence over the '
-                      'general max_over_subscription_ratio option. If '
-                      'None, the general option is used.'
+                      'driver. This replaces the general '
+                      'max_over_subscription_ratio which has no effect '
+                      'in this driver.'
                       'Maximum value allowed for ScaleIO is 10.0.')
 ]
 
@@ -100,6 +101,7 @@ VOLUME_NOT_FOUND_ERROR = 79
 # This code belongs to older versions of ScaleIO
 OLD_VOLUME_NOT_FOUND_ERROR = 78
 VOLUME_NOT_MAPPED_ERROR = 84
+ILLEGAL_SYNTAX = 0
 VOLUME_ALREADY_MAPPED_ERROR = 81
 MIN_BWS_SCALING_SIZE = 128
 SIO_MAX_OVERSUBSCRIPTION_RATIO = 10.0
@@ -175,9 +177,8 @@ class ScaleIODriver(driver.VolumeDriver):
         LOG.info(_LI(
                  "Default provisioning type: %(provisioning_type)s."),
                  {'provisioning_type': self.provisioning_type})
-        if self.configuration.sio_max_over_subscription_ratio is not None:
-            self.configuration.max_over_subscription_ratio = (
-                self.configuration.sio_max_over_subscription_ratio)
+        self.configuration.max_over_subscription_ratio = (
+            self.configuration.sio_max_over_subscription_ratio)
         self.connector = connector.InitiatorConnector.factory(
             connector.SCALEIO, utils.get_root_helper(),
             device_scan_attempts=
@@ -1142,8 +1143,10 @@ class ScaleIODriver(driver.VolumeDriver):
 
         if r.status_code != OK_STATUS_CODE:
             response = r.json()
-            if ((response['errorCode'] == VOLUME_NOT_FOUND_ERROR or
-                 response['errorCode'] == OLD_VOLUME_NOT_FOUND_ERROR)):
+            error_code = response['errorCode']
+            if ((error_code == VOLUME_NOT_FOUND_ERROR or
+                 error_code == OLD_VOLUME_NOT_FOUND_ERROR or
+                 error_code == ILLEGAL_SYNTAX)):
                 LOG.info(_LI("Ignoring renaming action because the volume "
                              "%(vol)s is not a ScaleIO volume."),
                          {'vol': vol_id})

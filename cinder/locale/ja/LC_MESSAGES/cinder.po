@@ -11,13 +11,13 @@
 # Yoshiki Eguchi <yoshiki.eguchi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 9.0.0.0b3.dev544\n"
+"Project-Id-Version: cinder 9.0.0.0b4.dev152\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-09-01 04:08+0000\n"
+"POT-Creation-Date: 2016-09-15 02:36+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-08-31 02:37+0000\n"
+"PO-Revision-Date: 2016-09-14 02:08+0000\n"
 "Last-Translator: Yoshiki Eguchi <yoshiki.eguchi@gmail.com>\n"
 "Language: ja\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -308,6 +308,9 @@ msgstr "snap_info の書き込み時には 'active' が存在しなければな�
 
 msgid "'consistencygroup_id' must be specified"
 msgstr "'consistencygroup_id' を指定する必要があります。"
+
+msgid "'group_id' must be specified"
+msgstr "'group_id' の指定は必須です"
 
 msgid "'qemu-img info' parsing failed."
 msgstr "'qemu-img info' の解析に失敗しました。"
@@ -887,12 +890,6 @@ msgstr ""
 "キャッシュ名がありません。キーで smartcache:cachename を設定してください。"
 
 #, python-format
-msgid "Cache volume %(cache_vol)sdoes not have snapshot %(cache_snap)s."
-msgstr ""
-"キャッシュボリューム %(cache_vol)s にスナップショット %(cache_snap)s がありま"
-"せん。"
-
-#, python-format
 msgid "Cache volume %s does not have required properties"
 msgstr "キャッシュボリューム %s に必須のプロパティーがありません"
 
@@ -1226,6 +1223,22 @@ msgid "Cannot create encryption specs. Volume type in use."
 msgstr "暗号化仕様を作成できません。ボリュームタイプは使用中です。"
 
 #, python-format
+msgid ""
+"Cannot create group %(group)s because snapshot %(snap)s is not in a valid "
+"state. Valid states are: %(valid)s."
+msgstr ""
+"スナップショット %(snap)s は有効な状態ではないため、グループ%(group)s を作成"
+"できません。有効な状態は %(valid)s です。"
+
+#, python-format
+msgid ""
+"Cannot create group %(group)s because source volume %(source_vol)s is not in "
+"a valid state. Valid states are: %(valid)s."
+msgstr ""
+"ソースボリューム %(source_vol)s が有効な状態にないため、グループ %(group)s を"
+"作成できません。有効な状態は %(valid)s です。"
+
+#, python-format
 msgid "Cannot create group_type with name %(name)s and specs %(group_specs)s"
 msgstr ""
 "名前 %(name)s および仕様 %(group_specs)s を使用して group_type を作成できませ"
@@ -1428,6 +1441,14 @@ msgstr ""
 "ソースから整合性グループ  %(name)s を作成するために、'cgsnapshot_id' または "
 "'source_cgid' の両方を提供することができません。"
 
+#, python-format
+msgid ""
+"Cannot provide both 'group_snapshot_id' and 'source_group_id' to create "
+"group %(name)s from source."
+msgstr ""
+"ソースからグループ  %(name)s を作成するために、 'group_snapshot_id' または "
+"'source_group_id' の両方を提供することができません。"
+
 msgid "Cannot register resource"
 msgstr "リソースを登録できません。"
 
@@ -1486,6 +1507,16 @@ msgid ""
 msgstr ""
 "vgc-cluster コマンドを実行できません。ソフトウェアが実装済みで、権限が適切に"
 "設定されていることを確認してください。"
+
+msgid "Cannot save group_snapshots changes in group object update."
+msgstr ""
+"グループオブジェクトの更新で、 group_snapshots  の変更を保存できません。"
+
+msgid "Cannot save volume_types changes in group object update."
+msgstr "グループオブジェクトの更新で、 volume_types の変更を保存できません。"
+
+msgid "Cannot save volumes changes in group object update."
+msgstr "グループオブジェクトの更新で、 ボリュームの変更を保存できません。"
 
 msgid "Cannot set both hitachi_serial_number and hitachi_unit_name."
 msgstr ""
@@ -1776,14 +1807,6 @@ msgstr "ConsistencyGroup %(consistencygroup_id)s が見つかりませんでし�
 msgid "Container"
 msgstr "コンテナー"
 
-#, python-format
-msgid ""
-"Container format: %s is unsupported by the VMDK driver, only 'bare' is "
-"supported."
-msgstr ""
-"コンテナーフォーマット: %s は VMDK ドライバーでサポートされません。 'bare' の"
-"みがサポートされます。"
-
 msgid "Container size smaller than required file size."
 msgstr "コンテナーサイズが必要なファイルサイズを下回っています。"
 
@@ -1872,11 +1895,6 @@ msgstr "GPFS ファイルシステムデバイスが見つかりませんでし�
 #, python-format
 msgid "Could not find config at %(path)s"
 msgstr "%(path)s で config が見つかりませんでした。"
-
-#, python-format
-msgid "Could not find iSCSI export for volume %(volumeName)s."
-msgstr ""
-"ボリューム %(volumeName)s の iSCSI エクスポートが見つかりませんでした。"
 
 #, python-format
 msgid "Could not find iSCSI export for volume %s"
@@ -1983,6 +2001,9 @@ msgstr ""
 
 msgid "Create export for volume failed."
 msgstr "ボリュームのエクスポートの作成に失敗しました。"
+
+msgid "Create group failed."
+msgstr "グループの作成に失敗しました。"
 
 msgid "Create hostgroup error."
 msgstr "ホストグループ作成のエラー。"
@@ -2195,6 +2216,9 @@ msgstr ""
 msgid "Delete consistency group failed."
 msgstr "整合性グループの削除に失敗しました。"
 
+msgid "Delete group failed."
+msgstr "グループの削除に失敗しました。"
+
 msgid "Delete hostgroup error."
 msgstr "ホストグループ削除のエラー。"
 
@@ -2401,6 +2425,14 @@ msgid ""
 msgstr ""
 "ソースから整合性グループ  %(name)s を作成するには、'cgsnapshot_id' または "
 "'source_cgid' を指定する必要があります。"
+
+#, python-format
+msgid ""
+"Either 'group_snapshot_id' or 'source_group_id' must be provided to create "
+"group %(name)s from source."
+msgstr ""
+"ソースからグループ  %(name)s を作成するには、 'group_snapshot_id'  または "
+"'source_group_id' を指定する必要があります。"
 
 #, python-format
 msgid ""
@@ -3027,6 +3059,9 @@ msgstr ""
 msgid "Error in SolidFire API response: data=%(data)s"
 msgstr "SolidFire API 応答にエラーがあります: data=%(data)s"
 
+msgid "Error in processing live migration file."
+msgstr "ライブマイグレーションファイルの処理中にエラーが発生しました。"
+
 #, python-format
 msgid "Error in space-create for %(space)s of size %(size)d GB"
 msgstr "%(size)d GB のサイズの  %(space)s のスペースの作成のエラーです。"
@@ -3075,12 +3110,28 @@ msgid "Error occurred when creating cgsnapshot %s."
 msgstr "cgsnapshot %s を作成中にエラーが発生しました。"
 
 #, python-format
+msgid "Error occurred when creating group_snapshot %s."
+msgstr "group_snapshot %s を作成中にエラーが発生しました。"
+
+#, python-format
 msgid "Error occurred when deleting cgsnapshot %s."
 msgstr "cgsnapshot %s を削除中にエラーが発生しました。"
 
 #, python-format
+msgid "Error occurred when deleting group snapshot %s."
+msgstr "グループスナップショット %s を削除中にエラーが発生しました。"
+
+#, python-format
+msgid "Error occurred when deleting group_snapshot %s."
+msgstr "group_snapshot %s を削除中にエラーが発生しました。"
+
+#, python-format
 msgid "Error occurred when updating consistency group %s."
 msgstr "整合性グループ %s を更新中にエラーが発生しました。"
+
+#, python-format
+msgid "Error occurred when updating group %s."
+msgstr "グループ %s を更新中にエラーが発生しました。"
 
 msgid "Error promoting secondary volume to primary"
 msgstr ""
@@ -3136,14 +3187,6 @@ msgstr ""
 #, python-format
 msgid "Error unbinding volume %(vol)s from pool. %(error)s."
 msgstr "プールからのボリューム %(vol)s のアンバインドエラー。%(error)s。"
-
-#, python-format
-msgid ""
-"Error verifying clone size on Volume clone: %(clone)s Size: %(size)d "
-"onSnapshot: %(snapshot)s"
-msgstr ""
-"スナップショット: %(snapshot)s のボリュームクローン: %(clone)s サイズ: "
-"%(size)d のクローンサイズの検証中にエラーが発生しました。"
 
 #, python-format
 msgid "Error while authenticating with switch: %s."
@@ -3329,6 +3372,11 @@ msgstr "UUID が必要ですが、%(uuid)s を受け取りました。"
 #, python-format
 msgid "Expected exactly one node called \"%s\""
 msgstr "1 つのノードの呼び出しを予期していました \"%s\""
+
+#, python-format
+msgid "Expected higher file exists for snapshot %s"
+msgstr ""
+"スナップショット %s には、上位のファイルが存在することが期待されています。"
 
 #, python-format
 msgid "Expected integer for node_count, svcinfo lsiogrp returned: %(node)s."
@@ -4494,6 +4542,9 @@ msgstr ""
 msgid "Fibre Channel SAN Lookup failure: %(reason)s"
 msgstr "ファイバーチャネル SAN ルックアップ障害: %(reason)s"
 
+msgid "Fibre Channel Zone Manager not initialized"
+msgstr "ファイバーチャネルゾーンマネージャーが初期化されていません。"
+
 #, python-format
 msgid "Fibre Channel Zone operation failed: %(reason)s"
 msgstr "ファイバーチャネルゾーン操作が失敗しました: %(reason)s"
@@ -4954,6 +5005,9 @@ msgid "Group Type %(type_id)s has no extra spec with key %(id)s."
 msgstr ""
 "グループ種別 %(type_id)s には、キー %(id)s に関する追加の仕様がありません。"
 
+msgid "Group snapshot is empty. No group will be created."
+msgstr "グループスナップショット が空です。グループは作成されません。"
+
 #, python-format
 msgid "Group status must be available or error, but current status is: %s"
 msgstr ""
@@ -5012,6 +5066,13 @@ msgstr ""
 msgid "GroupSnapshot %(group_snapshot_id)s could not be found."
 msgstr ""
 "グループスナップショット %(group_snapshot_id)s は見つかりませんでした。"
+
+msgid ""
+"GroupSnapshot status must be available or error, and no Group can be "
+"currently using it as source for its creation."
+msgstr ""
+"GroupSnapshot の状態は「使用可能」または「エラー」でなければなりません。また"
+"これをソースとして用いてグループを作成することは現在できません。"
 
 msgid "HBSD error occurs."
 msgstr "HBSD エラーが発生しました。"
@@ -5140,6 +5201,13 @@ msgid ""
 msgstr ""
 "シンプロビジョニングボリュームを作成したい場合は、このパラメーターは True で"
 "なければいけません。"
+
+msgid ""
+"Illegal provisioning type. The supported provisioning types are 'thick' or "
+"'thin'."
+msgstr ""
+"正しくないプロビジョニングタイプです。サポートされているプロビジョニングのタ"
+"イプは  'thick' か 'thin' です。"
 
 #, python-format
 msgid ""
@@ -5715,6 +5783,14 @@ msgstr ""
 "でサポートされていなければなりません)。"
 
 #, python-format
+msgid ""
+"Invalid volume_type provided: %s (requested type must be supported by this "
+"group)."
+msgstr ""
+"無効な volume_type %s が指定されました (要求するタイプは、このグループでサ"
+"ポートされていなければなりません)。"
+
+#, python-format
 msgid "Invalid wwpns format %(wwpns)s"
 msgstr "wwpn 形式 %(wwpns)s は無効です"
 
@@ -5959,6 +6035,36 @@ msgstr ""
 msgid "Masking view %(maskingViewName)s was not deleted successfully"
 msgstr "マスキングビュー %(maskingViewName)s は正常に削除されませんでした"
 
+#, python-format
+msgid ""
+"Max over subscription is configured to %(ratio)1f while ScaleIO support up "
+"to %(sio_ratio)s."
+msgstr ""
+"最大値を超過したサプスクリプションが %(ratio)1f に設定されました。 Scale IO "
+"は %(sio_ratio)s までサポートしています。"
+
+msgid "Max read bandwidth setting for volume qos, use 0 for unlimited"
+msgstr ""
+"ボリューム QoS の最大読み出し帯域幅設定。無制限にする場合は0を指定します。"
+
+msgid "Max read iops setting for volume qos, use 0 for unlimited"
+msgstr "ボリューム QoS の読み出し iops 設定。無制限にする場合は0を指定します。"
+
+msgid "Max total bandwidth setting for volume qos, use 0 for unlimited"
+msgstr ""
+"ボリューム QoS のトータルの最大帯域幅設定。無制限にする場合は0を指定します。"
+
+msgid "Max total iops setting for volume qos, use 0 for unlimited"
+msgstr ""
+"ボリューム QoS のトータルの iops 設定。無制限にする場合は0を指定します。"
+
+msgid "Max write bandwidth setting for volume qos, use 0 for unlimited"
+msgstr ""
+"ボリューム QoS の最大書き込み帯域幅設定。無制限にする場合は0を指定します。"
+
+msgid "Max write iops setting for volume qos, use 0 for unlimited"
+msgstr "ボリューム QoS の書き込み iops 設定。無制限にする場合は0を指定します。"
+
 msgid "Maximum age is count of days since epoch."
 msgstr "最長存続時間は、エポック以降の日数です。"
 
@@ -6085,6 +6191,9 @@ msgstr "host_passes_filters を実装する必要があります。"
 
 msgid "Must implement schedule_create_consistencygroup"
 msgstr "schedule_create_consistencygroup を実装する必要があります"
+
+msgid "Must implement schedule_create_group"
+msgstr "schedule_create_group の実装が必要です。"
 
 msgid "Must implement schedule_create_volume"
 msgstr "schedule_create_volume を実装する必要があります。"
@@ -6353,12 +6462,20 @@ msgid "No good iscsi portals found for %s."
 msgstr "%s の正しい iscsi ポータルが見つかりません。"
 
 #, python-format
+msgid "No group snapshot with id %s"
+msgstr "id %s のグループスナップショットは存在しません。"
+
+#, python-format
 msgid "No group with id %s"
 msgstr "ID %s のグループは存在しません。"
 
 #, python-format
 msgid "No host to create consistency group %s."
 msgstr "整合性グループ %s を作成するためのホストがありません。"
+
+#, python-format
+msgid "No host to create group %s."
+msgstr "グループ %s を作成するためのホストがありません。"
 
 msgid "No iSCSI-enabled ports on target array."
 msgstr "ターゲット配列に iSCSI に対応するポートがありません。"
@@ -6669,6 +6786,13 @@ msgstr ""
 msgid "One of the required inputs from host, port or scheme was not found."
 msgstr ""
 "ホスト、ポート、またはスキーマからの必須の入力の 1 つが見つかりませんでした。"
+
+msgid ""
+"One of the services is in Liberty version. We do not provide backward "
+"compatibility with Liberty now, you need to upgrade to Mitaka first."
+msgstr ""
+"サービスの一つが Liberty バージョンです。現在、 Liberty への後方互換性は提供"
+"していません。 先に Mitaka へのアップグレードが必要です。"
 
 #, python-format
 msgid ""
@@ -7305,18 +7429,35 @@ msgstr "再試行可能な Pure Storage 例外が発生しました"
 msgid "Retryable SolidFire Exception encountered"
 msgstr "再試行可能な SolidFire 例外が発生しました"
 
+msgid ""
+"Retype needs volume to be in available or in-use state, not be part of an "
+"active migration or a consistency group, requested type has to be different "
+"that the one from the volume, and for in-use volumes front-end qos specs "
+"cannot change."
+msgstr ""
+"タイプ変更では、ボリュームが利用可能か使用中の状態であること、アクティブマイ"
+"グレーションや整合性グループの一部ではないこと、要求したタイプが現在のボ"
+"リュームの一つと異なることが必要です。また、使用中のボリュームのフロントエン"
+"ド qos 仕様は変更できません。"
+
 msgid "Retype requires migration but is not allowed."
 msgstr "タイプ変更するにはマイグレーションが必要ですが、許可されていません。"
+
+msgid ""
+"Rollback - Volume in another storage group besides default storage group."
+msgstr ""
+"ロールバック - デフォルトのストレージグループとは別のストレージグループのボ"
+"リューム。"
 
 #, python-format
 msgid ""
 "Rollback for Volume: %(volumeName)s has failed. Please contact your system "
 "administrator to manually return your volume to the default storage group "
-"for fast policy %(fastPolicyName)s failed."
+"for fast policy/ slo."
 msgstr ""
 "ボリューム %(volumeName)s のロールバックに失敗しました。システム管理者に連絡"
-"して、ボリュームを失敗した FAST ポリシー %(fastPolicyName)s のデフォルトのス"
-"トレージグループに手動で戻してください。"
+"して、ボリュームを失敗した FAST ポリシー / slo のデフォルトのストレージグルー"
+"プに手動で戻してください。"
 
 #, python-format
 msgid "Rolling back %(volumeName)s by deleting it."
@@ -7555,8 +7696,15 @@ msgid "Snapshot %s : Delete Failed\n"
 msgstr "スナップショット %s : 削除が失敗しました。\n"
 
 #, python-format
+msgid "Snapshot %s must not be part of a group."
+msgstr "スナップショット %s はグループの一部であってはなりません。"
+
+#, python-format
 msgid "Snapshot '%s' doesn't exist on array."
 msgstr "スナップショット '%s' はアレイに存在しません。"
+
+msgid "Snapshot already managed."
+msgstr "スナップショットはすでに管理されています。"
 
 msgid ""
 "Snapshot can't be taken individually on a volume that is part of a "
@@ -7671,6 +7819,16 @@ msgstr ""
 msgid "Source CG is empty. No consistency group will be created."
 msgstr "ソース CG が空です。整合性グループは作成されません。"
 
+msgid "Source Group is empty. No group will be created."
+msgstr "ソースグループが空です。グループは作成されません。"
+
+msgid ""
+"Source group cannot be empty or in 'creating' or 'updating' state. No group "
+"snapshot will be created."
+msgstr ""
+"ソース グループ が空もしくは 'creating'  や 'updating' の状態ではいけませ"
+"ん。 グループスナップショット は作成されません。"
+
 msgid "Source host details not found."
 msgstr "ソースホスト詳細が見つかりません"
 
@@ -7698,6 +7856,16 @@ msgstr "指定された論理ボリュームは存在しません。"
 msgid "Specified snapshot group with id %s could not be found."
 msgstr ""
 "ID %s の指定されたスナップショットグループを見つけることができませんでした。"
+
+msgid "Specifies IP pool to use for volume"
+msgstr "ボリュームに用いる IP プールを指定します。"
+
+msgid ""
+"Specifies number of replicas for each volume. Can only be increased once "
+"volume is created"
+msgstr ""
+"各ボリュームで作成するレプリカ数を指定します。ボリュームが一度作成されると、"
+"値は増やすことのみ可能です。"
 
 msgid "Specify a password or private_key"
 msgstr "パスワードまたは private_key を指定してください。"
@@ -7925,6 +8093,14 @@ msgstr ""
 "配列が SLO %(slo)s とワークロード %(workload)s のストレージプール設置をサポー"
 "トしません。配列で有効な SLO とワークロードを確認してください。"
 
+#, python-format
+msgid ""
+"The array does not support the storage pool setting for SLO %(slo)s or "
+"workload %(workload)s. Please check the array for valid SLOs and workloads."
+msgstr ""
+"アレイが SLO %(slo)s またはワークロード %(workload)s のストレージプール設置を"
+"サポートしません。アレイで有効な SLO とワークロードを確認してください。"
+
 msgid ""
 "The authentication service failed to provide the location of the service URI "
 "when redirecting back"
@@ -7983,14 +8159,6 @@ msgstr "フェイルオーバーされたボリュームを削除することが
 #, python-format
 msgid "The following elements are required: %s"
 msgstr "次の要素が必要です: %s"
-
-#, python-format
-msgid ""
-"The following migrations have a downgrade, which are not allowed: \n"
-"\t%s"
-msgstr ""
-"以下の移行にはダウングレードがありますが、これは許容されません: \n"
-"\t%s"
 
 msgid ""
 "The given pool info must include the storage pool and naming start with "
@@ -8063,6 +8231,12 @@ msgid ""
 msgstr ""
 "マウント %(mount_path)s は有効な Quobyte USP ボリュームではありません。エ"
 "ラー: %(exc)s"
+
+msgid "The name to use for storage instances created"
+msgstr "作成したストレージインスタンスにも用いる名前"
+
+msgid "The name to use for volumes created"
+msgstr "作成したボリュームに用いる名前"
 
 #, python-format
 msgid "The parameter of the storage backend. (config_group: %(config_group)s)"
@@ -8517,6 +8691,13 @@ msgstr ""
 "転送 %(transfer_id)s: ボリューム ID %(volume_id)s が予期しない状態%(status)s "
 "です。awaiting-transfer が予期されていました"
 
+msgid ""
+"True to set acl 'allow_all' on volumes created.  Cannot be changed on volume "
+"once set"
+msgstr ""
+"ボリューム作成時に acl 'allow_all'  を True に設定します。一度ボリュームに設"
+"定すると変更することはできません。"
+
 #, python-format
 msgid ""
 "Trying to import backup metadata from id %(meta_id)s into backup %(id)s."
@@ -8828,6 +9009,9 @@ msgstr "backend_name の統計情報を取得できません: %s"
 
 msgid "Unable to get storage volume from job."
 msgstr "ジョブからストレージボリュームを取得できません。"
+
+msgid "Unable to get target endpoints for any hardwareIds."
+msgstr "どのハードウェア ID のターゲットエンドポイントも取得できません。"
 
 #, python-format
 msgid "Unable to get target endpoints for hardwareId %(hardwareIdInstance)s."
@@ -9180,10 +9364,6 @@ msgstr ""
 msgid "Unset gcs options: %s"
 msgstr "gcs オプションの設定を解除します: %s"
 
-#, python-format
-msgid "Unsuccessful iscsiadm. Exception is %(ex)s. "
-msgstr "iscsiadm が正常に終了しませんでした。例外は %(ex)s です。 "
-
 msgid "Unsupported Content-Type"
 msgstr "サポートされない Content-Type"
 
@@ -9281,12 +9461,6 @@ msgstr "ユーザー名は設定されていません。"
 
 msgid "UserPassword is not configured."
 msgstr "ユーザーパスワードは設定されていません。"
-
-msgid ""
-"V2 rollback - Volume in another storage group besides default storage group."
-msgstr ""
-"V2 のロールバック。デフォルトのストレージグループとは別のストレージグループの"
-"ボリューム。"
 
 msgid "V2 rollback, volume is not in any storage group."
 msgstr ""
@@ -9428,6 +9602,12 @@ msgstr "ボリューム %(vol)s をプール %(pool)s に作成できません�
 #, python-format
 msgid "Volume %(vol1)s does not match with snapshot.volume_id %(vol2)s."
 msgstr "ボリューム%(vol1)s が snapshot.volume_id %(vol2)s と一致しません。"
+
+#, python-format
+msgid "Volume %(vol_id)s is not local to this node %(host)s"
+msgstr ""
+"ボリューム %(vol_id)s は、このノード %(host)s に対してローカルではありませ"
+"ん。"
 
 #, python-format
 msgid "Volume %(vol_id)s status must be %(statuses)s"
@@ -9578,6 +9758,14 @@ msgstr ""
 "ムをオフラインに設定してください。"
 
 #, python-format
+msgid ""
+"Volume %s must not be migrating, attached, belong to a group or have "
+"snapshots."
+msgstr ""
+"ボリューム %s の移行と追加を行うことはできず、グループに含めることはできず、"
+"スナップショットを持つこともできません。"
+
+#, python-format
 msgid "Volume %s must not be part of a consistency group."
 msgstr "ボリューム %s は整合性グループの一部であってはなりません。"
 
@@ -9588,6 +9776,17 @@ msgstr "ボリューム %s が見つかりません。"
 #, python-format
 msgid "Volume %s not found."
 msgstr "ボリューム %s が見つかりません。"
+
+#, python-format
+msgid ""
+"Volume %s status must be available or in-use, must not be migrating, have "
+"snapshots, be replicated, be part of a group and destination host must be "
+"different than the current host"
+msgstr ""
+"ボリューム %s の状態は「利用可能」もしくは「使用中」である必要があります。ま"
+"た、マイグレーション中でないこと、スナップショットを持たないこと、複製されて"
+"いないこと、グループの一部ではないことも必要で、移行先ホストは現在とは異なる"
+"ホストでなければいけません。"
 
 #, python-format
 msgid "Volume %s: Error trying to extend volume"
@@ -9640,6 +9839,9 @@ msgstr ""
 msgid "Volume [%s] not found in CloudByte storage."
 msgstr "ボリューム [%s] が CloudByte ストレージに見つかりません。"
 
+msgid "Volume already managed."
+msgstr "ボリュームはすでに管理されています。"
+
 #, python-format
 msgid "Volume attachment could not be found with filter: %(filter)s ."
 msgstr "ボリューム接続がフィルター %(filter)s で見つかりませんでした。"
@@ -9651,8 +9853,19 @@ msgstr "ボリュームバックエンド構成が無効です: %(reason)s"
 msgid "Volume by this name already exists"
 msgstr "この名前のボリュームは既に存在します"
 
+msgid ""
+"Volume cannot be created individually from a snapshot that is part of a "
+"Consistency Group"
+msgstr ""
+"整合性グループの一部であるスナップショットから、ボリュームを個別に作成するこ"
+"とはできません。"
+
 msgid "Volume cannot be restored since it contains snapshots."
 msgstr "スナップショットが含まれているため、ボリュームを復元できません。"
+
+#, python-format
+msgid "Volume connected to host %s."
+msgstr "ボリュームがホスト %s に接続されました。"
 
 msgid "Volume create failed while extracting volume ref."
 msgstr "ボリューム参照の抽出中にボリュームの作成に失敗しました。"
@@ -9968,9 +10181,6 @@ msgstr "%(type)s のワーカー %(id)s はすでに存在します。"
 #, python-format
 msgid "Worker with %s could not be found."
 msgstr "%s の ID を持つワーカーを見つけることができませんでした。"
-
-msgid "Wrong resource call syntax"
-msgstr "正しくないリソース呼び出し構文"
 
 msgid "X-IO Volume Driver exception!"
 msgstr "X-IO ボリュームドライバー例外が発生しました。"
@@ -10552,6 +10762,9 @@ msgstr "割り当てられたクラスター"
 msgid "cluster changed"
 msgstr "変更されたクラスター"
 
+msgid "config option key_manager.fixed_key is not defined"
+msgstr "設定オプション key_manager.fixed_key は定義されていません。"
+
 #, python-format
 msgid "consistency group with name: %s already exists"
 msgstr "名前 %s を持つ整合性グループはすでに存在します。"
@@ -10801,6 +11014,13 @@ msgstr ""
 msgid "error: task list is empty, no task response found"
 msgstr "エラー: タスクリストが空です。タスクの応答が見つかりませんでした。"
 
+msgid ""
+"existing_ref argument must be of this format:app_inst_name:storage_inst_name:"
+"vol_name"
+msgstr ""
+"引数 existing_ref は 次の形式でなければいけません: app_inst_name:"
+"storage_inst_name:vol_name"
+
 #, python-format
 msgid "extend_volume, eternus_pool: %(eternus_pool)s, pool not found."
 msgstr ""
@@ -10910,6 +11130,32 @@ msgstr ""
 "gpfs_images_share_mode は copy_on_write に設定されていますが、%(vol)s と "
 "%(img)s は異なるファイルセットに属しています。"
 
+msgid "group assigned"
+msgstr "割り当てられたグループ"
+
+msgid "group changed"
+msgstr "変更されたグループ"
+
+#, python-format
+msgid "group-%s"
+msgstr "グループ - %s"
+
+msgid ""
+"group_creating_from_src must be called with group_id or group_snapshot_id "
+"parameter."
+msgstr ""
+"group_creating_from_src は group_id または group_snapshot_id パラメーターと共"
+"に呼び出す必要があります。"
+
+msgid "group_snapshot assigned"
+msgstr "割り当てられた group_snapshot "
+
+msgid "group_snapshot changed"
+msgstr "変更された group_snapshot "
+
+msgid "group_snapshots assigned"
+msgstr "割り当てられたグループスナップショット"
+
 #, python-format
 msgid "group_type must be provided to create group %(name)s."
 msgstr ""
@@ -10998,9 +11244,6 @@ msgid ""
 msgstr ""
 "プロトコル 'iSCSI' を使用する場合、設定ファイルに iscsi_ip_address を設定しな"
 "ければなりません。"
-
-msgid "iscsiadm execution failed. "
-msgstr "iscsiadm の実行が失敗しました。"
 
 #, python-format
 msgid "key manager error: %(reason)s"
@@ -11383,8 +11626,15 @@ msgstr ""
 "ボリュームを整合性グループに作成する場合は、volume_type を指定する必要があり"
 "ます。"
 
+msgid "volume_type must be provided when creating a volume in a group."
+msgstr ""
+"ボリュームをグループに作成する場合は、volume_type を指定する必要があります。"
+
 msgid "volume_type_id cannot be None"
 msgstr "volume_type_id を None に設定することはできません。"
+
+msgid "volume_types assigned"
+msgstr "割り当てられたボリュームタイプ"
 
 #, python-format
 msgid "volume_types must be provided to create consistency group %(name)s."

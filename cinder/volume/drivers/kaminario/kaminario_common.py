@@ -87,7 +87,6 @@ if krest:
                      retries=MAX_K2_RETRY)
         def _request(self, method, *args, **kwargs):
             try:
-                LOG.debug("running through the _request wrapper...")
                 self.krestlock.acquire()
                 return super(KrestWrap, self)._request(method,
                                                        *args, **kwargs)
@@ -142,9 +141,10 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
         self.configuration.append_config_values(kaminario2_opts)
         self.replica = None
         self._protocol = None
-        k2_lock_sfx = self.configuration.safe_get('volume_backend_name') or ''
+        k2_lock_sfx = self.configuration.safe_get('san_ip')
         self.k2_lock_name = "%s-%s" % (K2_LOCK_PREFIX, k2_lock_sfx)
 
+    @kaminario_logger
     def check_for_setup_error(self):
         if krest is None:
             msg = _("Unable to import 'krest' python module.")
@@ -177,7 +177,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                 LOG.error(msg)
                 raise exception.KaminarioCinderDriverException(reason=msg)
 
-    @kaminario_logger
     def _check_ops(self):
         """Ensure that the options we care about are set."""
         required_ops = ['san_ip', 'san_login', 'san_password']
@@ -349,6 +348,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             raise exception.KaminarioCinderDriverException(
                 reason=six.text_type(ex.message))
 
+    @kaminario_logger
     def _delete_by_ref(self, device, url, name, msg):
         rs = device.search(url, name=name)
         for result in rs.hits:
@@ -522,6 +522,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             back_end_ip = self.replica.backend_id
         return back_end_ip, volume_updates
 
+    @kaminario_logger
     def _create_volume_replica_user_snap(self, k2, sess):
         snap = k2.new("snapshots")
         snap.is_application_consistent = "False"
@@ -600,9 +601,14 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                                   snapshot.volume.size * units.Ki,
                                   self.configuration.volume_dd_blocksize,
                                   sparse=True)
+            self._kaminario_disconnect_volume(src_attach_info,
+                                              dest_attach_info)
             self.terminate_connection(volume, properties)
             self.terminate_connection(cview, properties)
+            cview.delete()
         except Exception as ex:
+            self._kaminario_disconnect_volume(src_attach_info,
+                                              dest_attach_info)
             self.terminate_connection(cview, properties)
             self.terminate_connection(volume, properties)
             cview.delete()
@@ -625,6 +631,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
         src_name = self.get_volume_name(src_vref.id)
         src_vol = self.client.search("volumes", name=src_name)
         src_map = self.client.search("mappings", volume=src_vol)
+        src_attach_info = dest_attach_info = None
         if src_map.total != 0:
             msg = _("K2 driver does not support clone of a attached volume. "
                     "To get this done, create a snapshot from the attached "
@@ -643,10 +650,13 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                                   src_vref.size * units.Ki,
                                   self.configuration.volume_dd_blocksize,
                                   sparse=True)
-
+            self._kaminario_disconnect_volume(src_attach_info,
+                                              dest_attach_info)
             self.terminate_connection(volume, properties)
             self.terminate_connection(src_vref, properties)
         except Exception as ex:
+            self._kaminario_disconnect_volume(src_attach_info,
+                                              dest_attach_info)
             self.terminate_connection(src_vref, properties)
             self.terminate_connection(volume, properties)
             self.delete_volume(volume)
@@ -734,7 +744,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
         for s in rsnaps:
             s.delete()
 
-    @kaminario_logger
     def _check_for_status(self, obj, status):
         while obj.state != status:
             obj.refresh()
@@ -810,7 +819,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             raise exception.KaminarioCinderDriverException(
                 reason=six.text_type(ex.message))
 
-    @kaminario_logger
     def update_volume_stats(self):
         conf = self.configuration
         LOG.debug("Searching system capacity in K2.")
@@ -836,7 +844,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                       'replication_enabled': True,
                       'kaminario:replication': True}
 
-    @kaminario_logger
     def get_initiator_host_name(self, connector):
         """Return the initiator host name.
 
@@ -846,32 +853,26 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
         """
         return re.sub('[^0-9a-zA-Z-_]', '_', connector.get('host', ''))[:32]
 
-    @kaminario_logger
     def get_volume_group_name(self, vid):
         """Return the volume group name."""
         return "cvg-{0}".format(vid)
 
-    @kaminario_logger
     def get_volume_name(self, vid):
         """Return the volume name."""
         return "cv-{0}".format(vid)
 
-    @kaminario_logger
     def get_session_name(self, vid):
         """Return the volume name."""
         return "ssn-{0}".format(vid)
 
-    @kaminario_logger
     def get_snap_name(self, sid):
         """Return the snapshot name."""
         return "cs-{0}".format(sid)
 
-    @kaminario_logger
     def get_view_name(self, vid):
         """Return the view name."""
         return "cview-{0}".format(vid)
 
-    @kaminario_logger
     def get_rep_name(self, name):
         """Return the corresponding replication names."""
         return "r{0}".format(name)
@@ -884,7 +885,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             host = host_rs.hits[0]
             host.delete()
 
-    @kaminario_logger
     def get_policy(self):
         """Return the retention policy."""
         try:
@@ -896,7 +896,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             raise exception.KaminarioCinderDriverException(
                 reason=six.text_type(ex.message))
 
-    @kaminario_logger
     def _get_volume_object(self, volume):
         vol_name = self.get_volume_name(volume.id)
         if volume.replication_status == K2_REP_FAILED_OVER:
@@ -909,7 +908,6 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             raise exception.KaminarioCinderDriverException(reason=msg)
         return vol_rs.hits[0]
 
-    @kaminario_logger
     def _get_lun_number(self, vol, host):
         volsnap = None
         LOG.debug("Searching volsnaps in K2.")
@@ -955,6 +953,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
         else:
             LOG.warning(_LW("Host: %s not found on K2."), host_name)
 
+    @kaminario_logger
     def k2_initialize_connection(self, volume, connector):
         # Get volume object.
         if type(volume).__name__ != 'RestObject':
@@ -1020,6 +1019,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                 return True
         return False
 
+    @kaminario_logger
     def manage_existing(self, volume, existing_ref):
         vol_name = existing_ref['source-name']
         new_name = self.get_volume_name(volume.id)
@@ -1059,6 +1059,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                 existing_ref=existing_ref,
                 reason=six.text_type(ex.message))
 
+    @kaminario_logger
     def manage_existing_get_size(self, volume, existing_ref):
         vol_name = existing_ref['source-name']
         v_rs = self.client.search("volumes", name=vol_name)
@@ -1071,6 +1072,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
                 existing_ref=existing_ref,
                 reason=_('Unable to get size of manage volume.'))
 
+    @kaminario_logger
     def after_volume_copy(self, ctxt, volume, new_volume, remote=None):
         self.delete_volume(volume)
         vg_name_old = self.get_volume_group_name(volume.id)
@@ -1084,6 +1086,7 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
         vol_new.name = vol_name_old
         vol_new.save()
 
+    @kaminario_logger
     def retype(self, ctxt, volume, new_type, diff, host):
         old_type = volume.get('volume_type')
         vg_name = self.get_volume_group_name(volume.id)
@@ -1139,3 +1142,10 @@ class KaminarioCinderDriver(cinder.volume.driver.ISCSIDriver):
             self._delete_failover_volume_replica(volume, vg_name, vol_name)
         else:
             self._delete_volume_replica(volume, vg_name, vol_name)
+
+    def _kaminario_disconnect_volume(self, *attach_info):
+        for info in attach_info:
+            if (info and info.get('connector') and
+                    info.get('conn', {}).get('data') and info.get('device')):
+                info['connector'].disconnect_volume(info['conn']['data'],
+                                                    info['device'])

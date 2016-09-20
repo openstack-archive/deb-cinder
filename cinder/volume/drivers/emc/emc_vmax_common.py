@@ -353,6 +353,16 @@ class EMCVMAXCommon(object):
 
         self._remove_members(configservice, vol_instance, connector,
                              extraSpecs)
+        livemigrationrecord = self.utils.get_live_migration_record(volume,
+                                                                   False)
+        if livemigrationrecord:
+            live_maskingviewdict = livemigrationrecord[0]
+            live_connector = livemigrationrecord[1]
+            live_extraSpecs = livemigrationrecord[2]
+            self._attach_volume(
+                volume, live_connector, live_extraSpecs,
+                live_maskingviewdict, True)
+            self.utils.delete_live_migration_record(volume)
 
     def initialize_connection(self, volume, connector):
         """Initializes the connection and returns device and connection info.
@@ -422,7 +432,7 @@ class EMCVMAXCommon(object):
                     volume, connector, extraSpecs, maskingViewDict))
 
         if self.protocol.lower() == 'iscsi':
-            deviceInfoDict['iscsi_ip_addresses'] = (
+            deviceInfoDict['ip_and_iqn'] = (
                 self._find_ip_protocol_endpoints(
                     self.conn, deviceInfoDict['storagesystem'],
                     portGroupName))
@@ -451,6 +461,8 @@ class EMCVMAXCommon(object):
             volume, connector, extraSpecs)
         if isLiveMigration:
             maskingViewDict['isLiveMigration'] = True
+            self.utils.insert_live_migration_record(volume, maskingViewDict,
+                                                    connector, extraSpecs)
         else:
             maskingViewDict['isLiveMigration'] = False
 
@@ -466,9 +478,9 @@ class EMCVMAXCommon(object):
                       {'vol': volumeName})
             if ((rollbackDict['fastPolicyName'] is not None) or
                     (rollbackDict['isV3'] is not None)):
-                (self.masking
-                    ._check_if_rollback_action_for_masking_required(
-                        self.conn, rollbackDict))
+                (self.masking._check_if_rollback_action_for_masking_required(
+                    self.conn, rollbackDict))
+                self.utils.delete_live_migration_record(volume)
             exception_message = (_("Error Attaching volume %(vol)s.")
                                  % {'vol': volumeName})
             raise exception.VolumeBackendAPIException(
@@ -537,6 +549,15 @@ class EMCVMAXCommon(object):
                 data=exception_message)
         return portGroupName
 
+    def check_ig_instance_name(self, initiatorGroupInstanceName):
+        """Check if an initiator group instance is on the array.
+
+        :param initiatorGroupInstanceName: initiator group instance name
+        :returns: initiator group name, or None if deleted
+        """
+        return self.utils.check_ig_instance_name(
+            self.conn, initiatorGroupInstanceName)
+
     def terminate_connection(self, volume, connector):
         """Disallow connection from connector.
 
@@ -573,7 +594,23 @@ class EMCVMAXCommon(object):
                                 % {'volumename': volumeName})
             LOG.error(exceptionMessage)
             raise exception.VolumeBackendAPIException(data=exceptionMessage)
+        return self._extend_volume(
+            volumeInstance, volumeName, newSize, originalVolumeSize,
+            extraSpecs)
 
+    def _extend_volume(
+            self, volumeInstance, volumeName, newSize, originalVolumeSize,
+            extraSpecs):
+        """Extends an existing volume.
+
+        :params volumeInstance: the volume Instance
+        :params volumeName: the volume name
+        :params newSize: the new size to increase the volume to
+        :params originalVolumeSize: the original size
+        :params extraSpecs: extra specifications
+        :returns: dict -- modifiedVolumeDict - the extended volume Object
+        :raises: VolumeBackendAPIException
+        """
         if int(originalVolumeSize) > int(newSize):
             exceptionMessage = (_(
                 "Your original size: %(originalVolumeSize)s GB is greater "
@@ -596,7 +633,6 @@ class EMCVMAXCommon(object):
             rc, modifiedVolumeDict = self._extend_composite_volume(
                 volumeInstance, volumeName, newSize, additionalVolumeSize,
                 extraSpecs)
-
         # Check the occupied space of the new extended volume.
         extendedVolumeInstance = self.utils.find_volume_instance(
             self.conn, modifiedVolumeDict, volumeName)
@@ -1570,16 +1606,16 @@ class EMCVMAXCommon(object):
             host = self.utils.get_host_short_name(host)
             hoststr = ("-%(host)s-"
                        % {'host': host})
-
             for maskedvol in maskedvols:
                 if hoststr.lower() in maskedvol['maskingview'].lower():
                     data = maskedvol
-                    break
             if not data:
-                LOG.warning(_LW(
-                    "Volume is masked but not to host %(host)s as "
-                    "expected. Returning empty dictionary."),
-                    {'host': hoststr})
+                if len(maskedvols) > 0:
+                    data = maskedvols[0]
+                    LOG.warning(_LW(
+                        "Volume is masked but not to host %(host)s as is "
+                        "expected. Assuming live migration."),
+                        {'host': hoststr})
 
         LOG.debug("Device info: %(data)s.", {'data': data})
         return data
@@ -1592,7 +1628,7 @@ class EMCVMAXCommon(object):
         :returns: list -- targetWwns, the target WWN list
         :raises: VolumeBackendAPIException
         """
-        targetWwns = []
+        targetWwns = set()
 
         storageHardwareService = self.utils.find_storage_hardwareid_service(
             self.conn, storageSystem)
@@ -1613,33 +1649,36 @@ class EMCVMAXCommon(object):
                 targetEndpoints = (
                     self.utils.get_target_endpoints(
                         self.conn, hardwareIdInstance))
+                if not targetEndpoints:
+                    LOG.warning(_LW(
+                        "Unable to get target endpoints for hardwareId "
+                        "%(instance)s."),
+                        {'instance': hardwareIdInstance})
+                    continue
             except Exception:
-                errorMessage = (_(
+                LOG.warning(_LW(
                     "Unable to get target endpoints for hardwareId "
-                    "%(hardwareIdInstance)s.")
-                    % {'hardwareIdInstance': hardwareIdInstance})
-                LOG.exception(errorMessage)
-                raise exception.VolumeBackendAPIException(data=errorMessage)
+                    "%(instance)s."),
+                    {'instance': hardwareIdInstance}, exc_info=True)
+                continue
 
-            if targetEndpoints:
+            LOG.debug("There are %(len)lu endpoints.",
+                      {'len': len(targetEndpoints)})
+            for targetendpoint in targetEndpoints:
+                wwn = targetendpoint['Name']
+                # Add target wwn to the list if it is not already there.
+                targetWwns.add(wwn)
+            break
 
-                LOG.debug("There are %(len)lu endpoints.",
-                          {'len': len(targetEndpoints)})
-                for targetendpoint in targetEndpoints:
-                    wwn = targetendpoint['Name']
-                    # Add target wwn to the list if it is not already there.
-                    if not any(d == wwn for d in targetWwns):
-                        targetWwns.append(wwn)
-            else:
-                LOG.error(_LE(
-                    "Target end points do not exist for hardware Id: "
-                    "%(hardwareIdInstance)s."),
-                    {'hardwareIdInstance': hardwareIdInstance})
+        if not targetWwns:
+            exception_message = (_(
+                "Unable to get target endpoints for any hardwareIds."))
+            raise exception.VolumeBackendAPIException(data=exception_message)
 
         LOG.debug("Target WWNs: %(targetWwns)s.",
                   {'targetWwns': targetWwns})
 
-        return targetWwns
+        return list(targetWwns)
 
     def _find_storage_hardwareids(
             self, connector, hardwareIdManagementService):
@@ -1841,12 +1880,17 @@ class EMCVMAXCommon(object):
             maskingViewDict['slo'] = slo
             maskingViewDict['workload'] = workload
             maskingViewDict['pool'] = uniqueName
-            prefix = (
-                ("OS-%(shortHostName)s-%(poolName)s-%(slo)s-%(workload)s"
-                 % {'shortHostName': shortHostName,
-                    'poolName': uniqueName,
-                    'slo': slo,
-                    'workload': workload}))
+            if slo:
+                prefix = (
+                    ("OS-%(shortHostName)s-%(poolName)s-%(slo)s-%(workload)s"
+                     % {'shortHostName': shortHostName,
+                        'poolName': uniqueName,
+                        'slo': slo,
+                        'workload': workload}))
+            else:
+                prefix = (
+                    ("OS-%(shortHostName)s-No_SLO"
+                     % {'shortHostName': shortHostName}))
         else:
             maskingViewDict['fastPolicy'] = extraSpecs[FASTPOLICY]
             if maskingViewDict['fastPolicy']:
@@ -2148,6 +2192,23 @@ class EMCVMAXCommon(object):
                                                   sourceInstance,
                                                   isSnapshot,
                                                   extraSpecs)
+
+        if not isSnapshot:
+            old_size_gbs = self.utils.convert_bits_to_gbs(
+                self.utils.get_volume_size(
+                    self.conn, sourceInstance))
+
+            if cloneVolume['size'] != old_size_gbs:
+                LOG.info(_LI("Extending clone %(cloneName)s to "
+                             "%(newSize)d GBs"),
+                         {'cloneName': cloneName,
+                          'newSize': cloneVolume['size']})
+                cloneInstance = self.utils.find_volume_instance(
+                    self.conn, cloneDict, cloneName)
+                self._extend_volume(
+                    cloneInstance, cloneName, cloneVolume['size'],
+                    old_size_gbs, extraSpecs)
+
         LOG.debug("Leaving _create_cloned_volume: Volume: "
                   "%(cloneName)s Source Volume: %(sourceName)s "
                   "Return code: %(rc)lu.",
@@ -2940,15 +3001,27 @@ class EMCVMAXCommon(object):
         # Check to see if SLO and Workload are configured on the array.
         storagePoolCapability = self.provisionv3.get_storage_pool_capability(
             self.conn, poolInstanceName)
-        if storagePoolCapability:
-            self.provisionv3.get_storage_pool_setting(
-                self.conn, storagePoolCapability, extraSpecs[SLO],
-                extraSpecs[WORKLOAD])
-        else:
-            exceptionMessage = (_(
-                "Cannot determine storage pool settings."))
-            LOG.error(exceptionMessage)
-            raise exception.VolumeBackendAPIException(data=exceptionMessage)
+        if extraSpecs[SLO]:
+            if storagePoolCapability:
+                storagePoolSetting = self.provisionv3.get_storage_pool_setting(
+                    self.conn, storagePoolCapability, extraSpecs[SLO],
+                    extraSpecs[WORKLOAD])
+                if not storagePoolSetting:
+                    exceptionMessage = (_(
+                        "The array does not support the storage pool setting "
+                        "for SLO %(slo)s or workload %(workload)s. Please "
+                        "check the array for valid SLOs and workloads.")
+                        % {'slo': extraSpecs[SLO],
+                           'workload': extraSpecs[WORKLOAD]})
+                    LOG.error(exceptionMessage)
+                    raise exception.VolumeBackendAPIException(
+                        data=exceptionMessage)
+            else:
+                exceptionMessage = (_(
+                    "Cannot determine storage pool settings."))
+                LOG.error(exceptionMessage)
+                raise exception.VolumeBackendAPIException(
+                    data=exceptionMessage)
 
         LOG.debug("Create Volume: %(volume)s  Pool: %(pool)s "
                   "Storage System: %(storageSystem)s "
@@ -4452,12 +4525,12 @@ class EMCVMAXCommon(object):
                 ipendpointinstancenames = (
                     self.utils.get_ip_protocol_endpoints(
                         conn, tcpendpointinstancename))
+                endpoint = {}
                 for ipendpointinstancename in ipendpointinstancenames:
-                    ipaddress = (
-                        self.utils.get_iscsi_ip_address(
-                            conn, ipendpointinstancename))
-                    if ipaddress:
-                        foundipaddresses.append(ipaddress)
+                    endpoint = self.get_ip_and_iqn(conn, endpoint,
+                                                   ipendpointinstancename)
+                if bool(endpoint):
+                    foundipaddresses.append(endpoint)
         return foundipaddresses
 
     def _extend_v3_volume(self, volumeInstance, volumeName, newSize,
@@ -4506,3 +4579,26 @@ class EMCVMAXCommon(object):
                   {'sourceVol': sourceInstance.path,
                    'targetVol': targetInstance.path})
         return targetInstance
+
+    def get_ip_and_iqn(self, conn, endpoint, ipendpointinstancename):
+        """Get ip and iqn from the endpoint.
+
+        :param conn: ecom connection
+        :param endpoint: end point
+        :param ipendpointinstancename: ip endpoint
+        :returns: endpoint
+        """
+        if ('iSCSIProtocolEndpoint' in six.text_type(
+                ipendpointinstancename['CreationClassName'])):
+            iqn = self.utils.get_iqn(conn, ipendpointinstancename)
+            if iqn:
+                endpoint['iqn'] = iqn
+        elif ('IPProtocolEndpoint' in six.text_type(
+                ipendpointinstancename['CreationClassName'])):
+            ipaddress = (
+                self.utils.get_iscsi_ip_address(
+                    conn, ipendpointinstancename))
+            if ipaddress:
+                endpoint['ip'] = ipaddress
+
+        return endpoint

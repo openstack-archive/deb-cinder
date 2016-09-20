@@ -32,7 +32,8 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
     """Implements commands for Dell Storage Center ISCSI management.
 
     To enable the driver add the following line to the cinder configuration:
-        volume_driver=cinder.volume.drivers.dell.DellStorageCenterISCSIDriver
+        volume_driver=cinder.volume.drivers.dell.dell_storagecenter_iscsi.\
+        DellStorageCenterISCSIDriver
 
     Version history:
 
@@ -99,7 +100,8 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
                 scserver = api.find_server(initiator_name)
                 # No? Create it.
                 if scserver is None:
-                    scserver = api.create_server([initiator_name])
+                    scserver = api.create_server(
+                        [initiator_name], self.configuration.dell_server_os)
                 # Find the volume on the storage center.
                 scvolume = api.find_volume(volume_name, provider_id)
 
@@ -177,7 +179,8 @@ class DellStorageCenterISCSIDriver(dell_storagecenter_common.DellCommonDriver,
         # No? Create it.
         if secondary is None:
             secondary = api.create_server(
-                [initiatorname], sclivevolume['secondaryScSerialNumber'])
+                [initiatorname], self.configuration.dell_server_os,
+                sclivevolume['secondaryScSerialNumber'])
         if secondary:
             if api.map_secondary_volume(sclivevolume, secondary):
                 # Get our volume and get our properties.

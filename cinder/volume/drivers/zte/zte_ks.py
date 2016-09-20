@@ -83,7 +83,6 @@ CONF = cfg.CONF
 CONF.register_opts(zte_opts)
 
 
-@interface.volumedriver
 class ZTEVolumeDriver(driver.VolumeDriver):
 
     def __init__(self, *args, **kwargs):
@@ -680,6 +679,9 @@ class ZTEVolumeDriver(driver.VolumeDriver):
 @interface.volumedriver
 class ZteISCSIDriver(ZTEVolumeDriver, driver.ISCSIDriver):
     """Zte iSCSI volume driver."""
+
+    # ThirdPartySystems wiki page
+    WIKI_CI_NAME = "ZTE_cinder2_CI"
 
     def __init__(self, *args, **kwargs):
         super(ZteISCSIDriver, self).__init__(*args, **kwargs)
