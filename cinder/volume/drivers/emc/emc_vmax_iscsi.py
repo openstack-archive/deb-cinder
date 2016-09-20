@@ -16,12 +16,9 @@
 ISCSI Drivers for EMC VMAX arrays based on SMI-S.
 
 """
-import os
-
 from oslo_log import log as logging
 import six
 
-from cinder import context
 from cinder import exception
 from cinder.i18n import _, _LE, _LI
 from cinder import interface
@@ -94,7 +91,6 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
             emc_vmax_common.EMCVMAXCommon('iSCSI',
                                           self.VERSION,
                                           configuration=self.configuration))
-        self.iscsi_ip_addresses = []
 
     def check_for_setup_error(self):
         pass
@@ -132,13 +128,8 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
-        ctxt = context.get_admin_context()
-        volumename = snapshot['volume_name']
-        index = volumename.index('-')
-        volumeid = volumename[index + 1:]
-        volume = self.db.volume_get(ctxt, volumeid)
-
-        volpath = self.common.create_snapshot(snapshot, volume)
+        src_volume = snapshot['volume']
+        volpath = self.common.create_snapshot(snapshot, src_volume)
 
         model_update = {}
         snapshot['provider_location'] = six.text_type(volpath)
@@ -147,13 +138,9 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
-        ctxt = context.get_admin_context()
-        volumename = snapshot['volume_name']
-        index = volumename.index('-')
-        volumeid = volumename[index + 1:]
-        volume = self.db.volume_get(ctxt, volumeid)
+        src_volume = snapshot['volume']
 
-        self.common.delete_snapshot(snapshot, volume)
+        self.common.delete_snapshot(snapshot, src_volume)
 
     def ensure_export(self, context, volume):
         """Driver entry point to get the export info for an existing volume."""
@@ -204,66 +191,22 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
         device_info = self.common.initialize_connection(
             volume, connector)
         try:
-            self.iscsi_ip_addresses = device_info['iscsi_ip_addresses']
+            ip_and_iqn = device_info['ip_and_iqn']
             is_multipath = device_info['is_multipath']
         except KeyError as ex:
             exception_message = (_("Cannot get iSCSI ipaddresses or "
                                    "multipath flag. Exception is %(ex)s. ")
                                  % {'ex': ex})
-
             raise exception.VolumeBackendAPIException(data=exception_message)
 
         iscsi_properties = self.smis_get_iscsi_properties(
-            volume, connector, is_multipath)
+            volume, connector, ip_and_iqn, is_multipath)
 
         LOG.info(_LI("Leaving initialize_connection: %s"), iscsi_properties)
         return {
             'driver_volume_type': 'iscsi',
             'data': iscsi_properties
         }
-
-    def _call_iscsiadm(self, iscsi_ip_address):
-        """Calls iscsiadm with iscsi ip address"""
-        try:
-            (out, _err) = self._execute('iscsiadm', '-m', 'discovery',
-                                        '-t', 'sendtargets', '-p',
-                                        iscsi_ip_address,
-                                        run_as_root=True)
-            return out, _err, None
-        except Exception as ex:
-            return None, None, ex
-
-    def smis_do_iscsi_discovery(self, volume):
-        """Calls iscsiadm with each iscsi ip address in the list"""
-        LOG.info(_LI("ISCSI provider_location not stored, using discovery."))
-        targets = []
-        if len(self.iscsi_ip_addresses) == 0:
-            LOG.error(_LE("The list of iscsi_ip_addresses is empty"))
-            return targets
-        outList = []
-        for iscsi_ip_address in self.iscsi_ip_addresses:
-            out, _err, ex = self._call_iscsiadm(iscsi_ip_address)
-            if out:
-                outList.append(out)
-
-        if len(outList) == 0:
-            if ex:
-                exception_message = (_("Unsuccessful iscsiadm. "
-                                       "Exception is %(ex)s. ")
-                                     % {'ex': ex})
-            else:
-                exception_message = (_("iscsiadm execution failed. "))
-            raise exception.VolumeBackendAPIException(data=exception_message)
-
-        LOG.info(_LI(
-            "smis_do_iscsi_discovery is: %(out)s."),
-            {'out': out})
-        for out in outList:
-            for target in out.splitlines():
-                targets.append(target)
-
-        outTargets = self._parse_target_list(targets)
-        return outTargets
 
     def _parse_target_list(self, targets):
         """Parse target list into usable format.
@@ -280,7 +223,8 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
             outTargets.append(properties)
         return outTargets
 
-    def smis_get_iscsi_properties(self, volume, connector, is_multipath):
+    def smis_get_iscsi_properties(self, volume, connector, ip_and_iqn,
+                                  is_multipath):
         """Gets iscsi configuration.
 
         We ideally get saved information in the volume entity, but fall back
@@ -296,14 +240,6 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
             present meaning no authentication, or auth_method == `CHAP`
             meaning use CHAP with the specified credentials.
         """
-
-        targets = self.smis_do_iscsi_discovery(volume)
-        if len(targets) == 0:
-            raise exception.InvalidVolume(_("Could not find iSCSI export "
-                                          "for volume %(volumeName)s.")
-                                          % {'volumeName': volume['name']})
-
-        LOG.debug("ISCSI Discovery: Found %s", targets)
 
         device_info = self.common.find_device_number(
             volume, connector['host'])
@@ -324,28 +260,18 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
                                  % {'volumeName': volume['name']})
             raise exception.VolumeBackendAPIException(data=exception_message)
 
-        properties = {'target_discovered': False,
-                      'target_iqn': 'unknown',
-                      'target_iqns': None,
-                      'target_portal': 'unknown',
-                      'target_portals': None,
-                      'target_lun': 'unknown',
-                      'target_luns': None,
-                      'volume_id': volume['id']}
-
-        if len(self.iscsi_ip_addresses) > 0:
-            if len(self.iscsi_ip_addresses) > 1 and is_multipath:
-                properties['target_iqns'] = [t['target_iqn'] for t in targets]
-                properties['target_portals'] = (
-                    [t['target_portal'] for t in targets])
-                properties['target_luns'] = [lun_id] * len(targets)
-            properties['target_discovered'] = True
-            properties['target_iqn'] = [t['target_iqn'] for t in targets][0]
-            properties['target_portal'] = (
-                [t['target_portal'] for t in targets][0])
-            properties['target_lun'] = lun_id
-        else:
-            LOG.error(_LE('Failed to find available iSCSI targets.'))
+        properties = {}
+        if len(ip_and_iqn) > 1 and is_multipath:
+            properties['target_portals'] = ([t['ip'] + ":3260" for t in
+                                             ip_and_iqn])
+            properties['target_iqns'] = ([t['iqn'].split(",")[0] for t in
+                                          ip_and_iqn])
+            properties['target_luns'] = [lun_id] * len(ip_and_iqn)
+        properties['target_discovered'] = True
+        properties['target_iqn'] = ip_and_iqn[0]['iqn'].split(",")[0]
+        properties['target_portal'] = ip_and_iqn[0]['ip'] + ":3260"
+        properties['target_lun'] = lun_id
+        properties['volume_id'] = volume['id']
 
         LOG.info(_LI(
             "ISCSI properties: %(properties)s."), {'properties': properties})
@@ -433,17 +359,6 @@ class EMCVMAXISCSIDriver(driver.ISCSIDriver):
     def delete_cgsnapshot(self, context, cgsnapshot, snapshots):
         """Deletes a cgsnapshot."""
         return self.common.delete_cgsnapshot(context, cgsnapshot, snapshots)
-
-    def _check_for_iscsi_ip_address(self):
-        """Check to see if iscsi_ip_address is set in cinder.conf
-
-        :returns: boolean -- True if iscsi_ip_address id defined in config.
-        """
-        bExists = os.path.exists(CINDER_CONF)
-        if bExists:
-            if 'iscsi_ip_address' in open(CINDER_CONF).read():
-                return True
-        return False
 
     def manage_existing(self, volume, external_ref):
         """Manages an existing VMAX Volume (import to Cinder).

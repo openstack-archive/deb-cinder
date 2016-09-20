@@ -25,6 +25,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import fileutils
 from oslo_utils import units
+import six
 from six.moves import urllib
 
 from cinder import exception
@@ -336,11 +337,14 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
             pool = self.configuration.rbd_pool
 
         try:
-            if self.configuration.rados_connect_timeout >= 0:
-                client.connect(timeout=
-                               self.configuration.rados_connect_timeout)
-            else:
-                client.connect()
+            timeout = self.configuration.rados_connect_timeout
+            if timeout >= 0:
+                timeout = six.text_type(timeout)
+                client.conf_set('rados_osd_op_timeout', timeout)
+                client.conf_set('rados_mon_op_timeout', timeout)
+                client.conf_set('client_mount_timeout', timeout)
+
+            client.connect()
             ioctx = client.open_ioctx(pool)
             return client, ioctx
         except self.rados.Error:
@@ -1050,13 +1054,13 @@ class RBDDriver(driver.TransferVD, driver.ExtendVD,
             # Raise an exception if we didn't find a suitable rbd image.
             try:
                 rbd_image = self.rbd.Image(client.ioctx, rbd_name)
-                image_size = rbd_image.size()
             except self.rbd.ImageNotFound:
                 kwargs = {'existing_ref': rbd_name,
                           'reason': 'Specified rbd image does not exist.'}
                 raise exception.ManageExistingInvalidReference(**kwargs)
-            finally:
-                rbd_image.close()
+
+            image_size = rbd_image.size()
+            rbd_image.close()
 
             # RBD image size is returned in bytes.  Attempt to parse
             # size as a float and round up to the next integer.
