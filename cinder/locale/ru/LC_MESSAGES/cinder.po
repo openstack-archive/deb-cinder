@@ -8,9 +8,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 9.0.0.0b3.dev544\n"
+"Project-Id-Version: cinder 9.0.0.0b4.dev139\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-09-01 04:08+0000\n"
+"POT-Creation-Date: 2016-09-14 04:25+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -767,10 +767,6 @@ msgid "Cache name is None, please set smartcache:cachename in key."
 msgstr "Имя кэша - None. Укажите smartcache:cachename в ключе."
 
 #, python-format
-msgid "Cache volume %(cache_vol)sdoes not have snapshot %(cache_snap)s."
-msgstr "Том кэша %(cache_vol)s не имеет моментальной копии %(cache_snap)s."
-
-#, python-format
 msgid "Cache volume %s does not have required properties"
 msgstr "Для тома кэша %s не заданы обязательные свойства"
 
@@ -1418,14 +1414,6 @@ msgstr "Группа согласования %(consistencygroup_id)s не на�
 
 msgid "Container"
 msgstr "контейнер"
-
-#, python-format
-msgid ""
-"Container format: %s is unsupported by the VMDK driver, only 'bare' is "
-"supported."
-msgstr ""
-"Формат контейнера %s не поддерживается драйвером VMDK. Только 'bare' "
-"поддерживается."
 
 msgid "Container size smaller than required file size."
 msgstr "Размер контейнера меньше размера требуемого файла."
@@ -2677,14 +2665,6 @@ msgstr ""
 #, python-format
 msgid "Error unbinding volume %(vol)s from pool. %(error)s."
 msgstr "Ошибка удаления привязки тома %(vol)s к пулу: %(error)s."
-
-#, python-format
-msgid ""
-"Error verifying clone size on Volume clone: %(clone)s Size: %(size)d "
-"onSnapshot: %(snapshot)s"
-msgstr ""
-"Ошибка при проверке размера дубликата тома, %(clone)s, размер: %(size)d, "
-"моментальная копия: %(snapshot)s"
 
 #, python-format
 msgid "Error while authenticating with switch: %s."
@@ -6290,16 +6270,6 @@ msgid "Retype requires migration but is not allowed."
 msgstr "Для изменения типа требуется перенос, но он запрещен."
 
 #, python-format
-msgid ""
-"Rollback for Volume: %(volumeName)s has failed. Please contact your system "
-"administrator to manually return your volume to the default storage group "
-"for fast policy %(fastPolicyName)s failed."
-msgstr ""
-"Выполнить откат для тома %(volumeName)s не удалось. Обратитесь к системному "
-"администратору, чтобы вручную вернуть том в группу носителей по умолчанию "
-"для стратегии FAST %(fastPolicyName)s."
-
-#, python-format
 msgid "Rolling back %(volumeName)s by deleting it."
 msgstr "Выполняется откат %(volumeName)s путем его удаления."
 
@@ -6823,14 +6793,6 @@ msgstr "Нельзя удалить том, для которого выполн
 #, python-format
 msgid "The following elements are required: %s"
 msgstr "Требуются следующие элементы: %s"
-
-#, python-format
-msgid ""
-"The following migrations have a downgrade, which are not allowed: \n"
-"\t%s"
-msgstr ""
-"Для следующих переносов требуется понижение версии, что недопустимо: \n"
-"\t%s"
 
 msgid "The host group or iSCSI target could not be added."
 msgstr "Не удалось добавить группу хостов или целевое расположение iSCSI."
@@ -7853,10 +7815,6 @@ msgstr "Нераспознанное значение read_deleted '%s'"
 msgid "Unset gcs options: %s"
 msgstr "Сбросить параметры gcs: %s"
 
-#, python-format
-msgid "Unsuccessful iscsiadm. Exception is %(ex)s. "
-msgstr "Ошибка iscsiadm. Исключительная ситуация: %(ex)s. "
-
 msgid "Unsupported Content-Type"
 msgstr "Не поддерживаемый  тип содержимого"
 
@@ -7939,10 +7897,6 @@ msgstr "UserName не настроен."
 
 msgid "UserPassword is not configured."
 msgstr "UserPassword не настроен."
-
-msgid ""
-"V2 rollback - Volume in another storage group besides default storage group."
-msgstr "Откат V2: том не в группе носителей по умолчанию."
 
 msgid "V2 rollback, volume is not in any storage group."
 msgstr "Откат V2: том не принадлежит ни одной группе носителей."
@@ -8499,9 +8453,6 @@ msgstr ""
 
 msgid "We should not do switch over on primary array."
 msgstr "Переключение для основного массива не разрешено."
-
-msgid "Wrong resource call syntax"
-msgstr "Синтаксическая ошибка вызова ресурса"
 
 msgid "X-IO Volume Driver exception!"
 msgstr "Исключительная ситуация драйвера тома X-IO!"
@@ -9442,9 +9393,6 @@ msgid ""
 msgstr ""
 "В файле конфигурации должен быть указан параметр iscsi_ip_address, когда "
 "используется протокол 'iSCSI'."
-
-msgid "iscsiadm execution failed. "
-msgstr "Ошибка выполнения iscsiadm. "
 
 #, python-format
 msgid "key manager error: %(reason)s"

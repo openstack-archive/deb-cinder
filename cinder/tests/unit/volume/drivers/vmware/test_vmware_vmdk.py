@@ -321,10 +321,10 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
 
     @mock.patch('cinder.volume.drivers.vmware.vmdk.VMwareVcVmdkDriver.'
                 '_validate_disk_format')
-    def test_copy_image_to_volume_with_ova_container(self,
-                                                     validate_disk_format):
+    def test_copy_image_to_volume_with_invalid_container(self,
+                                                         validate_disk_format):
         image_service = mock.Mock()
-        image_meta = self._create_image_meta(container_format='ova')
+        image_meta = self._create_image_meta(container_format='ami')
         image_service.show.return_value = image_meta
 
         context = mock.sentinel.context
@@ -359,10 +359,12 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
                                    validate_disk_format,
                                    vmware_disk_type='streamOptimized',
                                    backing_disk_size=VOL_SIZE,
-                                   call_extend_backing=False):
+                                   call_extend_backing=False,
+                                   container_format='bare'):
 
         image_service = mock.Mock()
-        image_meta = self._create_image_meta(vmware_disktype=vmware_disk_type)
+        image_meta = self._create_image_meta(vmware_disktype=vmware_disk_type,
+                                             container_format=container_format)
         image_service.show.return_value = image_meta
 
         backing = mock.sentinel.backing
@@ -406,6 +408,9 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         self._test_copy_image_to_volume(vmware_disk_type=vmware_disk_type,
                                         backing_disk_size=1,
                                         call_extend_backing=True)
+
+    def test_copy_image_to_volume_with_ova_container(self):
+        self._test_copy_image_to_volume(container_format='ova')
 
     @mock.patch('cinder.volume.drivers.vmware.vmdk.VMwareVcVmdkDriver.'
                 '_get_disk_type')
@@ -1677,12 +1682,66 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         get_volume_group_folder.assert_called_once_with(dc, vol['project_id'])
 
     @mock.patch.object(VMDK_DRIVER, 'volumeops')
+    def _test_get_connection_info(self, vops, vmdk_connector=False):
+        volume = self._create_volume_obj()
+        backing = mock.Mock(value='ref-1')
+        if vmdk_connector:
+            vmdk_path = mock.sentinel.vmdk_path
+            vops.get_vmdk_path.return_value = vmdk_path
+
+            datastore = mock.Mock(value='ds-1')
+            vops.get_datastore.return_value = datastore
+
+            datacenter = mock.Mock(value='dc-1')
+            vops.get_dc.return_value = datacenter
+
+            connector = {'platform': mock.sentinel.platform,
+                         'os_type': mock.sentinel.os_type}
+        else:
+            connector = {'instance': 'vm-1'}
+        ret = self._driver._get_connection_info(volume, backing, connector)
+
+        self.assertEqual('vmdk', ret['driver_volume_type'])
+        self.assertEqual('ref-1', ret['data']['volume'])
+        self.assertEqual(volume.id, ret['data']['volume_id'])
+        self.assertEqual(volume.name, ret['data']['name'])
+
+        if vmdk_connector:
+            self.assertEqual(volume.size * units.Gi, ret['data']['vmdk_size'])
+            self.assertEqual(vmdk_path, ret['data']['vmdk_path'])
+            self.assertEqual('ds-1', ret['data']['datastore'])
+            self.assertEqual('dc-1', ret['data']['datacenter'])
+
+            config = self._driver.configuration
+            exp_config = {
+                'vmware_host_ip': config.vmware_host_ip,
+                'vmware_host_port': config.vmware_host_port,
+                'vmware_host_username': config.vmware_host_username,
+                'vmware_host_password': config.vmware_host_password,
+                'vmware_api_retry_count': config.vmware_api_retry_count,
+                'vmware_task_poll_interval': config.vmware_task_poll_interval,
+                'vmware_ca_file': config.vmware_ca_file,
+                'vmware_insecure': config.vmware_insecure,
+                'vmware_tmp_dir': config.vmware_tmp_dir,
+                'vmware_image_transfer_timeout_secs':
+                    config.vmware_image_transfer_timeout_secs,
+            }
+            self.assertEqual(exp_config, ret['data']['config'])
+
+    def test_get_connection_info(self):
+        self._test_get_connection_info()
+
+    def test_get_connection_info_vmdk_connector(self):
+        self._test_get_connection_info(vmdk_connector=True)
+
+    @mock.patch.object(VMDK_DRIVER, 'volumeops')
     @mock.patch('oslo_vmware.vim_util.get_moref')
     @mock.patch.object(VMDK_DRIVER, '_create_backing')
     @mock.patch.object(VMDK_DRIVER, '_relocate_backing')
+    @mock.patch.object(VMDK_DRIVER, '_get_connection_info')
     def _test_initialize_connection(
-            self, relocate_backing, create_backing, get_moref, vops,
-            backing_exists=True, instance_exists=True):
+            self, get_connection_info, relocate_backing, create_backing,
+            get_moref, vops, backing_exists=True, instance_exists=True):
 
         backing_val = mock.sentinel.backing_val
         backing = mock.Mock(value=backing_val)
@@ -1704,14 +1763,13 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         else:
             connector = {}
 
+        conn_info = mock.sentinel.conn_info
+        get_connection_info.return_value = conn_info
+
         volume = self._create_volume_obj()
-        conn_info = self._driver.initialize_connection(volume, connector)
+        ret = self._driver.initialize_connection(volume, connector)
 
-        self.assertEqual('vmdk', conn_info['driver_volume_type'])
-        self.assertEqual(backing_val, conn_info['data']['volume'])
-        self.assertEqual(volume.id, conn_info['data']['volume_id'])
-        self.assertEqual(volume.name, conn_info['data']['name'])
-
+        self.assertEqual(conn_info, ret)
         if instance_exists:
             vops.get_host.assert_called_once_with(instance_moref)
             if backing_exists:
@@ -1726,6 +1784,7 @@ class VMwareVcVmdkDriverTestCase(test.TestCase):
         else:
             create_backing.assert_not_called()
             relocate_backing.assert_not_called()
+        get_connection_info.assert_called_once_with(volume, backing, connector)
 
     def test_initialize_connection_with_instance_and_backing(self):
         self._test_initialize_connection()

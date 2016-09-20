@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: cinder 9.0.0.0b3.dev544\n"
+"Project-Id-Version: cinder 9.0.0.0b4.dev139\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-09-01 04:08+0000\n"
+"POT-Creation-Date: 2016-09-14 04:25+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -709,10 +709,6 @@ msgid "Cache name is None, please set smartcache:cachename in key."
 msgstr "快取名稱為「無」，請在索引鍵中設定 smartcache:cachename。"
 
 #, python-format
-msgid "Cache volume %(cache_vol)sdoes not have snapshot %(cache_snap)s."
-msgstr "快取磁區 %(cache_vol)s 沒有 Snapshot %(cache_snap)s。"
-
-#, python-format
 msgid "Cache volume %s does not have required properties"
 msgstr "快取磁區 %s 沒有必需的內容"
 
@@ -1308,12 +1304,6 @@ msgstr "找不到 ConsistencyGroup %(consistencygroup_id)s。"
 
 msgid "Container"
 msgstr "容器"
-
-#, python-format
-msgid ""
-"Container format: %s is unsupported by the VMDK driver, only 'bare' is "
-"supported."
-msgstr "VMDK 驅動程式不支援儲存器格式 %s，僅支援'bare'。"
 
 msgid "Container size smaller than required file size."
 msgstr "儲存器大小小於必要的檔案大小。"
@@ -2486,14 +2476,6 @@ msgstr ""
 #, python-format
 msgid "Error unbinding volume %(vol)s from pool. %(error)s."
 msgstr "從儲存區解除連結磁區 %(vol)s 時發生錯誤。%(error)s。"
-
-#, python-format
-msgid ""
-"Error verifying clone size on Volume clone: %(clone)s Size: %(size)d "
-"onSnapshot: %(snapshot)s"
-msgstr ""
-"在 Snapshot：%(snapshot)s 上驗證磁區副本 %(clone)s（大小為 %(size)d）上的副本"
-"大小時發生錯誤"
 
 #, python-format
 msgid "Error while authenticating with switch: %s."
@@ -5824,15 +5806,6 @@ msgid "Retype requires migration but is not allowed."
 msgstr "Retype 需要移轉，但系統不容許。"
 
 #, python-format
-msgid ""
-"Rollback for Volume: %(volumeName)s has failed. Please contact your system "
-"administrator to manually return your volume to the default storage group "
-"for fast policy %(fastPolicyName)s failed."
-msgstr ""
-"對磁區 %(volumeName)s 進行的回復失敗。請與系統管理者聯絡，以手動將磁區傳回至"
-"FAST 原則 %(fastPolicyName)s 的預設儲存體群組。"
-
-#, python-format
 msgid "Rolling back %(volumeName)s by deleting it."
 msgstr "正在透過刪除 %(volumeName)s 來將其回復。"
 
@@ -6306,14 +6279,6 @@ msgstr "無法刪除已失效接手的磁區：%s"
 #, python-format
 msgid "The following elements are required: %s"
 msgstr "需要下列元素：%s"
-
-#, python-format
-msgid ""
-"The following migrations have a downgrade, which are not allowed: \n"
-"\t%s"
-msgstr ""
-"下列移轉具有降級，這是不容許的：\n"
-"\t%s"
 
 msgid "The host group or iSCSI target could not be added."
 msgstr "無法新增主機群組或 iSCSI 目標。"
@@ -7239,10 +7204,6 @@ msgstr "無法辨識 read_deleted 值 '%s'"
 msgid "Unset gcs options: %s"
 msgstr "取消設定 gcs 選項：%s"
 
-#, python-format
-msgid "Unsuccessful iscsiadm. Exception is %(ex)s. "
-msgstr "iscsiadm 不成功。異常狀況為 %(ex)s。"
-
 msgid "Unsupported Content-Type"
 msgstr "不支援的內容類型"
 
@@ -7315,10 +7276,6 @@ msgstr "未配置 UserName。"
 
 msgid "UserPassword is not configured."
 msgstr "未配置 UserPassword。"
-
-msgid ""
-"V2 rollback - Volume in another storage group besides default storage group."
-msgstr "第 2 版回復 - 磁區位於預設儲存體群組旁邊的另一個儲存體群組中。"
 
 msgid "V2 rollback, volume is not in any storage group."
 msgstr "第 2 版回復，磁區不在任何儲存體群組中。"
@@ -7837,9 +7794,6 @@ msgstr "正在等待所有節點結合叢集。請確保所有 sheep 常駐程�
 
 msgid "We should not do switch over on primary array."
 msgstr "我們不應切換到主要陣列上。"
-
-msgid "Wrong resource call syntax"
-msgstr "資源呼叫語法錯誤"
 
 msgid "X-IO Volume Driver exception!"
 msgstr "X-IO 磁區驅動程式異常狀況！"
@@ -8733,9 +8687,6 @@ msgstr "找不到 iSCSI 入口網站 %s"
 msgid ""
 "iscsi_ip_address must be set in config file when using protocol 'iSCSI'."
 msgstr "使用通訊協定 'iSCSI' 時，必須在配置檔中設定 iscsi_ip_address。"
-
-msgid "iscsiadm execution failed. "
-msgstr "iscsiadm 執行失敗。"
 
 #, python-format
 msgid "key manager error: %(reason)s"

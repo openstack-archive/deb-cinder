@@ -18,7 +18,6 @@ import ast
 from oslo_log import log as logging
 import six
 
-from cinder import context
 from cinder.i18n import _LW
 from cinder import interface
 from cinder.volume import driver
@@ -123,13 +122,8 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
-        ctxt = context.get_admin_context()
-        volumename = snapshot['volume_name']
-        index = volumename.index('-')
-        volumeid = volumename[index + 1:]
-        volume = self.db.volume_get(ctxt, volumeid)
-
-        volpath = self.common.create_snapshot(snapshot, volume)
+        src_volume = snapshot['volume']
+        volpath = self.common.create_snapshot(snapshot, src_volume)
 
         model_update = {}
         snapshot['provider_location'] = six.text_type(volpath)
@@ -138,13 +132,9 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
-        ctxt = context.get_admin_context()
-        volumename = snapshot['volume_name']
-        index = volumename.index('-')
-        volumeid = volumename[index + 1:]
-        volume = self.db.volume_get(ctxt, volumeid)
+        src_volume = snapshot['volume']
 
-        self.common.delete_snapshot(snapshot, volume)
+        self.common.delete_snapshot(snapshot, src_volume)
 
     def ensure_export(self, context, volume):
         """Driver entry point to get the export info for an existing volume."""
@@ -255,18 +245,38 @@ class EMCVMAXFCDriver(driver.FibreChannelDriver):
 
             LOG.debug("Looking for masking views still associated with "
                       "Port Group %s.", portGroupInstanceName)
-            mvInstances = self._get_common_masking_views(
-                portGroupInstanceName, initiatorGroupInstanceName)
-            if len(mvInstances) > 0:
-                LOG.debug("Found %(numViews)lu MaskingViews.",
-                          {'numViews': len(mvInstances)})
-            else:  # No views found.
-                LOG.debug("No MaskingViews were found. Deleting zone.")
+            # check if the initiator group has been deleted
+            checkIgInstanceName = (
+                self.common.check_ig_instance_name(initiatorGroupInstanceName))
+
+            # if it has not been deleted, check for remaining masking views
+            if checkIgInstanceName is not None:
+                mvInstances = self._get_common_masking_views(
+                    portGroupInstanceName, initiatorGroupInstanceName)
+
+                if len(mvInstances) > 0:
+                    LOG.debug("Found %(numViews)lu MaskingViews.",
+                              {'numViews': len(mvInstances)})
+                    data = {'driver_volume_type': 'fibre_channel',
+                            'data': {}}
+                else:  # no masking views found
+                    LOG.debug("No MaskingViews were found. Deleting zone.")
+                    data = {'driver_volume_type': 'fibre_channel',
+                            'data': {'target_wwn': target_wwns,
+                                     'initiator_target_map': init_targ_map}}
+
+                    LOG.debug("Return FC data for zone removal: %(data)s.",
+                              {'data': data})
+
+            else:  # The initiator group has been deleted
+                LOG.debug("Initiator Group has been deleted. Deleting zone.")
                 data = {'driver_volume_type': 'fibre_channel',
                         'data': {'target_wwn': target_wwns,
                                  'initiator_target_map': init_targ_map}}
-            LOG.debug("Return FC data for zone removal: %(data)s.",
-                      {'data': data})
+
+                LOG.debug("Return FC data for zone removal: %(data)s.",
+                          {'data': data})
+
         else:
             LOG.warning(_LW("Volume %(volume)s is not in any masking view."),
                         {'volume': volume['name']})
