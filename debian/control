@@ -94,8 +94,8 @@ Build-Depends-Indep: bandit (>= 0.13.2),
                      subunit,
                      testrepository,
 Standards-Version: 3.9.8
-Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-cinder
-Vcs-Git: https://git.openstack.org/openstack/deb-cinder
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-cinder?h=debian%2Fnewton
+Vcs-Git: https://git.openstack.org/openstack/deb-cinder -b debian/newton
 Homepage: https://github.com/openstack/cinder
 
 Package: python-cinder
