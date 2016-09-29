@@ -1,0 +1,11 @@
+Code-Review+1: Michal Dulko <michal.dulko@intel.com>
+Code-Review+1: Shashi <sonawane.shashikant@hpe.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 28 Sep 2016 22:02:32 +0000
+Reviewed-on: https://review.openstack.org/374987
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/newton
