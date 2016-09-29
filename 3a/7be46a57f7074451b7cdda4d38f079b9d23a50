@@ -1,0 +1,10 @@
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+1: Kendall Nelson <kennelson11@gmail.com>
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Workflow+1: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 28 Sep 2016 17:49:37 +0000
+Reviewed-on: https://review.openstack.org/345411
+Project: openstack/deb-cinder
+Branch: refs/heads/master

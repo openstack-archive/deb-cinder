@@ -1,0 +1,9 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Workflow+1: Mike Perez <thingee@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 28 Sep 2016 20:34:43 +0000
+Reviewed-on: https://review.openstack.org/378163
+Project: openstack/deb-cinder
+Branch: refs/heads/master
