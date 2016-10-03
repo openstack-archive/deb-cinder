@@ -1,0 +1,11 @@
+Code-Review+1: Adriano Freires Rosso <adriano.rosso@fit-tecnologia.org.br>
+Verified+1: VMware NSX CI
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 03 Oct 2016 15:12:36 +0000
+Reviewed-on: https://review.openstack.org/376329
+Project: openstack/deb-cinder
+Branch: refs/heads/master
