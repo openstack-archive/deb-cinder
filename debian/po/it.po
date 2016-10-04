@@ -1,13 +1,13 @@
 # Italian translation of cinder debconf messages
-# Copyright (C) 2014, cinder package's copyright holder
+# Copyright (C) 2016, cinder package's copyright holder
 # This file is distributed under the same license as the cinder package.
-# Beatrice Torracca <beatricet@libero.it>, 2013, 2014.
+# Beatrice Torracca <beatricet@libero.it>, 2013, 2014, 2016.
 msgid ""
 msgstr ""
 "Project-Id-Version: cinder\n"
 "Report-Msgid-Bugs-To: cinder@packages.debian.org\n"
 "POT-Creation-Date: 2016-03-29 12:24+0000\n"
-"PO-Revision-Date: 2014-04-06 15:15+0200\n"
+"PO-Revision-Date: 2016-09-30 07:25+0200\n"
 "Last-Translator: Beatrice Torracca <beatricet@libero.it>\n"
 "Language-Team: Italian <debian-l10n-italian@lists.debian.org>\n"
 "Language: it\n"
@@ -253,10 +253,9 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../cinder-api.templates:4001
-#, fuzzy
 #| msgid "Keystone authentication token:"
 msgid "Keystone admin name:"
-msgstr "Token di autenticazione Keystone:"
+msgstr "Nome amministratore Keystone:"
 
 #. Type: string
 #. Description
@@ -270,18 +269,21 @@ msgid ""
 "To register the service endpoint, this package needs to know the Admin "
 "login, name, project name, and password to the Keystone server."
 msgstr ""
+"Per registrare il punto terminale del servizio questo pacchetto deve "
+"conoscere il login, il nome, il nome del progetto e la password "
+"dell'amministratore per il server Keystone."
 
 #. Type: string
 #. Description
 #: ../cinder-api.templates:5001
 msgid "Keystone admin project name:"
-msgstr ""
+msgstr "Nome del progetto di amministrazione Keystone:"
 
 #. Type: password
 #. Description
 #: ../cinder-api.templates:6001
 msgid "Keystone admin password:"
-msgstr ""
+msgstr "Password amministratore Keystone:"
 
 #. Type: string
 #. Description
@@ -326,18 +328,3 @@ msgstr ""
 "OpenStack può essere usato utilizzando le zone di disponibilità, con ogni "
 "regione che rappresenta una posizione. Inserire la zona che si desidera "
 "usare durante la registrazione del punto terminale."
-
-#~ msgid ""
-#~ "To configure its endpoint in Keystone, cinder-api needs the Keystone "
-#~ "authentication token."
-#~ msgstr ""
-#~ "Per configurare il proprio punto terminale in Keystone, cinder-api ha "
-#~ "bisogno del token di autenticazione Keystone."
-
-#~ msgid "Start Cinder services at boot?"
-#~ msgstr "Far partire i servizi cinder all'avvio?"
-
-#~ msgid ""
-#~ "Please choose whether you want to start Cinder services when the machine "
-#~ "is booted up."
-#~ msgstr "Scegliere se far partire i servizi Cinder all'avvio della macchina."
