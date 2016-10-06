@@ -1,0 +1,13 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+1: huanan <huanan@huawei.com>
+Code-Review+1: Swami Reddy <swamireddy@gmail.com>
+Code-Review+1: Yuriy Nesenenko <ynesenenko@mirantis.com>
+Code-Review+1: Kendall Nelson <kennelson11@gmail.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 05 Oct 2016 11:16:25 +0000
+Reviewed-on: https://review.openstack.org/331952
+Project: openstack/deb-cinder
+Branch: refs/heads/master
