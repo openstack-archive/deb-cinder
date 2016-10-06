@@ -112,9 +112,8 @@ class SchedulerAPI(rpc.RPCAPI):
     def create_volume(self, ctxt, topic, volume_id, snapshot_id=None,
                       image_id=None, request_spec=None,
                       filter_properties=None, volume=None):
-        request_spec_p = jsonutils.to_primitive(request_spec)
         msg_args = {'snapshot_id': snapshot_id, 'image_id': image_id,
-                    'request_spec': request_spec_p,
+                    'request_spec': request_spec,
                     'filter_properties': filter_properties, 'volume': volume}
         version = self._compat_ver('3.0', '2.2', '2.0')
         if version in ('2.2', '2.0'):
@@ -123,6 +122,10 @@ class SchedulerAPI(rpc.RPCAPI):
         if version == '2.0':
             # Send request_spec as dict
             msg_args['request_spec'] = jsonutils.to_primitive(request_spec)
+            # NOTE(dulek): This is to keep supporting Mitaka's scheduler which
+            # expects a dictionary when creating a typeless volume.
+            if msg_args['request_spec'].get('volume_type') is None:
+                msg_args['request_spec']['volume_type'] = {}
 
         cctxt = self.client.prepare(version=version)
         return cctxt.cast(ctxt, 'create_volume', **msg_args)

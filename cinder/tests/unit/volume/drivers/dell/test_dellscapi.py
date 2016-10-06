@@ -21,6 +21,7 @@ import uuid
 from cinder import context
 from cinder import exception
 from cinder import test
+from cinder.tests.unit import fake_constants as fake
 from cinder.volume.drivers.dell import dell_storagecenter_api
 
 
@@ -3543,8 +3544,7 @@ class DellSCSanAPITestCase(test.TestCase):
                        '_find_active_controller',
                        return_value='64702.64702')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
-                       '_find_controller_port',
-                       return_value=ISCSI_CTRLR_PORT)
+                       '_find_controller_port')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
                        '_find_domains',
                        return_value=ISCSI_FLT_DOMAINS_MULTI_PORTALS)
@@ -3564,6 +3564,59 @@ class DellSCSanAPITestCase(test.TestCase):
                                                  mock_open_connection,
                                                  mock_init):
         # Test case where there are multiple portals
+        mock_find_ctrl_port.side_effect = [
+            {'iscsiName': 'iqn.2002-03.com.compellent:5000d31000fcbe43'},
+            {'iscsiName': 'iqn.2002-03.com.compellent:5000d31000fcbe44'}]
+        res = self.scapi.find_iscsi_properties(self.VOLUME)
+        self.assertTrue(mock_find_mappings.called)
+        self.assertTrue(mock_find_domains.called)
+        self.assertTrue(mock_find_ctrl_port.called)
+        self.assertTrue(mock_find_active_controller.called)
+        self.assertTrue(mock_is_virtualport_mode.called)
+        expected = {'target_discovered': False,
+                    'target_iqn':
+                        u'iqn.2002-03.com.compellent:5000d31000fcbe44',
+                    'target_iqns':
+                        [u'iqn.2002-03.com.compellent:5000d31000fcbe44',
+                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
+                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
+                         u'iqn.2002-03.com.compellent:5000d31000fcbe44'],
+                    'target_lun': 1,
+                    'target_luns': [1, 1, 1, 1],
+                    'target_portal': u'192.168.0.25:3260',
+                    'target_portals': [u'192.168.0.25:3260',
+                                       u'192.168.0.21:3260',
+                                       u'192.168.0.25:3260',
+                                       u'192.168.0.21:3260']}
+        self.assertEqual(expected, res, 'Wrong Target Info')
+
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_find_active_controller',
+                       return_value='64702.64702')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_find_controller_port')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_find_domains',
+                       return_value=ISCSI_FLT_DOMAINS_MULTI_PORTALS)
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_find_mappings',
+                       return_value=MAPPINGS_MULTI_PORTAL)
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_is_virtualport_mode',
+                       return_value=True)
+    def test_find_iscsi_properties_multi_portals_duplicates(
+            self,
+            mock_is_virtualport_mode,
+            mock_find_mappings,
+            mock_find_domains,
+            mock_find_ctrl_port,
+            mock_find_active_controller,
+            mock_close_connection,
+            mock_open_connection,
+            mock_init):
+        # Test case where there are multiple portals and
+        mock_find_ctrl_port.return_value = {
+            'iscsiName': 'iqn.2002-03.com.compellent:5000d31000fcbe43'}
         res = self.scapi.find_iscsi_properties(self.VOLUME)
         self.assertTrue(mock_find_mappings.called)
         self.assertTrue(mock_find_domains.called)
@@ -3575,16 +3628,12 @@ class DellSCSanAPITestCase(test.TestCase):
                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                     'target_iqns':
                         [u'iqn.2002-03.com.compellent:5000d31000fcbe43',
-                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
-                         u'iqn.2002-03.com.compellent:5000d31000fcbe43',
                          u'iqn.2002-03.com.compellent:5000d31000fcbe43'],
                     'target_lun': 1,
-                    'target_luns': [1, 1, 1, 1],
+                    'target_luns': [1, 1],
                     'target_portal': u'192.168.0.25:3260',
-                    'target_portals': [u'192.168.0.21:3260',
-                                       u'192.168.0.25:3260',
-                                       u'192.168.0.21:3260',
-                                       u'192.168.0.25:3260']}
+                    'target_portals': [u'192.168.0.25:3260',
+                                       u'192.168.0.21:3260']}
         self.assertEqual(expected, res, 'Wrong Target Info')
 
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
@@ -3709,8 +3758,7 @@ class DellSCSanAPITestCase(test.TestCase):
                        '_find_active_controller',
                        return_value='64702.64702')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
-                       '_find_controller_port',
-                       return_value=ISCSI_CTRLR_PORT)
+                       '_find_controller_port')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
                        '_find_mappings',
                        return_value=MAPPINGS_MULTI_PORTAL)
@@ -3730,6 +3778,9 @@ class DellSCSanAPITestCase(test.TestCase):
             mock_close_connection,
             mock_open_connection,
             mock_init):
+        mock_find_ctrl_port.side_effect = [
+            {'iscsiName': 'iqn.2002-03.com.compellent:5000d31000fcbe43'},
+            {'iscsiName': 'iqn.2002-03.com.compellent:5000d31000fcbe44'}]
         # Test case where there are multiple portals
         res = self.scapi.find_iscsi_properties(self.VOLUME)
         self.assertTrue(mock_find_mappings.called)
@@ -3737,13 +3788,13 @@ class DellSCSanAPITestCase(test.TestCase):
         self.assertTrue(mock_find_active_controller.called)
         self.assertTrue(mock_is_virtualport_mode.called)
         self.assertTrue(mock_find_controller_port_iscsi_config.called)
-        # Since we're feeding the same info back multiple times the information
-        # will be duped.
+        # We're feeding the same info back multiple times the information
+        # will be scrubbed to a single item.
         expected = {'target_discovered': False,
                     'target_iqn':
-                        u'iqn.2002-03.com.compellent:5000d31000fcbe43',
+                        u'iqn.2002-03.com.compellent:5000d31000fcbe44',
                     'target_iqns':
-                        [u'iqn.2002-03.com.compellent:5000d31000fcbe43',
+                        [u'iqn.2002-03.com.compellent:5000d31000fcbe44',
                          u'iqn.2002-03.com.compellent:5000d31000fcbe43'],
                     'target_lun': 1,
                     'target_luns': [1, 1],
@@ -5977,7 +6028,7 @@ class DellSCSanAPITestCase(test.TestCase):
         expected = 'StorageCenter/ScReplication/%s' % (
             self.SCREPL[0]['instanceId'])
         expected_payload = {'DeleteDestinationVolume': True,
-                            'RecycleDestinationVolume': False,
+                            'RecycleDestinationVolume': True,
                             'DeleteRestorePoint': True}
         ret = self.scapi.delete_replication(self.VOLUME, destssn)
         mock_delete.assert_any_call(expected, payload=expected_payload,
@@ -6014,7 +6065,7 @@ class DellSCSanAPITestCase(test.TestCase):
         expected = 'StorageCenter/ScReplication/%s' % (
             self.SCREPL[0]['instanceId'])
         expected_payload = {'DeleteDestinationVolume': True,
-                            'RecycleDestinationVolume': False,
+                            'RecycleDestinationVolume': True,
                             'DeleteRestorePoint': True}
         ret = self.scapi.delete_replication(self.VOLUME, destssn)
         mock_delete.assert_any_call(expected, payload=expected_payload,
@@ -6399,37 +6450,60 @@ class DellSCSanAPITestCase(test.TestCase):
                           scvol,
                           'a,b')
 
-    @mock.patch.object(dell_storagecenter_api.HttpClient,
-                       'get')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
-                       '_get_json')
+                       '_sc_live_volumes')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_get_live_volumes')
     def test_get_live_volume(self,
-                             mock_get_json,
-                             mock_get,
+                             mock_get_live_volumes,
+                             mock_sc_live_volumes,
                              mock_close_connection,
                              mock_open_connection,
                              mock_init):
         # Basic check
-        retlv, retswapped = self.scapi.get_live_volume(None)
+        retlv = self.scapi.get_live_volume(None)
         self.assertIsNone(retlv)
-        self.assertFalse(retswapped)
         lv1 = {'primaryVolume': {'instanceId': '12345.1'},
                'secondaryVolume': {'instanceId': '67890.1'}}
         lv2 = {'primaryVolume': {'instanceId': '12345.2'}}
-        mock_get_json.return_value = [lv1, lv2]
-        mock_get.return_value = self.RESPONSE_200
+        mock_sc_live_volumes.return_value = [lv1, lv2]
         # Good Run
-        retlv, retswapped = self.scapi.get_live_volume('12345.2')
+        retlv = self.scapi.get_live_volume('12345.2')
         self.assertEqual(lv2, retlv)
-        self.assertFalse(retswapped)
+        mock_sc_live_volumes.assert_called_once_with('12345')
+        self.assertFalse(mock_get_live_volumes.called)
 
-    @mock.patch.object(dell_storagecenter_api.HttpClient,
-                       'get')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
-                       '_get_json')
+                       '_sc_live_volumes')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_get_live_volumes')
+    def test_get_live_volume_on_secondary(self,
+                                          mock_get_live_volumes,
+                                          mock_sc_live_volumes,
+                                          mock_close_connection,
+                                          mock_open_connection,
+                                          mock_init):
+        # Basic check
+        retlv = self.scapi.get_live_volume(None)
+        self.assertIsNone(retlv)
+        lv1 = {'primaryVolume': {'instanceId': '12345.1'},
+               'secondaryVolume': {'instanceId': '67890.1'}}
+        lv2 = {'primaryVolume': {'instanceId': '12345.2'}}
+        mock_sc_live_volumes.return_value = []
+        mock_get_live_volumes.return_value = [lv1, lv2]
+        # Good Run
+        retlv = self.scapi.get_live_volume('12345.2')
+        self.assertEqual(lv2, retlv)
+        mock_sc_live_volumes.assert_called_once_with('12345')
+        mock_get_live_volumes.assert_called_once_with()
+
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_sc_live_volumes')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_get_live_volumes')
     def test_get_live_volume_not_found(self,
-                                       mock_get_json,
-                                       mock_get,
+                                       mock_get_live_volumes,
+                                       mock_sc_live_volumes,
                                        mock_close_connection,
                                        mock_open_connection,
                                        mock_init):
@@ -6437,19 +6511,20 @@ class DellSCSanAPITestCase(test.TestCase):
                'secondaryVolume': {'instanceId': '67890.1'}}
         lv2 = {'primaryVolume': {'instanceId': '12345.2'},
                'secondaryVolume': {'instanceId': '67890.2'}}
-        mock_get_json.return_value = [lv1, lv2]
-        mock_get.return_value = self.RESPONSE_200
-        retlv, retswapped = self.scapi.get_live_volume('12345.3')
+        mock_get_live_volumes.return_value = [lv1, lv2]
+        mock_sc_live_volumes.return_value = []
+        retlv = self.scapi.get_live_volume('12345.3')
         self.assertIsNone(retlv)
-        self.assertFalse(retswapped)
+        mock_sc_live_volumes.assert_called_once_with('12345')
+        mock_get_live_volumes.assert_called_once_with()
 
-    @mock.patch.object(dell_storagecenter_api.HttpClient,
-                       'get')
     @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
-                       '_get_json')
+                       '_sc_live_volumes')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_get_live_volumes')
     def test_get_live_volume_swapped(self,
-                                     mock_get_json,
-                                     mock_get,
+                                     mock_get_live_volumes,
+                                     mock_sc_live_volumes,
                                      mock_close_connection,
                                      mock_open_connection,
                                      mock_init):
@@ -6457,23 +6532,50 @@ class DellSCSanAPITestCase(test.TestCase):
                'secondaryVolume': {'instanceId': '67890.1'}}
         lv2 = {'primaryVolume': {'instanceId': '67890.2'},
                'secondaryVolume': {'instanceId': '12345.2'}}
-        mock_get_json.return_value = [lv1, lv2]
-        mock_get.return_value = self.RESPONSE_200
-        retlv, retswapped = self.scapi.get_live_volume('12345.2')
+        mock_get_live_volumes.return_value = [lv1, lv2]
+        mock_sc_live_volumes.return_value = []
+        retlv = self.scapi.get_live_volume('12345.2')
         self.assertEqual(lv2, retlv)
-        self.assertTrue(retswapped)
+        mock_sc_live_volumes.assert_called_once_with('12345')
+        mock_get_live_volumes.assert_called_once_with()
 
-    @mock.patch.object(dell_storagecenter_api.HttpClient,
-                       'get')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_sc_live_volumes')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_get_live_volumes')
     def test_get_live_volume_error(self,
-                                   mock_get,
+                                   mock_get_live_volumes,
+                                   mock_sc_live_volumes,
                                    mock_close_connection,
                                    mock_open_connection,
                                    mock_init):
-        mock_get.return_value = self.RESPONSE_400
-        retlv, retswapped = self.scapi.get_live_volume('12345.2')
+        mock_get_live_volumes.return_value = []
+        mock_sc_live_volumes.return_value = []
+        retlv = self.scapi.get_live_volume('12345.2')
         self.assertIsNone(retlv)
-        self.assertFalse(retswapped)
+
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_sc_live_volumes')
+    @mock.patch.object(dell_storagecenter_api.StorageCenterApi,
+                       '_get_live_volumes')
+    def test_get_live_volume_by_name(self,
+                                     mock_get_live_volumes,
+                                     mock_sc_live_volumes,
+                                     mock_close_connection,
+                                     mock_open_connection,
+                                     mock_init):
+        lv1 = {'primaryVolume': {'instanceId': '12345.1'},
+               'secondaryVolume': {'instanceId': '67890.1'},
+               'instanceName': 'Live volume of ' + fake.VOLUME2_ID}
+        lv2 = {'primaryVolume': {'instanceId': '67890.2'},
+               'secondaryVolume': {'instanceId': '12345.2'},
+               'instanceName': 'Live volume of ' + fake.VOLUME_ID}
+        mock_get_live_volumes.return_value = [lv1, lv2]
+        mock_sc_live_volumes.return_value = []
+        retlv = self.scapi.get_live_volume('12345.2', fake.VOLUME_ID)
+        self.assertEqual(lv2, retlv)
+        mock_sc_live_volumes.assert_called_once_with('12345')
+        mock_get_live_volumes.assert_called_once_with()
 
     @mock.patch.object(dell_storagecenter_api.HttpClient,
                        'post')
