@@ -1,0 +1,9 @@
+Code-Review+1: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 14 Oct 2016 14:31:09 +0000
+Reviewed-on: https://review.openstack.org/386434
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/newton
