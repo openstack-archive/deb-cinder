@@ -1,3 +1,9 @@
+cinder (2:9.0.0-2) unstable; urgency=medium
+
+  * Also allows running open-iscsi using OR depends (Closes: #841452).
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 21 Oct 2016 10:40:22 +0200
+
 cinder (2:9.0.0-1) unstable; urgency=medium
 
   * New upstream release.
