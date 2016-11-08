@@ -1,0 +1,14 @@
+Code-Review+1: Jeff Seiler <jeff_seiler@dell.com>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Verified+1: VMware NSX CI
+Code-Review+1: wanghongtaozz <wanghongtaozz@inspur.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+1: michaeldovgal <mdovgal@mirantis.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Workflow+1: xing-yang <xing.yang@emc.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 08 Nov 2016 04:44:46 +0000
+Reviewed-on: https://review.openstack.org/390377
+Project: openstack/deb-cinder
+Branch: refs/heads/master
