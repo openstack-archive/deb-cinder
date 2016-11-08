@@ -1,0 +1,9 @@
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Code-Review+2: Jay Bryant <jsbryant@us.ibm.com>
+Workflow+1: Jay Bryant <jsbryant@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 07 Nov 2016 23:43:48 +0000
+Reviewed-on: https://review.openstack.org/394610
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/mitaka
