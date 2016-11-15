@@ -1,0 +1,8 @@
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Workflow+1: Eric Harney <eharney@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 14 Nov 2016 19:31:46 +0000
+Reviewed-on: https://review.openstack.org/393789
+Project: openstack/deb-cinder
+Branch: refs/heads/master
