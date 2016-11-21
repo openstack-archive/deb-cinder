@@ -1,0 +1,10 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Verified+1: VMware NSX CI
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Workflow+1: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 21 Nov 2016 03:28:21 +0000
+Reviewed-on: https://review.openstack.org/398697
+Project: openstack/deb-cinder
+Branch: refs/heads/master
