@@ -1,3 +1,9 @@
+cinder (2:9.0.0-3) UNRELEASED; urgency=medium
+
+  * Bumped debhelper compat version to 10
+
+ -- Ondřej Nový <onovy@debian.org>  Wed, 23 Nov 2016 23:48:23 +0100
+
 cinder (2:9.0.0-2) unstable; urgency=medium
 
   * Also allows running open-iscsi using OR depends (Closes: #841452).
