@@ -1,0 +1,10 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Code-Review+1: Jeff Seiler <jeff_seiler@dell.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 30 Nov 2016 16:36:27 +0000
+Reviewed-on: https://review.openstack.org/396343
+Project: openstack/deb-cinder
+Branch: refs/heads/master
