@@ -1,0 +1,10 @@
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Code-Review+1: Adriano Freires Rosso <adriano.rosso@fit-tecnologia.org.br>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Dec 2016 17:41:09 +0000
+Reviewed-on: https://review.openstack.org/398300
+Project: openstack/deb-cinder
+Branch: refs/heads/master
