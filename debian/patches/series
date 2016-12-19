@@ -1,3 +1,5 @@
 no-zfssa-tests.patch
 install-missing-files.patch
 remove-zfssa-from-opts.py.patch
+fix-worker-model.patch
+allow_newer_sqlalchemy.patch
