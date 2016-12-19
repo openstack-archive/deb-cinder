@@ -1,8 +1,15 @@
-cinder (2:9.0.0-3) UNRELEASED; urgency=medium
+cinder (2:9.0.0-3) unstable; urgency=medium
 
+  * Team upload.
+
+  [ Ondřej Nový ]
   * Bumped debhelper compat version to 10
 
- -- Ondřej Nový <onovy@debian.org>  Wed, 23 Nov 2016 23:48:23 +0100
+  [ Ondřej Kobližek ]
+  * Patch-out upper constraints of SQLAlchemy
+  * Fixed SqlAlchemy worker model primary keys (Closes: #846749)
+
+ -- Ondřej Kobližek <koblizeko@gmail.com>  Mon, 19 Dec 2016 10:23:09 +0100
 
 cinder (2:9.0.0-2) unstable; urgency=medium
 
