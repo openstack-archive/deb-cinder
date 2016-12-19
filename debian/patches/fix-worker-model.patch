@@ -1,0 +1,29 @@
+Description: Make workers ORM compatible with SQLAlchemy 1.1.4
+ We don't currently support SQLAlchemy 1.1.4, but in preparation of the
+ day we do we can start making simple changes that will facilitate the
+ transition.
+ .
+ In SQLAlchemy 1.1 the .autoincrement directive is no longer implicitly
+ enabled for a composite primary key column, so the id field in the
+ workers ORM class will no longer be set as autoincrement, which means
+ that when creating a worker we will not be updating the id field of the
+ instance and it will left as None in memory while it is properly set in
+ the DB.
+ .
+ This patch resolves this issue by defining the id field as an auto
+ increment field explicitly instead of relying on the implicit definition
+ exiting in SQLAlchemy 1.0.
+Forwarded: https://review.openstack.org/#/c/413132/
+Author: Ondřej Kobližek <koblizeko@gmail.com>
+
+--- a/cinder/db/sqlalchemy/models.py
++++ b/cinder/db/sqlalchemy/models.py
+@@ -843,7 +843,7 @@
+                         onupdate=timeutils.utcnow)
+ 
+     # Id added for convenience and speed on some operations
+-    id = Column(Integer, primary_key=True)
++    id = Column(Integer, primary_key=True, autoincrement=True)
+ 
+     # Type of the resource we are working on (Volume, Snapshot, Backup) it must
+     # match the Versioned Object class name.
