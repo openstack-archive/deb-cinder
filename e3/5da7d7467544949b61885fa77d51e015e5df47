@@ -1,0 +1,12 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+1: Adriano Freires Rosso <adriano.rosso@fit-tecnologia.org.br>
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Code-Review+2: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Workflow+1: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Dec 2016 09:31:35 +0000
+Reviewed-on: https://review.openstack.org/411959
+Project: openstack/deb-cinder
+Branch: refs/heads/master

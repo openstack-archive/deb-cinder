@@ -1,0 +1,17 @@
+Verified+1: VMware NSX CI
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+1: lixinhu <lixinhu@inspur.com>
+Code-Review+1: sandeep nandal <sandeep@nandal.in>
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+1: Adriano Freires Rosso <adriano.rosso@fit-tecnologia.org.br>
+Code-Review+1: michaeldovgal <mdovgal@mirantis.com>
+Code-Review+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Workflow+1: Mike Perez <thingee@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Dec 2016 21:25:35 +0000
+Reviewed-on: https://review.openstack.org/400118
+Project: openstack/deb-cinder
+Branch: refs/heads/master
