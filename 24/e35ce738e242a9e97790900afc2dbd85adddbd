@@ -1,0 +1,9 @@
+Code-Review+2: Ondřej Nový <novy@ondrej.org>
+Code-Review+2: Thomas Goirand <thomas@goirand.fr>
+Workflow+1: Thomas Goirand <thomas@goirand.fr>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 22 Dec 2016 17:24:25 +0000
+Reviewed-on: https://review.openstack.org/412437
+Project: openstack/deb-cinder
+Branch: refs/heads/debian/newton
