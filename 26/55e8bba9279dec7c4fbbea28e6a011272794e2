@@ -1,0 +1,11 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+1: michaeldovgal <mdovgal@mirantis.com>
+Code-Review+1: Adriano Freires Rosso <adriano.rosso@fit-tecnologia.org.br>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 21 Dec 2016 13:34:40 +0000
+Reviewed-on: https://review.openstack.org/408365
+Project: openstack/deb-cinder
+Branch: refs/heads/master
