@@ -1,0 +1,8 @@
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 22 Dec 2016 11:53:15 +0000
+Reviewed-on: https://review.openstack.org/413758
+Project: openstack/deb-cinder
+Branch: refs/heads/master
