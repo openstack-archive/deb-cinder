@@ -1,0 +1,12 @@
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 07 Jan 2017 09:08:03 +0000
+Reviewed-on: https://review.openstack.org/400328
+Project: openstack/deb-cinder
+Branch: refs/heads/master
