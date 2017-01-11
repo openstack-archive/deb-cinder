@@ -1,0 +1,13 @@
+Code-Review+1: Samantha Blanco <samantha.blanco@att.com>
+Code-Review+1: wanghongtaozz <wanghongtaozz@inspur.com>
+Code-Review+1: Harini <harinipradeep27@gmail.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Code-Review+1: Michael Dovgal <mdovgal@mirantis.com>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 11 Jan 2017 12:17:36 +0000
+Reviewed-on: https://review.openstack.org/416333
+Project: openstack/deb-cinder
+Branch: refs/heads/master
