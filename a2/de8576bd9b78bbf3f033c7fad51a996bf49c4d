@@ -1,0 +1,9 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Workflow+1: Huang Zhiteng <winston.d@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 17 Jan 2017 04:11:21 +0000
+Reviewed-on: https://review.openstack.org/418288
+Project: openstack/deb-cinder
+Branch: refs/heads/master
