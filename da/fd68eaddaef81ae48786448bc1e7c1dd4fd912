@@ -1,0 +1,10 @@
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Workflow+1: Scott DAngelo <scott.dangelo@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 19 Jan 2017 19:28:57 +0000
+Reviewed-on: https://review.openstack.org/421439
+Project: openstack/deb-cinder
+Branch: refs/heads/master
