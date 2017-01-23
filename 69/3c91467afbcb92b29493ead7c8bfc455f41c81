@@ -1,0 +1,10 @@
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+1: jiamin <shljia@cn.ibm.com>
+Code-Review+2: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Workflow+1: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 21 Jan 2017 14:51:25 +0000
+Reviewed-on: https://review.openstack.org/292570
+Project: openstack/deb-cinder
+Branch: refs/heads/master
