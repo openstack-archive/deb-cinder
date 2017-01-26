@@ -1,0 +1,11 @@
+Verified+1: VMware NSX CI
+Code-Review+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Code-Review+2: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Workflow+1: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 26 Jan 2017 07:43:39 +0000
+Reviewed-on: https://review.openstack.org/257495
+Project: openstack/deb-cinder
+Branch: refs/heads/master

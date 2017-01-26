@@ -1,0 +1,14 @@
+Code-Review+1: YuYang <yuyangwang1985@gmail.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+1: Oleksii Butenko <obutenko@mirantis.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+1: Erlon R. Cruz <sombrafam@gmail.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Code-Review+1: wanghongtaozz <wanghongtaozz@inspur.com>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 25 Jan 2017 20:12:19 +0000
+Reviewed-on: https://review.openstack.org/411277
+Project: openstack/deb-cinder
+Branch: refs/heads/master
