@@ -1,0 +1,9 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Workflow+1: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 27 Jan 2017 20:13:47 +0000
+Reviewed-on: https://review.openstack.org/421235
+Project: openstack/deb-cinder
+Branch: refs/heads/master
