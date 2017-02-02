@@ -1,0 +1,10 @@
+Code-Review+1: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Workflow+1: Eric Harney <eharney@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 31 Jan 2017 20:43:34 +0000
+Reviewed-on: https://review.openstack.org/426514
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/newton
