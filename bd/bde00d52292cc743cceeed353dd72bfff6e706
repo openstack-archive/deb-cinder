@@ -1,0 +1,14 @@
+Code-Review+1: Adriano Freires Rosso <adriano.rosso@fit-tecnologia.org.br>
+Code-Review+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+1: lixuehai <lixh@awcloud.com>
+Code-Review+1: Harini <harinipradeep27@gmail.com>
+Code-Review+1: Claudiu Belu <cbelu@cloudbasesolutions.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 09 Feb 2017 19:38:32 +0000
+Reviewed-on: https://review.openstack.org/403641
+Project: openstack/deb-cinder
+Branch: refs/heads/master
