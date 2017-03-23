@@ -1,0 +1,13 @@
+Code-Review+1: TommyLike <tommylikehu@gmail.com>
+Code-Review+1: ShangXiao <shangxiaobj@inspur.com>
+Code-Review+1: wanghaijun <wanghj@awcloud.com>
+Verified+1: VMware NSX CI
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Workflow+1: Jay Bryant <jungleboyj@electronicjungle.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 14 Feb 2017 19:31:55 +0000
+Reviewed-on: https://review.openstack.org/374520
+Project: openstack/deb-cinder
+Branch: refs/heads/master

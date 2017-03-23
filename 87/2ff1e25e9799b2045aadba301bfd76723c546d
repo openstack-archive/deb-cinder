@@ -1,0 +1,9 @@
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 18 Mar 2017 23:31:53 +0000
+Reviewed-on: https://review.openstack.org/443975
+Project: openstack/deb-cinder
+Branch: refs/heads/master

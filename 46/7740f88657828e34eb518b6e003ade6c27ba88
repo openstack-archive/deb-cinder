@@ -1,0 +1,10 @@
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+1: liucheng <liucheng20@huawei.com>
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Workflow+1: Gorka Eguileor <geguileo@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 08 Mar 2017 12:33:46 +0000
+Reviewed-on: https://review.openstack.org/442769
+Project: openstack/deb-cinder
+Branch: refs/heads/master
