@@ -1,0 +1,11 @@
+Code-Review+1: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Eric Harney <eharney@redhat.com>
+Code-Review+1: xing-yang <xing.yang@emc.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 16 Mar 2017 12:05:19 +0000
+Reviewed-on: https://review.openstack.org/443233
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/ocata
