@@ -1,0 +1,11 @@
+Code-Review+1: Huangsm <huangsm@awcloud.com>
+Code-Review+1: TommyLike <tommylikehu@gmail.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified-1: VMware NSX CI
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 27 Mar 2017 13:01:06 +0000
+Reviewed-on: https://review.openstack.org/448901
+Project: openstack/deb-cinder
+Branch: refs/heads/stable/ocata
