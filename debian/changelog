@@ -1,3 +1,10 @@
+cinder (2:9.0.0-4) unstable; urgency=medium
+
+  * Team upload.
+  * Bump build dependency on openstack-pkg-tools (Closes: #858692). 
+
+ -- David Rabel <david.rabel@noresoft.com>  Sat, 01 Apr 2017 11:22:35 +0200
+
 cinder (2:9.0.0-3) unstable; urgency=medium
 
   * Team upload.
