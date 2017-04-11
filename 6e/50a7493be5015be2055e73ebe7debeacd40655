@@ -1,0 +1,12 @@
+Verified+1: VMware NSX CI
+Code-Review+2: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Code-Review+1: Gerald McBrearty <gfm@us.ibm.com>
+Code-Review+1: Cheng Yong Zhao <zhaochy@cn.ibm.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 11 Apr 2017 06:11:58 +0000
+Reviewed-on: https://review.openstack.org/453999
+Project: openstack/deb-cinder
+Branch: refs/heads/master
