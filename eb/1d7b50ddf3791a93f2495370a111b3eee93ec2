@@ -1,0 +1,13 @@
+Verified+1: VMware NSX CI
+Code-Review+1: Tina Tang <tina.tang@emc.com>
+Code-Review+1: Peter Wang <peter.wang13@emc.com>
+Code-Review+1: HaiJieZhang <zhanghj@gohighsec.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Workflow+1: Jay Bryant <jungleboyj@electronicjungle.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 26 Apr 2017 18:08:59 +0000
+Reviewed-on: https://review.openstack.org/455115
+Project: openstack/deb-cinder
+Branch: refs/heads/master
