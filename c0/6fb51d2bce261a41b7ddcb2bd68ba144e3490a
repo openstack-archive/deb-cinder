@@ -1,0 +1,10 @@
+Verified+1: VMware NSX CI
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 26 Apr 2017 15:51:59 +0000
+Reviewed-on: https://review.openstack.org/459942
+Project: openstack/deb-cinder
+Branch: refs/heads/master
