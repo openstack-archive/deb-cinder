@@ -1,0 +1,10 @@
+Code-Review+1: Alan Bishop <abishop@redhat.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 03 May 2017 20:52:29 +0000
+Reviewed-on: https://review.openstack.org/461134
+Project: openstack/deb-cinder
+Branch: refs/heads/master
