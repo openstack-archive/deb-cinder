@@ -1,0 +1,11 @@
+Code-Review+1: Chris Suttles <suttles@gmail.com>
+Code-Review+1: Cao Xuan Hoang <hoangcx@vn.fujitsu.com>
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+2: Michal Dulko <michal.dulko@intel.com>
+Workflow+1: Michal Dulko <michal.dulko@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 19 May 2017 01:46:54 +0000
+Reviewed-on: https://review.openstack.org/464920
+Project: openstack/deb-cinder
+Branch: refs/heads/master
