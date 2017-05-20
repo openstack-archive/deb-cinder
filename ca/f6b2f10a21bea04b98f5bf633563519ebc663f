@@ -1,0 +1,9 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 20 May 2017 05:38:43 +0000
+Reviewed-on: https://review.openstack.org/465442
+Project: openstack/deb-cinder
+Branch: refs/heads/master
