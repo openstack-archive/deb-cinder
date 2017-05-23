@@ -1,0 +1,8 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 23 May 2017 17:09:07 +0000
+Reviewed-on: https://review.openstack.org/467267
+Project: openstack/deb-cinder
+Branch: refs/heads/driverfixes/newton
