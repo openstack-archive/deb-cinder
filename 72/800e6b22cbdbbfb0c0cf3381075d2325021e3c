@@ -1,0 +1,12 @@
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+1: Dinesh Bhor <dinesh.bhor@nttdata.com>
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Workflow+1: xing-yang <xing.yang@emc.com>
+Code-Review+1: Daniel Pawlik <daniel.pawlik@corp.ovh.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Jun 2017 17:31:27 +0000
+Reviewed-on: https://review.openstack.org/472224
+Project: openstack/deb-cinder
+Branch: refs/heads/master
