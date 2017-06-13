@@ -1,0 +1,9 @@
+Code-Review+2: Huang Zhiteng <winston.d@gmail.com>
+Code-Review+2: Scott DAngelo <scott.dangelo@gmail.com>
+Workflow+1: Scott DAngelo <scott.dangelo@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 13 Jun 2017 16:53:20 +0000
+Reviewed-on: https://review.openstack.org/472300
+Project: openstack/deb-cinder
+Branch: refs/heads/master
