@@ -1,0 +1,10 @@
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+1: Matt Smith (_alastor_) <mss@datera.io>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 23 Jun 2017 16:04:15 +0000
+Reviewed-on: https://review.openstack.org/476874
+Project: openstack/deb-cinder
+Branch: refs/heads/master
