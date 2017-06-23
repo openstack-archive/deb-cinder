@@ -103,12 +103,12 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
                                      "description": "",
                                      "add_volumes": None,
                                      "remove_volumes": None, }}
-        self.assertRaisesRegexp(webob.exc.HTTPBadRequest,
-                                "Name, description, add_volumes, "
-                                "and remove_volumes can not be all "
-                                "empty in the request body.",
-                                self.controller.update,
-                                req, consistencygroup.id, body)
+        self.assertRaisesRegex(webob.exc.HTTPBadRequest,
+                               "Name, description, add_volumes, "
+                               "and remove_volumes can not be all "
+                               "empty in the request body.",
+                               self.controller.update,
+                               req, consistencygroup.id, body)
         consistencygroup.destroy()
 
     def test_update_consistencygroup_all_empty_parameters_version_36(self):
@@ -125,11 +125,11 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
                                      "description": None,
                                      "add_volumes": None,
                                      "remove_volumes": None, }}
-        self.assertRaisesRegexp(webob.exc.HTTPBadRequest, "Must specify "
-                                "one or more of the following keys to "
-                                "update: name, description, add_volumes, "
-                                "remove_volumes.", self.controller.update,
-                                req, consistencygroup.id, body)
+        self.assertRaisesRegex(webob.exc.HTTPBadRequest, "Must specify "
+                               "one or more of the following keys to "
+                               "update: name, description, add_volumes, "
+                               "remove_volumes.", self.controller.update,
+                               req, consistencygroup.id, body)
         consistencygroup.destroy()
 
     def test_update_consistencygroup_all_empty_parameters_not_version_36(self):
@@ -146,11 +146,11 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
                                      "description": None,
                                      "add_volumes": None,
                                      "remove_volumes": None, }}
-        self.assertRaisesRegexp(webob.exc.HTTPBadRequest, "Name, description, "
-                                "add_volumes, and remove_volumes can not be "
-                                "all empty in the request body.",
-                                self.controller.update,
-                                req, consistencygroup.id, body)
+        self.assertRaisesRegex(webob.exc.HTTPBadRequest, "Name, description, "
+                               "add_volumes, and remove_volumes can not be "
+                               "all empty in the request body.",
+                               self.controller.update,
+                               req, consistencygroup.id, body)
         consistencygroup.destroy()
 
     def test_update_consistencygroup_no_body(self):
@@ -164,10 +164,10 @@ class ConsistencyGroupsAPITestCase(test.TestCase):
         req.headers['OpenStack-API-Version'] = 'volume 3.5'
         req.api_version_request = api_version.APIVersionRequest('3.5')
         body = None
-        self.assertRaisesRegexp(webob.exc.HTTPBadRequest,
-                                "Missing request body",
-                                self.controller.update,
-                                req, consistencygroup.id, body)
+        self.assertRaisesRegex(webob.exc.HTTPBadRequest,
+                               "Missing request body",
+                               self.controller.update,
+                               req, consistencygroup.id, body)
         consistencygroup.destroy()
 
     def test_update_consistencygroups_no_empty_parameters(self):

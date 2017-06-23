@@ -1371,8 +1371,8 @@ class TestCinderRtstoolCmd(test.TestCase):
 
         regexp = (u'targetcli not installed and could not create default '
                   'directory \(dirname\): error$')
-        self.assertRaisesRegexp(cinder_rtstool.RtstoolError, regexp,
-                                cinder_rtstool.save_to_file, None)
+        self.assertRaisesRegex(cinder_rtstool.RtstoolError, regexp,
+                               cinder_rtstool.save_to_file, None)
 
     @mock.patch.object(cinder_rtstool, 'os', autospec=True)
     @mock.patch.object(cinder_rtstool, 'rtslib_fb', autospec=True)
@@ -1380,8 +1380,8 @@ class TestCinderRtstoolCmd(test.TestCase):
         save = mock_rtslib.root.RTSRoot.return_value.save_to_file
         save.side_effect = OSError('error')
         regexp = u'Could not save configuration to myfile: error'
-        self.assertRaisesRegexp(cinder_rtstool.RtstoolError, regexp,
-                                cinder_rtstool.save_to_file, 'myfile')
+        self.assertRaisesRegex(cinder_rtstool.RtstoolError, regexp,
+                               cinder_rtstool.save_to_file, 'myfile')
 
     @mock.patch.object(cinder_rtstool, 'rtslib_fb',
                        **{'root.default_save_file': mock.sentinel.filename})
