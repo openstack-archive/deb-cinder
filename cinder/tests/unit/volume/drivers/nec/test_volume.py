@@ -554,8 +554,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         self.assertEqual(1, pool, "selected pool should be 1")
         # config:pool_pools=[1]
         self.vol.size = 999999999999
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'No available pools found.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'No available pools found.'):
             pool = self._select_leastused_poolnumber(self.vol,
                                                      self.pools,
                                                      self.xml)
@@ -582,8 +582,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
                                                [1])
         self.assertEqual(-1, pool, "selected pool is the same pool(return -1)")
         self.vol.size = 999999999999
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'No available pools found.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'No available pools found.'):
             pool = self._select_migrate_poolnumber(self.vol,
                                                    self.pools,
                                                    self.xml,
@@ -603,8 +603,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
             savePool3 = self.pools[3]['free']
             self.pools[2]['free'] = 0
             self.pools[3]['free'] = 0
-            with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                         'No available pools found.'):
+            with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                        'No available pools found.'):
                 pool = self._select_dsv_poolnumber(self.vol, self.pools)
             self.pools[2]['free'] = savePool2
             self.pools[3]['free'] = savePool3
@@ -627,8 +627,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         savePool3 = self.pools[3]['free']
         self.pools[2]['free'] = 0
         self.pools[3]['free'] = 0
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'No available pools found.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'No available pools found.'):
             pool = self._select_ddr_poolnumber(self.vol,
                                                self.pools,
                                                self.xml,
@@ -637,8 +637,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         self.pools[3]['free'] = savePool3
 
         self.vol.size = 999999999999
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'No available pools found.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'No available pools found.'):
             pool = self._select_ddr_poolnumber(self.vol,
                                                self.pools,
                                                self.xml,
@@ -657,8 +657,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         savePool1 = self.pools[1]['free']
         self.pools[0]['free'] = 0
         self.pools[1]['free'] = 0
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'No available pools found.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'No available pools found.'):
             pool = self._select_volddr_poolnumber(self.vol,
                                                   self.pools,
                                                   self.xml,
@@ -667,8 +667,8 @@ class NominatePoolLDTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         self.pools[1]['free'] = savePool1
 
         self.vol.size = 999999999999
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'No available pools found.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'No available pools found.'):
             pool = self._select_volddr_poolnumber(self.vol,
                                                   self.pools,
                                                   self.xml,
@@ -706,18 +706,18 @@ class VolumeCreateTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         self.vol.id = "46045673-41e7-44a7-9333-02f07feab04b"
         self.vol.size = 10
         self.vol.status = 'creating'
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'Specified Logical Disk'
-                                     ' LX:287RbQoP7VdwR1WsPC2fZT'
-                                     ' is not available.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'Specified Logical Disk'
+                                    ' LX:287RbQoP7VdwR1WsPC2fZT'
+                                    ' is not available.'):
             self._validate_migrate_volume(self.vol, self.xml)
 
         self.vol.id = "AAAAAAAA"
         self.vol.size = 10
         self.vol.status = 'available'
-        with self.assertRaisesRegexp(exception.NotFound,
-                                     'Logical Disk `LX:37mA82`'
-                                     ' does not exist.'):
+        with self.assertRaisesRegex(exception.NotFound,
+                                    'Logical Disk `LX:37mA82`'
+                                    ' does not exist.'):
             self._validate_migrate_volume(self.vol, self.xml)
 
     @mock.patch('cinder.volume.drivers.nec.cli.MStorageISMCLI._execute',
@@ -733,9 +733,9 @@ class VolumeCreateTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         self.vol.id = "00046058-d38e-7f60-67b7-59ed65e54225"  # RV
         self.vol.size = 1
         self.vol.status = 'available'
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'RPL Attribute Error. '
-                                     'RPL Attribute = RV.'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'RPL Attribute Error. '
+                                    'RPL Attribute = RV.'):
             self.extend_volume(self.vol, 10)
 
 
@@ -922,9 +922,9 @@ class ExportTest(volume_helper.MStorageDSVDriver, unittest.TestCase):
         self.vol.attach_status = None
 
         self.vol.status = 'downloading'
-        with self.assertRaisesRegexp(exception.VolumeBackendAPIException,
-                                     'Failed to unregister Logical Disk from'
-                                     ' Logical Disk Set \(iSM31064\)'):
+        with self.assertRaisesRegex(exception.VolumeBackendAPIException,
+                                    'Failed to unregister Logical Disk from'
+                                    ' Logical Disk Set \(iSM31064\)'):
             mock_del = mock.Mock()
             self._cli.delldsetld = mock_del
             self._cli.delldsetld.return_value = False, 'iSM31064'
