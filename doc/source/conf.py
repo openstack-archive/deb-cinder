@@ -25,7 +25,6 @@
 import eventlet
 import os
 import sys
-import warnings
 
 from cinder import objects
 
@@ -60,10 +59,10 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.coverage',
               'sphinx.ext.ifconfig',
               'sphinx.ext.graphviz',
-              'oslosphinx',
               'stevedore.sphinxext',
               'oslo_config.sphinxconfiggen',
               'ext.cinder_driverlist',
+              'openstackdocstheme',
               ]
 
 config_generator_config_file = (
@@ -167,12 +166,17 @@ man_pages = [
 # The theme to use for HTML and HTML Help pages.  Major themes that come with
 # Sphinx are currently 'default' and 'sphinxdoc'.
 # html_theme_path = ["."]
-# html_theme = '_theme'
+html_theme = 'openstackdocs'
+
+# openstackdocstheme options
+repository_name = 'openstack/deb-cinder'
+bug_project = 'deb-cinder'
+bug_tag = ''
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
-# html_theme_options = {}
+html_theme_options = {}
 
 # Add any paths that contain custom themes here, relative to this directory.
 # html_theme_path = []
@@ -196,19 +200,10 @@ man_pages = [
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = []
 
-# If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
-# using the given strftime format.
-# html_last_updated_fmt = '%b %d, %Y'
-git_cmd = ["git", "log", "--pretty=format:%ad, commit %h", "--date=local",
-           "-n1"]
-try:
-    import subprocess
-    html_last_updated_fmt = subprocess.check_output(git_cmd).decode('utf-8')
-except Exception:
-    warnings.warn('Cannot get last updated time from git repository. '
-                  'Not setting "html_last_updated_fmt".')
+#Must set this variable to include year, month, day, hours, and minutes.
+html_last_updated_fmt = '%Y-%m-%d %H:%M'
 
 # If true, SmartyPants will be used to convert quotes and dashes to
 # typographically correct entities.
