@@ -1,0 +1,10 @@
+Code-Review+1: Doug Hellmann <doug@doughellmann.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+1: Alexandra Settle <a.settle@outlook.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 30 Jun 2017 13:08:33 +0000
+Reviewed-on: https://review.openstack.org/477489
+Project: openstack/deb-cinder
+Branch: refs/heads/master
