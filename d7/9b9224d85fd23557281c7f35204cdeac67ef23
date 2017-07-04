@@ -1,0 +1,9 @@
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+2: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Workflow+1: Walter A. Boring IV (hemna) <waboring@hemna.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 04 Jul 2017 19:58:19 +0000
+Reviewed-on: https://review.openstack.org/472786
+Project: openstack/deb-cinder
+Branch: refs/heads/master
