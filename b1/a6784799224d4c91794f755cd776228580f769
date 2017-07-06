@@ -1,0 +1,10 @@
+Code-Review+2: Gorka Eguileor <geguileo@redhat.com>
+Code-Review+1: Dinesh Bhor <dinesh.bhor@nttdata.com>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 06 Jul 2017 18:00:51 +0000
+Reviewed-on: https://review.openstack.org/480833
+Project: openstack/deb-cinder
+Branch: refs/heads/master
