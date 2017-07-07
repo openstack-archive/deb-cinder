@@ -1,0 +1,11 @@
+Code-Review+1: wangxiyuan <wangxiyuan@huawei.com>
+Code-Review+1: lihaijing <lihaijing@fiberhome.com>
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Workflow+1: Sean McGinnis <sean.mcginnis@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 07 Jul 2017 17:51:06 +0000
+Reviewed-on: https://review.openstack.org/447986
+Project: openstack/deb-cinder
+Branch: refs/heads/master
