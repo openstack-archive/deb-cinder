@@ -1,0 +1,9 @@
+Code-Review+2: Sean McGinnis <sean.mcginnis@gmail.com>
+Code-Review+2: John Griffith <john.griffith8@gmail.com>
+Workflow+1: John Griffith <john.griffith8@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 14 Jul 2017 15:26:02 +0000
+Reviewed-on: https://review.openstack.org/471792
+Project: openstack/deb-cinder
+Branch: refs/heads/master
