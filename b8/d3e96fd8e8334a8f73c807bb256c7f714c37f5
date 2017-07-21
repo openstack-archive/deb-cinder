@@ -1,0 +1,10 @@
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Workflow+1: Jay Bryant <jungleboyj@electronicjungle.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 21 Jul 2017 00:14:14 +0000
+Reviewed-on: https://review.openstack.org/478563
+Project: openstack/deb-cinder
+Branch: refs/heads/master
