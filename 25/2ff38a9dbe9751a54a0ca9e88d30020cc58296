@@ -1,0 +1,10 @@
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Workflow+1: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+1: wangqi <wang.qi@99cloud.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 21 Jul 2017 18:28:48 +0000
+Reviewed-on: https://review.openstack.org/485432
+Project: openstack/deb-cinder
+Branch: refs/heads/master
