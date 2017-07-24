@@ -1,0 +1,10 @@
+Code-Review+2: xing-yang <xing.yang@emc.com>
+Code-Review+1: wangqi <wang.qi@99cloud.net>
+Code-Review+2: Mike Perez <thingee@gmail.com>
+Workflow+1: Mike Perez <thingee@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 24 Jul 2017 21:22:19 +0000
+Reviewed-on: https://review.openstack.org/485408
+Project: openstack/deb-cinder
+Branch: refs/heads/master
