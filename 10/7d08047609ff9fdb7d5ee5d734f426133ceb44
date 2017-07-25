@@ -1,0 +1,11 @@
+Code-Review+1: TommyLike <tommylikehu@gmail.com>
+Code-Review+2: Jay Bryant <jungleboyj@electronicjungle.net>
+Code-Review+1: Kendall Nelson <kennelson11@gmail.com>
+Code-Review+2: Ivan Kolodyazhny <e0ne@e0ne.info>
+Workflow+1: Ivan Kolodyazhny <e0ne@e0ne.info>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 25 Jul 2017 12:19:02 +0000
+Reviewed-on: https://review.openstack.org/474048
+Project: openstack/deb-cinder
+Branch: refs/heads/master
