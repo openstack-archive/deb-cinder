@@ -1,4 +1,0 @@
----
-features:
-  - |
-    Add consistency group replication support in XIV\A9000 Cinder driver.

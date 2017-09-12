@@ -1,3 +1,0 @@
----
-features:
-  - Allow the RBD driver to work with max_over_subscription_ratio.

@@ -1,6 +1,0 @@
-{
-    "os-retype": {
-        "new_type": "dedup-tier-replicaton",
-        "migration_policy": "never"
-        }
-}

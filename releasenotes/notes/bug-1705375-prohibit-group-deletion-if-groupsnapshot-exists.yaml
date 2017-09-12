@@ -1,3 +1,0 @@
----
-fixes:
-  - Prohibit the deletion of group if group snapshot exists.

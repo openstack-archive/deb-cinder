@@ -1,4 +1,0 @@
----
-features:
-  - Added the ability to list manageable volumes and snapshots to HNAS NFS
-    driver.

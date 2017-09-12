@@ -1,3 +1,0 @@
----
-features:
-  - Added support for ZMQ messaging layer in multibackend configuration.

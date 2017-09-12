@@ -1,4 +1,0 @@
----
-deprecations:
-  - |
-    Remove mirror policy parameter from huawei driver.

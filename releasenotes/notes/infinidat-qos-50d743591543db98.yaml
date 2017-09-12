@@ -1,4 +1,0 @@
----
-features:
-  - Added support for QoS in the INFINIDAT InfiniBox driver.
-    QoS is available on InfiniBox 4.0 onward.

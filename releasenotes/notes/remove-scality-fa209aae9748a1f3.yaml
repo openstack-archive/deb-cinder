@@ -1,5 +1,0 @@
----
-upgrade:
-  - The Scality backend volume driver was marked as not
-    supported in the previous release and has now been
-    removed.

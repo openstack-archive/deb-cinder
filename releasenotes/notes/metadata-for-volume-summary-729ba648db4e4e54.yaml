@@ -1,4 +1,0 @@
----
-features:
-  - Added support for get all distinct volumes' metadata from
-    volume-summary API.

@@ -1,5 +1,0 @@
----
-features:
-  - New config format to allow for using shared Volume Driver configuration
-    defaults via the [backend_defaults] stanza. Config options defined there
-    will be used as defaults for each backend enabled via enabled_backends.

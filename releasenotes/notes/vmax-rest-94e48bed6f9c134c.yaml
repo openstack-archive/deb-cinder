@@ -1,5 +1,0 @@
----
-features:
-  - |
-    VMAX driver version 3.0, replacing SMI-S with Unisphere REST.
-    This driver supports VMAX3 hybrid and All Flash arrays.

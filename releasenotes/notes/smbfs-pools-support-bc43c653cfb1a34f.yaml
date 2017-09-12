@@ -1,5 +1,0 @@
----
-features:
-  - |
-    The SMBFS driver now exposes share information to the scheduler via pools.
-    The pool names are configurable, defaulting to the share names.

@@ -1,4 +1,0 @@
----
-features:
-  - Added new Hitachi VSP FC Driver. The VSP driver supports all Hitachi VSP
-    Family and HUSVM.

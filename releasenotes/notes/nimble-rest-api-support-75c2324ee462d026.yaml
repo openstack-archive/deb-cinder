@@ -1,4 +1,0 @@
----
-features:
-  - The Nimble backend driver has been updated to use REST
-    for array communication.
